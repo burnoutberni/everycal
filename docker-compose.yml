@@ -1,0 +1,15 @@
+services:
+  everycal:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - everycal-data:/data
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/data/everycal.db
+      - BASE_URL=http://localhost:3000
+    restart: unless-stopped
+
+volumes:
+  everycal-data:

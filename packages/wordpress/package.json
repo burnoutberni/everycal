@@ -1,0 +1,16 @@
+{
+  "name": "@everycal/wordpress",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "WordPress plugin with Gutenberg block for displaying EveryCal event feeds",
+  "scripts": {
+    "build": "wp-scripts build",
+    "dev": "wp-scripts start",
+    "lint": "wp-scripts lint-js",
+    "plugin-zip": "wp-scripts plugin-zip"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^30.0.0"
+  }
+}

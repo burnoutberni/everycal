@@ -1,0 +1,148 @@
+/**
+ * Frontend styles for the EveryCal block.
+ * Kept minimal — site themes should be able to override easily.
+ */
+
+.everycal-block {
+	--everycal-gap: 1.5rem;
+	--everycal-radius: 8px;
+	--everycal-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* List layout (default) */
+.everycal-layout-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--everycal-gap);
+}
+
+.everycal-layout-list .everycal-event {
+	display: flex;
+	gap: var(--everycal-gap);
+	border-bottom: 1px solid #eee;
+	padding-bottom: var(--everycal-gap);
+}
+
+.everycal-layout-list .everycal-event__image {
+	flex: 0 0 200px;
+
+	img {
+		width: 100%;
+		height: 140px;
+		object-fit: cover;
+		border-radius: var(--everycal-radius);
+	}
+}
+
+/* Grid layout */
+.everycal-layout-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: var(--everycal-gap);
+}
+
+.everycal-layout-grid .everycal-event {
+	border-radius: var(--everycal-radius);
+	box-shadow: var(--everycal-shadow);
+	overflow: hidden;
+}
+
+.everycal-layout-grid .everycal-event__image img {
+	width: 100%;
+	height: 180px;
+	object-fit: cover;
+}
+
+.everycal-layout-grid .everycal-event__content {
+	padding: 1rem;
+}
+
+/* Compact layout */
+.everycal-layout-compact .everycal-event {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.5rem 0;
+	border-bottom: 1px solid #f0f0f0;
+}
+
+.everycal-layout-compact .everycal-event__image {
+	display: none;
+}
+
+.everycal-layout-compact .everycal-event__description {
+	display: none;
+}
+
+/* Shared element styles */
+.everycal-event__date {
+	display: block;
+	font-size: 0.85em;
+	color: #666;
+	margin-bottom: 0.25em;
+}
+
+.everycal-event__title {
+	margin: 0 0 0.5em;
+	font-size: 1.15em;
+	line-height: 1.3;
+
+	a {
+		text-decoration: none;
+		color: inherit;
+
+		&:hover {
+			text-decoration: underline;
+		}
+	}
+}
+
+.everycal-event__description {
+	font-size: 0.9em;
+	color: #555;
+	margin-bottom: 0.5em;
+}
+
+.everycal-event__location {
+	font-size: 0.85em;
+	color: #777;
+}
+
+.everycal-event__tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35em;
+	margin-top: 0.5em;
+}
+
+.everycal-event__tag {
+	display: inline-block;
+	padding: 0.15em 0.6em;
+	font-size: 0.75em;
+	background: #f0f0f0;
+	border-radius: 3px;
+	color: #555;
+}
+
+/* Error / empty states */
+.everycal-error,
+.everycal-empty {
+	padding: 2em;
+	text-align: center;
+	color: #888;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+	.everycal-layout-list .everycal-event {
+		flex-direction: column;
+	}
+
+	.everycal-layout-list .everycal-event__image {
+		flex: none;
+
+		img {
+			height: 200px;
+		}
+	}
+}

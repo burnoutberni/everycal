@@ -1,0 +1,27 @@
+{
+  "name": "everycal",
+  "private": true,
+  "description": "Federated event calendar built on ActivityPub",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@10.29.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "better-sqlite3",
+      "core-js",
+      "core-js-pure",
+      "esbuild",
+      "unrs-resolver"
+    ]
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}

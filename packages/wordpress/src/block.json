@@ -1,0 +1,42 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "everycal/feed",
+	"version": "0.1.0",
+	"title": "EveryCal Feed",
+	"category": "widgets",
+	"icon": "calendar-alt",
+	"description": "Display an event feed from any EveryCal server.",
+	"keywords": ["events", "calendar", "activitypub", "federation"],
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"]
+	},
+	"attributes": {
+		"serverUrl": {
+			"type": "string",
+			"default": ""
+		},
+		"account": {
+			"type": "string",
+			"default": ""
+		},
+		"limit": {
+			"type": "number",
+			"default": 10
+		},
+		"layout": {
+			"type": "string",
+			"default": "list",
+			"enum": ["list", "grid", "compact"]
+		},
+		"cacheTtl": {
+			"type": "number",
+			"default": 300
+		}
+	},
+	"textdomain": "everycal",
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css"
+}
