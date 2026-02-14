@@ -87,15 +87,14 @@ Scrapers import events from external venue websites. Each scraper runs as its ow
 With the server running:
 
 ```bash
+# Register accounts and print API keys
 npx tsx scripts/setup-scrapers.ts http://localhost:3000
+
+# Register accounts AND immediately scrape + sync all sources
+npx tsx scripts/setup-scrapers.ts http://localhost:3000 --run
 ```
 
-This will:
-1. Create one account per scraper (`flex-at`, `votivkino`)
-2. Generate an API key for each
-3. Print ready-to-use CLI commands
-
-Output looks like:
+With `--run`, setup + first import is a single command:
 
 ```
 Setting up scraper accounts on http://localhost:3000
@@ -103,11 +102,15 @@ Setting up scraper accounts on http://localhost:3000
   flex-at             registered → API key: ecal_abc123...
   votivkino           registered → API key: ecal_def456...
 
---- Scraper commands ---
+--- Running scrapers ---
 
-everycal-scrape flex-at --sync http://localhost:3000 --api-key ecal_abc123...
-everycal-scrape votivkino --sync http://localhost:3000 --api-key ecal_def456...
+🔍 Flex Vienna (https://flex.at/events/?ical=1)... 10 events → ✅ 10 created, 0 updated, 0 deleted
+🔍 Votiv Kino & De France (https://www.votivkino.at/programm/)... 107 events → ✅ 107 created, 0 updated, 0 deleted
+
+Done!
 ```
+
+Without `--run`, it prints the CLI commands for running scrapers individually later.
 
 ### Run a scraper
 
