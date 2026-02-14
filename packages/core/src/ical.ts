@@ -81,10 +81,19 @@ function parseProperties(vevent: string): Record<string, string> {
   for (const line of unfolded.split(/\r?\n/)) {
     const colonIdx = line.indexOf(":");
     if (colonIdx < 1) continue;
-    const key = line.slice(0, colonIdx).trim();
+    const rawKey = line.slice(0, colonIdx).trim();
     const value = line.slice(colonIdx + 1);
-    // Keep first occurrence (some props like X-IMAGE may have params in key)
-    if (!(key in result)) result[key] = value;
+
+    // Store under full key (e.g. "DTSTART;TZID=Europe/Berlin")
+    if (!(rawKey in result)) result[rawKey] = value;
+
+    // Also store under base property name (e.g. "DTSTART")
+    // so lookups by base name work regardless of parameters
+    const semiIdx = rawKey.indexOf(";");
+    if (semiIdx > 0) {
+      const baseName = rawKey.slice(0, semiIdx);
+      if (!(baseName in result)) result[baseName] = value;
+    }
   }
   return result;
 }
