@@ -10,3 +10,4 @@ tmp/
 *.tsbuildinfo
 *.db-shm
 *.db-wal
+packages/wordpress/build/

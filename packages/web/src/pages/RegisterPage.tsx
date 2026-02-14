@@ -46,8 +46,8 @@ export function RegisterPage() {
             autoComplete="username"
             autoFocus
             required
-            pattern="[a-z0-9_]{2,30}"
-            title="2-30 characters, lowercase letters, numbers, and underscores"
+            pattern="[a-z0-9_-]{2,30}"
+            title="2-30 characters, lowercase letters, numbers, underscores and hyphens"
           />
         </div>
         <div className="field">

@@ -46,6 +46,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
+      external_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
       start_date TEXT NOT NULL,
@@ -92,6 +93,7 @@ export function initDatabase(path: string): DB {
     CREATE INDEX IF NOT EXISTS idx_events_account ON events(account_id);
     CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_date);
     CREATE INDEX IF NOT EXISTS idx_events_visibility ON events(visibility);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external ON events(account_id, external_id) WHERE external_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
     CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
   `);

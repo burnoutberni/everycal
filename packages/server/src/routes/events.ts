@@ -5,6 +5,7 @@
  * GET  /api/v1/events/timeline       — events from people you follow
  * GET  /api/v1/events/:id            — single event
  * POST /api/v1/events                — create event (auth)
+ * POST /api/v1/events/sync           — sync events for scraper accounts (auth)
  * PUT  /api/v1/events/:id            — update event (auth, owner only)
  * DELETE /api/v1/events/:id          — delete event (auth, owner only)
  */
@@ -88,6 +89,150 @@ export function eventRoutes(db: DB): Hono {
       .all(from, user.id, user.id, limit, offset) as Record<string, unknown>[];
 
     return c.json({ events: rows.map(formatEvent) });
+  });
+
+  // Sync events — full replace for a scraper account.
+  // Receives an array of events with external IDs. Creates new, updates changed,
+  // deletes events that are no longer in the scraped set.
+  router.post("/sync", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const body = await c.req.json<{
+      events: {
+        externalId: string;
+        title: string;
+        description?: string;
+        startDate: string;
+        endDate?: string;
+        allDay?: boolean;
+        location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
+        image?: { url: string; mediaType?: string; alt?: string };
+        url?: string;
+        tags?: string[];
+        visibility?: string;
+      }[];
+    }>();
+
+    if (!Array.isArray(body.events)) {
+      return c.json({ error: "events array is required" }, 400);
+    }
+
+    // Validate all events have externalId
+    for (const ev of body.events) {
+      if (!ev.externalId || !ev.title || !ev.startDate) {
+        return c.json({ error: "Each event requires externalId, title, and startDate" }, 400);
+      }
+    }
+
+    // Get all existing events for this account that have an external_id
+    const existing = db
+      .prepare("SELECT id, external_id FROM events WHERE account_id = ? AND external_id IS NOT NULL")
+      .all(user.id) as { id: string; external_id: string }[];
+
+    const existingByExtId = new Map(existing.map((r) => [r.external_id, r.id]));
+    const incomingExtIds = new Set(body.events.map((e) => e.externalId));
+
+    let created = 0;
+    let updated = 0;
+    let deleted = 0;
+
+    const syncTransaction = db.transaction(() => {
+      // Delete events no longer in the scraped set
+      const toDelete = existing.filter((r) => !incomingExtIds.has(r.external_id));
+      if (toDelete.length > 0) {
+        const deleteTags = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
+        const deleteEvent = db.prepare("DELETE FROM events WHERE id = ?");
+        for (const row of toDelete) {
+          deleteTags.run(row.id);
+          deleteEvent.run(row.id);
+        }
+        deleted = toDelete.length;
+      }
+
+      // Upsert each incoming event
+      const insertEvent = db.prepare(
+        `INSERT INTO events (id, account_id, external_id, title, description, start_date, end_date, all_day,
+          location_name, location_address, location_latitude, location_longitude, location_url,
+          image_url, image_media_type, image_alt, url, visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      const updateEvent = db.prepare(
+        `UPDATE events SET title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
+          location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?, location_url = ?,
+          image_url = ?, image_media_type = ?, image_alt = ?, url = ?, visibility = ?,
+          updated_at = datetime('now')
+         WHERE id = ?`
+      );
+
+      const deleteTags = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
+      const insertTag = db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?)");
+
+      for (const ev of body.events) {
+        const visibility = ev.visibility || "public";
+        const existingId = existingByExtId.get(ev.externalId);
+
+        if (existingId) {
+          // Update
+          updateEvent.run(
+            ev.title,
+            ev.description || null,
+            ev.startDate,
+            ev.endDate || null,
+            ev.allDay ? 1 : 0,
+            ev.location?.name || null,
+            ev.location?.address || null,
+            ev.location?.latitude ?? null,
+            ev.location?.longitude ?? null,
+            ev.location?.url || null,
+            ev.image?.url || null,
+            ev.image?.mediaType || null,
+            ev.image?.alt || null,
+            ev.url || null,
+            visibility,
+            existingId
+          );
+
+          // Replace tags
+          deleteTags.run(existingId);
+          if (ev.tags) {
+            for (const tag of ev.tags) insertTag.run(existingId, tag.trim());
+          }
+          updated++;
+        } else {
+          // Insert
+          const id = nanoid(16);
+          insertEvent.run(
+            id,
+            user.id,
+            ev.externalId,
+            ev.title,
+            ev.description || null,
+            ev.startDate,
+            ev.endDate || null,
+            ev.allDay ? 1 : 0,
+            ev.location?.name || null,
+            ev.location?.address || null,
+            ev.location?.latitude ?? null,
+            ev.location?.longitude ?? null,
+            ev.location?.url || null,
+            ev.image?.url || null,
+            ev.image?.mediaType || null,
+            ev.image?.alt || null,
+            ev.url || null,
+            visibility
+          );
+
+          if (ev.tags) {
+            for (const tag of ev.tags) insertTag.run(id, tag.trim());
+          }
+          created++;
+        }
+      }
+    });
+
+    syncTransaction();
+
+    return c.json({ ok: true, created, updated, deleted, total: body.events.length });
   });
 
   // Single event by ID
