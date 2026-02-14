@@ -19,10 +19,28 @@ export function initDatabase(path: string): DB {
       username TEXT NOT NULL UNIQUE,
       display_name TEXT,
       bio TEXT,
+      avatar_url TEXT,
+      password_hash TEXT NOT NULL,
       private_key TEXT,
       public_key TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      key_hash TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      last_used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -53,7 +71,14 @@ export function initDatabase(path: string): DB {
       PRIMARY KEY (event_id, tag)
     );
 
-    CREATE TABLE IF NOT EXISTS followers (
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      following_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (follower_id, following_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS remote_follows (
       account_id TEXT NOT NULL REFERENCES accounts(id),
       follower_actor_uri TEXT NOT NULL,
       follower_inbox TEXT NOT NULL,
@@ -61,9 +86,14 @@ export function initDatabase(path: string): DB {
       PRIMARY KEY (account_id, follower_actor_uri)
     );
 
+    CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
     CREATE INDEX IF NOT EXISTS idx_events_account ON events(account_id);
     CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_date);
     CREATE INDEX IF NOT EXISTS idx_events_visibility ON events(visibility);
+    CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
+    CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
   `);
 
   return db;

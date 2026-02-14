@@ -11,6 +11,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@parcel/watcher",
+      "bcrypt",
       "better-sqlite3",
       "core-js",
       "core-js-pure",
