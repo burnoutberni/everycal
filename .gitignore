@@ -8,3 +8,5 @@ dist/
 coverage/
 tmp/
 *.tsbuildinfo
+*.db-shm
+*.db-wal
