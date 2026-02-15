@@ -15,6 +15,7 @@ COPY packages/core/ packages/core/
 COPY packages/server/ packages/server/
 COPY packages/scrapers/ packages/scrapers/
 COPY packages/web/ packages/web/
+COPY scripts/ scripts/
 RUN pnpm -r build
 
 # Production image
@@ -35,6 +36,7 @@ COPY --from=base /app/packages/server/dist packages/server/dist
 COPY --from=base /app/packages/scrapers/package.json packages/scrapers/
 COPY --from=base /app/packages/scrapers/dist packages/scrapers/dist
 COPY --from=base /app/packages/web/dist packages/web/dist
+COPY --from=base /app/scripts scripts/
 COPY --from=base /app/node_modules node_modules
 COPY --from=base /app/packages/core/node_modules packages/core/node_modules
 COPY --from=base /app/packages/server/node_modules packages/server/node_modules
