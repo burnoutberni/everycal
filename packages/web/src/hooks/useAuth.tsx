@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { auth as authApi, setToken, getToken, type User } from "../lib/api";
+import { auth as authApi, type User } from "../lib/api";
 
 interface AuthContextValue {
   user: User | null;
@@ -22,27 +22,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
     } catch {
       setUser(null);
-      setToken(null);
     }
   };
 
+  // Always check session on mount — the HttpOnly cookie is sent automatically
   useEffect(() => {
-    if (getToken()) {
-      refreshUser().finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    refreshUser().finally(() => setLoading(false));
   }, []);
 
   const login = async (username: string, password: string) => {
     const res = await authApi.login(username, password);
-    setToken(res.token);
+    // Server sets HttpOnly cookie — we just track the user in state
     setUser(res.user);
   };
 
   const register = async (username: string, password: string, displayName?: string) => {
     const res = await authApi.register(username, password, displayName);
-    setToken(res.token);
+    // Server sets HttpOnly cookie — we just track the user in state
     setUser(res.user);
   };
 
@@ -52,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-    setToken(null);
+    // Server clears HttpOnly cookie
     setUser(null);
   };
 

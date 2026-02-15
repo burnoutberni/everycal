@@ -3,6 +3,7 @@ import { events as eventsApi, type EventInput } from "../lib/api";
 import { EventForm } from "../components/EventForm";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
+import { eventPath } from "../lib/urls";
 
 export function NewEventPage() {
   const { user } = useAuth();
@@ -20,7 +21,7 @@ export function NewEventPage() {
 
   const handleSubmit = async (data: EventInput) => {
     const event = await eventsApi.create(data);
-    navigate(`/events/${event.id}`);
+    navigate(eventPath(event));
   };
 
   return (

@@ -9,6 +9,8 @@ export function SettingsPage() {
 
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
+  const [discoverable, setDiscoverable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -22,6 +24,8 @@ export function SettingsPage() {
     authApi.me().then((u) => {
       setDisplayName(u.displayName || "");
       setBio(u.bio || "");
+      setWebsite(u.website || "");
+      setDiscoverable(!!u.discoverable);
     });
     authApi.listApiKeys().then((r) => setKeys(r.keys));
   }, [user]);
@@ -41,7 +45,7 @@ export function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      await authApi.updateProfile({ displayName, bio });
+      await authApi.updateProfile({ displayName, bio, website, discoverable });
       await refreshUser();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -79,6 +83,26 @@ export function SettingsPage() {
           <div className="field">
             <label htmlFor="bio">Bio</label>
             <textarea id="bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} />
+          </div>
+          <div className="field">
+            <label htmlFor="website">Website</label>
+            <input id="website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" />
+          </div>
+          <div className="field">
+            <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={discoverable}
+                onChange={(e) => setDiscoverable(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Public account
+            </label>
+            <p className="text-sm text-dim" style={{ marginTop: "0.25rem" }}>
+              {discoverable
+                ? "Your profile is visible on the Explore page. New events default to public."
+                : "Your profile is hidden from Explore. New events default to private."}
+            </p>
           </div>
           <div className="flex items-center gap-1">
             <button type="submit" className="btn-primary btn-sm" disabled={saving}>

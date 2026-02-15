@@ -8,6 +8,19 @@
 /** Visibility controls who can see an event over federation / API. */
 export type EventVisibility = "public" | "unlisted" | "followers_only" | "private";
 
+/** All valid visibility values as a runtime-checkable array. */
+export const EVENT_VISIBILITIES: readonly EventVisibility[] = [
+  "public",
+  "unlisted",
+  "followers_only",
+  "private",
+] as const;
+
+/** Check whether a string is a valid EventVisibility. */
+export function isValidVisibility(value: unknown): value is EventVisibility {
+  return typeof value === "string" && (EVENT_VISIBILITIES as readonly string[]).includes(value);
+}
+
 /** A geographical or named location. */
 export interface EventLocation {
   name: string;

@@ -1,22 +1,20 @@
 /**
  * API client for the EveryCal server.
+ *
+ * Auth is handled via HttpOnly session cookies set by the server.
+ * The Bearer token header is still supported for API key users (scripts/scrapers).
  */
 
 const BASE = "/api/v1";
 
-let authToken: string | null = localStorage.getItem("everycal_token");
+/**
+ * Optional API key for script/scraper usage.
+ * Web UI users authenticate via HttpOnly cookies (no JS token access).
+ */
+let apiKey: string | null = null;
 
-export function setToken(token: string | null) {
-  authToken = token;
-  if (token) {
-    localStorage.setItem("everycal_token", token);
-  } else {
-    localStorage.removeItem("everycal_token");
-  }
-}
-
-export function getToken(): string | null {
-  return authToken;
+export function setApiKey(key: string | null) {
+  apiKey = key;
 }
 
 async function request<T>(
@@ -27,8 +25,9 @@ async function request<T>(
     ...(options.headers as Record<string, string>),
   };
 
-  if (authToken) {
-    headers["Authorization"] = `Bearer ${authToken}`;
+  // Only set Authorization header for API key usage (scripts/scrapers)
+  if (apiKey) {
+    headers["Authorization"] = `ApiKey ${apiKey}`;
   }
 
   // Don't set Content-Type for FormData (browser sets multipart boundary)
@@ -36,7 +35,12 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers,
+    // Include cookies for session-based auth (HttpOnly cookie set by server)
+    credentials: "include",
+  });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -63,15 +67,18 @@ export interface User {
   displayName: string | null;
   bio?: string | null;
   avatarUrl?: string | null;
+  website?: string | null;
+  isBot?: boolean;
+  discoverable?: boolean;
   followersCount?: number;
   followingCount?: number;
   following?: boolean;
+  autoReposting?: boolean;
   createdAt?: string;
 }
 
 export interface AuthResponse {
   user: User;
-  token: string;
   expiresAt: string;
 }
 
@@ -98,11 +105,15 @@ export const auth = {
     return request<User>("/auth/me");
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; avatarUrl?: string }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  },
+
+  deleteAccount() {
+    return request<{ ok: boolean }>("/auth/me", { method: "DELETE" });
   },
 
   listApiKeys() {
@@ -127,8 +138,11 @@ export const auth = {
 
 export interface CalEvent {
   id: string;
-  accountId: string;
-  account?: { username: string; displayName: string | null };
+  slug?: string;
+  source?: "local" | "remote";
+  accountId?: string;
+  actorUri?: string;
+  account?: { username: string; displayName: string | null; domain?: string; iconUrl?: string };
   title: string;
   description: string | null;
   startDate: string;
@@ -139,6 +153,9 @@ export interface CalEvent {
   url: string | null;
   tags: string[];
   visibility: string;
+  rsvpStatus?: "going" | "maybe" | "interested" | null;
+  reposted?: boolean;
+  repostedBy?: { username: string; displayName: string | null };
   createdAt: string;
   updatedAt: string;
 }
@@ -157,7 +174,7 @@ export interface EventInput {
 }
 
 export const events = {
-  list(params?: { account?: string; from?: string; to?: string; q?: string; limit?: number; offset?: number }) {
+  list(params?: { account?: string; from?: string; to?: string; q?: string; source?: string; scope?: string; limit?: number; offset?: number }) {
     const qs = new URLSearchParams();
     if (params) {
       for (const [k, v] of Object.entries(params)) {
@@ -167,18 +184,12 @@ export const events = {
     return request<{ events: CalEvent[] }>(`/events?${qs}`);
   },
 
-  timeline(params?: { from?: string; limit?: number; offset?: number }) {
-    const qs = new URLSearchParams();
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        if (v !== undefined) qs.set(k, String(v));
-      }
-    }
-    return request<{ events: CalEvent[] }>(`/events/timeline?${qs}`);
-  },
-
   get(id: string) {
     return request<CalEvent>(`/events/${id}`);
+  },
+
+  getBySlug(username: string, slug: string) {
+    return request<CalEvent>(`/events/by-slug/${username}/${slug}`);
   },
 
   create(data: EventInput) {
@@ -197,6 +208,21 @@ export const events = {
 
   delete(id: string) {
     return request<{ ok: boolean }>(`/events/${id}`, { method: "DELETE" });
+  },
+
+  repost(id: string) {
+    return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "POST" });
+  },
+
+  unrepost(id: string) {
+    return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "DELETE" });
+  },
+
+  rsvp(eventUri: string, status: "going" | "maybe" | "interested" | null) {
+    return request<{ ok: boolean; status: string | null }>("/events/rsvp", {
+      method: "POST",
+      body: JSON.stringify({ eventUri, status }),
+    });
   },
 };
 
@@ -235,6 +261,14 @@ export const users = {
     return request<{ ok: boolean; following: boolean }>(`/users/${username}/unfollow`, { method: "POST" });
   },
 
+  autoRepost(username: string) {
+    return request<{ ok: boolean; autoReposting: boolean }>(`/users/${username}/auto-repost`, { method: "POST" });
+  },
+
+  removeAutoRepost(username: string) {
+    return request<{ ok: boolean; autoReposting: boolean }>(`/users/${username}/auto-repost`, { method: "DELETE" });
+  },
+
   followers(username: string) {
     return request<{ users: User[] }>(`/users/${username}/followers`);
   },
@@ -254,5 +288,71 @@ export const uploads = {
       method: "POST",
       body: form,
     });
+  },
+};
+
+// ---- Federation ----
+
+export interface RemoteActor {
+  uri: string;
+  type: string;
+  username: string;
+  displayName: string;
+  summary: string | null;
+  domain: string;
+  iconUrl: string | null;
+  imageUrl: string | null;
+  outbox: string | null;
+}
+
+export const federation = {
+  search(q: string) {
+    const qs = new URLSearchParams({ q });
+    return request<{ actor: RemoteActor }>(`/federation/search?${qs}`);
+  },
+
+  fetchActor(actorUri: string) {
+    return request<{ ok: boolean; imported: number; total: number }>("/federation/fetch-actor", {
+      method: "POST",
+      body: JSON.stringify({ actorUri }),
+    });
+  },
+
+  follow(actorUri: string) {
+    return request<{ ok: boolean; delivered: boolean }>("/federation/follow", {
+      method: "POST",
+      body: JSON.stringify({ actorUri }),
+    });
+  },
+
+  unfollow(actorUri: string) {
+    return request<{ ok: boolean }>("/federation/unfollow", {
+      method: "POST",
+      body: JSON.stringify({ actorUri }),
+    });
+  },
+
+  followedActors() {
+    return request<{ actors: RemoteActor[] }>("/federation/following");
+  },
+
+  remoteEvents(params?: { actor?: string; from?: string; limit?: number; offset?: number }) {
+    const qs = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined) qs.set(k, String(v));
+      }
+    }
+    return request<{ events: CalEvent[] }>(`/federation/remote-events?${qs}`);
+  },
+
+  actors(params?: { domain?: string; limit?: number }) {
+    const qs = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined) qs.set(k, String(v));
+      }
+    }
+    return request<{ actors: RemoteActor[] }>(`/federation/actors?${qs}`);
   },
 };

@@ -1,39 +1,313 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { EventCard } from "../components/EventCard";
+import { MiniCalendar } from "../components/MiniCalendar";
+import { useAuth } from "../hooks/useAuth";
+import { Link } from "wouter";
+
+const PAGE_SIZE = 20;
+
+type ScopeFilter = "all" | "mine";
+
+function startOfDay(d: Date): string {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+}
+
+function endOfDay(d: Date): string {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).toISOString();
+}
+
+function formatDateHeading(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function groupByDate(events: CalEvent[]): Map<string, CalEvent[]> {
+  const groups = new Map<string, CalEvent[]>();
+  for (const ev of events) {
+    const key = ev.startDate.slice(0, 10);
+    const list = groups.get(key) || [];
+    list.push(ev);
+    groups.set(key, list);
+  }
+  return groups;
+}
+
+type RangeMode = "day" | "week" | "month" | "upcoming";
+
+function getRangeDates(
+  mode: RangeMode,
+  selectedDate: Date
+): { from: string; to?: string; label: string } {
+  const y = selectedDate.getFullYear();
+  const m = selectedDate.getMonth();
+  const d = selectedDate.getDate();
+
+  switch (mode) {
+    case "day":
+      return {
+        from: startOfDay(selectedDate),
+        to: endOfDay(selectedDate),
+        label: formatDateHeading(selectedDate),
+      };
+    case "week": {
+      const dow = selectedDate.getDay() || 7;
+      const monday = new Date(y, m, d - dow + 1);
+      const sunday = new Date(y, m, d - dow + 7);
+      return {
+        from: startOfDay(monday),
+        to: endOfDay(sunday),
+        label: `${monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+      };
+    }
+    case "month": {
+      const first = new Date(y, m, 1);
+      const last = new Date(y, m + 1, 0);
+      return {
+        from: startOfDay(first),
+        to: endOfDay(last),
+        label: selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      };
+    }
+    case "upcoming":
+    default:
+      return {
+        from: new Date().toISOString(),
+        label: "Upcoming",
+      };
+  }
+}
 
 export function HomePage() {
+  const { user } = useAuth();
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+
+  const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
+
+  const fetchEvents = useCallback(
+    async (offset = 0, append = false) => {
+      if (offset === 0) setLoading(true);
+      else setLoadingMore(true);
+
+      try {
+        const params: Record<string, string | number> = {
+          from: range.from,
+          limit: PAGE_SIZE,
+          offset,
+        };
+        if (range.to) params.to = range.to;
+        if (scopeFilter === "mine") params.scope = "mine";
+
+        const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
+        if (append) {
+          setEvents((prev) => [...prev, ...res.events]);
+        } else {
+          setEvents(res.events);
+        }
+        setHasMore(res.events.length === PAGE_SIZE);
+      } catch {
+        if (!append) setEvents([]);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [range, scopeFilter]
+  );
 
   useEffect(() => {
-    eventsApi
-      .list({ from: new Date().toISOString(), limit: 30 })
-      .then((r) => setEvents(r.events))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    fetchEvents(0, false);
+  }, [fetchEvents]);
+
+  // Reset to "all" if the user logs out while on "mine"
+  useEffect(() => {
+    if (!user && scopeFilter === "mine") setScopeFilter("all");
+  }, [user, scopeFilter]);
+
+  const loadMore = () => fetchEvents(events.length, true);
+
+  const eventDates = useMemo(
+    () => new Set(events.map((e) => e.startDate.slice(0, 10))),
+    [events]
+  );
+
+  const grouped = useMemo(() => groupByDate(events), [events]);
+
+  const handleDateSelect = (date: Date) => {
+    setSelectedDate(date);
+    if (rangeMode === "upcoming") setRangeMode("day");
+  };
+
+  const goPrev = () => {
+    const d = new Date(selectedDate);
+    if (rangeMode === "day") d.setDate(d.getDate() - 1);
+    else if (rangeMode === "week") d.setDate(d.getDate() - 7);
+    else if (rangeMode === "month") d.setMonth(d.getMonth() - 1);
+    setSelectedDate(d);
+  };
+
+  const goNext = () => {
+    const d = new Date(selectedDate);
+    if (rangeMode === "day") d.setDate(d.getDate() + 1);
+    else if (rangeMode === "week") d.setDate(d.getDate() + 7);
+    else if (rangeMode === "month") d.setMonth(d.getMonth() + 1);
+    setSelectedDate(d);
+  };
 
   return (
-    <div>
-      <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem" }}>Upcoming Events</h1>
+    <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
+      {/* Sidebar */}
+      <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={eventDates} />
 
-      {loading ? (
-        <p className="text-muted">Loading…</p>
-      ) : events.length === 0 ? (
-        <div className="empty-state">
-          <p>No upcoming events yet.</p>
-          <p className="text-sm text-dim mt-1">
-            Create one or wait for scrapers to import some!
-          </p>
+        {/* Scope filter */}
+        <div style={{ marginTop: "1rem" }}>
+          <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
+            Show
+          </div>
+          <button
+            onClick={() => setScopeFilter("all")}
+            className={scopeFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+            style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
+          >
+            All Events
+          </button>
+          {user ? (
+            <button
+              onClick={() => setScopeFilter("mine")}
+              className={scopeFilter === "mine" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+              style={{ marginBottom: "0.3rem" }}
+            >
+              My Events
+            </button>
+          ) : (
+            <span className="text-sm text-dim" style={{ display: "inline-block", marginTop: "0.2rem" }}>
+              <Link href="/login" style={{ color: "var(--accent)" }}>Log in</Link> to see your events
+            </span>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {events.map((e) => (
-            <EventCard key={e.id} event={e} />
-          ))}
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1" style={{ minWidth: 0 }}>
+        {/* Range controls */}
+        <div
+          className="flex items-center justify-between"
+          style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}
+        >
+          <div className="flex items-center gap-1">
+            {(["upcoming", "day", "week", "month"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => {
+                  setRangeMode(mode);
+                  if (mode === "upcoming") setSelectedDate(new Date());
+                }}
+                className={rangeMode === mode ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                style={{ textTransform: "capitalize" }}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {rangeMode !== "upcoming" && (
+            <div className="flex items-center gap-1">
+              <button className="btn-ghost btn-sm" onClick={goPrev}>‹</button>
+              <span className="text-sm" style={{ fontWeight: 600, minWidth: "10rem", textAlign: "center" }}>
+                {range.label}
+              </span>
+              <button className="btn-ghost btn-sm" onClick={goNext}>›</button>
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => setSelectedDate(new Date())}
+                style={{ marginLeft: "0.25rem" }}
+              >
+                Today
+              </button>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Mobile: inline calendar + scope */}
+        <div className="show-mobile" style={{ marginBottom: "1rem" }}>
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={eventDates} />
+          <div className="flex gap-1 mt-1">
+            <button
+              onClick={() => setScopeFilter("all")}
+              className={scopeFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+            >
+              All Events
+            </button>
+            {user && (
+              <button
+                onClick={() => setScopeFilter("mine")}
+                className={scopeFilter === "mine" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+              >
+                My Events
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Event list */}
+        {loading ? (
+          <p className="text-muted">Loading…</p>
+        ) : events.length === 0 ? (
+          <div className="empty-state">
+            <p>No events found.</p>
+            <p className="text-sm text-dim mt-1">
+              {scopeFilter === "mine"
+                ? <>Mark events as Going or Maybe, or follow accounts on the <Link href="/federation">Federation</Link> page.</>
+                : rangeMode === "upcoming"
+                  ? "Try importing events from the Federation page, or create one!"
+                  : "Try a different date range."}
+            </p>
+          </div>
+        ) : (
+          <>
+            {[...grouped.entries()].map(([dateKey, dayEvents]) => (
+              <div key={dateKey} style={{ marginBottom: "1.25rem" }}>
+                <h2
+                  className="text-sm"
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--text-muted)",
+                    marginBottom: "0.4rem",
+                    borderBottom: "1px solid var(--border)",
+                    paddingBottom: "0.3rem",
+                  }}
+                >
+                  {formatDateHeading(new Date(dateKey + "T00:00:00"))}
+                </h2>
+                <div className="flex flex-col gap-1">
+                  {dayEvents.map((e) => (
+                    <EventCard key={e.id} event={e} />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {hasMore && (
+              <div className="text-center mt-2">
+                <button className="btn-ghost" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? "Loading…" : "Load more events"}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

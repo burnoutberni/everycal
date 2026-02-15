@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
-import { Link } from "wouter";
+import { eventPath, profilePath } from "../lib/urls";
 
-export function EventPage({ params }: { params?: { id: string } }) {
-  // wouter passes params via route
-  const id = params?.id || window.location.pathname.split("/events/")[1]?.split("/")[0];
+export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [event, setEvent] = useState<CalEvent | null>(null);
@@ -14,13 +12,21 @@ export function EventPage({ params }: { params?: { id: string } }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!id) return;
-    eventsApi
-      .get(id)
+    setLoading(true);
+    setError("");
+
+    const promise =
+      username && slug
+        ? eventsApi.getBySlug(username, slug)
+        : id
+          ? eventsApi.get(id)
+          : Promise.reject(new Error("No event identifier"));
+
+    promise
       .then(setEvent)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, username, slug]);
 
   const handleDelete = async () => {
     if (!event || !confirm("Delete this event?")) return;
@@ -34,6 +40,9 @@ export function EventPage({ params }: { params?: { id: string } }) {
 
   const isOwner = user?.id === event.accountId;
   const date = new Date(event.startDate);
+  const editHref = event.slug && event.account?.username
+    ? `/@${event.account.username}/${event.slug}/edit`
+    : `/events/${event.id}/edit`;
 
   return (
     <article>
@@ -81,7 +90,7 @@ export function EventPage({ params }: { params?: { id: string } }) {
 
         {isOwner && (
           <div className="flex gap-1">
-            <Link href={`/events/${event.id}/edit`}>
+            <Link href={editHref}>
               <button className="btn-ghost btn-sm">Edit</button>
             </Link>
             <button className="btn-danger btn-sm" onClick={handleDelete}>
@@ -98,7 +107,7 @@ export function EventPage({ params }: { params?: { id: string } }) {
       {event.account && (
         <p className="text-muted mb-2">
           by{" "}
-          <Link href={`/users/${event.account.username}`}>
+          <Link href={profilePath(event.account.username)}>
             {event.account.displayName || event.account.username}
           </Link>
         </p>

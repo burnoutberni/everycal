@@ -19,17 +19,67 @@ export function feedRoutes(db: DB): Hono {
 
     const [, username, format] = match;
 
+    const account = db
+      .prepare("SELECT id FROM accounts WHERE username = ?")
+      .get(username) as { id: string } | undefined;
+
+    if (!account) return c.json({ error: "User not found" }, 404);
+
+    // Own public events + explicit reposts + auto-reposted events
     const rows = db
       .prepare(
-        `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM events e
-         LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.account_id = (SELECT id FROM accounts WHERE username = ?)
-           AND e.visibility = 'public'
-         GROUP BY e.id
-         ORDER BY e.start_date ASC`
+        `SELECT * FROM (
+          -- Own events
+          SELECT e.*, GROUP_CONCAT(DISTINCT t.tag) AS tags,
+                 NULL AS repost_username,
+                 NULL AS repost_display_name,
+                 a_orig.username AS account_username,
+                 a_orig.display_name AS account_display_name
+          FROM events e
+          LEFT JOIN event_tags t ON t.event_id = e.id
+          JOIN accounts a_orig ON a_orig.id = e.account_id
+          WHERE e.account_id = ?
+            AND e.visibility = 'public'
+          GROUP BY e.id
+
+          UNION ALL
+
+          -- Explicit reposts
+          SELECT e.*, GROUP_CONCAT(DISTINCT t.tag) AS tags,
+                 ra.username AS repost_username,
+                 ra.display_name AS repost_display_name,
+                 a_orig.username AS account_username,
+                 a_orig.display_name AS account_display_name
+          FROM reposts r
+          JOIN events e ON e.id = r.event_id
+          JOIN accounts ra ON ra.id = r.account_id
+          JOIN accounts a_orig ON a_orig.id = e.account_id
+          LEFT JOIN event_tags t ON t.event_id = e.id
+          WHERE r.account_id = ?
+            AND e.visibility IN ('public','unlisted')
+          GROUP BY e.id
+
+          UNION ALL
+
+          -- Auto-reposted events
+          SELECT e.*, GROUP_CONCAT(DISTINCT t.tag) AS tags,
+                 ra.username AS repost_username,
+                 ra.display_name AS repost_display_name,
+                 a_orig.username AS account_username,
+                 a_orig.display_name AS account_display_name
+          FROM auto_reposts ar
+          JOIN events e ON e.account_id = ar.source_account_id
+          JOIN accounts ra ON ra.id = ar.account_id
+          JOIN accounts a_orig ON a_orig.id = e.account_id
+          LEFT JOIN event_tags t ON t.event_id = e.id
+          WHERE ar.account_id = ?
+            AND e.visibility = 'public'
+            AND e.account_id != ?
+            AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
+          GROUP BY e.id
+        ) ORDER BY start_date ASC`
       )
-      .all(username);
+      .all(account.id, account.id, account.id, account.id, account.id);
 
     if (format === "json") {
       return c.json({ events: rows });

@@ -3,30 +3,36 @@ import { useLocation } from "wouter";
 import { events as eventsApi, type CalEvent, type EventInput } from "../lib/api";
 import { EventForm } from "../components/EventForm";
 import { useAuth } from "../hooks/useAuth";
+import { eventPath } from "../lib/urls";
 
-export function EditEventPage() {
-  const id = window.location.pathname.split("/events/")[1]?.split("/")[0];
+export function EditEventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [event, setEvent] = useState<CalEvent | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!id) return;
-    eventsApi
-      .get(id)
+    setLoading(true);
+    const promise =
+      username && slug
+        ? eventsApi.getBySlug(username, slug)
+        : id
+          ? eventsApi.get(id)
+          : Promise.reject(new Error("No event identifier"));
+
+    promise
       .then(setEvent)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, username, slug]);
 
   if (loading) return <p className="text-muted">Loading…</p>;
   if (!event) return <p className="error-text">Event not found.</p>;
   if (user?.id !== event.accountId) return <p className="error-text">Not authorized.</p>;
 
   const handleSubmit = async (data: EventInput) => {
-    await eventsApi.update(event.id, data);
-    navigate(`/events/${event.id}`);
+    const updated = await eventsApi.update(event.id, data);
+    navigate(eventPath(updated));
   };
 
   return (

@@ -1,9 +1,12 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
+import { profilePath } from "../lib/urls";
 
 export function Header() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
+
+  const myProfilePath = user ? profilePath(user.username) : "";
 
   return (
     <header
@@ -20,13 +23,11 @@ export function Header() {
           <NavLink href="/" current={location}>
             Events
           </NavLink>
-          {user && (
-            <NavLink href="/timeline" current={location}>
-              Timeline
-            </NavLink>
-          )}
           <NavLink href="/explore" current={location}>
             Explore
+          </NavLink>
+          <NavLink href="/federation" current={location}>
+            Federation
           </NavLink>
         </div>
 
@@ -37,9 +38,9 @@ export function Header() {
                 <button className="btn-primary btn-sm">+ New Event</button>
               </Link>
               <Link
-                href={`/users/${user.username}`}
+                href={myProfilePath}
                 style={{
-                  color: location.startsWith(`/users/${user.username}`) ? "var(--text)" : "var(--text-muted)",
+                  color: location === myProfilePath ? "var(--text)" : "var(--text-muted)",
                   fontSize: "0.9rem",
                 }}
               >

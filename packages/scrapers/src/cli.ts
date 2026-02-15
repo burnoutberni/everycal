@@ -12,15 +12,51 @@
  * The --sync flag does a full sync: creates new events, updates changed ones,
  * and removes events that are no longer in the scraped set.
  *
- * Setup:
- *   1. Register an account on the server with the scraper's id as username
- *      (e.g. "flex-at", "votivkino")
- *   2. Create an API key for that account
- *   3. Run: everycal-scrape flex-at --sync http://localhost:3000 --api-key ecal_...
+ * When running multiple scrapers, sources are fetched concurrently (up to 6
+ * at a time by default). Syncs to the server happen sequentially to avoid
+ * overloading the database.
  */
 
 import { registry, getScraperById } from "./registry.js";
+import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
+
+const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
+
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
+  return events
+    .filter((ev) => ev.title && ev.startDate)  // skip events missing required fields
+    .map((ev) => ({
+      externalId: ev.id || `${scraper.id}-${ev.title}-${ev.startDate}`,
+      title: ev.title!,
+      description: ev.description || undefined,
+      startDate: ev.startDate!,
+      endDate: ev.endDate || undefined,
+      allDay: ev.allDay || false,
+      location: ev.location || undefined,
+      image: ev.image || undefined,
+      url: ev.url || undefined,
+      tags: ev.tags || undefined,
+      visibility: ev.visibility || "public",
+    }));
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -58,7 +94,6 @@ Examples:
   const apiKey = apiKeyIdx >= 0 ? args[apiKeyIdx + 1] : undefined;
   const dryRun = args.includes("--dry-run");
 
-  // Collect scraper IDs (positional args that aren't flags or flag values)
   const flagValues = new Set<string>();
   if (syncUrl) flagValues.add(syncUrl);
   if (apiKey) flagValues.add(apiKey);
@@ -84,64 +119,67 @@ Examples:
         })
       : registry;
 
-  for (const scraper of scrapers) {
-    console.error(`🔍 Scraping ${scraper.name} (${scraper.url})...`);
+  // Phase 1: Scrape all sources concurrently
+  const concurrency = scrapers.length === 1 ? 1 : CONCURRENCY;
+  console.error(`🔍 Scraping ${scrapers.length} source(s) (concurrency: ${concurrency})…`);
+  const start = Date.now();
+
+  const results = await mapConcurrent(scrapers, concurrency, async (scraper) => {
     try {
       const events = await scraper.scrape();
-      console.error(`   Found ${events.length} events.`);
-
-      if (syncUrl && apiKey) {
-        // Build sync payload — each event needs an externalId
-        const syncEvents = events.map((ev) => ({
-          externalId: ev.id || `${scraper.id}-${ev.title}-${ev.startDate}`,
-          title: ev.title!,
-          description: ev.description || undefined,
-          startDate: ev.startDate!,
-          endDate: ev.endDate || undefined,
-          allDay: ev.allDay || false,
-          location: ev.location || undefined,
-          image: ev.image || undefined,
-          url: ev.url || undefined,
-          tags: ev.tags || undefined,
-          visibility: ev.visibility || "public",
-        }));
-
-        if (dryRun) {
-          console.error(`   [DRY RUN] Would sync ${syncEvents.length} events to ${syncUrl}`);
-          console.log(JSON.stringify({ source: scraper.id, events: syncEvents }, null, 2));
-          continue;
-        }
-
-        console.error(`   Syncing to ${syncUrl}...`);
-        const res = await fetch(`${syncUrl}/api/v1/events/sync`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `ApiKey ${apiKey}`,
-          },
-          body: JSON.stringify({ events: syncEvents }),
-        });
-
-        if (!res.ok) {
-          const errorBody = await res.text();
-          console.error(`   ❌ Sync failed: ${res.status} ${errorBody}`);
-        } else {
-          const result = (await res.json()) as {
-            created: number;
-            updated: number;
-            deleted: number;
-            total: number;
-          };
-          console.error(
-            `   ✅ Synced: ${result.created} created, ${result.updated} updated, ${result.deleted} deleted (${result.total} total)`
-          );
-        }
-      } else {
-        // Print events as JSON to stdout
-        console.log(JSON.stringify({ source: scraper.id, events }, null, 2));
-      }
+      return { scraper, events, error: null as string | null };
     } catch (err) {
-      console.error(`   ❌ Error: ${err}`);
+      return { scraper, events: [] as Partial<EveryCalEvent>[], error: String(err) };
+    }
+  });
+
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  const totalEvents = results.reduce((n, r) => n + r.events.length, 0);
+  console.error(`   Done: ${totalEvents} events from ${results.length} sources in ${elapsed}s\n`);
+
+  // Phase 2: Output or sync (sequential to avoid overloading the server DB)
+  for (const { scraper, events, error } of results) {
+    if (error) {
+      console.error(`❌ ${scraper.name}: ${error}`);
+      continue;
+    }
+
+    console.error(`   ${scraper.name}: ${events.length} events`);
+
+    if (syncUrl && apiKey) {
+      const syncEvents = buildSyncPayload(scraper, events);
+
+      if (dryRun) {
+        console.error(`   [DRY RUN] Would sync ${syncEvents.length} events to ${syncUrl}`);
+        console.log(JSON.stringify({ source: scraper.id, events: syncEvents }, null, 2));
+        continue;
+      }
+
+      const res = await fetch(`${syncUrl}/api/v1/events/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `ApiKey ${apiKey}`,
+        },
+        body: JSON.stringify({ events: syncEvents }),
+      });
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        console.error(`   ❌ Sync failed: ${res.status} ${errorBody}`);
+      } else {
+        const result = (await res.json()) as {
+          created: number;
+          updated: number;
+          deleted: number;
+          total: number;
+        };
+        console.error(
+          `   ✅ Synced: ${result.created} created, ${result.updated} updated, ${result.deleted} deleted`
+        );
+      }
+    } else {
+      console.log(JSON.stringify({ source: scraper.id, events }, null, 2));
     }
   }
 }

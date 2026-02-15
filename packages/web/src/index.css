@@ -226,6 +226,49 @@ button:disabled {
   margin-top: 0.3rem;
 }
 
+/* RSVP buttons */
+.rsvp-btn {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font);
+}
+.rsvp-btn:hover {
+  border-color: var(--border-focus);
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+.rsvp-btn.rsvp-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+.rsvp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive: sidebar */
+.hide-mobile {
+  display: block;
+}
+.show-mobile {
+  display: none;
+}
+@media (max-width: 640px) {
+  .hide-mobile {
+    display: none !important;
+  }
+  .show-mobile {
+    display: block !important;
+  }
+}
+
 /* Visibility badge */
 .visibility-badge {
   font-size: 0.7rem;

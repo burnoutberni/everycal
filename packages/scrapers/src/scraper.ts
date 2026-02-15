@@ -14,6 +14,15 @@ export interface Scraper {
   /** The source URL being scraped */
   readonly url: string;
 
+  /** The organisation's main website (used for the profile link) */
+  readonly website?: string;
+
+  /** Short bio / description of the organisation (used for the profile) */
+  readonly bio?: string;
+
+  /** URL of the organisation's logo / profile image */
+  readonly avatarUrl?: string;
+
   /** Fetch and parse events from the source. */
   scrape(): Promise<Partial<EveryCalEvent>[]>;
 }

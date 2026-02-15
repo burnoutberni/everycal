@@ -10,7 +10,6 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/cli.ts",
     "scrape": "tsx src/cli.ts",
     "test": "vitest run",
     "lint": "eslint src/"

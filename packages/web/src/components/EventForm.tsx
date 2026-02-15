@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { uploads, type EventInput } from "../lib/api";
+import { useAuth } from "../hooks/useAuth";
 
 interface Props {
   initial?: Partial<EventInput>;
@@ -8,6 +9,10 @@ interface Props {
 }
 
 export function EventForm({ initial, onSubmit, submitLabel }: Props) {
+  const { user } = useAuth();
+  // Default visibility: use initial value, or follow the account's discoverable setting
+  const defaultVis = initial?.visibility || (user?.discoverable ? "public" : "private");
+
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [startDate, setStartDate] = useState(initial?.startDate?.slice(0, 16) || "");
@@ -18,7 +23,7 @@ export function EventForm({ initial, onSubmit, submitLabel }: Props) {
   const [imageUrl, setImageUrl] = useState(initial?.image?.url || "");
   const [url, setUrl] = useState(initial?.url || "");
   const [tags, setTags] = useState(initial?.tags?.join(", ") || "");
-  const [visibility, setVisibility] = useState(initial?.visibility || "public");
+  const [visibility, setVisibility] = useState(defaultVis);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");

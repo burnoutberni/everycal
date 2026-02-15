@@ -5,11 +5,34 @@ services:
       - "3000:3000"
     volumes:
       - everycal-data:/data
+      - everycal-uploads:/app/uploads
     environment:
+      - NODE_ENV=production
       - PORT=3000
       - DATABASE_PATH=/data/everycal.db
-      - BASE_URL=http://localhost:3000
+      - UPLOAD_DIR=/app/uploads
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - OPEN_REGISTRATIONS=${OPEN_REGISTRATIONS:-true}
+      - TRUSTED_PROXY=${TRUSTED_PROXY:-false}
+      # Set SKIP_SIGNATURE_VERIFY=true during initial testing if needed
+      # - SKIP_SIGNATURE_VERIFY=true
     restart: unless-stopped
+
+  scrapers:
+    build:
+      context: .
+      dockerfile: Dockerfile.scrapers
+    volumes:
+      - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
+    environment:
+      - EVERYCAL_SERVER=http://everycal:3000
+      - SCRAPER_API_KEYS_FILE=/secrets/scraper-api-keys.json
+    depends_on:
+      - everycal
+    profiles:
+      - scrapers
 
 volumes:
   everycal-data:
+  everycal-uploads:

@@ -11,3 +11,7 @@ tmp/
 *.db-shm
 *.db-wal
 packages/wordpress/build/
+.scraper-password
+scraper-api-keys.json
+orgs.txt
+package-lock.json
