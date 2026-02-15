@@ -43,7 +43,7 @@ interface GqlPage {
 }
 
 export class SpaceAndPlaceScraper implements Scraper {
-  readonly id = "space-and-place";
+  readonly id = "space_and_place";
   readonly name = "Space and Place";
   readonly url = "https://spaceandplace.at/termine";
   readonly website = "https://spaceandplace.at/";

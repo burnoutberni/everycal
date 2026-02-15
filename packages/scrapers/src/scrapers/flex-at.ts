@@ -9,7 +9,7 @@ import { fromICal, type EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../scraper.js";
 
 export class FlexScraper implements Scraper {
-  readonly id = "flex-at";
+  readonly id = "flex_at";
   readonly name = "Flex Vienna";
   readonly url = "https://flex.at/events/?ical=1";
 

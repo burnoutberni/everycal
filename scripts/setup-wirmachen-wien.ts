@@ -20,21 +20,21 @@ const args = process.argv.slice(2);
 const SERVER = args.find((a) => !a.startsWith("--")) || "http://localhost:3000";
 const PASSWORD_ARG = args.find((a) => a.startsWith("--password="))?.slice(11);
 
-const USERNAME = "wirmachen.wien";
+const USERNAME = "wirmachen_wien";
 const DISPLAY_NAME = "Wir machen Wien";
 const BIO = "Für eine klimagerechte, lebenswerte und partizipative Stadt Wien";
 const WEBSITE = "https://wirmachen.wien";
 const AVATAR_URL =
   "https://wirmachen.wien/wp-content/uploads/2023/09/WMW_favicon-300x300.png";
-const PASSWORD_FILE = ".wirmachen-wien-password";
+const PASSWORD_FILE = ".wirmachen_wien_password";
 
 /** Scraper account usernames that belong to the wirmachen.wien network */
 const ORG_USERNAMES = [
-  "critical-mass-vienna",
+  "critical_mass_vienna",
   "kirchberggasse",
   "matznerviertel",
-  "radlobby-wien",
-  "space-and-place",
+  "radlobby_wien",
+  "space_and_place",
   "westbahnpark",
 ];
 

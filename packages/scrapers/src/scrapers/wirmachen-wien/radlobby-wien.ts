@@ -18,7 +18,7 @@ const GOOGLE_CALENDAR_ID =
 const ICAL_URL = `https://calendar.google.com/calendar/ical/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/public/basic.ics`;
 
 export class RadlobbyWienScraper implements Scraper {
-  readonly id = "radlobby-wien";
+  readonly id = "radlobby_wien";
   readonly name = "Radlobby Wien";
   readonly url = "https://www.radlobby.at/wien/termine";
   readonly website = "https://www.radlobby.at/wien";

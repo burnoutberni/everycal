@@ -14,8 +14,8 @@ export function feedRoutes(db: DB): Hono {
 
   router.get("/:file", (c) => {
     const file = c.req.param("file");
-    const match = file.match(/^([^.]+)\.(ics|json)$/);
-    if (!match) return c.json({ error: "Invalid feed path. Use :username.ics or :username.json" }, 400);
+    const match = file.match(/^([a-z0-9_]+)\.(ics|json)$/);
+    if (!match) return c.json({ error: "Invalid feed path. Use :username.ics or :username.json (only lowercase letters, numbers, and underscores allowed in username)" }, 400);
 
     const [, username, format] = match;
 

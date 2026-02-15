@@ -21,7 +21,7 @@ const agent = new Agent({
 });
 
 export class CriticalMassViennaScraper implements Scraper {
-  readonly id = "critical-mass-vienna";
+  readonly id = "critical_mass_vienna";
   readonly name = "Critical Mass Vienna";
   readonly url = RSS_URL;
   readonly website = "https://www.criticalmass.at/category/wien/";

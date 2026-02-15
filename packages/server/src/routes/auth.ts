@@ -68,9 +68,9 @@ export function authRoutes(db: DB): Hono {
     }
 
     const username = body.username.toLowerCase().trim();
-    if (!/^[a-z0-9._-]{2,40}$/.test(username)) {
+    if (!/^[a-z0-9_]{2,40}$/.test(username)) {
       return c.json(
-        { error: "Username must be 2-40 characters: lowercase letters, numbers, dots, underscores and hyphens" },
+        { error: "Username must be 2-40 characters: letters, numbers, and underscores only" },
         400
       );
     }
