@@ -12,6 +12,7 @@ tmp/
 *.db-wal
 packages/wordpress/build/
 .scraper-password
+.wirmachen-wien-password
 scraper-api-keys.json
 orgs.txt
 package-lock.json

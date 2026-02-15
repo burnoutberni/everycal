@@ -93,16 +93,19 @@ Click **+ New Event** in the header. Fill in the form — title and start date a
 
 Scrapers import events from external venue websites. Each scraper runs as its own user account on the server.
 
-### Quick setup for Vienna venues (wirmachen.wien)
+### Step 1: Register individual scraper accounts
 
-We've created a collection of Vienna community space scrapers. Set them all up at once:
+First, create bot accounts for each venue scraper with API keys:
 
 ```bash
-# Register all wirmachen.wien scrapers and run initial import
-npx tsx scripts/setup-wirmachen-wien.ts http://localhost:3000
+# Register all scraper accounts and save API keys
+npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000
+
+# Optionally run initial import immediately
+npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000 --run
 ```
 
-This creates accounts for:
+This creates individual bot accounts for each venue:
 - **westbahnpark** (Westbahnpark community space)
 - **kirchberggasse** (Kirchberggasse 3)
 - **matznerviertel** (Matznerviertel neighborhood events)
@@ -112,19 +115,28 @@ This creates accounts for:
 
 API keys are saved to `scraper-api-keys.json` for use in cron jobs.
 
-### Register scraper accounts manually
+### Step 2: Create wirmachen.wien umbrella account (optional)
 
-For other scrapers or custom setups:
+If you want a unified feed that automatically reposts all events from the Vienna scraper accounts:
 
 ```bash
-# Register accounts and print API keys
-npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000
+# Create @wirmachen.wien account with auto-repost for all org accounts
+npx tsx scripts/setup-wirmachen-wien.ts http://localhost:3000
 
-# Optionally run immediate import
-npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000 --run
+# If account exists, provide password:
+npx tsx scripts/setup-wirmachen-wien.ts http://localhost:3000 --password=<secret>
 ```
 
-### Run a scraper
+This creates a **regular user account** (not a bot) called `@wirmachen.wien` that:
+- Follows all 6 wirmachen.wien venue scraper accounts
+- Enables auto-repost for each one
+- Creates a unified feed at `/@wirmachen.wien` showing all events
+
+The password is auto-generated and saved to `.wirmachen-wien-password` (printed once on first run).
+
+**Note:** This is a user account, not a scraper. It doesn't scrape anything itself—it just reposts events from the individual venue scraper accounts.
+
+### Step 3: Run scrapers
 
 ```bash
 # Sync a specific scraper to server
