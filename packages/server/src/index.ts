@@ -114,6 +114,15 @@ app.route("/users", activityPubRoutes(db));
 // Shared inbox for federation
 app.route("/", sharedInboxRoute(db));
 
+// Serve web frontend (production only) — must be last to not override API routes
+if (process.env.NODE_ENV === "production") {
+  // Serve static assets from /packages/web/dist
+  app.use("*", serveStatic({ root: "./packages/web/dist" }));
+  
+  // SPA fallback — serve index.html for all non-API routes (client-side routing)
+  app.get("*", serveStatic({ path: "./packages/web/dist/index.html" }));
+}
+
 const port = parseInt(process.env.PORT || "3000", 10);
 console.log(`🗓️  EveryCal server starting on http://localhost:${port}`);
 
