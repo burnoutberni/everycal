@@ -69,14 +69,14 @@ app.use(
 
 // Rate limiting on auth endpoints (prevent brute force)
 app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 5 }));
+app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10 }));
 
 // Rate limiting on federation fetch (prevent SSRF abuse)
 app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10 }));
 app.use("/api/v1/federation/search", rateLimiter({ windowMs: 60_000, max: 20 }));
 
 // Rate limiting on event sync (prevent abuse by compromised scraper keys)
-app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 5 }));
+app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60 }));
 
 // Rate limiting on event creation/update (prevent spam)
 app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30 }));
