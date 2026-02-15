@@ -243,7 +243,7 @@ export const users = {
     return request<User>(`/users/${username}`);
   },
 
-  events(username: string, params?: { from?: string; to?: string; limit?: number }) {
+  events(username: string, params?: { from?: string; to?: string; limit?: number; sort?: "asc" | "desc" }) {
     const qs = new URLSearchParams();
     if (params) {
       for (const [k, v] of Object.entries(params)) {

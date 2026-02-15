@@ -38,10 +38,20 @@ export function ProfilePage({ username }: { username: string }) {
   const [loading, setLoading] = useState(true);
 
   const loadProfile = () => {
-    Promise.all([usersApi.get(username), usersApi.events(username, { limit: 50 })])
-      .then(([p, e]) => {
+    const now = new Date().toISOString();
+    // Fetch profile, upcoming events (ASC), and recent past events (DESC)
+    Promise.all([
+      usersApi.get(username),
+      usersApi.events(username, { from: now, limit: 50 }),
+      usersApi.events(username, { to: now, limit: 20, sort: "desc" }),
+    ])
+      .then(([p, upcoming, past]) => {
         setProfile(p);
-        setEvents(e.events);
+        // Combine and deduplicate by ID
+        const combined = new Map<string, CalEvent>();
+        upcoming.events.forEach((e) => combined.set(e.id, e));
+        past.events.forEach((e) => combined.set(e.id, e));
+        setEvents(Array.from(combined.values()));
       })
       .catch(() => {})
       .finally(() => setLoading(false));

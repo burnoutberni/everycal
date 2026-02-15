@@ -80,6 +80,7 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user");
     const from = c.req.query("from");
     const to = c.req.query("to");
+    const sort = c.req.query("sort")?.toLowerCase() === "desc" ? "DESC" : "ASC";
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
@@ -160,7 +161,7 @@ export function userRoutes(db: DB): Hono {
     sql += ` GROUP BY e.id`;
 
     // Wrap in outer query to sort and paginate
-    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_date ASC LIMIT ? OFFSET ?`;
+    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_date ${sort} LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const rows = db.prepare(fullSql).all(...params) as Record<string, unknown>[];
