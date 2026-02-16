@@ -69,6 +69,31 @@ export function SettingsPage() {
     setKeys(keys.filter((k) => k.id !== id));
   };
 
+  const handleDeleteAccount = async () => {
+    if (
+      !confirm(
+        "Are you sure you want to delete your account? This action cannot be undone and will delete all your events and data."
+      )
+    ) {
+      return;
+    }
+
+    // Double confirmation
+    const username = prompt(`Please type your username (${user.username}) to confirm:`);
+    if (username !== user.username) {
+      alert("Username does not match.");
+      return;
+    }
+
+    try {
+      await authApi.deleteAccount();
+      // Force logout and redirect
+      window.location.href = "/";
+    } catch (err) {
+      alert("Failed to delete account");
+    }
+  };
+
   return (
     <div style={{ maxWidth: 600 }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem" }}>Settings</h1>
@@ -185,6 +210,18 @@ export function SettingsPage() {
             Create Key
           </button>
         </div>
+      </section>
+
+      <section className="card mt-2" style={{ borderColor: "var(--danger)" }}>
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem", color: "var(--danger)" }}>
+          Danger Zone
+        </h2>
+        <p className="text-sm text-muted mb-2">
+          Deleting your account is permanent. All your events, follows, and data will be erased.
+        </p>
+        <button className="btn-danger" onClick={handleDeleteAccount}>
+          Delete Account
+        </button>
       </section>
     </div>
   );
