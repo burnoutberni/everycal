@@ -233,7 +233,7 @@ export function eventRoutes(db: DB): Hono {
   });
 
   // RSVP — set attendance status for any event (local or remote)
-  //   body: { eventUri: string, status: "going" | "maybe" | "interested" | null }
+  //   body: { eventUri: string, status: "going" | "maybe" | null }
   //   eventUri = local event ID for local events, or remote event URI for remote events
   //   status = null removes the RSVP
   router.post("/rsvp", requireAuth(), async (c) => {
@@ -253,8 +253,8 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ ok: true, status: null });
     }
 
-    if (!["going", "maybe", "interested"].includes(body.status)) {
-      return c.json({ error: "status must be going, maybe, interested, or null" }, 400);
+    if (!["going", "maybe"].includes(body.status)) {
+      return c.json({ error: "status must be going, maybe, or null" }, 400);
     }
 
     // Verify the event exists (local or remote)

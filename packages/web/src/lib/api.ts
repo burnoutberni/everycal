@@ -155,7 +155,7 @@ export interface CalEvent {
   url: string | null;
   tags: string[];
   visibility: string;
-  rsvpStatus?: "going" | "maybe" | "interested" | null;
+  rsvpStatus?: "going" | "maybe" | null;
   reposted?: boolean;
   repostedBy?: { username: string; displayName: string | null };
   createdAt: string;
@@ -220,7 +220,7 @@ export const events = {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "DELETE" });
   },
 
-  rsvp(eventUri: string, status: "going" | "maybe" | "interested" | null) {
+  rsvp(eventUri: string, status: "going" | "maybe" | null) {
     return request<{ ok: boolean; status: string | null }>("/events/rsvp", {
       method: "POST",
       body: JSON.stringify({ eventUri, status }),

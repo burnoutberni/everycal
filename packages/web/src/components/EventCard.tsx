@@ -4,12 +4,11 @@ import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath } from "../lib/urls";
 
-type RsvpStatus = "going" | "maybe" | "interested" | null;
+type RsvpStatus = "going" | "maybe" | null;
 
 const RSVP_OPTIONS: { value: RsvpStatus; label: string; icon: string }[] = [
   { value: "going", label: "Going", icon: "✓" },
   { value: "maybe", label: "Maybe", icon: "?" },
-  { value: "interested", label: "Interested", icon: "☆" },
 ];
 
 export function EventCard({
@@ -121,12 +120,12 @@ export function EventCard({
                 className="tag"
                 style={{
                   fontSize: "0.7rem",
-                  background: rsvp === "going" ? "var(--success)" : rsvp === "maybe" ? "var(--accent)" : "var(--bg-hover)",
-                  color: rsvp === "going" || rsvp === "maybe" ? "#000" : "var(--text-muted)",
+                  background: rsvp === "going" ? "var(--success)" : "var(--accent)",
+                  color: "#000",
                   borderColor: "transparent",
                 }}
               >
-                {rsvp === "going" ? "✓ Going" : rsvp === "maybe" ? "? Maybe" : "☆ Interested"}
+                {rsvp === "going" ? "✓ Going" : "? Maybe"}
               </span>
             )}
             {event.visibility !== "public" && (

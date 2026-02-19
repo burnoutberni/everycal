@@ -166,7 +166,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS event_rsvps (
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       event_uri TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('going','maybe','interested')),
+      status TEXT NOT NULL CHECK(status IN ('going','maybe')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (account_id, event_uri)
     );
@@ -260,6 +260,53 @@ export function initDatabase(path: string): DB {
     db.exec("CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix)");
   } catch {
     // Index already exists
+  }
+
+  // Migration: remove "interested" from event_rsvps (recreate table with new CHECK constraint)
+  const rsvpTable = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='event_rsvps'"
+  ).get() as { sql: string } | undefined;
+  const rsvpNewTable = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_rsvps_new'"
+  ).get();
+
+  if (rsvpNewTable) {
+    // Recovery: previous migration failed partway; event_rsvps_new exists, event_rsvps was dropped
+    db.exec("BEGIN");
+    try {
+      db.exec(`
+        ALTER TABLE event_rsvps_new RENAME TO event_rsvps;
+        CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
+        CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
+      `);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  } else if (rsvpTable?.sql?.includes("'interested'")) {
+    db.exec("BEGIN");
+    try {
+      db.exec(`
+        DELETE FROM event_rsvps WHERE status = 'interested';
+        CREATE TABLE event_rsvps_new (
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          event_uri TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('going','maybe')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (account_id, event_uri)
+        );
+        INSERT INTO event_rsvps_new SELECT * FROM event_rsvps;
+        DROP TABLE event_rsvps;
+        ALTER TABLE event_rsvps_new RENAME TO event_rsvps;
+        CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
+        CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
+      `);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
   }
 
   return db;
