@@ -40,10 +40,51 @@ export function userRoutes(db: DB): Hono {
     return c.json({ users: rows.map(formatUser) });
   });
 
-  // Get user profile
+  // Get user profile (local or remote)
   router.get("/:username", (c) => {
     const username = c.req.param("username");
     const currentUser = c.get("user");
+
+    // Remote profile: username@domain format
+    const atIdx = username.indexOf("@");
+    if (atIdx > 0 && atIdx < username.length - 1) {
+      const parts = username.split("@");
+      const localPart = parts[0];
+      const domain = parts.slice(1).join("@");
+      if (localPart && domain) {
+        const remoteRow = db
+          .prepare(
+            `SELECT uri, preferred_username, display_name, summary, icon_url, image_url, domain
+             FROM remote_actors WHERE preferred_username = ? AND domain = ?`
+          )
+          .get(localPart, domain) as Record<string, unknown> | undefined;
+
+        if (!remoteRow) return c.json({ error: "User not found" }, 404);
+
+        const following = currentUser
+          ? db
+              .prepare("SELECT 1 FROM remote_following WHERE account_id = ? AND actor_uri = ?")
+              .get(currentUser.id, remoteRow.uri)
+          : null;
+
+        return c.json({
+          id: remoteRow.uri,
+          username: username,
+          displayName: remoteRow.display_name,
+          bio: remoteRow.summary,
+          avatarUrl: remoteRow.icon_url,
+          website: null,
+          isBot: false,
+          discoverable: true,
+          followersCount: 0,
+          followingCount: 0,
+          following: !!following,
+          autoReposting: false,
+          source: "remote",
+          domain: remoteRow.domain,
+        });
+      }
+    }
 
     const row = db
       .prepare(
@@ -74,7 +115,7 @@ export function userRoutes(db: DB): Hono {
     return c.json(result);
   });
 
-  // Get user's events (own + reposted + auto-reposted)
+  // Get user's events (own + reposted + auto-reposted) or remote actor's events
   router.get("/:username/events", (c) => {
     const username = c.req.param("username");
     const currentUser = c.get("user");
@@ -83,6 +124,46 @@ export function userRoutes(db: DB): Hono {
     const sort = c.req.query("sort")?.toLowerCase() === "desc" ? "DESC" : "ASC";
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
+
+    // Remote profile: username@domain format
+    const atIdx = username.indexOf("@");
+    if (atIdx > 0 && atIdx < username.length - 1) {
+      const parts = username.split("@");
+      const localPart = parts[0];
+      const domain = parts.slice(1).join("@");
+      if (localPart && domain) {
+        const remoteActor = db
+          .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .get(localPart, domain) as { uri: string } | undefined;
+        if (!remoteActor) return c.json({ error: "User not found" }, 404);
+
+        let sql = `
+          SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
+                 ra.domain, ra.icon_url AS actor_icon_url
+          FROM remote_events re
+          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
+          WHERE re.actor_uri = ?
+        `;
+        const params: unknown[] = [remoteActor.uri];
+        if (from) { sql += " AND re.start_date >= ?"; params.push(from); }
+        if (to) { sql += " AND re.start_date <= ?"; params.push(to); }
+        sql += ` ORDER BY re.start_date ${sort} LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
+
+        const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+        let events = rows.map(formatRemoteEventForUser);
+        if (currentUser && events.length > 0) {
+          const uris = events.map((e) => e.id as string);
+          const placeholders = uris.map(() => "?").join(",");
+          const rsvpRows = db
+            .prepare(`SELECT event_uri, status FROM event_rsvps WHERE account_id = ? AND event_uri IN (${placeholders})`)
+            .all(currentUser.id, ...uris) as { event_uri: string; status: string }[];
+          const rsvpMap = new Map(rsvpRows.map((r) => [r.event_uri, r.status]));
+          events = events.map((e) => ({ ...e, rsvpStatus: rsvpMap.get(e.id as string) || null }));
+        }
+        return c.json({ events });
+      }
+    }
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -284,6 +365,43 @@ export function userRoutes(db: DB): Hono {
   });
 
   return router;
+}
+
+function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: row.uri,
+    source: "remote",
+    actorUri: row.actor_uri,
+    account: row.preferred_username
+      ? {
+          username: `${row.preferred_username}@${row.domain}`,
+          displayName: row.actor_display_name,
+          domain: row.domain,
+          iconUrl: row.actor_icon_url,
+        }
+      : null,
+    title: row.title,
+    description: row.description,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    allDay: false,
+    location: row.location_name
+      ? {
+          name: row.location_name,
+          address: row.location_address,
+          latitude: row.location_latitude,
+          longitude: row.location_longitude,
+        }
+      : null,
+    image: row.image_url
+      ? { url: row.image_url, mediaType: row.image_media_type, alt: row.image_alt }
+      : null,
+    url: row.url,
+    tags: row.tags ? (row.tags as string).split(",") : [],
+    visibility: "public",
+    createdAt: row.published,
+    updatedAt: row.updated,
+  };
 }
 
 function formatUser(row: Record<string, unknown>): Record<string, unknown> {

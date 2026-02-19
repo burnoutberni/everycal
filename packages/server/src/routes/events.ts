@@ -613,7 +613,26 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
     const currentUser = c.get("user");
 
-    const row = db
+    // For remote events, id may be URL-encoded URI or base64url-encoded
+    let eventUri = id;
+    if (id.startsWith("http")) {
+      eventUri = id;
+    } else {
+      try {
+        const decoded = decodeURIComponent(id);
+        if (decoded.startsWith("http")) eventUri = decoded;
+      } catch {
+        // try base64url
+        try {
+          const decoded = Buffer.from(id.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
+          if (decoded.startsWith("http")) eventUri = decoded;
+        } catch {
+          // use as-is
+        }
+      }
+    }
+
+    let row = db
       .prepare(
         `SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
                 GROUP_CONCAT(t.tag) AS tags
@@ -624,6 +643,29 @@ export function eventRoutes(db: DB): Hono {
          GROUP BY e.id`
       )
       .get(id) as Record<string, unknown> | undefined;
+
+    // If not found locally and id looks like a URL, try remote_events
+    if (!row && (eventUri.startsWith("http://") || eventUri.startsWith("https://"))) {
+      const remoteRow = db
+        .prepare(
+          `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
+                  ra.domain, ra.icon_url AS actor_icon_url
+           FROM remote_events re
+           LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
+           WHERE re.uri = ?`
+        )
+        .get(eventUri) as Record<string, unknown> | undefined;
+
+      if (remoteRow) {
+        const event = formatRemoteEvent(remoteRow);
+        if (currentUser) {
+          const rsvpRow = db.prepare("SELECT status FROM event_rsvps WHERE account_id = ? AND event_uri = ?")
+            .get(currentUser.id, eventUri) as { status: string } | undefined;
+          (event as Record<string, unknown>).rsvpStatus = rsvpRow?.status || null;
+        }
+        return c.json(event);
+      }
+    }
 
     if (!row) return c.json({ error: "Not found" }, 404);
 

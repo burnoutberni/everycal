@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import DOMPurify from "dompurify";
+import { Link } from "wouter";
 import { federation, type RemoteActor } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
+import { remoteProfilePath } from "../lib/urls";
 
 export function FederationPage() {
   const { user } = useAuth();
@@ -66,11 +68,18 @@ export function FederationPage() {
   const handleFollow = async (actorUri: string) => {
     if (!user) return;
     setFollowing(true);
+    setError(null);
     try {
-      await federation.follow(actorUri);
-      // Also import events
+      const followRes = await federation.follow(actorUri);
+      if (!followRes.delivered) {
+        setError(
+          "Follow request was sent but the remote server did not accept it. " +
+            "This often happens when following from localhost. You can still import events below."
+        );
+      }
+      // Import events (works regardless of follow success)
       await federation.fetchActor(actorUri);
-      // Refresh followed list
+      // Refresh followed list — only includes actors the server actually follows
       const res = await federation.followedActors();
       setFollowedActors(res.actors.map((a) => ({ ...a, followed: true })));
     } catch (err: unknown) {
@@ -116,7 +125,9 @@ export function FederationPage() {
       {/* Search result */}
       {actor && (
         <div className="card mb-2">
-          <ActorCard actor={actor} />
+          <Link href={remoteProfilePath(actor.username, actor.domain)} style={{ textDecoration: "none", color: "inherit" }}>
+            <ActorCard actor={actor} />
+          </Link>
           <div className="flex items-center gap-1" style={{ marginTop: "0.75rem" }}>
             {user && !isFollowed(actor.uri) && (
               <button
@@ -154,7 +165,9 @@ export function FederationPage() {
             {followedActors.map((a) => (
               <div key={a.uri} className="card">
                 <div className="flex items-center justify-between">
-                  <ActorCard actor={a} compact />
+                  <Link href={remoteProfilePath(a.username, a.domain)} style={{ textDecoration: "none", color: "inherit" }}>
+                    <ActorCard actor={a} compact />
+                  </Link>
                   <div className="flex gap-1">
                     <button
                       className="btn-ghost btn-sm"
@@ -191,7 +204,9 @@ export function FederationPage() {
               .map((a) => (
                 <div key={a.uri} className="card">
                   <div className="flex items-center justify-between">
-                    <ActorCard actor={a} compact />
+                    <Link href={remoteProfilePath(a.username, a.domain)} style={{ textDecoration: "none", color: "inherit" }}>
+                      <ActorCard actor={a} compact />
+                    </Link>
                     <div className="flex gap-1">
                       {user && (
                         <button

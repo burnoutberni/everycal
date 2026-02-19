@@ -105,11 +105,54 @@ export function federationRoutes(db: DB): Hono {
       let imported = 0;
 
       for (const item of items) {
-        const activity = item as Record<string, unknown>;
-        const object = activity.object as Record<string, unknown>;
-        if (!object || object.type !== "Event") continue;
+        // Outbox items may be full activities or URL references — resolve if needed
+        let activity = item as Record<string, unknown>;
+        if (typeof item === "string") {
+          try {
+            activity = (await fetchAP(item)) as Record<string, unknown>;
+          } catch (err) {
+            console.warn(`Failed to fetch outbox item ${item}:`, err);
+            continue;
+          }
+        }
 
-        storeRemoteEvent(db, object, actor.uri);
+        const activityType = activity.type as string;
+
+        // Create = actor created the event; Announce = actor reposted/boosted the event
+        if (activityType !== "Create" && activityType !== "Announce") continue;
+
+        let object = activity.object;
+        if (!object) continue;
+
+        // Object may be a URL (reference) or minimal {id, type} — fetch full object if needed
+        if (typeof object === "string") {
+          try {
+            object = await fetchAP(object);
+          } catch (err) {
+            console.warn(`Failed to fetch event object ${object}:`, err);
+            continue;
+          }
+        }
+
+        const obj = object as Record<string, unknown>;
+        if (obj.type !== "Event") continue;
+
+        // If object is a minimal reference (has id but missing name/startTime), fetch full object
+        if (obj.id && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
+          try {
+            object = await fetchAP(obj.id as string);
+          } catch (err) {
+            console.warn(`Failed to fetch event ${obj.id}:`, err);
+            continue;
+          }
+        }
+
+        const fullObj = object as Record<string, unknown>;
+        const title = fullObj.name ?? fullObj.title;
+        const startTime = fullObj.startTime ?? fullObj.startDate;
+        if (!title || !startTime) continue;
+
+        storeRemoteEvent(db, fullObj, actor.uri);
         imported++;
       }
 
@@ -163,11 +206,13 @@ export function federationRoutes(db: DB): Hono {
       `${ourActorUrl}#main-key`
     );
 
-    // Store in a remote_following table (we track who we follow remotely)
-    db.prepare(
-      `INSERT OR REPLACE INTO remote_following (account_id, actor_uri, actor_inbox)
-       VALUES (?, ?, ?)`
-    ).run(user.id, actorUri, actor.inbox);
+    // Only store as followed if the remote server accepted the Follow
+    if (delivered) {
+      db.prepare(
+        `INSERT OR REPLACE INTO remote_following (account_id, actor_uri, actor_inbox)
+         VALUES (?, ?, ?)`
+      ).run(user.id, actorUri, actor.inbox);
+    }
 
     return c.json({ ok: true, delivered });
   });
@@ -356,8 +401,13 @@ function storeRemoteEvent(
     .filter(Boolean)
     .join(",");
 
-  // Sanitize content from remote servers
-  const title = typeof object.name === "string" ? stripHtml(object.name) : "";
+  // Sanitize content from remote servers (support both ActivityStreams and Schema.org property names)
+  const title =
+    typeof object.name === "string"
+      ? stripHtml(object.name)
+      : typeof object.title === "string"
+        ? stripHtml(object.title)
+        : "";
   const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
 
   const loc = object.location as Record<string, unknown> | undefined;
@@ -403,8 +453,8 @@ function storeRemoteEvent(
     actorUri,
     title,
     description,
-    object.startTime as string,
-    (object.endTime as string) || null,
+    (object.startTime ?? object.startDate) as string,
+    ((object.endTime ?? object.endDate) as string) || null,
     loc?.name ? stripHtml(loc.name as string) : null,
     locationAddress,
     (loc?.latitude as number) ?? null,

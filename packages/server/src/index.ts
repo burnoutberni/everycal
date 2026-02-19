@@ -19,7 +19,7 @@ import { feedRoutes } from "./routes/feeds.js";
 import { userRoutes } from "./routes/users.js";
 import { uploadRoutes } from "./routes/uploads.js";
 import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
-import { activityPubRoutes, sharedInboxRoute } from "./routes/activitypub.js";
+import { activityPubRoutes, activityPubEventRoutes, sharedInboxRoute } from "./routes/activitypub.js";
 import { federationRoutes } from "./routes/federation-api.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 
@@ -110,6 +110,9 @@ app.route("/nodeinfo", nodeInfoRoutes(db));
 
 // ActivityPub actor routes (must handle content negotiation)
 app.route("/users", activityPubRoutes(db));
+
+// ActivityPub event objects (for federation — /events/:id)
+app.route("/events", activityPubEventRoutes(db));
 
 // Shared inbox for federation
 app.route("/", sharedInboxRoute(db));

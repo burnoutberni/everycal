@@ -2,10 +2,11 @@
  * ActivityPub routes — actor profiles, inbox, outbox, followers, following.
  *
  * GET  /users/:username           — Actor profile (with content negotiation)
- * GET  /users/:username/outbox    — OrderedCollection of Create(Event) activities
+ * GET  /users/:username/outbox    — OrderedCollection of Create(Event) + Announce activities
  * GET  /users/:username/followers — OrderedCollection of followers
  * GET  /users/:username/following — OrderedCollection of following
  * POST /users/:username/inbox     — Receive activities (Follow, Undo, Create, etc.)
+ * GET  /events/:id                — Event object (for federation, Accept: application/activity+json)
  */
 
 import { Hono } from "hono";
@@ -135,21 +136,28 @@ export function activityPubRoutes(db: DB): Hono {
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: "Not found" }, 404);
 
-    // Count public events
-    const countRow = db
-      .prepare(
-        "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility = 'public'"
-      )
-      .get(account.id) as { cnt: number };
+    // Count: owned public events + reposts
+    const ownedCount = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility = 'public'"
+        )
+        .get(account.id) as { cnt: number }
+    ).cnt;
+    const repostCount = (
+      db
+        .prepare("SELECT COUNT(*) AS cnt FROM reposts WHERE account_id = ?")
+        .get(account.id) as { cnt: number }
+    ).cnt;
+    const totalItems = ownedCount + repostCount;
 
     if (!page) {
-      // Return collection overview
       return c.json(
         {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: `${actorUrl}/outbox`,
           type: "OrderedCollection",
-          totalItems: countRow.cnt,
+          totalItems,
           first: `${actorUrl}/outbox?page=1`,
         },
         200,
@@ -157,31 +165,61 @@ export function activityPubRoutes(db: DB): Hono {
       );
     }
 
-    // Paginated items
-    const pageNum = parseInt(page, 10) || 1;
-    const limit = 20;
-    const offset = (pageNum - 1) * limit;
-
-    const rows = db
+    // Build activities: Create for owned events, Announce for reposts
+    const ownedRows = db
       .prepare(
         `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
          FROM events e
          LEFT JOIN event_tags t ON t.event_id = e.id
          WHERE e.account_id = ? AND e.visibility = 'public'
-         GROUP BY e.id
-         ORDER BY e.start_date DESC
-         LIMIT ? OFFSET ?`
+         GROUP BY e.id`
       )
-      .all(account.id, limit, offset) as Record<string, unknown>[];
+      .all(account.id) as Record<string, unknown>[];
 
-    const orderedItems = rows.map((row) => ({
+    const repostRows = db
+      .prepare(
+        `SELECT r.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+         FROM reposts r
+         JOIN events e ON e.id = r.event_id
+         LEFT JOIN event_tags t ON t.event_id = e.id
+         WHERE r.account_id = ? AND e.visibility = 'public'
+         GROUP BY e.id`
+      )
+      .all(account.id) as Record<string, unknown>[];
+
+    const createItems = ownedRows.map((row) => ({
       type: "Create",
       actor: actorUrl,
       published: row.created_at,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: rowToAPEvent(row, actorUrl, baseUrl),
+      _sort: row.start_date as string,
     }));
+
+    const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
+    const announceItems = repostRows.map((row) => ({
+      type: "Announce",
+      actor: actorUrl,
+      published: row.reposted_at,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [`${actorUrl}/followers`],
+      object: eventUrl(row.id as string),
+      _sort: row.start_date as string,
+    }));
+
+    // Merge and sort by event start date (desc = newest first)
+    const allItems = [...createItems, ...announceItems].sort((a, b) =>
+      (b._sort || "").localeCompare(a._sort || "")
+    );
+
+    // Paginate
+    const pageNum = parseInt(page, 10) || 1;
+    const limit = 20;
+    const offset = (pageNum - 1) * limit;
+    const pageItems = allItems.slice(offset, offset + limit);
+
+    const orderedItems = pageItems.map(({ _sort, ...item }) => item);
 
     const result: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -191,7 +229,7 @@ export function activityPubRoutes(db: DB): Hono {
       orderedItems,
     };
 
-    if (rows.length === limit) {
+    if (pageItems.length === limit) {
       result.next = `${actorUrl}/outbox?page=${pageNum + 1}`;
     }
 
@@ -707,4 +745,41 @@ async function verifyInboxSignature(
     console.error(`  ❌ Signature verification error:`, err);
     return false;
   }
+}
+
+/** ActivityPub event object route — GET /events/:id serves Event JSON for federation. */
+export function activityPubEventRoutes(db: DB): Hono {
+  const router = new Hono();
+
+  router.get("/:id", (c) => {
+    const id = c.req.param("id");
+    const accept = c.req.header("accept") || "";
+
+    if (!isAPRequest(accept)) {
+      return c.json({ error: "Request with Accept: application/activity+json" }, 406);
+    }
+
+    const row = db
+      .prepare(
+        `SELECT e.*, a.username, GROUP_CONCAT(t.tag) AS tags
+         FROM events e
+         JOIN accounts a ON a.id = e.account_id
+         LEFT JOIN event_tags t ON t.event_id = e.id
+         WHERE e.id = ? AND e.visibility = 'public'
+         GROUP BY e.id`
+      )
+      .get(id) as Record<string, unknown> | undefined;
+
+    if (!row) return c.json({ error: "Not found" }, 404);
+
+    const baseUrl = getBaseUrl();
+    const actorUrl = `${baseUrl}/users/${row.username}`;
+    const event = rowToAPEvent(row, actorUrl, baseUrl);
+
+    return c.json(event, 200, {
+      "Content-Type": "application/activity+json; charset=utf-8",
+    });
+  });
+
+  return router;
 }

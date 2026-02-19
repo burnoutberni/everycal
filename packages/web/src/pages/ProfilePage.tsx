@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { users as usersApi, type User, type CalEvent } from "../lib/api";
+import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
 import { EventCard } from "../components/EventCard";
 import { useAuth } from "../hooks/useAuth";
 
@@ -62,18 +62,29 @@ export function ProfilePage({ username }: { username: string }) {
     loadProfile();
   }, [username]);
 
+  const isRemote = profile?.source === "remote";
+
   const handleFollow = async () => {
     if (!profile) return;
-    if (profile.following) {
-      await usersApi.unfollow(username);
+    if (isRemote) {
+      if (profile.following) {
+        await federation.unfollow(profile.id);
+      } else {
+        await federation.follow(profile.id);
+        await federation.fetchActor(profile.id);
+      }
     } else {
-      await usersApi.follow(username);
+      if (profile.following) {
+        await usersApi.unfollow(username);
+      } else {
+        await usersApi.follow(username);
+      }
     }
     loadProfile();
   };
 
   const handleAutoRepost = async () => {
-    if (!profile) return;
+    if (!profile || isRemote) return;
     if (profile.autoReposting) {
       await usersApi.removeAutoRepost(username);
     } else {
@@ -150,16 +161,18 @@ export function ProfilePage({ username }: { username: string }) {
               >
                 {profile.following ? "Unfollow" : "Follow"}
               </button>
-              <button
-                className={profile.autoReposting ? "btn-ghost btn-sm" : "btn-ghost btn-sm"}
-                onClick={handleAutoRepost}
-                title={profile.autoReposting
-                  ? "Stop auto-reposting all events from this account"
-                  : "Automatically repost all events from this account onto your feed"}
-                style={profile.autoReposting ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
-              >
-                🔁 {profile.autoReposting ? "Auto-reposting" : "Auto-repost"}
-              </button>
+              {!isRemote && (
+                <button
+                  className={profile.autoReposting ? "btn-ghost btn-sm" : "btn-ghost btn-sm"}
+                  onClick={handleAutoRepost}
+                  title={profile.autoReposting
+                    ? "Stop auto-reposting all events from this account"
+                    : "Automatically repost all events from this account onto your feed"}
+                  style={profile.autoReposting ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
+                >
+                  🔁 {profile.autoReposting ? "Auto-reposting" : "Auto-repost"}
+                </button>
+              )}
             </div>
           )}
         </div>

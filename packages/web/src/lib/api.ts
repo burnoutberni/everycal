@@ -75,6 +75,8 @@ export interface User {
   following?: boolean;
   autoReposting?: boolean;
   createdAt?: string;
+  source?: "local" | "remote";
+  domain?: string;
 }
 
 export interface AuthResponse {
@@ -185,7 +187,7 @@ export const events = {
   },
 
   get(id: string) {
-    return request<CalEvent>(`/events/${id}`);
+    return request<CalEvent>(`/events/${encodeURIComponent(id)}`);
   },
 
   getBySlug(username: string, slug: string) {

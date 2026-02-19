@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
-import { eventPath, profilePath } from "../lib/urls";
+import { eventPath, profilePath, decodeRemoteEventId } from "../lib/urls";
 
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { user } = useAuth();
@@ -15,12 +15,23 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     setLoading(true);
     setError("");
 
-    const promise =
-      username && slug
-        ? eventsApi.getBySlug(username, slug)
-        : id
-          ? eventsApi.get(id)
-          : Promise.reject(new Error("No event identifier"));
+    let promise: Promise<CalEvent>;
+    if (username && slug) {
+      if (username.includes("@")) {
+        try {
+          const eventUri = decodeRemoteEventId(slug);
+          promise = eventsApi.get(eventUri);
+        } catch {
+          promise = Promise.reject(new Error("Invalid event"));
+        }
+      } else {
+        promise = eventsApi.getBySlug(username, slug);
+      }
+    } else if (id) {
+      promise = eventsApi.get(id);
+    } else {
+      promise = Promise.reject(new Error("No event identifier"));
+    }
 
     promise
       .then(setEvent)
@@ -133,7 +144,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       {event.url && (
         <p className="mt-2">
           <a href={event.url} target="_blank" rel="noopener noreferrer">
-            🔗 {event.url}
+            🔗 {event.source === "remote" ? "View on original site" : event.url}
           </a>
         </p>
       )}

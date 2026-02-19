@@ -192,13 +192,5 @@ export function EventCard({
     </article>
   );
 
-  if (isRemote && event.url) {
-    return (
-      <a href={event.url} target="_blank" rel="noopener noreferrer">
-        {cardContent}
-      </a>
-    );
-  }
-
   return <Link href={eventPath(event)}>{cardContent}</Link>;
 }
