@@ -18,6 +18,7 @@ import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { deliverToFollowers } from "../lib/federation.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
+import { buildFeedQuery } from "../lib/feed-query.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 
 /** Generate a URL-safe slug from a title. */
@@ -77,19 +78,20 @@ export function eventRoutes(db: DB): Hono {
   // List public events, optionally filtered by account, date range, source, and scope.
   //
   //   source = "local" | "remote" | undefined (both)
-  //   scope  = "all" (default) | "mine" (requires auth — own + followed + RSVP'd)
+  //   scope  = "all" (default) | "mine" (own + followed + RSVP'd) | "calendar" (only going/maybe)
   router.get("/", (c) => {
     const account = c.req.query("account");
     const from = c.req.query("from");
     const to = c.req.query("to");
     const q = c.req.query("q");
     const source = c.req.query("source");
-    const scope = c.req.query("scope"); // "mine" or undefined (all)
+    const scope = c.req.query("scope"); // "mine" | "calendar" | undefined (all)
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
+    const isCalendarScope = scope === "calendar" && !!user;
 
     const localEvents: Record<string, unknown>[] = [];
     const remoteEvents: Record<string, unknown>[] = [];
@@ -105,42 +107,44 @@ export function eventRoutes(db: DB): Hono {
       `;
       const params: unknown[] = [];
 
-      if (isMineScope) {
-        // Own events + local follows + events I've RSVP'd to
+      if (isCalendarScope) {
+        // Only events I've said Going or Maybe to
         sql += `
-          WHERE (
-            (e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private'))
-            OR
-            (e.account_id IN (SELECT following_id FROM follows WHERE follower_id = ?)
-             AND e.visibility IN ('public','unlisted','followers_only'))
-            OR
-            (e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
-             AND e.visibility IN ('public','unlisted'))
+          WHERE e.id IN (
+            SELECT event_uri FROM event_rsvps
+            WHERE account_id = ? AND status IN ('going','maybe')
           )
+          AND e.visibility IN ('public','unlisted')
         `;
-        params.push(user!.id, user!.id, user!.id);
+        params.push(user!.id);
+      } else if (isMineScope) {
+        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const feed = buildFeedQuery({ userId: user!.id, baseUrl });
+        sql = feed.sql;
+        params.push(...feed.params);
       } else {
         sql += ` WHERE e.visibility = 'public'`;
       }
 
+      const tablePrefix = isMineScope ? "combined" : "e";
       if (account) {
         sql += ` AND a.username = ?`;
         params.push(account);
       }
       if (from) {
-        sql += ` AND e.start_date >= ?`;
+        sql += ` AND ${tablePrefix}.start_date >= ?`;
         params.push(from);
       }
       if (to) {
-        sql += ` AND e.start_date <= ?`;
+        sql += ` AND ${tablePrefix}.start_date <= ?`;
         params.push(to);
       }
       if (q) {
-        sql += ` AND (e.title LIKE ? OR e.description LIKE ?)`;
+        sql += ` AND (${tablePrefix}.title LIKE ? OR ${tablePrefix}.description LIKE ?)`;
         params.push(`%${q}%`, `%${q}%`);
       }
 
-      sql += ` GROUP BY e.id ORDER BY e.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` GROUP BY ${tablePrefix}.id ORDER BY ${tablePrefix}.start_date ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -158,7 +162,14 @@ export function eventRoutes(db: DB): Hono {
       `;
       const params: unknown[] = [];
 
-      if (isMineScope) {
+      if (isCalendarScope) {
+        // Only remote events I've said Going or Maybe to
+        sql += ` AND re.uri IN (
+          SELECT event_uri FROM event_rsvps
+          WHERE account_id = ? AND status IN ('going','maybe')
+        )`;
+        params.push(user!.id);
+      } else if (isMineScope) {
         // Remote events from actors we follow OR events we've RSVP'd to
         sql += ` AND (
           re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
@@ -276,28 +287,17 @@ export function eventRoutes(db: DB): Hono {
     const localEvents: Record<string, unknown>[] = [];
     const remoteEvents: Record<string, unknown>[] = [];
 
-    // Local: own events + local follows + RSVP'd
+    // Local: same feed structure as main events list (uses buildFeedQuery with dateFrom)
     {
-      let sql = `
-        SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
-               GROUP_CONCAT(DISTINCT t.tag) AS tags
-        FROM events e
-        JOIN accounts a ON a.id = e.account_id
-        LEFT JOIN event_tags t ON t.event_id = e.id
-        WHERE e.start_date >= ?
-          AND (
-            (e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private'))
-            OR
-            (e.account_id IN (SELECT following_id FROM follows WHERE follower_id = ?)
-             AND e.visibility IN ('public','unlisted','followers_only'))
-            OR
-            (e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
-             AND e.visibility IN ('public','unlisted'))
-          )
-      `;
-      const params: unknown[] = [from, user.id, user.id, user.id];
-      if (to) { sql += ` AND e.start_date <= ?`; params.push(to); }
-      sql += ` GROUP BY e.id ORDER BY e.start_date ASC LIMIT ? OFFSET ?`;
+      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const feed = buildFeedQuery({ userId: user.id, baseUrl, dateFrom: from });
+      let sql = feed.sql;
+      const params: unknown[] = [...feed.params];
+      if (to) {
+        sql += ` AND combined.start_date <= ?`;
+        params.push(to);
+      }
+      sql += ` GROUP BY combined.id ORDER BY combined.start_date ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];

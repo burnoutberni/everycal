@@ -7,7 +7,7 @@ import { Link } from "wouter";
 
 const PAGE_SIZE = 20;
 
-type ScopeFilter = "all" | "mine";
+type ScopeFilter = "all" | "feed" | "calendar";
 
 function startOfDay(d: Date): string {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
@@ -106,7 +106,8 @@ export function HomePage() {
           offset,
         };
         if (range.to) params.to = range.to;
-        if (scopeFilter === "mine") params.scope = "mine";
+        if (scopeFilter === "feed") params.scope = "mine";
+        if (scopeFilter === "calendar") params.scope = "calendar";
 
         const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
         if (append) {
@@ -129,9 +130,9 @@ export function HomePage() {
     fetchEvents(0, false);
   }, [fetchEvents]);
 
-  // Reset to "all" if the user logs out while on "mine"
+  // Reset to "all" if the user logs out while on a logged-in-only filter
   useEffect(() => {
-    if (!user && scopeFilter === "mine") setScopeFilter("all");
+    if (!user && scopeFilter !== "all") setScopeFilter("all");
   }, [user, scopeFilter]);
 
   const loadMore = () => fetchEvents(events.length, true);
@@ -183,13 +184,22 @@ export function HomePage() {
             All Events
           </button>
           {user ? (
-            <button
-              onClick={() => setScopeFilter("mine")}
-              className={scopeFilter === "mine" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-              style={{ marginBottom: "0.3rem" }}
-            >
-              My Events
-            </button>
+            <>
+              <button
+                onClick={() => setScopeFilter("feed")}
+                className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
+              >
+                From accounts I follow
+              </button>
+              <button
+                onClick={() => setScopeFilter("calendar")}
+                className={scopeFilter === "calendar" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                style={{ marginBottom: "0.3rem" }}
+              >
+                My Calendar
+              </button>
+            </>
           ) : (
             <span className="text-sm text-dim" style={{ display: "inline-block", marginTop: "0.2rem" }}>
               <Link href="/login" style={{ color: "var(--accent)" }}>Log in</Link> to see your events
@@ -242,7 +252,7 @@ export function HomePage() {
         {/* Mobile: inline calendar + scope */}
         <div className="show-mobile" style={{ marginBottom: "1rem" }}>
           <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={eventDates} />
-          <div className="flex gap-1 mt-1">
+          <div className="flex gap-1 mt-1 flex-wrap">
             <button
               onClick={() => setScopeFilter("all")}
               className={scopeFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
@@ -250,12 +260,20 @@ export function HomePage() {
               All Events
             </button>
             {user && (
-              <button
-                onClick={() => setScopeFilter("mine")}
-                className={scopeFilter === "mine" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-              >
-                My Events
-              </button>
+              <>
+                <button
+                  onClick={() => setScopeFilter("feed")}
+                  className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                >
+                  From accounts I follow
+                </button>
+                <button
+                  onClick={() => setScopeFilter("calendar")}
+                  className={scopeFilter === "calendar" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                >
+                  My Calendar
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -267,11 +285,13 @@ export function HomePage() {
           <div className="empty-state">
             <p>No events found.</p>
             <p className="text-sm text-dim mt-1">
-              {scopeFilter === "mine"
-                ? <>Mark events as Going or Maybe, or follow accounts on the <Link href="/federation">Federation</Link> page.</>
-                : rangeMode === "upcoming"
-                  ? "Try importing events from the Federation page, or create one!"
-                  : "Try a different date range."}
+              {scopeFilter === "feed"
+                ? <>Follow accounts on the <Link href="/federation">Federation</Link> page to see their events here.</>
+                : scopeFilter === "calendar"
+                  ? <>Mark events as Going or Maybe to add them to your calendar.</>
+                  : rangeMode === "upcoming"
+                    ? "Try importing events from the Federation page, or create one!"
+                    : "Try a different date range."}
             </p>
           </div>
         ) : (
