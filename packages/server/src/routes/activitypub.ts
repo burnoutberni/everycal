@@ -136,7 +136,7 @@ export function activityPubRoutes(db: DB): Hono {
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: "Not found" }, 404);
 
-    // Count: owned public events + reposts
+    // Count: owned public events + explicit reposts + auto-reposted events
     const ownedCount = (
       db
         .prepare(
@@ -146,10 +146,24 @@ export function activityPubRoutes(db: DB): Hono {
     ).cnt;
     const repostCount = (
       db
-        .prepare("SELECT COUNT(*) AS cnt FROM reposts WHERE account_id = ?")
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM reposts r
+           JOIN events e ON e.id = r.event_id
+           WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')`
+        )
         .get(account.id) as { cnt: number }
     ).cnt;
-    const totalItems = ownedCount + repostCount;
+    const autoRepostCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM auto_reposts ar
+           JOIN events e ON e.account_id = ar.source_account_id
+           WHERE ar.account_id = ? AND e.visibility = 'public'
+             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)`
+        )
+        .get(account.id, account.id) as { cnt: number }
+    ).cnt;
+    const totalItems = ownedCount + repostCount + autoRepostCount;
 
     if (!page) {
       return c.json(
@@ -182,10 +196,22 @@ export function activityPubRoutes(db: DB): Hono {
          FROM reposts r
          JOIN events e ON e.id = r.event_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE r.account_id = ? AND e.visibility = 'public'
+         WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
          GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
+
+    const autoRepostRows = db
+      .prepare(
+        `SELECT ar.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+         FROM auto_reposts ar
+         JOIN events e ON e.account_id = ar.source_account_id
+         LEFT JOIN event_tags t ON t.event_id = e.id
+         WHERE ar.account_id = ? AND e.visibility = 'public'
+           AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
+         GROUP BY e.id`
+      )
+      .all(account.id, account.id) as Record<string, unknown>[];
 
     const createItems = ownedRows.map((row) => ({
       type: "Create",
@@ -198,7 +224,16 @@ export function activityPubRoutes(db: DB): Hono {
     }));
 
     const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
-    const announceItems = repostRows.map((row) => ({
+    const repostAnnounceItems = repostRows.map((row) => ({
+      type: "Announce",
+      actor: actorUrl,
+      published: row.reposted_at,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [`${actorUrl}/followers`],
+      object: eventUrl(row.id as string),
+      _sort: row.start_date as string,
+    }));
+    const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
       type: "Announce",
       actor: actorUrl,
       published: row.reposted_at,
@@ -209,7 +244,7 @@ export function activityPubRoutes(db: DB): Hono {
     }));
 
     // Merge and sort by event start date (desc = newest first)
-    const allItems = [...createItems, ...announceItems].sort((a, b) =>
+    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort((a, b) =>
       (b._sort || "").localeCompare(a._sort || "")
     );
 
