@@ -1,6 +1,6 @@
 import { Link } from "wouter";
-import DOMPurify from "dompurify";
 import type { User } from "../lib/api";
+import { sanitizeHtml } from "../lib/sanitize";
 import type { RemoteActor } from "../lib/api";
 
 export type ProfileItem =
@@ -150,10 +150,7 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
               }}
               title={stripHtmlForDisplay(summary).slice(0, 200)}
               dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(summary.replace(/\n/g, "<br>"), {
-                  ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "br", "p", "span"],
-                  ALLOWED_ATTR: ["href", "rel", "target"],
-                }),
+                __html: sanitizeHtml(summary.replace(/\n/g, "<br>")),
               }}
             />
           )}

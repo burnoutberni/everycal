@@ -5,6 +5,7 @@
 import net from "node:net";
 import dns from "node:dns/promises";
 import sanitize from "sanitize-html";
+import { SAFE_HTML_TAGS, SAFE_HTML_ATTRS, SAFE_HTML_SCHEMES } from "@everycal/core";
 
 /**
  * Check if a hostname/IP belongs to a private, reserved, or internal network.
@@ -91,15 +92,9 @@ export function stripHtml(input: string): string {
  */
 export function sanitizeHtml(input: string): string {
   return sanitize(input, {
-    allowedTags: [
-      "p", "br", "b", "i", "em", "strong", "a", "ul", "ol", "li",
-      "blockquote", "code", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
-      "span", "div", "hr",
-    ],
-    allowedAttributes: {
-      a: ["href", "rel", "target"],
-    },
-    allowedSchemes: ["http", "https"],
+    allowedTags: [...SAFE_HTML_TAGS],
+    allowedAttributes: { ...SAFE_HTML_ATTRS },
+    allowedSchemes: [...SAFE_HTML_SCHEMES],
     transformTags: {
       a: sanitize.simpleTransform("a", {
         rel: "nofollow noopener noreferrer",

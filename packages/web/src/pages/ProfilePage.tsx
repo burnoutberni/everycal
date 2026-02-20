@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import DOMPurify from "dompurify";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
+import { sanitizeHtml } from "../lib/sanitize";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
 import { EventCard } from "../components/EventCard";
@@ -134,7 +134,7 @@ export function ProfilePage({ username }: { username: string }) {
     return () => {
       cancelled = true;
     };
-  }, [username, calendarMonthRange.from, calendarMonthRange.to]);
+  }, [username, calendarMonthRange.from, calendarMonthRange.to, currentUser?.id]);
 
   const fetchEvents = useCallback(
     async () => {
@@ -160,7 +160,7 @@ export function ProfilePage({ username }: { username: string }) {
         setEventsLoading(false);
       }
     },
-    [username, profile, range]
+    [username, profile, range, currentUser?.id]
   );
 
   useEffect(() => {
@@ -331,10 +331,7 @@ export function ProfilePage({ username }: { username: string }) {
                 <div
                   className="profile-bio mt-1"
                   dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(profile.bio.replace(/\n/g, "<br>"), {
-                      ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "br", "p", "span"],
-                      ALLOWED_ATTR: ["href", "rel", "target"],
-                    }),
+                    __html: sanitizeHtml(profile.bio.replace(/\n/g, "<br>")),
                   }}
                 />
               )}

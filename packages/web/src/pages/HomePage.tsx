@@ -142,7 +142,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(",")]);
+  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id]);
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
@@ -173,7 +173,7 @@ export function HomePage() {
         setLoadingMore(false);
       }
     },
-    [range, scopeFilter, selectedTags.join(",")]
+    [range, scopeFilter, selectedTags.join(","), user?.id]
   );
 
   useEffect(() => {
@@ -200,7 +200,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to, scopeFilter]);
+  }, [range.from, range.to, scopeFilter, user?.id]);
 
   // Reset to "all" if the user logs out while on a logged-in-only filter
   useEffect(() => {

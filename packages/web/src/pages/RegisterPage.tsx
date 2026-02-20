@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
+import { CitySearch, type CitySelection } from "../components/CitySearch";
 
 export function RegisterPage() {
   const { user, register } = useAuth();
@@ -9,6 +10,7 @@ export function RegisterPage() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [city, setCity] = useState<CitySelection | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,9 +22,13 @@ export function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!city) {
+      setError("Please select your city");
+      return;
+    }
     setLoading(true);
     try {
-      await register(username, password, displayName || undefined);
+      await register(username, password, displayName || undefined, city.city, city.lat, city.lng);
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Registration failed");
@@ -70,6 +76,16 @@ export function RegisterPage() {
             minLength={8}
           />
           <p className="text-sm text-dim mt-1">At least 8 characters.</p>
+        </div>
+        <div className="field">
+          <label htmlFor="city">City *</label>
+          <CitySearch
+            id="city"
+            value={city}
+            onChange={setCity}
+            placeholder="Where are you based?"
+            required
+          />
         </div>
         {error && <p className="error-text mb-2">{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>

@@ -50,6 +50,8 @@ async function request<T>(
     headers,
     // Include cookies for session-based auth (HttpOnly cookie set by server)
     credentials: "include",
+    // Prevent stale cached responses (e.g. profile event count after creating an event)
+    cache: "no-store",
   });
 
   if (!res.ok) {
@@ -80,6 +82,9 @@ export interface User {
   website?: string | null;
   isBot?: boolean;
   discoverable?: boolean;
+  city?: string | null;
+  cityLat?: number | null;
+  cityLng?: number | null;
   followersCount?: number;
   followingCount?: number;
   eventsCount?: number;
@@ -96,10 +101,10 @@ export interface AuthResponse {
 }
 
 export const auth = {
-  register(username: string, password: string, displayName?: string) {
+  register(username: string, password: string, displayName?: string, city?: string, cityLat?: number, cityLng?: number) {
     return request<AuthResponse>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ username, password, displayName }),
+      body: JSON.stringify({ username, password, displayName, city, cityLat, cityLng }),
     });
   },
 
@@ -118,7 +123,7 @@ export const auth = {
     return request<User>("/auth/me");
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string; cityLat?: number; cityLng?: number }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -147,6 +152,32 @@ export const auth = {
   },
 };
 
+// ---- Saved Locations ----
+
+export interface SavedLocation {
+  id: number;
+  name: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  usedAt: string;
+}
+
+export const locations = {
+  list() {
+    return request<SavedLocation[]>("/locations");
+  },
+  save(loc: { name: string; address?: string; latitude?: number; longitude?: number }) {
+    return request<{ ok: boolean }>("/locations", {
+      method: "POST",
+      body: JSON.stringify(loc),
+    });
+  },
+  delete(id: number) {
+    return request<{ ok: boolean }>(`/locations/${id}`, { method: "DELETE" });
+  },
+};
+
 // ---- Events ----
 
 export interface CalEvent {
@@ -162,7 +193,7 @@ export interface CalEvent {
   endDate: string | null;
   allDay: boolean;
   location: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
-  image: { url: string; mediaType?: string; alt?: string } | null;
+  image: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution } | null;
   url: string | null;
   tags: string[];
   visibility: string;
@@ -180,7 +211,7 @@ export interface EventInput {
   endDate?: string;
   allDay?: boolean;
   location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
-  image?: { url: string; mediaType?: string; alt?: string };
+  image?: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution };
   url?: string;
   tags?: string[];
   visibility?: string;
@@ -325,6 +356,84 @@ export const uploads = {
       method: "POST",
       body: form,
     });
+  },
+};
+
+// ---- Image search (Unsplash / Openverse) ----
+
+export interface ImageSources {
+  sources: string[];
+  unsplashAvailable: boolean;
+}
+
+export interface ImageAttribution {
+  source: "unsplash" | "openverse";
+  title?: string;
+  sourceUrl?: string;
+  creator?: string;
+  creatorUrl?: string;
+  license?: string;
+  licenseUrl?: string;
+  attribution?: string;
+  downloadLocation?: string;
+}
+
+export interface ImageSearchResult {
+  url: string;
+  attribution?: ImageAttribution;
+}
+
+export const images = {
+  /** Get available image sources and Openverse license options. */
+  async getSources(): Promise<ImageSources | null> {
+    try {
+      const res = await fetch(apiUrl("/images/sources"), { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  /** Search for header images by query. Returns url + attribution for each result. */
+  async search(
+    query: string,
+    limit = 12,
+    page = 1,
+    options?: { source?: string }
+  ): Promise<{ results: ImageSearchResult[]; source?: string } | null> {
+    const q = encodeURIComponent(query.trim());
+    if (q.length < 2) return null;
+    const params = new URLSearchParams({
+      q,
+      limit: String(limit),
+      page: String(page),
+    });
+    if (options?.source) params.set("source", options.source);
+    try {
+      const res = await fetch(apiUrl(`/images/search?${params}`), {
+        credentials: "include",
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { results?: ImageSearchResult[]; source?: string };
+      return data.results?.length ? { results: data.results, source: data.source } : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /** Trigger Unsplash download tracking when user selects an image (per API guidelines). */
+  async triggerDownload(downloadLocation: string): Promise<void> {
+    try {
+      await fetch(apiUrl("/images/trigger-download"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ downloadLocation }),
+      });
+    } catch {
+      // Non-critical
+    }
   },
 };
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { auth as authApi } from "../lib/api";
 import { Link, useLocation } from "wouter";
+import { CitySearch, type CitySelection } from "../components/CitySearch";
 
 export function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -11,6 +12,7 @@ export function SettingsPage() {
   const [bio, setBio] = useState("");
   const [website, setWebsite] = useState("");
   const [discoverable, setDiscoverable] = useState(false);
+  const [city, setCity] = useState<CitySelection | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -26,6 +28,9 @@ export function SettingsPage() {
       setBio(u.bio || "");
       setWebsite(u.website || "");
       setDiscoverable(!!u.discoverable);
+      if (u.city && u.cityLat != null && u.cityLng != null) {
+        setCity({ city: u.city, lat: u.cityLat, lng: u.cityLng });
+      }
     });
     authApi.listApiKeys().then((r) => setKeys(r.keys));
   }, [user]);
@@ -45,7 +50,13 @@ export function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      await authApi.updateProfile({ displayName, bio, website, discoverable });
+      await authApi.updateProfile({
+        displayName,
+        bio,
+        website,
+        discoverable,
+        ...(city ? { city: city.city, cityLat: city.lat, cityLng: city.lng } : {}),
+      });
       await refreshUser();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -114,6 +125,15 @@ export function SettingsPage() {
             <input id="website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" />
           </div>
           <div className="field">
+            <label htmlFor="city">City</label>
+            <CitySearch
+              id="city"
+              value={city}
+              onChange={setCity}
+              placeholder="Where are you based?"
+            />
+          </div>
+          <div className="field">
             <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
               <input
                 type="checkbox"
@@ -126,7 +146,7 @@ export function SettingsPage() {
             <p className="text-sm text-dim" style={{ marginTop: "0.25rem" }}>
               {discoverable
                 ? "Your profile is visible on the Explore page. New events default to public."
-                : "Your profile is hidden from Explore. New events default to private."}
+                : "Your profile is hidden from Explore. New events default to only me."}
             </p>
           </div>
           <div className="flex items-center gap-1">

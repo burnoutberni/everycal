@@ -140,7 +140,9 @@ export function EventCard({
           </div>
           {event.visibility !== "public" && (
             <div className="flex items-center gap-1 mb-1">
-              <span className={`visibility-badge ${event.visibility}`}>{event.visibility}</span>
+              <span className={`visibility-badge ${event.visibility}`}>
+                {event.visibility === "followers_only" ? "followers only" : event.visibility === "private" ? "Only me" : event.visibility}
+              </span>
             </div>
           )}
 

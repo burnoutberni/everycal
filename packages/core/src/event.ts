@@ -30,6 +30,27 @@ export interface EventLocation {
   url?: string;
 }
 
+/** Attribution for externally sourced images (Unsplash, Openverse). */
+export interface ImageAttribution {
+  source: "unsplash" | "openverse";
+  /** Image title (e.g. Openverse title, or "Photo" for Unsplash) */
+  title?: string;
+  /** Link to image source (photo page, original landing page) */
+  sourceUrl?: string;
+  /** Photographer/creator name */
+  creator?: string;
+  /** Link to creator profile (with UTM for Unsplash) */
+  creatorUrl?: string;
+  /** License identifier (e.g. "cc0", "by") */
+  license?: string;
+  /** License URL */
+  licenseUrl?: string;
+  /** Full attribution text (Openverse provides this) */
+  attribution?: string;
+  /** Unsplash: trigger download tracking when user selects */
+  downloadLocation?: string;
+}
+
 /** An image attachment (header image, poster, etc.). */
 export interface EventImage {
   url: string;
@@ -37,6 +58,8 @@ export interface EventImage {
   alt?: string;
   width?: number;
   height?: number;
+  /** Attribution for Unsplash/Openverse images (required for proper crediting) */
+  attribution?: ImageAttribution;
 }
 
 /**

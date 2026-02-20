@@ -5,6 +5,11 @@
  * Full ActivityPub federation support.
  */
 
+import { config } from "dotenv";
+import { resolve } from "node:path";
+// Load .env from monorepo root (when running via pnpm dev) or server package dir
+config({ path: resolve(process.cwd(), "../../.env") });
+config();
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
@@ -22,6 +27,9 @@ import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
 import { activityPubRoutes, activityPubEventRoutes, sharedInboxRoute } from "./routes/activitypub.js";
 import { federationRoutes } from "./routes/federation-api.js";
 import { directoryRoutes } from "./routes/directory.js";
+import { locationRoutes } from "./routes/locations.js";
+import { imageRoutes } from "./routes/images.js";
+import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 
 const app = new Hono();
@@ -82,6 +90,12 @@ app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60 }));
 // Rate limiting on event creation/update (prevent spam)
 app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30 }));
 
+// Rate limiting on image search (proxy to external APIs)
+app.use("/api/v1/images/search", rateLimiter({ windowMs: 60_000, max: 60 }));
+
+// Rate limiting on uploads (prevent disk fill)
+app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30 }));
+
 // Rate limiting on ActivityPub inboxes (prevent federation abuse)
 app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
 app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
@@ -92,8 +106,8 @@ app.use("*", authMiddleware(db));
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
-// Static file serving for uploads — only serve image content types
-app.use("/uploads/*", serveStatic({ root: "./" }));
+// Serve uploads with on-the-fly re-encoding (strip metadata, compress, cap dimensions)
+app.route("/uploads", serveUploadsRoutes());
 
 // Auth
 app.route("/api/v1/auth", authRoutes(db));
@@ -104,6 +118,8 @@ app.route("/api/v1/feeds", feedRoutes(db));
 app.route("/api/v1/users", userRoutes(db));
 app.route("/api/v1", directoryRoutes(db));
 app.route("/api/v1/uploads", uploadRoutes());
+app.route("/api/v1/locations", locationRoutes(db));
+app.route("/api/v1/images", imageRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
 
 // ActivityPub / WebFinger / NodeInfo

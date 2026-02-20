@@ -12,11 +12,6 @@ const TILE_OPTIONS = {
   subdomains: "abcd",
 };
 
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-const NOMINATIM_HEADERS = {
-  "User-Agent": "EveryCal/1.0 (calendar app)",
-};
-
 export interface EventLocation {
   name: string;
   address?: string;
@@ -25,70 +20,57 @@ export interface EventLocation {
   url?: string;
 }
 
-async function geocodeWithNominatim(location: EventLocation): Promise<{ lat: number; lon: number } | null> {
-  const query = [location.name, location.address].filter(Boolean).join(", ");
-  if (!query.trim()) return null;
-
-  const params = new URLSearchParams({
-    q: query,
-    format: "json",
-    limit: "1",
-  });
-  const res = await fetch(`${NOMINATIM_URL}?${params}`, {
-    headers: NOMINATIM_HEADERS,
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!Array.isArray(data) || data.length === 0) return null;
-  const first = data[0];
-  const lat = parseFloat(first.lat);
-  const lon = parseFloat(first.lon);
-  if (isNaN(lat) || isNaN(lon)) return null;
-  return { lat, lon };
-}
-
 export function LocationMap({
   location,
   latitude,
   longitude,
   className,
   style,
+  compact,
+  onMarkerDrag,
 }: {
   location: EventLocation;
   latitude?: number | null;
   longitude?: number | null;
   className?: string;
   style?: React.CSSProperties;
+  /** When true, only show the map (no location text or routing links). */
+  compact?: boolean;
+  /** Called when the user drags the pin to a new position. Only coordinates change. */
+  onMarkerDrag?: (lat: number, lng: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const onMarkerDragRef = useRef(onMarkerDrag);
+  onMarkerDragRef.current = onMarkerDrag;
+
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(() => {
     if (latitude != null && longitude != null) return { lat: latitude, lon: longitude };
     return null;
   });
-  const [geocoding, setGeocoding] = useState(!coords && !!location.name);
 
+  // Sync coords from props. Never geocode — if we don't have coords, don't show the map.
   useEffect(() => {
     if (latitude != null && longitude != null) {
       setCoords({ lat: latitude, lon: longitude });
-      setGeocoding(false);
-      return;
-    }
-    if (!location.name && !location.address) {
+    } else {
       setCoords(null);
-      setGeocoding(false);
+    }
+  }, [latitude, longitude]);
+
+  const hasCoords = !!coords;
+
+  // Create map when we get coords; destroy when coords cleared. Does not re-run when coords change.
+  useEffect(() => {
+    if (!hasCoords) {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markerRef.current = null;
+      }
       return;
     }
-    setGeocoding(true);
-    geocodeWithNominatim(location)
-      .then((result) => {
-        setCoords(result);
-      })
-      .catch(() => setCoords(null))
-      .finally(() => setGeocoding(false));
-  }, [latitude, longitude, location.name, location.address]);
-
-  useEffect(() => {
     if (!containerRef.current || !coords) return;
 
     const map = L.map(containerRef.current, {
@@ -111,25 +93,46 @@ export function LocationMap({
       iconAnchor: [8, 8],
     });
 
-    L.marker([coords.lat, coords.lon], { icon }).addTo(map);
+    const marker = L.marker([coords.lat, coords.lon], {
+      icon,
+      draggable: !!onMarkerDragRef.current,
+    }).addTo(map);
+
+    if (onMarkerDragRef.current) {
+      marker.on("dragend", () => {
+        const pos = marker.getLatLng();
+        onMarkerDragRef.current?.(pos.lat, pos.lng);
+      });
+    }
 
     mapRef.current = map;
+    markerRef.current = marker;
     return () => {
       map.remove();
       mapRef.current = null;
+      markerRef.current = null;
     };
-  }, [coords]);
+  }, [hasCoords]); // eslint-disable-line react-hooks/exhaustive-deps -- coords read on mount only
+
+  // Update marker position when coords change (e.g. from drag). Does not recreate map.
+  useEffect(() => {
+    if (markerRef.current && coords) {
+      markerRef.current.setLatLng([coords.lat, coords.lon]);
+    }
+  }, [coords?.lat, coords?.lon]);
 
   const hasLocation = location.name || location.address;
-  const routingQuery =
-    coords ? `${coords.lat},${coords.lon}` : [location.name, location.address].filter(Boolean).join(", ");
-  const canRoute = !!routingQuery;
+  const hasNameAndAddress = location.name && location.address;
+  const locationLabel = [location.name, location.address].filter(Boolean).join(", ");
 
-  const routingLinks = canRoute
+  // Only show map buttons when we have coords (i.e. when the map is shown)
+  const routingLinks = coords
     ? {
-        google: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(routingQuery)}`,
-        apple: `https://maps.apple.com/?daddr=${encodeURIComponent(routingQuery)}`,
-        osm: `https://www.openstreetmap.org/directions?to=${encodeURIComponent(routingQuery)}`,
+        google: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          location.address || `${coords.lat},${coords.lon}`
+        )}`,
+        apple: `https://maps.apple.com/?ll=${coords.lat},${coords.lon}${hasNameAndAddress ? `&q=${encodeURIComponent(locationLabel)}` : ""}`,
+        osm: `https://www.openstreetmap.org/?mlat=${coords.lat}&mlon=${coords.lon}&marker=${coords.lat},${coords.lon}#map=17/${coords.lat}/${coords.lon}`,
       }
     : null;
 
@@ -147,33 +150,16 @@ export function LocationMap({
           }}
         />
       )}
-      {geocoding && (
-        <div
-          style={{
-            width: "100%",
-            height: "160px",
-            borderRadius: "var(--radius)",
-            background: "var(--bg-hover)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-muted)",
-            fontSize: "0.9rem",
-          }}
-        >
-          Looking up location…
-        </div>
-      )}
-      {hasLocation && (
+      {!compact && hasLocation && (
         <div className="mt-1" style={{ marginBottom: 0 }}>
           <div
-            className="flex items-start gap-1.5"
             style={{
-              flexWrap: "wrap",
-              gap: "0.375rem 0.5rem",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.5rem",
             }}
           >
-            <span className="text-muted" style={{ flexShrink: 0, marginTop: "0.15rem", fontSize: "1rem" }}>
+            <span className="text-muted" style={{ flexShrink: 0, lineHeight: 1.3, display: "flex", fontSize: "1.125rem" }}>
               <LocationPinIcon />
             </span>
             <div style={{ minWidth: 0, flex: 1 }}>

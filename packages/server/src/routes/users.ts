@@ -229,6 +229,16 @@ export function userRoutes(db: DB): Hono {
 
     sql += ` GROUP BY e.id`;
 
+    // Visibility filter for reposts/auto-reposts: show if viewer is in addressees (public/unlisted = all; followers_only = followers of creator; private = creator only)
+    const repostVisibilityClause = currentUser
+      ? `AND (
+          e.visibility IN ('public','unlisted')
+          OR (e.visibility = 'followers_only' AND EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND following_id = e.account_id))
+          OR (e.visibility = 'private' AND e.account_id = ?)
+        )`
+      : `AND e.visibility IN ('public','unlisted')`;
+    const repostVisibilityParams = currentUser ? [currentUser.id, currentUser.id] : [];
+
     // Add explicit reposts
     sql += `
       UNION ALL
@@ -241,14 +251,23 @@ export function userRoutes(db: DB): Hono {
       JOIN accounts ra ON ra.id = r.account_id
       LEFT JOIN event_tags t ON t.event_id = e.id
       WHERE r.account_id = ?
-        AND e.visibility IN ('public','unlisted')
+        ${repostVisibilityClause}
     `;
-    params.push(account.id);
+    params.push(account.id, ...repostVisibilityParams);
     if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
     if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
     // Add auto-reposted events (from accounts this user auto-reposts, excluding already explicit reposts)
+    const autoRepostVisibilityClause = currentUser
+      ? `AND (
+          e.visibility IN ('public','unlisted')
+          OR (e.visibility = 'followers_only' AND EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND following_id = e.account_id))
+          OR (e.visibility = 'private' AND e.account_id = ?)
+        )`
+      : `AND e.visibility IN ('public','unlisted')`;
+    const autoRepostVisibilityParams = currentUser ? [currentUser.id, currentUser.id] : [];
+
     sql += `
       UNION ALL
       SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -260,11 +279,11 @@ export function userRoutes(db: DB): Hono {
       JOIN accounts ra ON ra.id = ar.account_id
       LEFT JOIN event_tags t ON t.event_id = e.id
       WHERE ar.account_id = ?
-        AND e.visibility = 'public'
+        ${autoRepostVisibilityClause}
         AND e.account_id != ?
         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     `;
-    params.push(account.id, account.id, account.id);
+    params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
     if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;

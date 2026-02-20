@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { eventsPathWithTags } from "../lib/urls";
-import DOMPurify from "dompurify";
 import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
+import { sanitizeHtml } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
@@ -10,6 +10,7 @@ import { LocationPinIcon, RepostIcon, ExternalLinkIcon } from "../components/ico
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
+import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 
 type RsvpStatus = "going" | "maybe" | null;
 
@@ -62,9 +63,12 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         setRsvp((ev.rsvpStatus ?? null) as RsvpStatus);
         setReposted(ev.reposted ?? false);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        setEvent(null);
+        setError(e.message);
+      })
       .finally(() => setLoading(false));
-  }, [id, username, slug]);
+  }, [id, username, slug, user?.id]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
@@ -258,7 +262,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       {/* Main content */}
       <article style={{ flex: 1, minWidth: 0 }}>
       {event.image && (
-        <div style={{ marginBottom: "1.5rem" }}>
+        <div style={{ marginBottom: "1.5rem", position: "relative" }}>
           <img
             src={event.image.url}
             alt={event.image.alt || event.title}
@@ -269,6 +273,9 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
               borderRadius: "var(--radius)",
             }}
           />
+          {event.image.attribution && (
+            <ImageAttributionBadge attribution={event.image.attribution} />
+          )}
         </div>
       )}
 
@@ -279,7 +286,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           </span>
           {event.visibility !== "public" && (
             <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>
-              {event.visibility}
+              {event.visibility === "followers_only" ? "followers only" : event.visibility === "private" ? "Only me" : event.visibility}
             </span>
           )}
         </div>
@@ -374,10 +381,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div
           className="event-description"
           dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(event.description.replace(/\n/g, "<br>"), {
-              ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "br", "p", "span"],
-              ALLOWED_ATTR: ["href", "rel", "target"],
-            }),
+            __html: sanitizeHtml(event.description.replace(/\n/g, "<br>")),
           }}
         />
       )}

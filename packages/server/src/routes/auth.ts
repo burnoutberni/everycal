@@ -61,6 +61,9 @@ export function authRoutes(db: DB): Hono {
       username: string;
       password?: string;
       displayName?: string;
+      city?: string;
+      cityLat?: number;
+      cityLng?: number;
     }>();
 
     if (!body.username) {
@@ -73,6 +76,10 @@ export function authRoutes(db: DB): Hono {
         { error: "Username must be 2-40 characters: letters, numbers, and underscores only" },
         400
       );
+    }
+
+    if (!body.city || body.cityLat == null || body.cityLng == null) {
+      return c.json({ error: "City is required" }, 400);
     }
 
     // Password is optional — accounts without a password can only authenticate
@@ -90,9 +97,9 @@ export function authRoutes(db: DB): Hono {
     const passwordHash = body.password ? hashPassword(body.password) : null;
 
     db.prepare(
-      `INSERT INTO accounts (id, username, display_name, password_hash)
-       VALUES (?, ?, ?, ?)`
-    ).run(id, username, body.displayName || username, passwordHash);
+      `INSERT INTO accounts (id, username, display_name, password_hash, city, city_lat, city_lng)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, username, body.displayName || username, passwordHash, body.city, body.cityLat, body.cityLng);
 
     const session = createSession(db, id);
 
@@ -100,7 +107,7 @@ export function authRoutes(db: DB): Hono {
 
     return c.json(
       {
-        user: { id, username, displayName: body.displayName || username },
+        user: { id, username, displayName: body.displayName || username, city: body.city, cityLat: body.cityLat, cityLng: body.cityLng },
         expiresAt: session.expiresAt,
       },
       201
@@ -173,7 +180,7 @@ export function authRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, created_at,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -189,6 +196,9 @@ export function authRoutes(db: DB): Hono {
       website: row.website || null,
       isBot: !!row.is_bot,
       discoverable: !!row.discoverable,
+      city: row.city || null,
+      cityLat: row.city_lat != null ? Number(row.city_lat) : null,
+      cityLng: row.city_lng != null ? Number(row.city_lng) : null,
       followingCount: row.following_count,
       followersCount: row.followers_count,
       createdAt: row.created_at,
@@ -205,6 +215,9 @@ export function authRoutes(db: DB): Hono {
       website?: string;
       isBot?: boolean;
       discoverable?: boolean;
+      city?: string;
+      cityLat?: number;
+      cityLng?: number;
     }>();
 
     const fields: string[] = [];
@@ -255,6 +268,14 @@ export function authRoutes(db: DB): Hono {
     if (body.discoverable !== undefined) {
       fields.push("discoverable = ?");
       values.push(body.discoverable ? 1 : 0);
+    }
+    if (body.city !== undefined && body.cityLat != null && body.cityLng != null) {
+      fields.push("city = ?");
+      values.push(body.city);
+      fields.push("city_lat = ?");
+      values.push(body.cityLat);
+      fields.push("city_lng = ?");
+      values.push(body.cityLng);
     }
 
     if (fields.length === 0) {

@@ -38,7 +38,7 @@ export function App() {
           <Route path="/discover" component={DiscoverPage} />
           <Route path="/explore"><Redirect to="/discover" /></Route>
           <Route path="/federation"><Redirect to="/discover" /></Route>
-          <Route path="/events/new" component={NewEventPage} />
+          <Route path="/events/new">{() => <NewEventPage />}</Route>
 
           {/* /@username/:slug/edit — must be before /@username/:slug */}
           <Route path={eventEditRegex}>

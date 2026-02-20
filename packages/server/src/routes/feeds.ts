@@ -57,7 +57,7 @@ export function feedRoutes(db: DB): Hono {
       return c.json({ error: "Invalid or expired token" }, 401);
     }
 
-    // Local events: Going/Maybe (include rsvp_status for tentative)
+    // Local events: Going/Maybe (include rsvp_status for tentative); include own events regardless of visibility
     const localRows = db
       .prepare(
         `SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -67,11 +67,11 @@ export function feedRoutes(db: DB): Hono {
          JOIN event_rsvps er ON er.event_uri = e.id AND er.account_id = ?
          LEFT JOIN event_tags t ON t.event_id = e.id
          WHERE er.status IN ('going','maybe')
-         AND e.visibility IN ('public','unlisted')
+         AND (e.visibility IN ('public','unlisted') OR e.account_id = ?)
          GROUP BY e.id
          ORDER BY e.start_date ASC`
       )
-      .all(accountId) as Record<string, unknown>[];
+      .all(accountId, accountId) as Record<string, unknown>[];
 
     // Remote events: Going/Maybe (include rsvp_status for tentative)
     const remoteRows = db

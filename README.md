@@ -5,19 +5,20 @@ A federated event calendar built on [ActivityPub](https://www.w3.org/TR/activity
 ## Why?
 
 - **Self-hosted & federated** — your events, your server, connected to everyone else's via ActivityPub
-- **Privacy-first** — public, unlisted, followers-only, or fully private events
+- **Privacy-first** — public, unlisted, followers-only, or private events
+- **Rich event creation** — rich text descriptions, image search (Unsplash/Openverse) with attribution, location autocomplete with maps, tags
 - **Scraper framework** — automatically import events from venue websites, each scraper runs as its own account
 - **Social features** — follow users, repost events, auto-repost from favorite venues
 - **Web frontend** — dark minimal UI with calendar views, event cards, and federation support
 - **WordPress integration** — Gutenberg block that pulls events from any EveryCal server
-- **Production ready** — rate limiting, security headers, Docker support, non-root containers
+- **Production ready** — rate limiting, SSRF protection, HTML sanitization, Docker support, non-root containers
 
 ## Packages
 
 ```
 everycal/
 ├── packages/
-│   ├── core/          # Shared types, iCal ↔ ActivityPub conversion
+│   ├── core/          # Shared types, iCal ↔ AP conversion, HTML sanitization config
 │   ├── server/        # Hono HTTP server + SQLite + ActivityPub federation
 │   ├── scrapers/      # CLI tool + venue scrapers (wirmachen.wien collection)
 │   ├── web/           # React + Vite frontend (dark theme)
@@ -29,10 +30,10 @@ everycal/
 
 | Package | Description | Stack |
 |---------|-------------|-------|
-| `@everycal/core` | Shared types, iCal ↔ ActivityPub conversion | TypeScript |
+| `@everycal/core` | Shared types, iCal ↔ AP conversion, sanitization config | TypeScript |
 | `@everycal/server` | HTTP API, auth, SQLite storage, ActivityPub federation | Hono, better-sqlite3, bcrypt, http-signature |
 | `@everycal/scrapers` | CLI scraper tool with sync support | Cheerio, iCal parsing |
-| `@everycal/web` | Web frontend with calendar, reposts, federation | React 19, Vite, wouter |
+| `@everycal/web` | Web frontend with rich text, image search, maps | React 19, Vite, TipTap, wouter |
 | `@everycal/wordpress` | WordPress Gutenberg block plugin | PHP + React |
 
 ## Prerequisites
@@ -72,7 +73,14 @@ Open http://localhost:5173/register in your browser. Pick a username and passwor
 
 ### 4. Create an event
 
-Click **+ New Event** in the header. Fill in the form — title and start date are required, everything else is optional. You can set visibility (public/unlisted/followers-only/private), add tags, a location, and a header image (upload or paste a URL).
+Click **+ New Event** in the header. Title and start date are required, everything else is optional.
+
+- **Rich text descriptions** — formatting toolbar with bold, italic, headings, lists, links, code blocks (TipTap editor)
+- **Header images** — search Unsplash/Openverse, upload a file, or paste a URL; attribution is tracked automatically
+- **Locations** — search for venues with autocomplete, pick on a map, or enter manually; frequently used locations are saved
+- **Tags** — add tags manually or accept auto-suggestions inferred from the title
+- **Visibility** — public, unlisted, followers-only, or private
+- **Draft persistence** — unsaved drafts are auto-saved to localStorage
 
 ### 5. Browse
 
@@ -203,6 +211,7 @@ All scrapers output events with proper titles, descriptions, dates, locations, a
 |--------|----------|-------------|
 | `GET` | `/api/v1/events` | List public events |
 | `GET` | `/api/v1/events/:id` | Get single event by ID |
+| `GET` | `/api/v1/events/tags` | List all tags (with optional filtering) |
 | `GET` | `/@:username/:slug` | Get event by username and slug |
 | `GET` | `/api/v1/users` | List users (search with `?q=`) |
 | `GET` | `/api/v1/users/:username` | User profile |
@@ -211,6 +220,7 @@ All scrapers output events with proper titles, descriptions, dates, locations, a
 | `GET` | `/api/v1/users/:username/following` | Who user follows |
 | `GET` | `/api/v1/feeds/:username.json` | JSON feed for an account |
 | `GET` | `/api/v1/feeds/:username.ics` | iCal feed for an account |
+| `GET` | `/api/v1/uploads/:filename` | Serve uploaded image |
 | `GET` | `/.well-known/webfinger` | WebFinger discovery for federation |
 | `GET` | `/.well-known/nodeinfo` | NodeInfo discovery |
 | `GET` | `/nodeinfo/2.1` | Server metadata |
@@ -222,17 +232,17 @@ All scrapers output events with proper titles, descriptions, dates, locations, a
 | `POST` | `/inbox` | Shared inbox (signed) |
 | `GET` | `/healthz` | Health check |
 
-Query params for `GET /api/v1/events`: `account`, `from`, `to`, `q` (search), `limit`, `offset`.
+Query params for `GET /api/v1/events`: `account`, `from`, `to`, `q` (search), `tag`, `scope` (mine, calendar), `limit`, `offset`.
 
 ### Auth
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/auth/register` | Create account |
+| `POST` | `/api/v1/auth/register` | Create account (includes city) |
 | `POST` | `/api/v1/auth/login` | Log in, get session token |
 | `POST` | `/api/v1/auth/logout` | Invalidate session |
 | `GET` | `/api/v1/auth/me` | Current user profile |
-| `PATCH` | `/api/v1/auth/me` | Update display name, bio, avatar |
+| `PATCH` | `/api/v1/auth/me` | Update profile (name, bio, avatar, city, website) |
 | `GET` | `/api/v1/auth/api-keys` | List your API keys |
 | `POST` | `/api/v1/auth/api-keys` | Create API key |
 | `DELETE` | `/api/v1/auth/api-keys/:id` | Delete API key |
@@ -242,17 +252,33 @@ Query params for `GET /api/v1/events`: `account`, `from`, `to`, `q` (search), `l
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/events/timeline` | Events from you + followed users |
-| `POST` | `/api/v1/events` | Create event |
+| `POST` | `/api/v1/events` | Create event (supports rich text, image attribution, location) |
+| `PUT` | `/api/v1/events/:id` | Update event (owner only) |
+| `DELETE` | `/api/v1/events/:id` | Delete event (owner only) |
 | `POST` | `/api/v1/events/sync` | Sync events (for scrapers) |
 | `POST` | `/api/v1/events/:id/repost` | Repost event to your feed |
 | `DELETE` | `/api/v1/events/:id/repost` | Remove repost |
-| `PUT` | `/api/v1/events/:id` | Update event (owner only) |
-| `DELETE` | `/api/v1/events/:id` | Delete event (owner only) |
 | `POST` | `/api/v1/users/:username/follow` | Follow a user |
 | `POST` | `/api/v1/users/:username/unfollow` | Unfollow a user |
 | `POST` | `/api/v1/users/:username/auto-repost` | Auto-repost all events from user |
 | `DELETE` | `/api/v1/users/:username/auto-repost` | Stop auto-reposting |
 | `POST` | `/api/v1/uploads` | Upload an image (5MB max) |
+
+### Images API (Authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/images/search` | Search Unsplash/Openverse for images |
+| `GET` | `/api/v1/images/sources` | List available image sources |
+| `POST` | `/api/v1/images/trigger-download` | Track Unsplash download (required by API terms) |
+
+### Locations API (Authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/locations` | List saved locations |
+| `POST` | `/api/v1/locations` | Save a location |
+| `DELETE` | `/api/v1/locations/:id` | Delete saved location |
 
 ### Federation API (Authenticated)
 
@@ -305,6 +331,7 @@ Copy `.env.example` to `.env` and customize:
 | `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated allowed origins |
 | `TRUSTED_PROXY` | `false` | Set to `true` behind reverse proxy |
 | `OPEN_REGISTRATIONS` | `true` | Allow public sign-ups |
+| `UNSPLASH_ACCESS_KEY` | (unset) | Unsplash API key for header image search (optional; falls back to Openverse) |
 | `SKIP_SIGNATURE_VERIFY` | (unset) | Skip ActivityPub signature verification (dev only) |
 
 ### Production deployment
@@ -372,7 +399,9 @@ The block server-side renders events from the EveryCal JSON API and caches them 
 
 ### Data model
 
-- **Events** — stored with slugs for clean URLs (`/@username/event-title`)
+- **Events** — stored with slugs for clean URLs (`/@username/event-title`), rich text descriptions (sanitized HTML), image attribution metadata, location with coordinates
+- **Tags** — normalized single-word tags per event, filterable via API
+- **Saved locations** — users can save frequently used locations for quick reuse
 - **Scrapers as users** — each scraper is a regular user account (marked `is_bot=1`)
 - **Reposts** — users can repost events (one-time) or auto-repost all events from an account
 - **Local + Remote follows** — follow local users and remote ActivityPub actors
@@ -448,7 +477,10 @@ For iCal-based scrapers, use the built-in `ICalScraper` base class (see `radlobb
 ### Security Features
 
 - **Rate limiting** — protects auth, uploads, federation endpoints, and ActivityPub inboxes
-- **Account lockout** — 5 failed login attempts = 15 minute lockout
+- **Account lockout** — 10 failed login attempts = 15 minute lockout
+- **HTML sanitization** — shared config between server (`sanitize-html`) and client (`DOMPurify`) for safe rich text
+- **SSRF protection** — DNS rebinding protection, private IP detection for outgoing requests
+- **Upload security** — uploaded images are re-encoded to strip metadata and prevent image bombs
 - **HTTP signatures** — verifies authenticity of incoming ActivityPub activities
 - **Content-Security-Policy** — prevents XSS attacks in production
 - **Non-root containers** — Docker images run as UID 1001

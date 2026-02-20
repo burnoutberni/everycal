@@ -600,18 +600,28 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
     (a) => a.type === "Image" || a.type === "Document"
   );
 
+  const imageAttribution = image?.attribution
+    ? (typeof image.attribution === "string"
+        ? (() => { try { return JSON.parse(image.attribution as string); } catch { return null; } })()
+        : image.attribution)
+    : null;
+  const imageAttributionJson = imageAttribution && typeof imageAttribution === "object"
+    ? JSON.stringify(imageAttribution)
+    : null;
+
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, title, description, start_date, end_date,
       location_name, location_address, location_latitude, location_longitude,
-      image_url, image_media_type, image_alt, url, tags, raw_json, published, updated)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(uri) DO UPDATE SET
       title=excluded.title, description=excluded.description,
       start_date=excluded.start_date, end_date=excluded.end_date,
       location_name=excluded.location_name, location_address=excluded.location_address,
       location_latitude=excluded.location_latitude, location_longitude=excluded.location_longitude,
       image_url=excluded.image_url, image_media_type=excluded.image_media_type,
-      image_alt=excluded.image_alt, url=excluded.url, tags=excluded.tags,
+      image_alt=excluded.image_alt, image_attribution=excluded.image_attribution,
+      url=excluded.url, tags=excluded.tags,
       raw_json=excluded.raw_json, updated=excluded.updated, fetched_at=datetime('now')`
   ).run(
     object.id as string,
@@ -627,6 +637,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
     (image?.url as string) || null,
     (image?.mediaType as string) || null,
     (image?.name as string) || null,
+    imageAttributionJson,
     (object.url as string) || null,
     tagString || null,
     // Limit raw_json to 100KB to prevent storage abuse
@@ -733,12 +744,20 @@ function rowToAPEvent(
 
   const attachments: Record<string, unknown>[] = [];
   if (row.image_url) {
-    attachments.push({
+    const attachment: Record<string, unknown> = {
       type: "Document",
       url: row.image_url,
       mediaType: row.image_media_type || "image/jpeg",
       name: row.image_alt || "",
-    });
+    };
+    if (row.image_attribution) {
+      try {
+        attachment.attribution = JSON.parse(row.image_attribution as string) as Record<string, unknown>;
+      } catch {
+        // Ignore invalid JSON
+      }
+    }
+    attachments.push(attachment);
   }
   if (attachments.length > 0) event.attachment = attachments;
 

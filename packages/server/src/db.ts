@@ -353,5 +353,48 @@ export function initDatabase(path: string): DB {
     }
   }
 
+  // Migration: add city fields to accounts (default Wien for existing users)
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN city TEXT NOT NULL DEFAULT 'Wien'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN city_lat REAL NOT NULL DEFAULT 48.2082");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN city_lng REAL NOT NULL DEFAULT 16.3738");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add image_attribution for Unsplash/Openverse crediting
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN image_attribution TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN image_attribution TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      address TEXT,
+      latitude REAL,
+      longitude REAL,
+      used_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(account_id, name, address)
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC)");
+
   return db;
 }

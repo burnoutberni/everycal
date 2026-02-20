@@ -15,6 +15,7 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
       - OPEN_REGISTRATIONS=${OPEN_REGISTRATIONS:-true}
       - TRUSTED_PROXY=${TRUSTED_PROXY:-false}
+      - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
       # Set SKIP_SIGNATURE_VERIFY=true during initial testing if needed
       # - SKIP_SIGNATURE_VERIFY=true
     restart: unless-stopped

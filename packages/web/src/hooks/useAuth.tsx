@@ -5,7 +5,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, displayName?: string) => Promise<void>;
+  register: (username: string, password: string, displayName?: string, city?: string, cityLat?: number, cityLng?: number) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -36,8 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   };
 
-  const register = async (username: string, password: string, displayName?: string) => {
-    const res = await authApi.register(username, password, displayName);
+  const register = async (username: string, password: string, displayName?: string, city?: string, cityLat?: number, cityLng?: number) => {
+    const res = await authApi.register(username, password, displayName, city, cityLat, cityLng);
     // Server sets HttpOnly cookie — we just track the user in state
     setUser(res.user);
   };
