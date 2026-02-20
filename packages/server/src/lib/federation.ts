@@ -9,6 +9,9 @@ import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 
+/** Software types that support a Mastodon-compatible directory API */
+const DIRECTORY_SUPPORTED = ["mastodon", "pleroma", "glitch", "hometown"];
+
 /**
  * Fetch a remote ActivityPub object/actor with proper Accept header.
  * Validates the URL to prevent SSRF attacks against internal networks.
@@ -61,8 +64,28 @@ async function validateFederationUrl(url: string): Promise<void> {
   await assertPublicResolvedIP(hostname);
 }
 
+/** Extract totalItems from an ActivityPub collection (URL or inline object). */
+async function fetchCollectionCount(
+  ref: string | Record<string, unknown> | undefined
+): Promise<number | null> {
+  if (!ref) return null;
+  if (typeof ref === "object" && typeof ref.totalItems === "number") {
+    return ref.totalItems >= 0 ? ref.totalItems : null;
+  }
+  const url = typeof ref === "string" ? ref : (ref as Record<string, string>)?.id;
+  if (!url) return null;
+  try {
+    const coll = (await fetchAP(url)) as Record<string, unknown>;
+    const n = coll?.totalItems;
+    return typeof n === "number" && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve a remote actor by URI. Fetches and caches in remote_actors table.
+ * Also fetches follower/following counts from collection URLs for up-to-date stats.
  */
 export async function resolveRemoteActor(
   db: DB,
@@ -80,6 +103,22 @@ export async function resolveRemoteActor(
     const data = (await fetchAP(actorUri)) as Record<string, unknown>;
     if (!data.id || !data.inbox) return null;
 
+    const followersRef = data.followers;
+    const followingRef = data.following;
+    const followersUrl =
+      typeof followersRef === "string"
+        ? followersRef
+        : (followersRef as Record<string, string>)?.id || null;
+    const followingUrl =
+      typeof followingRef === "string"
+        ? followingRef
+        : (followingRef as Record<string, string>)?.id || null;
+
+    const [followersCount, followingCount] = await Promise.all([
+      fetchCollectionCount(followersRef as string | Record<string, unknown> | undefined),
+      fetchCollectionCount(followingRef as string | Record<string, unknown> | undefined),
+    ]);
+
     const actor: RemoteActor = {
       uri: data.id as string,
       type: (data.type as string) || "Person",
@@ -90,8 +129,10 @@ export async function resolveRemoteActor(
       outbox: (data.outbox as string) || null,
       shared_inbox:
         (data.endpoints as Record<string, string>)?.sharedInbox || null,
-      followers_url: (data.followers as string) || null,
-      following_url: (data.following as string) || null,
+      followers_url: followersUrl,
+      following_url: followingUrl,
+      followers_count: followersCount,
+      following_count: followingCount,
       icon_url: (data.icon as Record<string, string>)?.url || null,
       image_url: (data.image as Record<string, string>)?.url || null,
       public_key_id: (data.publicKey as Record<string, string>)?.id || null,
@@ -102,20 +143,22 @@ export async function resolveRemoteActor(
 
     db.prepare(
       `INSERT INTO remote_actors (uri, type, preferred_username, display_name, summary,
-        inbox, outbox, shared_inbox, followers_url, following_url, icon_url, image_url,
-        public_key_id, public_key_pem, domain, last_fetched_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        inbox, outbox, shared_inbox, followers_url, following_url, followers_count, following_count,
+        icon_url, image_url, public_key_id, public_key_pem, domain, last_fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(uri) DO UPDATE SET
         type=excluded.type, preferred_username=excluded.preferred_username,
         display_name=excluded.display_name, summary=excluded.summary,
         inbox=excluded.inbox, outbox=excluded.outbox, shared_inbox=excluded.shared_inbox,
         followers_url=excluded.followers_url, following_url=excluded.following_url,
+        followers_count=excluded.followers_count, following_count=excluded.following_count,
         icon_url=excluded.icon_url, image_url=excluded.image_url,
         public_key_id=excluded.public_key_id, public_key_pem=excluded.public_key_pem,
         domain=excluded.domain, last_fetched_at=excluded.last_fetched_at`
     ).run(
       actor.uri, actor.type, actor.preferred_username, actor.display_name, actor.summary,
       actor.inbox, actor.outbox, actor.shared_inbox, actor.followers_url, actor.following_url,
+      actor.followers_count ?? null, actor.following_count ?? null,
       actor.icon_url, actor.image_url, actor.public_key_id, actor.public_key_pem,
       actor.domain, actor.last_fetched_at
     );
@@ -138,6 +181,8 @@ export interface RemoteActor {
   shared_inbox: string | null;
   followers_url: string | null;
   following_url: string | null;
+  followers_count: number | null;
+  following_count: number | null;
   icon_url: string | null;
   image_url: string | null;
   public_key_id: string | null;
@@ -210,6 +255,162 @@ export async function deliverToFollowers(
   for (const inbox of inboxes) {
     deliverActivity(inbox, activity, account.private_key, keyId).catch(() => {});
   }
+}
+
+/**
+ * Fetch NodeInfo to detect remote server software type.
+ */
+export async function fetchNodeInfo(domain: string): Promise<{ software: string } | null> {
+  const base = `https://${domain}`;
+  await validateFederationUrl(base);
+
+  try {
+    const res = await fetch(`${base}/.well-known/nodeinfo`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const doc = (await res.json()) as { links?: Array<{ rel: string; href: string }> };
+    const href = doc.links?.find(
+      (l) =>
+        l.rel === "http://nodeinfo.diaspora.software/ns/schema/2.1" ||
+        l.rel === "http://nodeinfo.diaspora.software/ns/schema/2.0"
+    )?.href;
+    if (!href) return null;
+
+    const nodeRes = await fetch(href, { headers: { Accept: "application/json" } });
+    if (!nodeRes.ok) return null;
+    const node = (await nodeRes.json()) as { software?: { name?: string } };
+    const name = node.software?.name?.toLowerCase();
+    return name ? { software: name } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch actor URIs from a Mastodon-compatible directory API.
+ */
+async function fetchMastodonDirectory(domain: string, maxAccounts = 500): Promise<string[]> {
+  const base = `https://${domain}`;
+  const uris: string[] = [];
+  let offset = 0;
+  const limit = 80;
+
+  while (uris.length < maxAccounts) {
+    const url = `${base}/api/v1/directory?limit=${limit}&offset=${offset}&order=active&local=true`;
+    await validateFederationUrl(url);
+
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+    });
+    if (!res.ok) break;
+
+    const accounts = (await res.json()) as Array<{
+      uri?: string;
+      url?: string;
+      acct?: string;
+      username?: string;
+    }>;
+    if (accounts.length === 0) break;
+
+    for (const a of accounts) {
+      if (a.uri) {
+        uris.push(a.uri);
+      } else {
+        const acct = a.acct?.includes("@") ? a.acct : `${a.username || a.acct}@${domain}`;
+        const actorUri = await webfingerToActorUri(domain, acct);
+        if (actorUri) uris.push(actorUri);
+      }
+    }
+    offset += accounts.length;
+    if (accounts.length < limit) break;
+  }
+
+  return uris;
+}
+
+async function webfingerToActorUri(domain: string, acct: string): Promise<string | null> {
+  const [user, host] = acct.includes("@") ? acct.split("@") : [acct, domain];
+  if (!user || !host) return null;
+  const wfUrl = `https://${host}/.well-known/webfinger?resource=acct:${user}@${host}`;
+  await validateFederationUrl(wfUrl);
+
+  try {
+    const res = await fetch(wfUrl, { headers: { Accept: "application/jrd+json" } });
+    if (!res.ok) return null;
+    const wf = (await res.json()) as {
+      links?: Array<{ rel: string; type?: string; href?: string }>;
+    };
+    const self = wf.links?.find(
+      (l) => l.rel === "self" && l.type === "application/activity+json"
+    );
+    return self?.href || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover and cache all profiles from a remote server when it supports a directory API.
+ * Updates domain_discovery table. Call when we first connect to a domain or to refresh.
+ */
+export async function discoverDomainActors(
+  db: DB,
+  domain: string,
+  options?: { maxAccounts?: number; minAgeHours?: number }
+): Promise<{ discovered: number; software: string | null }> {
+  if (isPrivateIP(domain)) return { discovered: 0, software: null };
+
+  const minAgeHours = options?.minAgeHours ?? 24;
+  const existing = db
+    .prepare("SELECT last_discovered_at FROM domain_discovery WHERE domain = ?")
+    .get(domain) as { last_discovered_at: string } | undefined;
+
+  if (existing) {
+    const cutoff = new Date(Date.now() - minAgeHours * 60 * 60 * 1000).toISOString();
+    if (existing.last_discovered_at >= cutoff) {
+      return { discovered: 0, software: null };
+    }
+  }
+
+  const nodeInfo = await fetchNodeInfo(domain);
+  const software = nodeInfo?.software ?? null;
+
+  if (!software || !DIRECTORY_SUPPORTED.includes(software)) {
+    db.prepare(
+      `INSERT INTO domain_discovery (domain, last_discovered_at, software_type)
+       VALUES (?, datetime('now'), ?)
+       ON CONFLICT(domain) DO UPDATE SET last_discovered_at = datetime('now'), software_type = excluded.software_type`
+    ).run(domain, software);
+    return { discovered: 0, software };
+  }
+
+  const maxAccounts = options?.maxAccounts ?? 300;
+  let uris: string[];
+  try {
+    uris = await fetchMastodonDirectory(domain, maxAccounts);
+  } catch (err) {
+    console.warn(`Domain discovery failed for ${domain}:`, err);
+    return { discovered: 0, software };
+  }
+
+  let discovered = 0;
+  const concurrency = 5;
+  for (let i = 0; i < uris.length; i += concurrency) {
+    const batch = uris.slice(i, i + concurrency);
+    const results = await Promise.all(
+      batch.map((uri) => resolveRemoteActor(db, uri, true))
+    );
+    discovered += results.filter(Boolean).length;
+  }
+
+  db.prepare(
+    `INSERT INTO domain_discovery (domain, last_discovered_at, software_type)
+     VALUES (?, datetime('now'), ?)
+     ON CONFLICT(domain) DO UPDATE SET last_discovered_at = datetime('now'), software_type = excluded.software_type`
+  ).run(domain, software);
+
+  return { discovered, software };
 }
 
 /**

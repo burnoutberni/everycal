@@ -41,11 +41,8 @@ export function Header() {
           <NavLink href="/" current={location}>
             Events
           </NavLink>
-          <NavLink href="/explore" current={location}>
-            Explore
-          </NavLink>
-          <NavLink href="/federation" current={location}>
-            Federation
+          <NavLink href="/discover" current={location}>
+            Discover
           </NavLink>
         </div>
 

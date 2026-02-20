@@ -16,6 +16,7 @@ import {
   resolveRemoteActor,
   fetchRemoteOutbox,
   deliverActivity,
+  discoverDomainActors,
 } from "../lib/federation.js";
 import { generateKeyPair } from "../lib/crypto.js";
 import { stripHtml, sanitizeHtml, isPrivateIP } from "../lib/security.js";
@@ -75,6 +76,14 @@ export function federationRoutes(db: DB): Hono {
       return c.json({ error: "Could not resolve actor" }, 404);
     }
 
+    // Trigger domain discovery in background (fetch full profile list from server)
+    discoverDomainActors(db, actor.domain, { minAgeHours: 24 }).catch(() => {});
+
+    const eventsCount = db
+      .prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE actor_uri = ?")
+      .get(actor.uri) as { cnt: number };
+    const eventsCountVal = eventsCount?.cnt ?? 0;
+
     return c.json({
       actor: {
         uri: actor.uri,
@@ -86,6 +95,9 @@ export function federationRoutes(db: DB): Hono {
         iconUrl: actor.icon_url,
         imageUrl: actor.image_url,
         outbox: actor.outbox,
+        eventsCount: eventsCountVal,
+        followersCount: actor.followers_count ?? 0,
+        followingCount: actor.following_count ?? 0,
       },
     });
   });
@@ -350,8 +362,54 @@ export function federationRoutes(db: DB): Hono {
         iconUrl: r.icon_url,
         imageUrl: r.image_url,
         outbox: r.outbox,
+        followersCount: r.followers_count ?? 0,
+        followingCount: r.following_count ?? 0,
       })),
     });
+  });
+
+  // Refresh stale remote actor data (auth required — triggers outbound requests)
+  // Also discovers new profiles from domains that support directory API
+  router.post("/refresh-actors", requireAuth(), async (c) => {
+    const maxRefresh = Math.min(parseInt(c.req.query("limit") || "20", 10), 50);
+    const maxAgeHours = parseInt(c.req.query("maxAgeHours") || "24", 10);
+    const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+
+    const stale = db
+      .prepare(
+        `SELECT uri FROM remote_actors WHERE last_fetched_at < ? ORDER BY last_fetched_at ASC LIMIT ?`
+      )
+      .all(cutoff, maxRefresh) as { uri: string }[];
+
+    let refreshed = 0;
+    const concurrency = 3;
+    for (let i = 0; i < stale.length; i += concurrency) {
+      const batch = stale.slice(i, i + concurrency);
+      const results = await Promise.all(
+        batch.map((r) => resolveRemoteActor(db, r.uri, true))
+      );
+      refreshed += results.filter(Boolean).length;
+    }
+
+    // Discover profiles from domains we're connected to (Mastodon/Pleroma directory)
+    const domains = db
+      .prepare(
+        `SELECT DISTINCT domain FROM remote_actors
+         WHERE domain NOT IN (SELECT domain FROM domain_discovery WHERE last_discovered_at > ?)
+         LIMIT 5`
+      )
+      .all(cutoff) as { domain: string }[];
+
+    let discovered = 0;
+    for (const { domain } of domains) {
+      const r = await discoverDomainActors(db, domain, {
+        minAgeHours: 24,
+        maxAccounts: 200,
+      });
+      discovered += r.discovered;
+    }
+
+    return c.json({ refreshed, discovered });
   });
 
   // List remote actors we know about
@@ -361,15 +419,16 @@ export function federationRoutes(db: DB): Hono {
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
     let sql =
-      "SELECT * FROM remote_actors WHERE 1=1";
+      `SELECT ra.*, (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
+       FROM remote_actors ra WHERE 1=1`;
     const params: unknown[] = [];
 
     if (domain) {
-      sql += " AND domain = ?";
+      sql += " AND ra.domain = ?";
       params.push(domain);
     }
 
-    sql += " ORDER BY last_fetched_at DESC LIMIT ? OFFSET ?";
+    sql += " ORDER BY ra.last_fetched_at DESC LIMIT ? OFFSET ?";
     params.push(limit, offset);
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -383,6 +442,9 @@ export function federationRoutes(db: DB): Hono {
         domain: r.domain,
         iconUrl: r.icon_url,
         imageUrl: r.image_url,
+        eventsCount: r.events_count ?? 0,
+        followersCount: r.followers_count ?? 0,
+        followingCount: r.following_count ?? 0,
       })),
     });
   });

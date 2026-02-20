@@ -71,7 +71,6 @@ export function ProfilePage({ username }: { username: string }) {
         await federation.unfollow(profile.id);
       } else {
         await federation.follow(profile.id);
-        await federation.fetchActor(profile.id);
       }
     } else {
       if (profile.following) {

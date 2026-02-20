@@ -18,10 +18,19 @@ export function userRoutes(db: DB): Hono {
     let sql: string;
     let params: unknown[];
 
+    const eventsCountSubquery = `(SELECT COUNT(*) FROM (
+      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      UNION
+      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      UNION
+      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+    )) AS events_count`;
+
     if (q) {
       sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
+                    ${eventsCountSubquery}
              FROM accounts
              WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
              ORDER BY username ASC LIMIT ? OFFSET ?`;
@@ -29,7 +38,8 @@ export function userRoutes(db: DB): Hono {
     } else {
       sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
+                    ${eventsCountSubquery}
              FROM accounts
              WHERE discoverable = 1
              ORDER BY created_at DESC LIMIT ? OFFSET ?`;
@@ -54,8 +64,10 @@ export function userRoutes(db: DB): Hono {
       if (localPart && domain) {
         const remoteRow = db
           .prepare(
-            `SELECT uri, preferred_username, display_name, summary, icon_url, image_url, domain
-             FROM remote_actors WHERE preferred_username = ? AND domain = ?`
+            `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
+                    ra.followers_count, ra.following_count,
+                    (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
+             FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
           )
           .get(localPart, domain) as Record<string, unknown> | undefined;
 
@@ -76,8 +88,9 @@ export function userRoutes(db: DB): Hono {
           website: null,
           isBot: false,
           discoverable: true,
-          followersCount: 0,
-          followingCount: 0,
+          followersCount: remoteRow.followers_count ?? 0,
+          followingCount: remoteRow.following_count ?? 0,
+          eventsCount: remoteRow.events_count ?? 0,
           following: !!following,
           autoReposting: false,
           source: "remote",
@@ -86,11 +99,20 @@ export function userRoutes(db: DB): Hono {
       }
     }
 
+    const eventsCountSubquery = `(SELECT COUNT(*) FROM (
+      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      UNION
+      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      UNION
+      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+    )) AS events_count`;
+
     const row = db
       .prepare(
         `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                 (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
-                (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
+                (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
+                ${eventsCountSubquery}
          FROM accounts WHERE username = ?`
       )
       .get(username) as Record<string, unknown> | undefined;
@@ -416,6 +438,7 @@ function formatUser(row: Record<string, unknown>): Record<string, unknown> {
     discoverable: !!row.discoverable,
     followersCount: row.followers_count ?? 0,
     followingCount: row.following_count ?? 0,
+    eventsCount: row.events_count ?? 0,
     createdAt: row.created_at,
   };
 }

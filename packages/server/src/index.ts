@@ -21,6 +21,7 @@ import { uploadRoutes } from "./routes/uploads.js";
 import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
 import { activityPubRoutes, activityPubEventRoutes, sharedInboxRoute } from "./routes/activitypub.js";
 import { federationRoutes } from "./routes/federation-api.js";
+import { directoryRoutes } from "./routes/directory.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 
 const app = new Hono();
@@ -101,6 +102,7 @@ app.route("/api/v1/auth", authRoutes(db));
 app.route("/api/v1/events", eventRoutes(db));
 app.route("/api/v1/feeds", feedRoutes(db));
 app.route("/api/v1/users", userRoutes(db));
+app.route("/api/v1", directoryRoutes(db));
 app.route("/api/v1/uploads", uploadRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
 

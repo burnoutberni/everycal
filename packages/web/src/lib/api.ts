@@ -72,6 +72,7 @@ export interface User {
   discoverable?: boolean;
   followersCount?: number;
   followingCount?: number;
+  eventsCount?: number;
   following?: boolean;
   autoReposting?: boolean;
   createdAt?: string;
@@ -304,7 +305,10 @@ export interface RemoteActor {
   domain: string;
   iconUrl: string | null;
   imageUrl: string | null;
-  outbox: string | null;
+  outbox?: string | null;
+  eventsCount?: number;
+  followersCount?: number;
+  followingCount?: number;
 }
 
 export const federation = {
@@ -356,5 +360,15 @@ export const federation = {
       }
     }
     return request<{ actors: RemoteActor[] }>(`/federation/actors?${qs}`);
+  },
+
+  refreshActors(params?: { limit?: number; maxAgeHours?: number }) {
+    const qs = new URLSearchParams();
+    if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+    if (params?.maxAgeHours !== undefined) qs.set("maxAgeHours", String(params.maxAgeHours));
+    const suffix = qs.toString() ? `?${qs}` : "";
+    return request<{ refreshed: number; discovered?: number }>(`/federation/refresh-actors${suffix}`, {
+      method: "POST",
+    });
   },
 };

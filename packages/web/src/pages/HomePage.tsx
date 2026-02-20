@@ -270,7 +270,7 @@ export function HomePage() {
             <p>No events found.</p>
             <p className="text-sm text-dim mt-1">
               {scopeFilter === "feed"
-                ? <>Follow accounts on the <Link href="/federation">Federation</Link> page to see their events here.</>
+                ? <>Follow accounts on the <Link href="/discover">Discover</Link> page to see their events here.</>
                 : rangeMode === "upcoming"
                     ? "Try importing events from the Federation page, or create one!"
                     : "Try a different date range."}

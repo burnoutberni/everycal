@@ -1,8 +1,7 @@
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import { Header } from "./components/Header";
 import { HomePage } from "./pages/HomePage";
-import { ExplorePage } from "./pages/ExplorePage";
-import { FederationPage } from "./pages/FederationPage";
+import { DiscoverPage } from "./pages/DiscoverPage";
 import { EventPage } from "./pages/EventPage";
 import { NewEventPage } from "./pages/NewEventPage";
 import { EditEventPage } from "./pages/EditEventPage";
@@ -36,8 +35,9 @@ export function App() {
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/calendar" component={CalendarPage} />
-          <Route path="/explore" component={ExplorePage} />
-          <Route path="/federation" component={FederationPage} />
+          <Route path="/discover" component={DiscoverPage} />
+          <Route path="/explore"><Redirect to="/discover" /></Route>
+          <Route path="/federation"><Redirect to="/discover" /></Route>
           <Route path="/events/new" component={NewEventPage} />
 
           {/* /@username/:slug/edit — must be before /@username/:slug */}

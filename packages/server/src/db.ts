@@ -161,6 +161,13 @@ export function initDatabase(path: string): DB {
 
     CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 
+    -- Domain discovery: track when we last fetched full profile list from a remote server
+    CREATE TABLE IF NOT EXISTS domain_discovery (
+      domain TEXT PRIMARY KEY,
+      last_discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      software_type TEXT
+    );
+
     -- RSVPs: track attendance status for any event (local or remote)
     -- event_uri is the local event ID for local events, or the remote event URI for remote events
     CREATE TABLE IF NOT EXISTS event_rsvps (
@@ -227,6 +234,18 @@ export function initDatabase(path: string): DB {
   // Migration: add website to accounts if missing
   try {
     db.exec("ALTER TABLE accounts ADD COLUMN website TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add followers_count, following_count to remote_actors
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN followers_count INTEGER");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN following_count INTEGER");
   } catch {
     // Column already exists
   }
