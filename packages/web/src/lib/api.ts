@@ -5,7 +5,17 @@
  * The Bearer token header is still supported for API key users (scripts/scrapers).
  */
 
-const BASE = "/api/v1";
+const API_PATH = "/api/v1";
+
+/**
+ * Build API URL without embedded credentials.
+ * Relative URLs are resolved against document URL, which can inherit credentials
+ * (e.g. from proxy or user@host) and cause fetch to throw.
+ */
+function apiUrl(path: string): string {
+  const origin = `${window.location.protocol}//${window.location.host}`;
+  return `${origin}${API_PATH}${path}`;
+}
 
 /**
  * Optional API key for script/scraper usage.
@@ -35,7 +45,7 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(apiUrl(path), {
     ...options,
     headers,
     // Include cookies for session-based auth (HttpOnly cookie set by server)
