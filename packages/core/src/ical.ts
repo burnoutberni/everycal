@@ -8,8 +8,14 @@
 
 import { EveryCalEvent } from "./event.js";
 
+/** Options when producing iCal output. */
+export interface ToICalOptions {
+  /** If true, add STATUS:TENTATIVE (e.g. for "maybe" RSVPs). */
+  tentative?: boolean;
+}
+
 /** Produce a VEVENT string (without the VCALENDAR wrapper). */
-export function toICal(event: EveryCalEvent): string {
+export function toICal(event: EveryCalEvent, options?: ToICalOptions): string {
   const lines: string[] = [
     "BEGIN:VEVENT",
     `UID:${event.id}`,
@@ -17,11 +23,20 @@ export function toICal(event: EveryCalEvent): string {
     `DTSTART:${toICalDate(event.startDate)}`,
   ];
 
+  if (options?.tentative) {
+    lines.push("STATUS:TENTATIVE");
+    lines.push("X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE"); // Outlook "Show as: Tentative"
+  }
   if (event.endDate) lines.push(`DTEND:${toICalDate(event.endDate)}`);
   lines.push(`SUMMARY:${escapeICalText(event.title)}`);
   if (event.description) lines.push(`DESCRIPTION:${escapeICalText(event.description)}`);
   if (event.url) lines.push(`URL:${event.url}`);
-  if (event.location) lines.push(`LOCATION:${escapeICalText(event.location.name)}`);
+  if (event.location) {
+    const loc = event.location.address
+      ? `${event.location.name}, ${event.location.address}`
+      : event.location.name;
+    lines.push(`LOCATION:${escapeICalText(loc)}`);
+  }
   if (event.image) lines.push(`X-IMAGE;VALUE=URI:${event.image.url}`);
   if (event.tags) {
     lines.push(`CATEGORIES:${event.tags.map(escapeICalText).join(",")}`);

@@ -3,14 +3,118 @@
  *
  * GET /api/v1/feeds/:username.ics — iCal feed for an account
  * GET /api/v1/feeds/:username.json — JSON feed for an account
+ * GET /api/v1/feeds/calendar-url — Get URL for my calendar feed (auth required)
+ * GET /api/v1/feeds/calendar.ics?token=xxx — iCal feed for my calendar (Going/Maybe events)
  */
 
 import { Hono } from "hono";
+import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
 import { toICal, type EveryCalEvent } from "@everycal/core";
+import { requireAuth } from "../middleware/auth.js";
+
+function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
+  const row = db
+    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
+    .get(accountId) as { token: string } | undefined;
+
+  if (row) return row.token;
+
+  const token = `ecal_cal_${nanoid(40)}`;
+  db.prepare(
+    "INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)"
+  ).run(accountId, token);
+  return token;
+}
+
+function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
+  const row = db
+    .prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?")
+    .get(token) as { account_id: string } | undefined;
+  return row?.account_id ?? null;
+}
 
 export function feedRoutes(db: DB): Hono {
   const router = new Hono();
+
+  // Calendar feed URL (authenticated) — returns the iCal subscription URL
+  router.get("/calendar-url", requireAuth(), (c) => {
+    const user = c.get("user")!;
+    const token = getOrCreateCalendarFeedToken(db, user.id);
+    const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
+    const url = `${baseUrl}/api/v1/feeds/calendar.ics?token=${encodeURIComponent(token)}`;
+    return c.json({ url });
+  });
+
+  // Calendar feed (token auth) — events user is Going/Maybe to
+  router.get("/calendar.ics", (c) => {
+    const token = c.req.query("token");
+    if (!token) {
+      return c.json({ error: "token query parameter required" }, 400);
+    }
+    const accountId = resolveAccountFromCalendarToken(db, token);
+    if (!accountId) {
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
+
+    // Local events: Going/Maybe (include rsvp_status for tentative)
+    const localRows = db
+      .prepare(
+        `SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
+                GROUP_CONCAT(DISTINCT t.tag) AS tags, er.status AS rsvp_status
+         FROM events e
+         JOIN accounts a ON a.id = e.account_id
+         JOIN event_rsvps er ON er.event_uri = e.id AND er.account_id = ?
+         LEFT JOIN event_tags t ON t.event_id = e.id
+         WHERE er.status IN ('going','maybe')
+         AND e.visibility IN ('public','unlisted')
+         GROUP BY e.id
+         ORDER BY e.start_date ASC`
+      )
+      .all(accountId) as Record<string, unknown>[];
+
+    // Remote events: Going/Maybe (include rsvp_status for tentative)
+    const remoteRows = db
+      .prepare(
+        `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
+                0 AS all_day, re.location_name, re.location_address, re.location_latitude,
+                re.location_longitude, re.image_url, re.image_media_type, re.image_alt,
+                re.url, re.tags, re.published AS created_at,
+                COALESCE(re.updated, re.published, datetime('now')) AS updated_at,
+                'public' AS visibility, er.status AS rsvp_status
+         FROM remote_events re
+         JOIN event_rsvps er ON er.event_uri = re.uri AND er.account_id = ?
+         WHERE er.status IN ('going','maybe')
+         ORDER BY re.start_date ASC`
+      )
+      .all(accountId) as Record<string, unknown>[];
+
+    const allRows = [...localRows, ...remoteRows].sort((a, b) => {
+      const aDate = (a.start_date as string) || "";
+      const bDate = (b.start_date as string) || "";
+      return aDate.localeCompare(bDate);
+    });
+
+    const vevents = allRows.map((row) => {
+      const event = rowToEvent(row);
+      const tentative = row.rsvp_status === "maybe";
+      return toICal(event, { tentative });
+    });
+
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//EveryCal//MyCalendar//EN",
+      "X-WR-CALNAME:My Calendar",
+      ...vevents,
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    return c.text(ical, 200, {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="my-calendar.ics"',
+    });
+  });
 
   router.get("/:file", (c) => {
     const file = c.req.param("file");

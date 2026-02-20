@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import type { DatesSetArg, EventClickArg, EventMountArg } from "@fullcalendar/core";
 import { Link, useLocation } from "wouter";
-import { events as eventsApi, type CalEvent } from "../lib/api";
+import { events as eventsApi, feeds as feedsApi, type CalEvent } from "../lib/api";
+import { LinkIcon, InfoIcon } from "../components/icons";
 import { eventPath } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
@@ -14,27 +15,24 @@ import "./CalendarPage.css";
 function toFullCalendarEvent(ev: CalEvent) {
   const startStr = ev.startDate.slice(0, 10);
   const endStr = ev.endDate ? ev.endDate.slice(0, 10) : startStr;
+  const tentative = ev.rsvpStatus === "maybe";
+  const base = {
+    id: ev.id,
+    title: ev.title,
+    extendedProps: { event: ev },
+    ...(tentative && { classNames: ["fc-event-tentative"] }),
+  };
 
   if (ev.allDay) {
-    // FullCalendar end is exclusive; for all-day we need day after last day
     const end = ev.endDate ? addOneDay(endStr) : startStr;
-    return {
-      id: ev.id,
-      title: ev.title,
-      start: startStr,
-      end,
-      allDay: true,
-      extendedProps: { event: ev },
-    };
+    return { ...base, start: startStr, end, allDay: true };
   }
 
   return {
-    id: ev.id,
-    title: ev.title,
+    ...base,
     start: ev.startDate,
     end: ev.endDate ?? ev.startDate,
     allDay: false,
-    extendedProps: { event: ev },
   };
 }
 
@@ -57,6 +55,20 @@ export function CalendarPage() {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [visibleRange, setVisibleRange] = useState<{ from: string; to: string } | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "error">("idle");
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) {
+        setInfoOpen(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [infoOpen]);
 
   const fetchEvents = useCallback(async (from: string, to: string) => {
     setLoading(true);
@@ -213,6 +225,19 @@ export function CalendarPage() {
     if (cleanup) cleanup();
   }, []);
 
+  const handleCopyFeedLink = useCallback(async () => {
+    setCopyStatus("copying");
+    try {
+      const { url } = await feedsApi.getCalendarUrl();
+      await navigator.clipboard.writeText(url);
+      setCopyStatus("copied");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    } catch {
+      setCopyStatus("error");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    }
+  }, []);
+
   if (!user) {
     return null;
   }
@@ -226,6 +251,58 @@ export function CalendarPage() {
         style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}
       >
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>My Calendar</h1>
+        <div className="flex items-center gap-2" style={{ position: "relative" }} ref={infoRef}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleCopyFeedLink}
+            disabled={copyStatus === "copying"}
+            title="Copy iCal feed URL to sync with Apple Calendar, Google Calendar, or other calendar apps"
+          >
+            <LinkIcon />
+            {copyStatus === "copied" && " ✓ Copied!"}
+            {copyStatus === "error" && " Copy failed"}
+            {copyStatus === "copying" && " Copying…"}
+            {copyStatus === "idle" && " Copy feed link"}
+          </button>
+          <button
+            type="button"
+            className="calendar-feed-info-trigger"
+            onClick={(e) => {
+              e.stopPropagation();
+              setInfoOpen((o) => !o);
+            }}
+            title="What can I do with this link?"
+            aria-expanded={infoOpen}
+          >
+            <InfoIcon />
+          </button>
+          {infoOpen && (
+            <div
+              className="calendar-feed-info-popover"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="calendar-feed-info-title">Subscribe to your calendar</h3>
+              <p className="calendar-feed-info-text">
+                Use the link to add your EveryCal events to Apple Calendar, Google Calendar,
+                Outlook, or any app that supports iCal feeds. Events you mark as Going or Maybe
+                will sync automatically.
+              </p>
+              <p className="calendar-feed-info-text">
+                In your calendar app, add a new calendar subscription and paste the link.
+                The feed updates when your events change.
+              </p>
+              <p className="calendar-feed-info-text">
+                <strong>How-to guides:</strong>{" "}
+                <a href="https://support.apple.com/guide/calendar/subscribe-to-calendars-icl1022/mac" target="_blank" rel="noopener noreferrer">Apple Calendar</a>
+                {" · "}
+                <a href="https://support.google.com/calendar/answer/37100" target="_blank" rel="noopener noreferrer">Google Calendar</a>
+                {" · "}
+                <a href="https://support.microsoft.com/en-us/office/import-or-subscribe-to-a-calendar-in-outlook-com-or-outlook-on-the-web-cff1429c-5af6-41ec-a5b4-74f2c278e98c" target="_blank" rel="noopener noreferrer">Outlook</a>
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {loading && (
@@ -246,7 +323,10 @@ export function CalendarPage() {
                 center: "title",
                 right: "dayGridMonth,timeGridWeek,timeGridDay",
               }}
+              buttonIcons={false}
               buttonText={{
+                prev: "\u2039",
+                next: "\u203A",
                 today: "Today",
                 month: "Month",
                 week: "Week",

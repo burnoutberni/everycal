@@ -93,6 +93,7 @@ export function initDatabase(path: string): DB {
     CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
+
     CREATE INDEX IF NOT EXISTS idx_events_account ON events(account_id);
     CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_date);
     CREATE INDEX IF NOT EXISTS idx_events_visibility ON events(visibility);
@@ -279,6 +280,30 @@ export function initDatabase(path: string): DB {
     db.exec("CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix)");
   } catch {
     // Index already exists
+  }
+
+  // Migration: calendar_feed_tokens table (may have been created with token_hash in an earlier version)
+  const cftTable = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='calendar_feed_tokens'"
+  ).get() as { sql: string } | undefined;
+  const cftHasToken = cftTable?.sql?.includes(" token ");
+  const needsRecreate = !cftTable || !cftHasToken;
+  if (needsRecreate) {
+    if (cftTable) db.exec("DROP TABLE calendar_feed_tokens");
+    db.exec(`
+      CREATE TABLE calendar_feed_tokens (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        token TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_calendar_feed_tokens_token ON calendar_feed_tokens(token);
+    `);
+  } else {
+    try {
+      db.exec("CREATE INDEX IF NOT EXISTS idx_calendar_feed_tokens_token ON calendar_feed_tokens(token)");
+    } catch {
+      // Index already exists
+    }
   }
 
   // Migration: remove "interested" from event_rsvps (recreate table with new CHECK constraint)

@@ -160,15 +160,16 @@ button,
   color: var(--text);
   border-color: var(--border);
 }
-/* Calendar button: more prominent by default */
+/* Calendar button: always blue to highlight */
 .header-icon-btn-calendar {
-  color: var(--text);
-  border-color: var(--border);
-  background: rgba(110, 158, 255, 0.06);
+  color: #000;
+  border-color: var(--accent);
+  background: var(--accent);
 }
 .header-icon-btn-calendar:hover {
-  background: rgba(110, 158, 255, 0.12);
-  border-color: rgba(110, 158, 255, 0.3);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #000;
 }
 .header-icon-sep {
   width: 1px;

@@ -239,6 +239,15 @@ export const events = {
   },
 };
 
+// ---- Feeds ----
+
+export const feeds = {
+  /** Get the iCal feed URL for the current user's calendar (Going/Maybe events). */
+  getCalendarUrl() {
+    return request<{ url: string }>("/feeds/calendar-url");
+  },
+};
+
 // ---- Users ----
 
 export const users = {
