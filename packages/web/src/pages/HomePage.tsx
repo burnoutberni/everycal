@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { events as eventsApi, type CalEvent } from "../lib/api";
+import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
 import { useAuth } from "../hooks/useAuth";
@@ -8,14 +9,6 @@ import { Link } from "wouter";
 const PAGE_SIZE = 20;
 
 type ScopeFilter = "all" | "feed";
-
-function startOfDay(d: Date): string {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
-}
-
-function endOfDay(d: Date): string {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).toISOString();
-}
 
 function formatDateHeading(d: Date): string {
   return d.toLocaleDateString(undefined, {
@@ -29,7 +22,7 @@ function formatDateHeading(d: Date): string {
 function groupByDate(events: CalEvent[]): Map<string, CalEvent[]> {
   const groups = new Map<string, CalEvent[]>();
   for (const ev of events) {
-    const key = ev.startDate.slice(0, 10);
+    const key = toLocalYMD(ev.startDate);
     const list = groups.get(key) || [];
     list.push(ev);
     groups.set(key, list);
@@ -50,8 +43,8 @@ function getRangeDates(
   switch (mode) {
     case "day":
       return {
-        from: startOfDay(selectedDate),
-        to: endOfDay(selectedDate),
+        from: startOfDayForApi(selectedDate),
+        to: endOfDayForApi(selectedDate),
         label: formatDateHeading(selectedDate),
       };
     case "week": {
@@ -59,8 +52,8 @@ function getRangeDates(
       const monday = new Date(y, m, d - dow + 1);
       const sunday = new Date(y, m, d - dow + 7);
       return {
-        from: startOfDay(monday),
-        to: endOfDay(sunday),
+        from: startOfDayForApi(monday),
+        to: endOfDayForApi(sunday),
         label: `${monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
       };
     }
@@ -68,8 +61,8 @@ function getRangeDates(
       const first = new Date(y, m, 1);
       const last = new Date(y, m + 1, 0);
       return {
-        from: startOfDay(first),
-        to: endOfDay(last),
+        from: startOfDayForApi(first),
+        to: endOfDayForApi(last),
         label: selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
       };
     }
@@ -107,7 +100,7 @@ export function HomePage() {
     // End on Sunday of week containing last day
     const endOffset = (7 - lastOfMonth.getDay()) % 7;
     const lastVisible = new Date(y, m + 1, 0 + endOffset);
-    return { from: startOfDay(firstVisible), to: endOfDay(lastVisible) };
+    return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
   }, [selectedDate]);
 
   useEffect(() => {
@@ -123,7 +116,7 @@ export function HomePage() {
       .list(params as Parameters<typeof eventsApi.list>[0])
       .then((res) => {
         if (!cancelled) {
-          setCalendarEventDates(new Set(res.events.map((e) => e.startDate.slice(0, 10))));
+          setCalendarEventDates(new Set(res.events.map((e) => toLocalYMD(e.startDate))));
         }
       })
       .catch(() => {

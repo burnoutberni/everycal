@@ -4,6 +4,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 
 export function userRoutes(db: DB): Hono {
@@ -168,7 +169,7 @@ export function userRoutes(db: DB): Hono {
         `;
         const params: unknown[] = [remoteActor.uri];
         if (from) { sql += " AND re.start_date >= ?"; params.push(from); }
-        if (to) { sql += " AND re.start_date <= ?"; params.push(to); }
+        if (to) { sql += buildToCondition("re.start_date"); params.push(...buildToParams(to)); }
         sql += ` ORDER BY re.start_date ${sort} LIMIT ? OFFSET ?`;
         params.push(limit, offset);
 
@@ -219,7 +220,7 @@ export function userRoutes(db: DB): Hono {
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
     if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += ` AND e.start_date <= ?`; params.push(to); }
+    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
 
     sql += ` GROUP BY e.id`;
 
@@ -239,7 +240,7 @@ export function userRoutes(db: DB): Hono {
     `;
     params.push(account.id);
     if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += ` AND e.start_date <= ?`; params.push(to); }
+    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
     // Add auto-reposted events (from accounts this user auto-reposts, excluding already explicit reposts)
@@ -260,7 +261,7 @@ export function userRoutes(db: DB): Hono {
     `;
     params.push(account.id, account.id, account.id);
     if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += ` AND e.start_date <= ?`; params.push(to); }
+    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
     // Wrap in outer query to sort and paginate

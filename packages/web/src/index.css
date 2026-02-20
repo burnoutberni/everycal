@@ -266,6 +266,20 @@ button,
   color: var(--text-dim);
 }
 
+.profile-menu-btn {
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.profile-menu-btn:hover {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

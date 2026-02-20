@@ -1,19 +1,16 @@
 import { useMemo } from "react";
+import { dateToLocalYMD } from "../lib/dateUtils";
 
 interface MiniCalendarProps {
   /** Currently selected date */
   selected: Date;
   /** Callback when a date is clicked */
   onSelect: (date: Date) => void;
-  /** Set of YYYY-MM-DD strings that have events */
+  /** Set of YYYY-MM-DD strings (local timezone) that have events */
   eventDates?: Set<string>;
 }
 
 const DAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-
-function toYMD(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
 
 function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -87,11 +84,11 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
         </button>
       </div>
 
-      {/* Day headers */}
+      {/* Day headers + days grid: use 1fr so it fits any container (e.g. 220px sidebar) */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(7, 2rem)",
+          gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
           gap: "0.15rem",
           textAlign: "center",
         }}
@@ -119,7 +116,7 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
             const isCurrentMonth = day.getMonth() === month;
             const isToday = sameDay(day, today);
             const isSelected = sameDay(day, selected);
-            const hasEvents = eventDates?.has(toYMD(day));
+            const hasEvents = eventDates?.has(dateToLocalYMD(day));
             const past = isPast(day, today);
 
             return (

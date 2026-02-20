@@ -1,68 +1,184 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
+import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
+import { MiniCalendar } from "../components/MiniCalendar";
+import { MenuIcon, RepostIcon } from "../components/icons";
 import { useAuth } from "../hooks/useAuth";
 
-function groupEvents(events: CalEvent[]): { upcoming: CalEvent[]; past: CalEvent[] } {
-  const now = Date.now();
-  const current: CalEvent[] = [];
-  const future: CalEvent[] = [];
-  const past: CalEvent[] = [];
+function formatDateHeading(d: Date): string {
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
-  for (const e of events) {
-    const start = new Date(e.startDate).getTime();
-    const end = e.endDate ? new Date(e.endDate).getTime() : start;
-    if (start <= now && end >= now) {
-      current.push(e);
-    } else if (start > now) {
-      future.push(e);
-    } else {
-      past.push(e);
-    }
+function groupByDate(events: CalEvent[]): Map<string, CalEvent[]> {
+  const groups = new Map<string, CalEvent[]>();
+  for (const ev of events) {
+    const key = toLocalYMD(ev.startDate);
+    const list = groups.get(key) || [];
+    list.push(ev);
+    groups.set(key, list);
   }
+  return groups;
+}
 
-  // Current: sort by start ascending
-  current.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  // Future: nearest first
-  future.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  // Past: most recent first
-  past.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+type RangeMode = "day" | "week" | "month" | "upcoming";
 
-  return { upcoming: [...current, ...future], past };
+function getRangeDates(
+  mode: RangeMode,
+  selectedDate: Date
+): { from: string; to?: string; label: string } {
+  const y = selectedDate.getFullYear();
+  const m = selectedDate.getMonth();
+  const d = selectedDate.getDate();
+
+  switch (mode) {
+    case "day":
+      return {
+        from: startOfDayForApi(selectedDate),
+        to: endOfDayForApi(selectedDate),
+        label: formatDateHeading(selectedDate),
+      };
+    case "week": {
+      const dow = selectedDate.getDay() || 7;
+      const monday = new Date(y, m, d - dow + 1);
+      const sunday = new Date(y, m, d - dow + 7);
+      return {
+        from: startOfDayForApi(monday),
+        to: endOfDayForApi(sunday),
+        label: `${monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+      };
+    }
+    case "month": {
+      const first = new Date(y, m, 1);
+      const last = new Date(y, m + 1, 0);
+      return {
+        from: startOfDayForApi(first),
+        to: endOfDayForApi(last),
+        label: selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      };
+    }
+    case "upcoming":
+    default:
+      return {
+        from: new Date().toISOString(),
+        label: "Upcoming",
+      };
+  }
 }
 
 export function ProfilePage({ username }: { username: string }) {
   const { user: currentUser } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
+  const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
 
-  const loadProfile = () => {
-    const now = new Date().toISOString();
-    // Fetch profile, upcoming events (ASC), and recent past events (DESC)
-    Promise.all([
-      usersApi.get(username),
-      usersApi.events(username, { from: now, limit: 50 }),
-      usersApi.events(username, { to: now, limit: 20, sort: "desc" }),
-    ])
-      .then(([p, upcoming, past]) => {
+  const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
+
+  // Fetch event dates for the minicalendar (visible grid)
+  const calendarMonthRange = useMemo(() => {
+    const y = selectedDate.getFullYear();
+    const m = selectedDate.getMonth();
+    const firstOfMonth = new Date(y, m, 1);
+    const lastOfMonth = new Date(y, m + 1, 0);
+    const startOffset = (firstOfMonth.getDay() + 6) % 7;
+    const firstVisible = new Date(y, m, 1 - startOffset);
+    const endOffset = (7 - lastOfMonth.getDay()) % 7;
+    const lastVisible = new Date(y, m + 1, 0 + endOffset);
+    return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
+  }, [selectedDate]);
+
+  const fetchProfile = useCallback(() => {
+    setProfileLoading(true);
+    usersApi
+      .get(username)
+      .then((p) => {
         setProfile(p);
-        // Combine and deduplicate by ID
-        const combined = new Map<string, CalEvent>();
-        upcoming.events.forEach((e) => combined.set(e.id, e));
-        past.events.forEach((e) => combined.set(e.id, e));
-        setEvents(Array.from(combined.values()));
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    setLoading(true);
-    loadProfile();
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false));
   }, [username]);
 
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = {
+      from: calendarMonthRange.from,
+      to: calendarMonthRange.to,
+      limit: 500,
+    };
+    usersApi
+      .events(username, params)
+      .then((res) => {
+        if (!cancelled) {
+          setCalendarEventDates(new Set(res.events.map((e) => toLocalYMD(e.startDate))));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCalendarEventDates(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [username, calendarMonthRange.from, calendarMonthRange.to]);
+
+  const fetchEvents = useCallback(
+    async () => {
+      if (!profile) return;
+      setEventsLoading(true);
+      try {
+        const params: { from?: string; to?: string; limit: number; sort?: "asc" | "desc" } = {
+          limit: 100,
+        };
+        if (range.to) {
+          params.from = range.from;
+          params.to = range.to;
+          params.sort = "asc";
+        } else {
+          params.from = range.from;
+          params.sort = "asc";
+        }
+        const res = await usersApi.events(username, params);
+        setEvents(res.events);
+      } catch {
+        setEvents([]);
+      } finally {
+        setEventsLoading(false);
+      }
+    },
+    [username, profile, range]
+  );
+
+  useEffect(() => {
+    if (profile) fetchEvents();
+  }, [profile, fetchEvents]);
+
+  const grouped = useMemo(() => groupByDate(events), [events]);
   const isRemote = profile?.source === "remote";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [menuOpen]);
 
   const handleFollow = async () => {
     if (!profile) return;
@@ -79,7 +195,7 @@ export function ProfilePage({ username }: { username: string }) {
         await usersApi.follow(username);
       }
     }
-    loadProfile();
+    fetchProfile();
   };
 
   const handleAutoRepost = async () => {
@@ -89,128 +205,228 @@ export function ProfilePage({ username }: { username: string }) {
     } else {
       await usersApi.autoRepost(username);
     }
-    loadProfile();
+    fetchProfile();
   };
 
-  if (loading) return <p className="text-muted">Loading…</p>;
+  const handleDateSelect = (date: Date) => {
+    setSelectedDate(date);
+    if (rangeMode === "upcoming") setRangeMode("day");
+  };
+
+  const goPrev = () => {
+    const d = new Date(selectedDate);
+    if (rangeMode === "day") d.setDate(d.getDate() - 1);
+    else if (rangeMode === "week") d.setDate(d.getDate() - 7);
+    else if (rangeMode === "month") d.setMonth(d.getMonth() - 1);
+    setSelectedDate(d);
+  };
+
+  const goNext = () => {
+    const d = new Date(selectedDate);
+    if (rangeMode === "day") d.setDate(d.getDate() + 1);
+    else if (rangeMode === "week") d.setDate(d.getDate() + 7);
+    else if (rangeMode === "month") d.setMonth(d.getMonth() + 1);
+    setSelectedDate(d);
+  };
+
+  if (profileLoading) return <p className="text-muted">Loading…</p>;
   if (!profile) return <p className="error-text">User not found.</p>;
 
   const isOwn = currentUser?.id === profile.id;
 
   return (
-    <div>
-      <div className="card mb-2">
-        <div className="flex items-center gap-2">
-          <div
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: "50%",
-              background: "var(--bg-hover)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "1.8rem",
-              flexShrink: 0,
-              overflow: "hidden",
-            }}
-          >
-            {profile.avatarUrl ? (
-              <img
-                src={profile.avatarUrl}
-                alt=""
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
-            ) : (
-              profile.username[0].toUpperCase()
-            )}
-          </div>
-          <div className="flex-1">
-            <h1 style={{ fontSize: "1.3rem", fontWeight: 700 }}>
-              {profile.displayName || profile.username}
-            </h1>
-            <p className="text-muted">@{profile.username}</p>
-            {profile.bio && <p className="mt-1">{profile.bio}</p>}
-            {profile.website && (
-              <p className="mt-1">
-                <a
-                  href={profile.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent)" }}
-                >
-                  🔗 {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-                </a>
-              </p>
-            )}
-            <div className="flex gap-2 mt-1 text-sm text-muted">
-              <span>
-                <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
-              </span>
-              <span>
-                <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
-              </span>
-            </div>
-          </div>
-          {currentUser && !isOwn && (
-            <div className="flex flex-col gap-1" style={{ alignItems: "flex-end" }}>
-              <button
-                className={profile.following ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
-                onClick={handleFollow}
-              >
-                {profile.following ? "Unfollow" : "Follow"}
-              </button>
-              {!isRemote && (
-                <button
-                  className={profile.autoReposting ? "btn-ghost btn-sm" : "btn-ghost btn-sm"}
-                  onClick={handleAutoRepost}
-                  title={profile.autoReposting
-                    ? "Stop auto-reposting all events from this account"
-                    : "Automatically repost all events from this account onto your feed"}
-                  style={profile.autoReposting ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
-                >
-                  🔁 {profile.autoReposting ? "Auto-reposting" : "Auto-repost"}
-                </button>
+    <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
+      {/* Sidebar */}
+      <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1" style={{ minWidth: 0 }}>
+        {/* Profile header */}
+        <div className="card mb-2">
+          <div className="flex items-center gap-2">
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                background: "var(--bg-hover)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "1.8rem",
+                flexShrink: 0,
+                overflow: "hidden",
+              }}
+            >
+              {profile.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                profile.username[0].toUpperCase()
               )}
             </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-1" style={{ flexWrap: "wrap" }}>
+                <h1 style={{ fontSize: "1.3rem", fontWeight: 700 }}>
+                  {profile.displayName || profile.username}
+                </h1>
+                {currentUser && !isOwn && !isRemote && (
+                  <div ref={menuRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      className="profile-menu-btn"
+                      onClick={() => setMenuOpen((o) => !o)}
+                      aria-expanded={menuOpen}
+                      aria-haspopup="true"
+                      title="More options"
+                    >
+                      <MenuIcon />
+                    </button>
+                    {menuOpen && (
+                      <div className="header-dropdown">
+                        <button
+                          type="button"
+                          className="header-dropdown-item"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            handleAutoRepost();
+                          }}
+                          title={profile.autoReposting
+                            ? "Stop auto-reposting all events from this account"
+                            : "Automatically repost all events from this account onto your feed"}
+                          style={profile.autoReposting ? { color: "var(--accent)" } : undefined}
+                        >
+                          <RepostIcon />
+                          {profile.autoReposting ? "Auto-reposting" : "Auto-repost"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className="text-muted">@{profile.username}</p>
+              {profile.bio && <p className="mt-1">{profile.bio}</p>}
+              {profile.website && (
+                <p className="mt-1">
+                  <a
+                    href={profile.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    🔗 {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                  </a>
+                </p>
+              )}
+              <div className="flex gap-2 mt-1 text-sm text-muted">
+                <span>
+                  <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
+                </span>
+                <span>
+                  <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
+                </span>
+              </div>
+            </div>
+            {currentUser && !isOwn && (
+              <div style={{ flexShrink: 0 }}>
+                <button
+                  className={profile.following ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
+                  onClick={handleFollow}
+                >
+                  {profile.following ? "Unfollow" : "Follow"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Range controls */}
+          <div
+            className="flex items-center justify-between"
+            style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}
+          >
+            <div className="flex items-center gap-1">
+              {(["upcoming", "day", "week", "month"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    setRangeMode(mode);
+                    if (mode === "upcoming") setSelectedDate(new Date());
+                  }}
+                  className={rangeMode === mode ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                  style={{ textTransform: "capitalize" }}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+
+            {rangeMode !== "upcoming" && (
+              <div className="flex items-center gap-1">
+                <button className="btn-ghost btn-sm" onClick={goPrev}>‹</button>
+                <span className="text-sm" style={{ fontWeight: 600, minWidth: "10rem", textAlign: "center" }}>
+                  {range.label}
+                </span>
+                <button className="btn-ghost btn-sm" onClick={goNext}>›</button>
+                <button
+                  className="btn-ghost btn-sm"
+                  onClick={() => setSelectedDate(new Date())}
+                  style={{ marginLeft: "0.25rem" }}
+                >
+                  Today
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile: inline calendar */}
+          <div className="show-mobile" style={{ marginBottom: "1rem" }}>
+            <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
+          </div>
+
+          {/* Event list */}
+          {eventsLoading ? (
+            <p className="text-muted">Loading…</p>
+          ) : events.length === 0 ? (
+            <div className="empty-state">
+              <p>No events found.</p>
+              <p className="text-sm text-dim mt-1">
+                {rangeMode === "upcoming"
+                  ? "No upcoming events from this account."
+                  : "Try a different date range."}
+              </p>
+            </div>
+          ) : (
+            <>
+              {[...grouped.entries()].map(([dateKey, dayEvents]) => (
+                <div key={dateKey} style={{ marginBottom: "1.25rem" }}>
+                  <h2
+                    className="text-sm"
+                    style={{
+                      fontWeight: 600,
+                      color: "var(--text-muted)",
+                      marginBottom: "0.4rem",
+                      borderBottom: "1px solid var(--border)",
+                      paddingBottom: "0.3rem",
+                    }}
+                  >
+                    {formatDateHeading(new Date(dateKey + "T00:00:00"))}
+                  </h2>
+                  <div className="flex flex-col gap-1">
+                    {dayEvents.map((e) => (
+                      <EventCard key={e.id} event={e} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       </div>
-
-      {events.length === 0 ? (
-        <>
-          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Events</h2>
-          <div className="empty-state">
-            <p>No events yet.</p>
-          </div>
-        </>
-      ) : (() => {
-        const { upcoming, past } = groupEvents(events);
-        return (
-          <>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.75rem" }}>Upcoming Events</h2>
-            {upcoming.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                {upcoming.map((e) => (
-                  <EventCard key={e.id} event={e} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted" style={{ marginBottom: "1rem" }}>No upcoming events.</p>
-            )}
-            {past.length > 0 && (
-              <>
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginTop: "1.5rem", marginBottom: "0.75rem" }}>Past Events</h2>
-                <div className="flex flex-col gap-1">
-                  {past.map((e) => (
-                    <EventCard key={e.id} event={e} />
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        );
-      })()}
-    </div>
   );
 }

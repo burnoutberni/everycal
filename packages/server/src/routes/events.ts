@@ -17,8 +17,9 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { deliverToFollowers } from "../lib/federation.js";
-import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
+import { buildToCondition, buildToParams } from "../lib/date-query.js";
+import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 
 /** Generate a URL-safe slug from a title. */
@@ -136,8 +137,8 @@ export function eventRoutes(db: DB): Hono {
         params.push(from);
       }
       if (to) {
-        sql += ` AND ${tablePrefix}.start_date <= ?`;
-        params.push(to);
+        sql += buildToCondition(`${tablePrefix}.start_date`);
+        params.push(...buildToParams(to));
       }
       if (q) {
         sql += ` AND (${tablePrefix}.title LIKE ? OR ${tablePrefix}.description LIKE ?)`;
@@ -183,8 +184,8 @@ export function eventRoutes(db: DB): Hono {
         params.push(from);
       }
       if (to) {
-        sql += ` AND re.start_date <= ?`;
-        params.push(to);
+        sql += buildToCondition("re.start_date");
+        params.push(...buildToParams(to));
       }
       if (q) {
         sql += ` AND (re.title LIKE ? OR re.description LIKE ?)`;
@@ -294,8 +295,8 @@ export function eventRoutes(db: DB): Hono {
       let sql = feed.sql;
       const params: unknown[] = [...feed.params];
       if (to) {
-        sql += ` AND combined.start_date <= ?`;
-        params.push(to);
+        sql += buildToCondition("combined.start_date");
+        params.push(...buildToParams(to));
       }
       sql += ` GROUP BY combined.id ORDER BY combined.start_date ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
@@ -318,7 +319,7 @@ export function eventRoutes(db: DB): Hono {
           )
       `;
       const params: unknown[] = [from, user.id, user.id];
-      if (to) { sql += ` AND re.start_date <= ?`; params.push(to); }
+      if (to) { sql += buildToCondition("re.start_date"); params.push(...buildToParams(to)); }
       sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
