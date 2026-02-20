@@ -1,0 +1,52 @@
+const timeOpts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/** Format event start/end for display. Handles all-day, end time, and multi-day. */
+export function formatEventDateTime(
+  event: { startDate: string; endDate: string | null; allDay: boolean },
+  long = false
+): string {
+  const start = new Date(event.startDate);
+  const end = event.endDate ? new Date(event.endDate) : null;
+  const isCurrentYear = start.getFullYear() === new Date().getFullYear();
+
+  const dateOpts: Intl.DateTimeFormatOptions = long
+    ? { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+    : {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        ...(isCurrentYear ? {} : { year: "numeric" }),
+      };
+
+  const startDateStr = start.toLocaleDateString(undefined, dateOpts);
+
+  if (event.allDay) {
+    if (!end || isSameDay(start, end)) {
+      return `${startDateStr} · All day`;
+    }
+    const endDateStr = end.toLocaleDateString(undefined, dateOpts);
+    return `${startDateStr} – ${endDateStr}`;
+  }
+
+  const startTimeStr = start.toLocaleTimeString(undefined, timeOpts);
+
+  if (!end || isSameDay(start, end)) {
+    const endTimeStr = end ? end.toLocaleTimeString(undefined, timeOpts) : null;
+    if (endTimeStr && endTimeStr !== startTimeStr) {
+      return `${startDateStr} · ${startTimeStr} – ${endTimeStr}`;
+    }
+    return `${startDateStr} · ${startTimeStr}`;
+  }
+
+  const endDateStr = end.toLocaleDateString(undefined, dateOpts);
+  const endTimeStr = end.toLocaleTimeString(undefined, timeOpts);
+  return `${startDateStr} · ${startTimeStr} – ${endDateStr} · ${endTimeStr}`;
+}
