@@ -17,7 +17,13 @@
       "core-js-pure",
       "esbuild",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "minimatch": ">=10.2.1",
+      "webpack-dev-server": ">=5.2.1",
+      "ajv": ">=8.18.0",
+      "qs": ">=6.14.2"
+    }
   },
   "scripts": {
     "build": "pnpm -r build",
