@@ -34,6 +34,14 @@ function getBaseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
+/** Convert SQLite datetime to ISO 8601 for ActivityPub (required by spec). */
+function toISO8601(dt: string | null | undefined): string | undefined {
+  if (!dt) return undefined;
+  if (dt.includes("T")) return dt.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dt) ? dt : dt + "Z";
+  const normalized = dt.replace(" ", "T");
+  return normalized.includes(".") ? normalized + "Z" : normalized + ".000Z";
+}
+
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
   const row = db
     .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
@@ -213,30 +221,33 @@ export function activityPubRoutes(db: DB): Hono {
       )
       .all(account.id, account.id) as Record<string, unknown>[];
 
+    const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
     const createItems = ownedRows.map((row) => ({
+      id: `${baseUrl}/events/${row.id}/activity`,
       type: "Create",
       actor: actorUrl,
-      published: row.created_at,
+      published: toISO8601(row.created_at as string) ?? row.created_at,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: rowToAPEvent(row, actorUrl, baseUrl),
       _sort: row.start_date as string,
     }));
 
-    const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
     const repostAnnounceItems = repostRows.map((row) => ({
+      id: `${actorUrl}/announce/${row.id}`,
       type: "Announce",
       actor: actorUrl,
-      published: row.reposted_at,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
       _sort: row.start_date as string,
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
+      id: `${actorUrl}/announce/${row.id}`,
       type: "Announce",
       actor: actorUrl,
-      published: row.reposted_at,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
@@ -680,9 +691,9 @@ function rowToAPEvent(
     id: eventUrl,
     type: "Event",
     name: row.title,
-    startTime: row.start_date,
-    published: row.created_at,
-    updated: row.updated_at,
+    startTime: toISO8601(row.start_date as string) ?? row.start_date,
+    published: toISO8601(row.created_at as string) ?? row.created_at,
+    updated: toISO8601(row.updated_at as string) ?? row.updated_at,
     url: (row.url as string) || eventUrl,
     attributedTo: actorUrl,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
@@ -690,7 +701,7 @@ function rowToAPEvent(
   };
 
   if (row.description) event.content = row.description;
-  if (row.end_date) event.endTime = row.end_date;
+  if (row.end_date) event.endTime = toISO8601(row.end_date as string) ?? row.end_date;
   if (row.location_name) {
     const location: Record<string, unknown> = {
       type: "Place",
