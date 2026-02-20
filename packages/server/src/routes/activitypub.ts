@@ -444,8 +444,9 @@ export function sharedInboxRoute(db: DB): Hono {
 
     switch (type) {
       case "Follow": {
-        // Find the target local account from the Follow object
-        const objectUri = activity.object as string;
+        // Find the target local account from the Follow object.
+        // ActivityPub allows object to be either a string IRI or an object with id.
+        const objectUri = extractObjectUri(activity.object);
         const baseUrl = getBaseUrl();
         const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
         if (match) {
@@ -453,13 +454,15 @@ export function sharedInboxRoute(db: DB): Hono {
             .prepare("SELECT id, username FROM accounts WHERE username = ?")
             .get(match[1]) as { id: string; username: string } | undefined;
           if (account) await handleFollow(db, account, activity);
+        } else if (objectUri) {
+          console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
         }
         break;
       }
       case "Undo": {
         const inner = activity.object as Record<string, unknown>;
         if (inner?.type === "Follow") {
-          const objectUri = inner.object as string;
+          const objectUri = extractObjectUri(inner.object);
           const baseUrl = getBaseUrl();
           const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
           if (match) {
@@ -678,6 +681,15 @@ function ensureKeyPairForAccount(
 }
 
 // ---- Helpers ----
+
+/** Extract URI from ActivityPub object (string IRI or object with id). */
+function extractObjectUri(obj: unknown): string | undefined {
+  if (typeof obj === "string") return obj;
+  if (obj && typeof obj === "object" && "id" in obj && typeof (obj as Record<string, unknown>).id === "string") {
+    return (obj as Record<string, string>).id;
+  }
+  return undefined;
+}
 
 function rowToAPEvent(
   row: Record<string, unknown>,
