@@ -69,6 +69,14 @@ export function fromICal(vevent: string): Partial<EveryCalEvent> {
     event.organizer = props["ORGANIZER"];
   }
 
+  // DTSTART;VALUE=DATE indicates an all-day event (date-only, no time)
+  const dtStartIsDateOnly = Object.keys(props).some(
+    (k) => k.startsWith("DTSTART") && k.includes("VALUE=DATE")
+  );
+  if (dtStartIsDateOnly) {
+    event.allDay = true;
+  }
+
   return event;
 }
 
