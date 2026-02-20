@@ -46,11 +46,13 @@ export function directoryRoutes(db: DB): Hono {
         ? "ORDER BY accounts.created_at DESC"
         : `ORDER BY COALESCE(${lastEventSubquery}, accounts.created_at) DESC`;
 
+    const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
+
     const rows = db
       .prepare(
         `SELECT accounts.id, accounts.username, accounts.display_name, accounts.bio,
                 accounts.avatar_url, accounts.is_bot, accounts.created_at,
-                (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
+                ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery} AS statuses_count,
                 ${lastEventSubquery} AS last_status_at

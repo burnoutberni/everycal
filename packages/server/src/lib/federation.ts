@@ -414,6 +414,52 @@ export async function discoverDomainActors(
 }
 
 /**
+ * Fetch items from a remote ActivityPub collection (followers, following, etc.).
+ * Handles OrderedCollection with first/page structure and pagination.
+ */
+export async function fetchRemoteCollection(
+  collectionUrl: string,
+  maxPages = 5
+): Promise<string[]> {
+  const coll = (await fetchAP(collectionUrl)) as Record<string, unknown>;
+
+  let items: unknown[] = [];
+  let nextUrl: string | null = null;
+
+  if (coll.first && typeof coll.first === "object") {
+    const page = coll.first as Record<string, unknown>;
+    items = (page.orderedItems as unknown[]) || (page.items as unknown[]) || [];
+    nextUrl = (page.next as string) || null;
+  } else if (coll.first && typeof coll.first === "string") {
+    const page = (await fetchAP(coll.first)) as Record<string, unknown>;
+    items = (page.orderedItems as unknown[]) || (page.items as unknown[]) || [];
+    nextUrl = (page.next as string) || null;
+  } else if (coll.orderedItems || coll.items) {
+    items = (coll.orderedItems as unknown[]) || (coll.items as unknown[]) || [];
+  }
+
+  let pagesFetched = 1;
+  while (nextUrl && pagesFetched < maxPages) {
+    try {
+      const page = (await fetchAP(nextUrl)) as Record<string, unknown>;
+      const pageItems = (page.orderedItems as unknown[]) || (page.items as unknown[]) || [];
+      if (pageItems.length === 0) break;
+      items.push(...pageItems);
+      nextUrl = (page.next as string) || null;
+      pagesFetched++;
+    } catch {
+      break;
+    }
+  }
+
+  return items.map((item) => {
+    if (typeof item === "string") return item;
+    const obj = item as Record<string, unknown>;
+    return (obj.id as string) || "";
+  }).filter(Boolean);
+}
+
+/**
  * Fetch events from a remote actor's outbox, following pagination.
  */
 export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promise<unknown[]> {

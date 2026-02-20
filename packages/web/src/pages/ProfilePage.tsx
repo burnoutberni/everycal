@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { profilePath } from "../lib/urls";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
 import { MenuIcon, RepostIcon } from "../components/icons";
@@ -168,6 +170,9 @@ export function ProfilePage({ username }: { username: string }) {
   const isRemote = profile?.source === "remote";
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [listModal, setListModal] = useState<"followers" | "following" | null>(null);
+  const [listUsers, setListUsers] = useState<User[]>([]);
+  const [listLoading, setListLoading] = useState(false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -179,6 +184,16 @@ export function ProfilePage({ username }: { username: string }) {
     document.addEventListener("click", handleClickOutside);
     return () => document.removeEventListener("click", handleClickOutside);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!listModal || !username) return;
+    setListLoading(true);
+    const api = listModal === "followers" ? usersApi.followers : usersApi.following;
+    api(username)
+      .then((res) => setListUsers(res.users))
+      .catch(() => setListUsers([]))
+      .finally(() => setListLoading(false));
+  }, [listModal, username]);
 
   const handleFollow = async () => {
     if (!profile) return;
@@ -235,6 +250,7 @@ export function ProfilePage({ username }: { username: string }) {
   const isOwn = currentUser?.id === profile.id;
 
   return (
+    <>
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
       {/* Sidebar */}
       <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
@@ -324,12 +340,35 @@ export function ProfilePage({ username }: { username: string }) {
                 </p>
               )}
               <div className="flex gap-2 mt-1 text-sm text-muted">
-                <span>
-                  <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
-                </span>
-                <span>
-                  <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
-                </span>
+                {(isOwn || isRemote) ? (
+                  <>
+                    <button
+                      type="button"
+                      className="profile-stat-clickable"
+                      style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
+                      onClick={() => setListModal("followers")}
+                    >
+                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
+                    </button>
+                    <button
+                      type="button"
+                      className="profile-stat-clickable"
+                      style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
+                      onClick={() => setListModal("following")}
+                    >
+                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span>
+                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
+                    </span>
+                    <span>
+                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
+                    </span>
+                  </>
+                )}
               </div>
             </div>
             {currentUser && !isOwn && (
@@ -428,5 +467,90 @@ export function ProfilePage({ username }: { username: string }) {
           )}
         </div>
       </div>
+
+      {/* Followers / Following modal (own profile or remote profile) */}
+      {listModal && (isOwn || isRemote) && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setListModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="list-modal-title"
+        >
+          <div className="modal-card">
+            <div className="modal-header">
+              <h2 id="list-modal-title" style={{ fontSize: "1rem", fontWeight: 600 }}>
+                {listModal === "followers" ? "Followers" : "Following"}
+              </h2>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => setListModal(null)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              {listLoading ? (
+                <p className="text-muted">Loading…</p>
+              ) : listUsers.length === 0 ? (
+                <p className="text-muted">
+                  {listModal === "followers" ? "No followers yet." : "Not following anyone yet."}
+                </p>
+              ) : (
+                listUsers.map((u) => (
+                  <div key={u.id} className="modal-user-row">
+                    <Link
+                      href={profilePath(u.username)}
+                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "0.75rem", textDecoration: "none", color: "inherit" }}
+                      onClick={() => setListModal(null)}
+                    >
+                      <div className="avatar">
+                        {u.avatarUrl ? (
+                          <img src={u.avatarUrl} alt="" />
+                        ) : (
+                          (u.displayName || u.username || "?")[0].toUpperCase()
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>
+                          {u.displayName || u.username}
+                        </div>
+                        <div className="text-muted" style={{ fontSize: "0.85rem" }}>
+                          @{u.username}
+                        </div>
+                      </div>
+                    </Link>
+                    {listModal === "following" && isOwn && (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          try {
+                            if (u.source === "remote") {
+                              await federation.unfollow(u.id);
+                            } else {
+                              await usersApi.unfollow(u.username);
+                            }
+                            setListUsers((prev) => prev.filter((x) => x.id !== u.id));
+                            fetchProfile();
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                      >
+                        Unfollow
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

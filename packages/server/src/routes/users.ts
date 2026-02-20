@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
+import { resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -27,9 +28,11 @@ export function userRoutes(db: DB): Hono {
       SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
     )) AS events_count`;
 
+    const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
+
     if (q) {
       sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
-                    (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
+                    ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
              FROM accounts
@@ -38,7 +41,7 @@ export function userRoutes(db: DB): Hono {
       params = [`%${q}%`, `%${q}%`, limit, offset];
     } else {
       sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
-                    (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
+                    ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
              FROM accounts
@@ -108,10 +111,12 @@ export function userRoutes(db: DB): Hono {
       SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
     )) AS events_count`;
 
+    const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
+
     const row = db
       .prepare(
         `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
-                (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) AS followers_count,
+                ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery}
          FROM accounts WHERE username = ?`
@@ -345,15 +350,44 @@ export function userRoutes(db: DB): Hono {
     return c.json({ ok: true, autoReposting: false });
   });
 
-  // Get followers
-  router.get("/:username/followers", (c) => {
+  // Get followers (local + remote)
+  router.get("/:username/followers", async (c) => {
     const username = c.req.param("username");
+
+    // Remote profile: username@domain format
+    const atIdx = username.indexOf("@");
+    if (atIdx > 0 && atIdx < username.length - 1) {
+      const parts = username.split("@");
+      const localPart = parts[0];
+      const domain = parts.slice(1).join("@");
+      if (localPart && domain) {
+        let actor = db
+          .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
+        if (!actor) {
+          const actorUri = `https://${domain}/users/${localPart}`;
+          const resolved = await resolveRemoteActor(db, actorUri);
+          actor = resolved ? { uri: resolved.uri, followers_url: resolved.followers_url } : undefined;
+        }
+        if (!actor?.followers_url) {
+          return c.json({ users: [] });
+        }
+        try {
+          const uris = await fetchRemoteCollection(actor.followers_url);
+          const users = uris.map((uri) => actorUriToUser(uri)).filter((u) => u.username);
+          return c.json({ users });
+        } catch {
+          return c.json({ users: [] });
+        }
+      }
+    }
+
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: "User not found" }, 404);
 
-    const rows = db
+    const localRows = db
       .prepare(
         `SELECT a.id, a.username, a.display_name, a.avatar_url
          FROM follows f
@@ -363,18 +397,61 @@ export function userRoutes(db: DB): Hono {
       )
       .all(account.id) as Record<string, unknown>[];
 
-    return c.json({ users: rows.map(formatUser) });
+    const remoteRows = db
+      .prepare(
+        `SELECT rf.follower_actor_uri, ra.preferred_username, ra.display_name, ra.icon_url, ra.domain
+         FROM remote_follows rf
+         LEFT JOIN remote_actors ra ON ra.uri = rf.follower_actor_uri
+         WHERE rf.account_id = ?
+         ORDER BY rf.created_at DESC`
+      )
+      .all(account.id) as Record<string, unknown>[];
+
+    const localUsers = localRows.map((r) => ({ ...formatUser(r), source: "local" as const }));
+    const remoteUsers = remoteRows.map((r) => formatRemoteFollower(r));
+    const users = [...localUsers, ...remoteUsers];
+
+    return c.json({ users });
   });
 
-  // Get following
-  router.get("/:username/following", (c) => {
+  // Get following (local + remote)
+  router.get("/:username/following", async (c) => {
     const username = c.req.param("username");
+
+    // Remote profile: username@domain format
+    const atIdx = username.indexOf("@");
+    if (atIdx > 0 && atIdx < username.length - 1) {
+      const parts = username.split("@");
+      const localPart = parts[0];
+      const domain = parts.slice(1).join("@");
+      if (localPart && domain) {
+        let actor = db
+          .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
+        if (!actor) {
+          const actorUri = `https://${domain}/users/${localPart}`;
+          const resolved = await resolveRemoteActor(db, actorUri);
+          actor = resolved ? { uri: resolved.uri, following_url: resolved.following_url } : undefined;
+        }
+        if (!actor?.following_url) {
+          return c.json({ users: [] });
+        }
+        try {
+          const uris = await fetchRemoteCollection(actor.following_url);
+          const users = uris.map((uri) => actorUriToUser(uri)).filter((u) => u.username);
+          return c.json({ users });
+        } catch {
+          return c.json({ users: [] });
+        }
+      }
+    }
+
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: "User not found" }, 404);
 
-    const rows = db
+    const localRows = db
       .prepare(
         `SELECT a.id, a.username, a.display_name, a.avatar_url
          FROM follows f
@@ -384,7 +461,21 @@ export function userRoutes(db: DB): Hono {
       )
       .all(account.id) as Record<string, unknown>[];
 
-    return c.json({ users: rows.map(formatUser) });
+    const remoteRows = db
+      .prepare(
+        `SELECT rf.actor_uri, ra.preferred_username, ra.display_name, ra.icon_url, ra.domain
+         FROM remote_following rf
+         LEFT JOIN remote_actors ra ON ra.uri = rf.actor_uri
+         WHERE rf.account_id = ?
+         ORDER BY rf.created_at DESC`
+      )
+      .all(account.id) as Record<string, unknown>[];
+
+    const localUsers = localRows.map((r) => ({ ...formatUser(r), source: "local" as const }));
+    const remoteUsers = remoteRows.map((r) => formatRemoteFollowing(r));
+    const users = [...localUsers, ...remoteUsers];
+
+    return c.json({ users });
   });
 
   return router;
@@ -441,6 +532,68 @@ function formatUser(row: Record<string, unknown>): Record<string, unknown> {
     followingCount: row.following_count ?? 0,
     eventsCount: row.events_count ?? 0,
     createdAt: row.created_at,
+  };
+}
+
+/** Parse actor URI (e.g. https://domain/users/username) to username@domain */
+function parseActorUri(uri: string): { username: string; domain: string } {
+  try {
+    const url = new URL(uri);
+    const domain = url.hostname;
+    const match = url.pathname.match(/\/users\/([^/]+)$/);
+    const username = match ? match[1] : url.pathname.replace(/^\//, "").replace(/\/$/, "") || "unknown";
+    return { username, domain };
+  } catch {
+    return { username: "unknown", domain: "unknown" };
+  }
+}
+
+/** Convert an actor URI to a minimal User object for remote followers/following lists */
+function actorUriToUser(uri: string): Record<string, unknown> {
+  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
+  if (parsedUser === "unknown" && parsedDomain === "unknown") return {};
+  const username = `${parsedUser}@${parsedDomain}`;
+  return {
+    id: uri,
+    username,
+    displayName: null,
+    avatarUrl: null,
+    domain: parsedDomain,
+    source: "remote",
+  };
+}
+
+function formatRemoteFollower(row: Record<string, unknown>): Record<string, unknown> {
+  const uri = row.follower_actor_uri as string;
+  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
+  const domain = (row.domain as string) ?? parsedDomain;
+  const username = row.preferred_username && row.domain
+    ? `${row.preferred_username}@${row.domain}`
+    : `${parsedUser}@${parsedDomain}`;
+  return {
+    id: uri,
+    username,
+    displayName: row.display_name ?? null,
+    avatarUrl: row.icon_url ?? null,
+    domain,
+    source: "remote",
+  };
+}
+
+function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unknown> {
+  const uri = row.actor_uri as string;
+  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
+  const domain = (row.domain as string) ?? parsedDomain;
+  const username = row.preferred_username && row.domain
+    ? `${row.preferred_username}@${row.domain}`
+    : `${parsedUser}@${parsedDomain}`;
+  return {
+    id: uri,
+    username,
+    displayName: row.display_name ?? null,
+    avatarUrl: row.icon_url ?? null,
+    domain,
+    source: "remote",
   };
 }
 
