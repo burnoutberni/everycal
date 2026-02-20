@@ -1,0 +1,216 @@
+/* FullCalendar dark theme - matches EveryCal UI (--bg, --border, --accent, etc.) */
+
+.everycal-fullcalendar {
+  --fc-page-bg-color: var(--bg);
+  --fc-neutral-bg-color: var(--bg-hover);
+  --fc-neutral-text-color: var(--text-muted);
+  --fc-border-color: var(--border);
+
+  --fc-button-text-color: var(--text);
+  --fc-button-bg-color: transparent;
+  --fc-button-border-color: var(--border);
+  --fc-button-hover-bg-color: var(--bg-hover);
+  --fc-button-hover-border-color: var(--border);
+  --fc-button-active-bg-color: var(--bg-hover);
+  --fc-button-active-border-color: var(--border-focus);
+
+  --fc-event-bg-color: var(--accent);
+  --fc-event-border-color: var(--accent);
+  --fc-event-text-color: #000;
+
+  --fc-more-link-bg-color: var(--bg-hover);
+  --fc-more-link-text-color: var(--text-muted);
+
+  --fc-today-bg-color: rgba(110, 158, 255, 0.08);
+  --fc-now-indicator-color: var(--accent);
+  --fc-highlight-color: rgba(110, 158, 255, 0.15);
+}
+
+.everycal-fullcalendar .fc {
+  font-family: var(--font);
+}
+
+.everycal-fullcalendar .fc-toolbar-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.everycal-fullcalendar .fc-button {
+  font-family: var(--font);
+  font-weight: 500;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  text-transform: capitalize;
+}
+
+.everycal-fullcalendar .fc-button:focus {
+  box-shadow: none;
+}
+
+.everycal-fullcalendar .fc-button-primary:not(:disabled):hover,
+.everycal-fullcalendar .fc-button-primary:not(:disabled):active,
+.everycal-fullcalendar .fc-button-primary.fc-button-active {
+  background: var(--bg-hover) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+.everycal-fullcalendar .fc-button-primary:disabled {
+  opacity: 0.4;
+}
+
+.everycal-fullcalendar .fc-col-header-cell {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+.everycal-fullcalendar .fc-col-header-cell-cushion {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.5rem;
+}
+
+.everycal-fullcalendar .fc-scrollgrid {
+  border-color: var(--border);
+}
+
+.everycal-fullcalendar .fc-daygrid-day {
+  background: var(--bg);
+}
+
+.everycal-fullcalendar .fc-daygrid-day-number {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0.35rem;
+}
+
+.everycal-fullcalendar .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  background: var(--accent);
+  color: #000;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+
+.everycal-fullcalendar .fc-daygrid-day.fc-day-other .fc-daygrid-day-number {
+  color: var(--text-dim);
+}
+
+.everycal-fullcalendar .fc-daygrid-event {
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.8rem;
+}
+
+.everycal-fullcalendar .fc-daygrid-event:hover {
+  opacity: 0.9;
+}
+
+.everycal-fullcalendar .fc-event-title {
+  font-weight: 500;
+}
+
+/* Event popover on hover */
+.everycal-fullcalendar .fc-event {
+  cursor: pointer;
+}
+
+.fc-event-popover {
+  position: fixed;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 0.75rem 0.9rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  z-index: 10000;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s, visibility 0.15s;
+}
+
+.fc-event-popover.fc-event-popover-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.fc-event-popover .fc-event-popover-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.fc-event-popover .fc-event-popover-meta {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.fc-event-popover .fc-event-popover-desc {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fc-event-popover .fc-event-popover-link {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fc-event-popover .fc-event-popover-link:hover {
+  color: var(--accent-hover);
+}
+
+/* TimeGrid (week/day view) */
+.everycal-fullcalendar .fc-timegrid-slot {
+  border-color: var(--border);
+}
+
+.everycal-fullcalendar .fc-timegrid-slot-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.everycal-fullcalendar .fc-timegrid-axis-cushion {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.everycal-fullcalendar .fc-timegrid-col.fc-day-today {
+  background: var(--fc-today-bg-color);
+}
+
+.everycal-fullcalendar .fc-timegrid-event {
+  border-radius: var(--radius-sm);
+  border-left-width: 3px;
+  overflow: visible;
+}
+
+.everycal-fullcalendar .fc-timegrid-event-harness {
+  overflow: visible;
+}
+
+.everycal-fullcalendar .fc-daygrid-event-harness {
+  overflow: visible;
+}
+
+.everycal-fullcalendar .fc-timegrid-now-indicator-line {
+  border-color: var(--accent);
+}
+
+.everycal-fullcalendar .fc-timegrid-now-indicator-arrow {
+  border-color: var(--accent);
+}

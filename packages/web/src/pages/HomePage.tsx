@@ -7,7 +7,7 @@ import { Link } from "wouter";
 
 const PAGE_SIZE = 20;
 
-type ScopeFilter = "all" | "feed" | "calendar";
+type ScopeFilter = "all" | "feed";
 
 function startOfDay(d: Date): string {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
@@ -107,7 +107,6 @@ export function HomePage() {
         };
         if (range.to) params.to = range.to;
         if (scopeFilter === "feed") params.scope = "mine";
-        if (scopeFilter === "calendar") params.scope = "calendar";
 
         const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
         if (append) {
@@ -188,16 +187,9 @@ export function HomePage() {
               <button
                 onClick={() => setScopeFilter("feed")}
                 className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-                style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
-              >
-                From accounts I follow
-              </button>
-              <button
-                onClick={() => setScopeFilter("calendar")}
-                className={scopeFilter === "calendar" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
                 style={{ marginBottom: "0.3rem" }}
               >
-                My Calendar
+                From accounts I follow
               </button>
             </>
           ) : (
@@ -260,20 +252,12 @@ export function HomePage() {
               All Events
             </button>
             {user && (
-              <>
-                <button
-                  onClick={() => setScopeFilter("feed")}
-                  className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-                >
-                  From accounts I follow
-                </button>
-                <button
-                  onClick={() => setScopeFilter("calendar")}
-                  className={scopeFilter === "calendar" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-                >
-                  My Calendar
-                </button>
-              </>
+              <button
+                onClick={() => setScopeFilter("feed")}
+                className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+              >
+                From accounts I follow
+              </button>
             )}
           </div>
         </div>
@@ -287,9 +271,7 @@ export function HomePage() {
             <p className="text-sm text-dim mt-1">
               {scopeFilter === "feed"
                 ? <>Follow accounts on the <Link href="/federation">Federation</Link> page to see their events here.</>
-                : scopeFilter === "calendar"
-                  ? <>Mark events as Going or Maybe to add them to your calendar.</>
-                  : rangeMode === "upcoming"
+                : rangeMode === "upcoming"
                     ? "Try importing events from the Federation page, or create one!"
                     : "Try a different date range."}
             </p>

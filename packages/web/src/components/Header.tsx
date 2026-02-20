@@ -29,6 +29,11 @@ export function Header() {
           <NavLink href="/federation" current={location}>
             Federation
           </NavLink>
+          {user && (
+            <NavLink href="/calendar" current={location}>
+              My Calendar
+            </NavLink>
+          )}
         </div>
 
         <div className="flex items-center gap-1">

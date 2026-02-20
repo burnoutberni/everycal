@@ -10,6 +10,7 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { CalendarPage } from "./pages/CalendarPage";
 import { useAuth } from "./hooks/useAuth";
 
 // Regex routes for /@username patterns (regexparam doesn't handle literal @ before :param)
@@ -34,6 +35,7 @@ export function App() {
       <main className="container" style={{ paddingTop: "1.5rem", paddingBottom: "3rem" }}>
         <Switch>
           <Route path="/" component={HomePage} />
+          <Route path="/calendar" component={CalendarPage} />
           <Route path="/explore" component={ExplorePage} />
           <Route path="/federation" component={FederationPage} />
           <Route path="/events/new" component={NewEventPage} />
