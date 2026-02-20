@@ -104,6 +104,7 @@ export function activityPubRoutes(db: DB): Hono {
       name: (account.display_name as string) || username,
       summary: (account.bio as string) || "",
       url: `${baseUrl}/@${username}`,
+      ...(account.created_at ? { published: toISO8601(account.created_at as string) } : {}),
       inbox: `${actorUrl}/inbox`,
       outbox: `${actorUrl}/outbox`,
       followers: `${actorUrl}/followers`,
