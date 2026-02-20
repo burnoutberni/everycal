@@ -305,11 +305,13 @@ export function federationRoutes(db: DB): Hono {
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
       events: rows.map((row) => ({
+        id: row.uri,
         uri: row.uri,
+        source: "remote",
         actorUri: row.actor_uri,
-        actor: row.preferred_username
+        account: row.preferred_username
           ? {
-              username: row.preferred_username,
+              username: `${row.preferred_username}@${row.domain}`,
               displayName: row.actor_display_name,
               domain: row.domain,
               iconUrl: row.actor_icon_url,
@@ -319,6 +321,7 @@ export function federationRoutes(db: DB): Hono {
         description: row.description,
         startDate: row.start_date,
         endDate: row.end_date,
+        allDay: false,
         location: row.location_name
           ? {
               name: row.location_name,
@@ -332,8 +335,9 @@ export function federationRoutes(db: DB): Hono {
           : null,
         url: row.url,
         tags: row.tags ? (row.tags as string).split(",") : [],
-        published: row.published,
-        updated: row.updated,
+        visibility: "public",
+        createdAt: row.published,
+        updatedAt: row.updated,
       })),
     });
   });

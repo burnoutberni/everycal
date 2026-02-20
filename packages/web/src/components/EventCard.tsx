@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
-import { eventPath, profilePath } from "../lib/urls";
+import { eventPath, accountProfilePath, profilePath } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, RepostIcon } from "./icons";
 
@@ -17,10 +17,13 @@ export function EventCard({
   event,
   onRsvpChange,
   onRepostChange,
+  compact,
 }: {
   event: CalEvent;
   onRsvpChange?: (eventId: string, status: RsvpStatus) => void;
   onRepostChange?: (eventId: string, reposted: boolean) => void;
+  /** When true and event has image: image on top full-width, content below. For narrow sidebars. */
+  compact?: boolean;
 }) {
   const { user } = useAuth();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
@@ -100,22 +103,33 @@ export function EventCard({
           </Link>
         </p>
       )}
-      <div className="flex gap-1.5">
+      <div className={compact && event.image ? "" : "flex gap-1.5"}>
         {event.image && (
-          <div style={{ flex: "0 0 120px" }}>
+          <div
+            style={
+              compact
+                ? {
+                    width: "100%",
+                    marginBottom: "0.5rem",
+                    borderRadius: "var(--radius-sm)",
+                    overflow: "hidden",
+                  }
+                : { flex: "0 0 120px" }
+            }
+          >
             <img
               src={event.image.url}
               alt={event.image.alt || event.title}
               style={{
                 width: "100%",
-                height: "80px",
+                height: compact ? "100px" : "80px",
                 objectFit: "cover",
                 borderRadius: "var(--radius-sm)",
               }}
             />
           </div>
         )}
-        <div className="flex-1" style={{ minWidth: 0 }}>
+        <div className={compact && event.image ? "" : "flex-1"} style={{ minWidth: 0 }}>
           <div className="flex items-center gap-1 mb-1">
             <span className="text-sm" style={{ color: "var(--accent)" }}>
               {dateTimeStr}
@@ -139,7 +153,7 @@ export function EventCard({
           {event.account && (
             <p className="card-actions text-sm text-dim mt-1">
               by{" "}
-              <Link href={profilePath(event.account.username, event.account.domain)}>
+              <Link href={accountProfilePath(event.account, event.source)}>
                 {event.account.displayName || event.account.username}
               </Link>
               {isRemote && event.account.domain && (

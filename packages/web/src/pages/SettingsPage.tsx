@@ -142,7 +142,7 @@ export function SettingsPage() {
         <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "1rem" }}>API Keys</h2>
         <p className="text-sm text-muted mb-2">
           Use API keys to authenticate with the EveryCal API from scripts and scrapers.
-          Send as <code style={{ fontFamily: "var(--font-mono)", background: "var(--bg-hover)", padding: "0.1rem 0.3rem", borderRadius: 3 }}>Authorization: ApiKey your-key-here</code>
+          Send as <code style={{ fontFamily: "var(--font-mono)", background: "var(--bg-hover)", padding: "0.1rem 0.3rem", borderRadius: "var(--radius-sm)" }}>Authorization: ApiKey your-key-here</code>
         </p>
 
         {newKeyValue && (

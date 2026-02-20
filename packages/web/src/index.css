@@ -296,7 +296,7 @@ button:disabled {
   display: inline-block;
   font-size: 0.75rem;
   padding: 0.15rem 0.55rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -378,7 +378,7 @@ button:disabled {
 .rsvp-btn {
   font-size: 0.72rem;
   padding: 0.15rem 0.5rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-dim);
@@ -440,7 +440,7 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0.1rem 0.4rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 .visibility-badge.public {
@@ -458,4 +458,10 @@ button:disabled {
 .visibility-badge.private {
   color: var(--danger);
   border: 1px solid var(--danger);
+}
+
+/* Location map marker: pin tip anchors to coordinates */
+.location-marker {
+  background: none !important;
+  border: none !important;
 }

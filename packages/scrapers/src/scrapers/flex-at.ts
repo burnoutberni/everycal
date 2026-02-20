@@ -41,9 +41,9 @@ export class FlexScraper implements Scraper {
       // Always tag with source location
       event.location = {
         name: "Flex",
-        address: "Donaukanal / Augartenbrücke 1, 1010 Wien",
-        latitude: 48.2121,
-        longitude: 16.3782,
+        address: "Donaukanal / Augartenbrücke, 1010 Wien",
+        latitude: 48.2177763,
+        longitude: 16.370909,
         url: "https://flex.at",
       };
 
