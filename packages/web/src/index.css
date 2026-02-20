@@ -139,6 +139,133 @@ button,
   padding: 0.35rem 0.75rem;
 }
 
+/* Header icon buttons (calendar, plus) */
+.header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.header-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+/* Calendar button: more prominent by default */
+.header-icon-btn-calendar {
+  color: var(--text);
+  border-color: var(--border);
+  background: rgba(110, 158, 255, 0.06);
+}
+.header-icon-btn-calendar:hover {
+  background: rgba(110, 158, 255, 0.12);
+  border-color: rgba(110, 158, 255, 0.3);
+}
+.header-icon-sep {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--border);
+}
+.header-icon-btn-active {
+  background: var(--accent) !important;
+  color: #000 !important;
+  border-color: var(--accent) !important;
+}
+.header-icon-btn-active:hover {
+  background: var(--accent-hover) !important;
+  color: #000 !important;
+  border-color: var(--accent-hover) !important;
+}
+
+/* Header user dropdown */
+.header-user-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.2rem 0.4rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.header-user-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.header-user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.header-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-dropdown {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  min-width: 140px;
+  padding: 0.35rem 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.header-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.header-dropdown-item svg {
+  opacity: 0.7;
+}
+.header-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+.header-dropdown-item-muted {
+  color: var(--text-muted);
+}
+.header-dropdown-item-muted:hover {
+  color: var(--text-dim);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
