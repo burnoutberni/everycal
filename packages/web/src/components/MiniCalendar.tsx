@@ -19,6 +19,14 @@ function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function isPast(day: Date, today: Date): boolean {
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+  const dayStart = new Date(day);
+  dayStart.setHours(0, 0, 0, 0);
+  return dayStart < todayStart;
+}
+
 export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarProps) {
   const year = selected.getFullYear();
   const month = selected.getMonth();
@@ -80,11 +88,26 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
       </div>
 
       {/* Day headers */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, textAlign: "center" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 2rem)",
+          gap: "0.15rem",
+          textAlign: "center",
+        }}
+      >
         {DAY_NAMES.map((d) => (
           <div
             key={d}
-            style={{ fontSize: "0.7rem", color: "var(--text-dim)", padding: "0.2rem 0", fontWeight: 600 }}
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--text-dim)",
+              padding: "0.2rem 0",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
             {d}
           </div>
@@ -97,12 +120,18 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
             const isToday = sameDay(day, today);
             const isSelected = sameDay(day, selected);
             const hasEvents = eventDates?.has(toYMD(day));
+            const past = isPast(day, today);
 
             return (
               <button
                 key={day.toISOString()}
                 onClick={() => onSelect(day)}
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  aspectRatio: 1,
+                  minWidth: 0,
                   background: isSelected
                     ? "var(--accent)"
                     : isToday
@@ -113,9 +142,10 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
                     : !isCurrentMonth
                       ? "var(--text-dim)"
                       : "var(--text)",
+                  opacity: past && !isSelected ? 0.45 : 1,
                   border: "none",
                   borderRadius: "var(--radius-sm)",
-                  padding: "0.3rem 0",
+                  padding: 0,
                   fontSize: "0.8rem",
                   cursor: "pointer",
                   fontWeight: isToday || isSelected ? 700 : 400,
@@ -123,17 +153,17 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
                 }}
               >
                 {day.getDate()}
-                {hasEvents && !isSelected && (
+                {hasEvents && (
                   <span
                     style={{
                       position: "absolute",
-                      bottom: 1,
+                      bottom: 2,
                       left: "50%",
                       transform: "translateX(-50%)",
                       width: 4,
                       height: 4,
                       borderRadius: "50%",
-                      background: "var(--accent)",
+                      background: isSelected ? "#000" : "var(--accent)",
                     }}
                   />
                 )}

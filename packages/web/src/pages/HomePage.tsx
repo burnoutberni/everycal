@@ -91,8 +91,48 @@ export function HomePage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
+  const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
 
   const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
+
+  // Fetch event dates for the minicalendar (visible grid, scope filter only)
+  const calendarMonthRange = useMemo(() => {
+    const y = selectedDate.getFullYear();
+    const m = selectedDate.getMonth();
+    const firstOfMonth = new Date(y, m, 1);
+    const lastOfMonth = new Date(y, m + 1, 0);
+    // Monday-first: start on Monday of week containing 1st (getDay: 0=Sun, 1=Mon, ...)
+    const startOffset = (firstOfMonth.getDay() + 6) % 7;
+    const firstVisible = new Date(y, m, 1 - startOffset);
+    // End on Sunday of week containing last day
+    const endOffset = (7 - lastOfMonth.getDay()) % 7;
+    const lastVisible = new Date(y, m + 1, 0 + endOffset);
+    return { from: startOfDay(firstVisible), to: endOfDay(lastVisible) };
+  }, [selectedDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params: Record<string, string | number> = {
+      from: calendarMonthRange.from,
+      to: calendarMonthRange.to,
+      limit: 500,
+    };
+    if (scopeFilter === "feed") params.scope = "mine";
+
+    eventsApi
+      .list(params as Parameters<typeof eventsApi.list>[0])
+      .then((res) => {
+        if (!cancelled) {
+          setCalendarEventDates(new Set(res.events.map((e) => e.startDate.slice(0, 10))));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCalendarEventDates(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter]);
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
@@ -136,11 +176,6 @@ export function HomePage() {
 
   const loadMore = () => fetchEvents(events.length, true);
 
-  const eventDates = useMemo(
-    () => new Set(events.map((e) => e.startDate.slice(0, 10))),
-    [events]
-  );
-
   const grouped = useMemo(() => groupByDate(events), [events]);
 
   const handleDateSelect = (date: Date) => {
@@ -168,7 +203,7 @@ export function HomePage() {
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
       {/* Sidebar */}
       <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={eventDates} />
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
 
         {/* Scope filter */}
         <div style={{ marginTop: "1rem" }}>
@@ -189,7 +224,7 @@ export function HomePage() {
                 className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
                 style={{ marginBottom: "0.3rem" }}
               >
-                From accounts I follow
+                For me
               </button>
             </>
           ) : (
@@ -243,7 +278,7 @@ export function HomePage() {
 
         {/* Mobile: inline calendar + scope */}
         <div className="show-mobile" style={{ marginBottom: "1rem" }}>
-          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={eventDates} />
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
           <div className="flex gap-1 mt-1 flex-wrap">
             <button
               onClick={() => setScopeFilter("all")}
@@ -256,7 +291,7 @@ export function HomePage() {
                 onClick={() => setScopeFilter("feed")}
                 className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               >
-                From accounts I follow
+                For me
               </button>
             )}
           </div>
