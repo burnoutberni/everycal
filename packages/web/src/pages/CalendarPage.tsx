@@ -109,9 +109,8 @@ export function CalendarPage() {
       if (ev.account?.displayName || ev.account?.username) {
         parts.push(`by ${ev.account.displayName || ev.account.username}`);
       }
-      const desc = ev.description
-        ? ev.description.replace(/<[^>]*>/g, "").slice(0, 120) + (ev.description.length > 120 ? "…" : "")
-        : "";
+      const cleanedDesc = ev.description ? ev.description.replace(/<[^>]*>/g, "") : "";
+      const desc = cleanedDesc ? cleanedDesc.slice(0, 120) + (cleanedDesc.length > 120 ? "…" : "") : "";
 
       const popover = document.createElement("div");
       popover.className = "fc-event-popover";
