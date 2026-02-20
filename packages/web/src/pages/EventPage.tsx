@@ -163,8 +163,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         await usersApi.follow(profileItem.user.username);
         setFollowedLocalIds((prev) => new Set([...prev, profileItem.user.id]));
       } else {
-        await federation.follow(profileItem.actor.uri);
-        setFollowedActorUris((prev) => new Set([...prev, profileItem.actor.uri]));
+        const res = await federation.follow(profileItem.actor.uri);
+        if (res.delivered) {
+          setFollowedActorUris((prev) => new Set([...prev, profileItem.actor.uri]));
+        }
       }
     } catch {
       // ignore

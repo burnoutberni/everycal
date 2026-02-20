@@ -22,6 +22,26 @@ function looksLikeRemoteHandle(q: string): boolean {
   return /^@?[^@\s]+@[^@\s]+$/.test(t);
 }
 
+/** Check if a profile item matches the search query (case-insensitive) */
+function matchesSearch(item: ProfileItem, q: string): boolean {
+  const lower = q.toLowerCase();
+  if (item.kind === "local") {
+    const u = item.user;
+    return (
+      (u.displayName?.toLowerCase()?.includes(lower)) ||
+      (u.username?.toLowerCase()?.includes(lower))
+    );
+  }
+  const a = item.actor;
+  const handle = `@${a.username}@${a.domain}`.toLowerCase();
+  return (
+    (a.displayName?.toLowerCase()?.includes(lower)) ||
+    (a.username?.toLowerCase()?.includes(lower)) ||
+    (a.domain?.toLowerCase()?.includes(lower)) ||
+    handle.includes(lower)
+  );
+}
+
 export function DiscoverPage() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
@@ -39,6 +59,13 @@ export function DiscoverPage() {
   const [sourceFilter, setSourceFilter] = useState<"all" | "local" | "remote">("all");
   const [followFilter, setFollowFilter] = useState<"all" | "following" | "not_following">("all");
   const [sortOrder, setSortOrder] = useState<"recent" | "followers" | "events">("recent");
+  const [hideZeroEvents, setHideZeroEvents] = useState(true);
+  const [showHiddenSection, setShowHiddenSection] = useState(false);
+
+  // Collapse hidden section when search query changes
+  useEffect(() => {
+    setShowHiddenSection(false);
+  }, [query]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -159,8 +186,10 @@ export function DiscoverPage() {
     if (!user) return;
     setFollowBusy(actor.uri);
     try {
-      await federation.follow(actor.uri);
-      setFollowedActorUris((prev) => new Set([...prev, actor.uri]));
+      const res = await federation.follow(actor.uri);
+      if (res.delivered) {
+        setFollowedActorUris((prev) => new Set([...prev, actor.uri]));
+      }
     } catch {
       // ignore
     } finally {
@@ -198,6 +227,14 @@ export function DiscoverPage() {
     }
   }
 
+  // When searching by text (not handle/URL), filter by search term (local users are already filtered by API; remote actors need client-side filter)
+  const trimmedQuery = query.trim();
+  const isRemoteHandleSearch = trimmedQuery && looksLikeRemoteHandle(trimmedQuery);
+  const searchFilteredItems =
+    trimmedQuery && !isRemoteHandleSearch
+      ? allItems.filter((item) => matchesSearch(item, trimmedQuery))
+      : allItems;
+
   const isFollowed = (item: ProfileItem) =>
     item.kind === "local"
       ? followedLocalIds.has(item.user.id)
@@ -206,7 +243,7 @@ export function DiscoverPage() {
   const isOwn = (item: ProfileItem) =>
     item.kind === "local" && user && item.user.id === user.id;
 
-  const filteredItems = allItems.filter((item) => {
+  const filteredItems = searchFilteredItems.filter((item) => {
     if (sourceFilter === "local" && item.kind !== "local") return false;
     if (sourceFilter === "remote" && item.kind !== "remote") return false;
     if (user && followFilter === "following" && !isFollowed(item)) return false;
@@ -214,10 +251,14 @@ export function DiscoverPage() {
     return true;
   });
 
-  const visibleItems =
+  const hasZeroEvents = (item: ProfileItem) => getEventsCount(item) === 0;
+  const itemsWithEvents = filteredItems.filter((item) => !hasZeroEvents(item));
+  const itemsWithZeroEvents = filteredItems.filter(hasZeroEvents);
+
+  const sortItems = (items: ProfileItem[]) =>
     sortOrder === "recent"
-      ? filteredItems
-      : [...filteredItems].sort((a, b) => {
+      ? items
+      : [...items].sort((a, b) => {
           const aFollowers = getFollowersCount(a) ?? -1;
           const bFollowers = getFollowersCount(b) ?? -1;
           const aEvents = getEventsCount(a) ?? -1;
@@ -225,6 +266,14 @@ export function DiscoverPage() {
           if (sortOrder === "followers") return bFollowers - aFollowers;
           return bEvents - aEvents;
         });
+
+  const mainItems = hideZeroEvents ? itemsWithEvents : filteredItems;
+  const visibleItems = sortItems(mainItems);
+  const hiddenItems = sortItems(itemsWithZeroEvents);
+
+  // When resolving by handle/URL: apply hideZeroEvents filter to search result too
+  const searchResultItem = searchResult ? { kind: "remote" as const, actor: searchResult } : null;
+  const searchResultHidden = searchResultItem && hideZeroEvents && getEventsCount(searchResultItem) === 0;
 
   return (
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
@@ -311,6 +360,16 @@ export function DiscoverPage() {
             Most events
           </button>
         </div>
+        <div style={{ marginTop: "1rem" }}>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={hideZeroEvents}
+              onChange={(e) => setHideZeroEvents(e.target.checked)}
+            />
+            <span>Hide accounts without events</span>
+          </label>
+        </div>
       </aside>
 
       {/* Main content */}
@@ -330,7 +389,7 @@ export function DiscoverPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {!user && (
+        {!user && !isRemoteHandleSearch && (
           <p className="text-sm text-dim mb-2">Log in to resolve remote accounts by handle or URL.</p>
         )}
         {searching && <p className="text-sm text-muted mb-2">Resolving…</p>}
@@ -398,10 +457,19 @@ export function DiscoverPage() {
           >
             Most events
           </button>
+          <span className="text-dim" style={{ alignSelf: "center", margin: "0 0.2rem" }}>·</span>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={hideZeroEvents}
+              onChange={(e) => setHideZeroEvents(e.target.checked)}
+            />
+            <span>Hide accounts without events</span>
+          </label>
         </div>
 
-        {/* Remote resolve result (when newly discovered) */}
-        {searchResult && !remoteActors.some((a) => a.uri === searchResult.uri) && (
+        {/* Remote resolve result (when searching by handle/URL) */}
+        {searchResult && isRemoteHandleSearch && !searchResultHidden && (
           <div className="card mb-3">
             <ProfileCard
               item={{ kind: "remote", actor: searchResult }}
@@ -417,9 +485,57 @@ export function DiscoverPage() {
           </div>
         )}
 
-        {loading ? (
+        {isRemoteHandleSearch ? (
+          /* When searching for a remote handle, show only search result — not the full list */
+          !user ? (
+            <div className="empty-state">
+              <p>Log in to resolve remote accounts by handle or URL.</p>
+            </div>
+          ) : searching ? (
+            <p className="text-muted">Resolving…</p>
+          ) : searchError ? (
+            <div className="empty-state">
+              <p className="error-text mb-1">{searchError}</p>
+              <p className="text-sm text-dim">No account found for this handle or URL.</p>
+            </div>
+          ) : !searchResult ? (
+            <div className="empty-state">
+              <p>No account found.</p>
+              <p className="text-sm text-dim mt-1">Check the handle or URL and try again.</p>
+            </div>
+          ) : searchResultHidden ? (
+            /* Resolved account has 0 events and filter is on — show in collapsible section */
+            <div className="mt-3">
+              <button
+                type="button"
+                className="btn-ghost btn-sm text-dim"
+                onClick={() => setShowHiddenSection((prev) => !prev)}
+                style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+              >
+                {showHiddenSection ? "▼" : "▶"} 1 account without events
+              </button>
+              {showHiddenSection && searchResultItem && (
+                <div className="flex flex-col gap-1 mt-1">
+                  <div className="card flex items-center gap-2">
+                    <Link href={getProfileHref(searchResultItem, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+                      <ProfileCardContent item={searchResultItem} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                    </Link>
+                    {user && (
+                      <FollowButton
+                        followed={isFollowed(searchResultItem)}
+                        onFollow={() => handleFollowRemote(searchResult!)}
+                        onUnfollow={() => handleUnfollowRemote(searchResult!)}
+                        busy={followBusy === searchResult!.uri}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null
+        ) : loading ? (
           <p className="text-muted">Loading…</p>
-        ) : visibleItems.length === 0 ? (
+        ) : visibleItems.length === 0 && !(hideZeroEvents && hiddenItems.length > 0 && trimmedQuery) ? (
           <div className="empty-state">
             <p>No accounts found.</p>
             <p className="text-sm text-dim mt-1">
@@ -435,31 +551,72 @@ export function DiscoverPage() {
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            {visibleItems.map((item) => (
-            <div key={getProfileKey(item)} className="card flex items-center gap-2">
-              <Link href={getProfileHref(item, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
-                <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
-              </Link>
-              {user && !isOwn(item) && (
-                <FollowButton
-                  followed={isFollowed(item)}
-                  onFollow={() =>
-                    item.kind === "local"
-                      ? handleFollowLocal(item.user)
-                      : handleFollowRemote(item.actor)
-                  }
-                  onUnfollow={() =>
-                    item.kind === "local"
-                      ? handleUnfollowLocal(item.user)
-                      : handleUnfollowRemote(item.actor)
-                  }
-                  busy={followBusy === getProfileKey(item)}
-                />
-              )}
+          <>
+            <div className="flex flex-col gap-1">
+              {visibleItems.map((item) => (
+                <div key={getProfileKey(item)} className="card flex items-center gap-2">
+                  <Link href={getProfileHref(item, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+                    <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                  </Link>
+                  {user && !isOwn(item) && (
+                    <FollowButton
+                      followed={isFollowed(item)}
+                      onFollow={() =>
+                        item.kind === "local"
+                          ? handleFollowLocal(item.user)
+                          : handleFollowRemote(item.actor)
+                      }
+                      onUnfollow={() =>
+                        item.kind === "local"
+                          ? handleUnfollowLocal(item.user)
+                          : handleUnfollowRemote(item.actor)
+                      }
+                      busy={followBusy === getProfileKey(item)}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
-            ))}
-          </div>
+            {hideZeroEvents && hiddenItems.length > 0 && trimmedQuery && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm text-dim"
+                  onClick={() => setShowHiddenSection((prev) => !prev)}
+                  style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+                >
+                  {showHiddenSection ? "▼" : "▶"} {hiddenItems.length} account{hiddenItems.length === 1 ? "" : "s"} without events
+                </button>
+                {showHiddenSection && (
+                  <div className="flex flex-col gap-1 mt-1">
+                    {hiddenItems.map((item) => (
+                      <div key={getProfileKey(item)} className="card flex items-center gap-2">
+                        <Link href={getProfileHref(item, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
+                          <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                        </Link>
+                        {user && !isOwn(item) && (
+                          <FollowButton
+                            followed={isFollowed(item)}
+                            onFollow={() =>
+                              item.kind === "local"
+                                ? handleFollowLocal(item.user)
+                                : handleFollowRemote(item.actor)
+                            }
+                            onUnfollow={() =>
+                              item.kind === "local"
+                                ? handleUnfollowLocal(item.user)
+                                : handleUnfollowRemote(item.actor)
+                            }
+                            busy={followBusy === getProfileKey(item)}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
