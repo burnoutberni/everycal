@@ -437,15 +437,18 @@ button:disabled {
   }
 }
 
-/* Event description (safe HTML) */
-.event-description {
+/* Event description & profile bio (safe HTML) */
+.event-description,
+.profile-bio {
   line-height: 1.7;
   color: var(--text);
 }
-.event-description a {
+.event-description a,
+.profile-bio a {
   color: var(--accent);
 }
-.event-description a:hover {
+.event-description a:hover,
+.profile-bio a:hover {
   color: var(--accent-hover);
 }
 

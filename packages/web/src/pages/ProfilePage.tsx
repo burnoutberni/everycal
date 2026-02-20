@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
+import DOMPurify from "dompurify";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
@@ -326,7 +327,17 @@ export function ProfilePage({ username }: { username: string }) {
                 )}
               </div>
               <p className="text-muted">@{profile.username}</p>
-              {profile.bio && <p className="mt-1">{profile.bio}</p>}
+              {profile.bio && (
+                <div
+                  className="profile-bio mt-1"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(profile.bio.replace(/\n/g, "<br>"), {
+                      ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "br", "p", "span"],
+                      ALLOWED_ATTR: ["href", "rel", "target"],
+                    }),
+                  }}
+                />
+              )}
               {profile.website && (
                 <p className="mt-1">
                   <a

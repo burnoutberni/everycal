@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import DOMPurify from "dompurify";
 import type { User } from "../lib/api";
 import type { RemoteActor } from "../lib/api";
 
@@ -137,8 +138,8 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
             {getProfileHandle(item)}
           </div>
           {summary && (
-            <p
-              className="text-sm text-dim mt-0.5"
+            <div
+              className="text-sm text-dim mt-0.5 profile-bio"
               style={{
                 overflow: "hidden",
                 display: "-webkit-box",
@@ -148,9 +149,13 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
                 overflowWrap: "break-word",
               }}
               title={stripHtmlForDisplay(summary).slice(0, 200)}
-            >
-              {stripHtmlForDisplay(summary)}
-            </p>
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(summary.replace(/\n/g, "<br>"), {
+                  ALLOWED_TAGS: ["b", "i", "em", "strong", "a", "br", "p", "span"],
+                  ALLOWED_ATTR: ["href", "rel", "target"],
+                }),
+              }}
+            />
           )}
           {stats.length > 0 && (
             <div className="text-sm text-dim" style={{ marginTop: "0.2rem" }}>
