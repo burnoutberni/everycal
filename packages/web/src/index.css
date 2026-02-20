@@ -337,6 +337,35 @@ button:disabled {
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
+button.tag {
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: inherit;
+  cursor: pointer;
+}
+.tag-clickable {
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.tag-clickable:hover {
+  background: var(--border);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.tag-selected {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.tag-clear {
+  background: transparent;
+  color: var(--text-dim);
+}
+.tag-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
 
 /* Utility */
 .text-muted {

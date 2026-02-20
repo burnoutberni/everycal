@@ -1,3 +1,9 @@
+/** Build the events page path with optional tag filters. */
+export function eventsPathWithTags(tags: string[]): string {
+  if (tags.length === 0) return "/";
+  return `/?tags=${encodeURIComponent(tags.join(","))}`;
+}
+
 /** Build the canonical URL path for an event. */
 export function eventPath(event: {
   slug?: string;

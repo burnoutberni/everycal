@@ -187,14 +187,29 @@ export interface EventInput {
 }
 
 export const events = {
-  list(params?: { account?: string; from?: string; to?: string; q?: string; source?: string; scope?: string; limit?: number; offset?: number }) {
+  list(params?: { account?: string; from?: string; to?: string; q?: string; source?: string; scope?: string; tags?: string[]; limit?: number; offset?: number }) {
+    const qs = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v === undefined) continue;
+        if (k === "tags" && Array.isArray(v)) {
+          if (v.length > 0) qs.set("tags", v.join(","));
+        } else {
+          qs.set(k, String(v));
+        }
+      }
+    }
+    return request<{ events: CalEvent[] }>(`/events?${qs}`);
+  },
+
+  tags(params?: { from?: string; to?: string; scope?: string }) {
     const qs = new URLSearchParams();
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         if (v !== undefined) qs.set(k, String(v));
       }
     }
-    return request<{ events: CalEvent[] }>(`/events?${qs}`);
+    return request<{ tags: string[] }>(`/events/tags?${qs}`);
   },
 
   get(id: string) {

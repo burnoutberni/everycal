@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
+import { eventsPathWithTags } from "../lib/urls";
 
 const PAGE_SIZE = 20;
 
@@ -75,8 +77,15 @@ function getRangeDates(
   }
 }
 
+function parseTagsFromSearch(search: string): string[] {
+  const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
+  const tags = params.get("tags");
+  return tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+}
+
 export function HomePage() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -85,7 +94,14 @@ export function HomePage() {
   const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
+  const [allTags, setAllTags] = useState<string[]>([]);
 
+  // Derive selectedTags from URL; useSearch updates when Link navigates or user uses back/forward
+  const searchString = useSearch();
+  const selectedTags = useMemo(
+    () => parseTagsFromSearch(searchString ? `?${searchString}` : ""),
+    [searchString]
+  );
   const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
 
   // Fetch event dates for the minicalendar (visible grid, scope filter only)
@@ -105,12 +121,13 @@ export function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
-    const params: Record<string, string | number> = {
+    const params: Record<string, string | number | string[]> = {
       from: calendarMonthRange.from,
       to: calendarMonthRange.to,
       limit: 500,
     };
     if (scopeFilter === "feed") params.scope = "mine";
+    if (selectedTags.length > 0) params.tags = selectedTags;
 
     eventsApi
       .list(params as Parameters<typeof eventsApi.list>[0])
@@ -125,7 +142,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter]);
+  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(",")]);
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
@@ -133,13 +150,14 @@ export function HomePage() {
       else setLoadingMore(true);
 
       try {
-        const params: Record<string, string | number> = {
+        const params: Record<string, string | number | string[]> = {
           from: range.from,
           limit: PAGE_SIZE,
           offset,
         };
         if (range.to) params.to = range.to;
         if (scopeFilter === "feed") params.scope = "mine";
+        if (selectedTags.length > 0) params.tags = selectedTags;
 
         const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
         if (append) {
@@ -155,12 +173,34 @@ export function HomePage() {
         setLoadingMore(false);
       }
     },
-    [range, scopeFilter]
+    [range, scopeFilter, selectedTags.join(",")]
   );
 
   useEffect(() => {
     fetchEvents(0, false);
   }, [fetchEvents]);
+
+  // Fetch available tags (same scope and range as events)
+  useEffect(() => {
+    let cancelled = false;
+    const params: Record<string, string> = {
+      from: range.from,
+    };
+    if (range.to) params.to = range.to;
+    if (scopeFilter === "feed") params.scope = "mine";
+
+    eventsApi
+      .tags(params)
+      .then((res) => {
+        if (!cancelled) setAllTags(res.tags);
+      })
+      .catch(() => {
+        if (!cancelled) setAllTags([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [range.from, range.to, scopeFilter]);
 
   // Reset to "all" if the user logs out while on a logged-in-only filter
   useEffect(() => {
@@ -190,6 +230,17 @@ export function HomePage() {
     else if (rangeMode === "week") d.setDate(d.getDate() + 7);
     else if (rangeMode === "month") d.setMonth(d.getMonth() + 1);
     setSelectedDate(d);
+  };
+
+  const toggleTag = (tag: string) => {
+    const next = selectedTags.includes(tag)
+      ? selectedTags.filter((t) => t !== tag)
+      : [...selectedTags, tag];
+    navigate(eventsPathWithTags(next));
+  };
+
+  const clearTags = () => {
+    navigate("/");
   };
 
   return (
@@ -226,6 +277,37 @@ export function HomePage() {
             </span>
           )}
         </div>
+
+        {/* Tags filter */}
+        {allTags.length > 0 && (
+          <div style={{ marginTop: "1rem" }}>
+            <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
+              Tags
+            </div>
+            <div className="flex gap-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
+              {allTags.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTag(t)}
+                  className={`tag ${selectedTags.includes(t) ? "tag-selected" : ""}`}
+                >
+                  {t}
+                </button>
+              ))}
+              {selectedTags.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearTags}
+                  className="tag tag-clear"
+                  style={{ marginLeft: "0.25rem" }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </aside>
 
       {/* Main content */}
@@ -269,7 +351,7 @@ export function HomePage() {
           )}
         </div>
 
-        {/* Mobile: inline calendar + scope */}
+        {/* Mobile: inline calendar + scope + tags */}
         <div className="show-mobile" style={{ marginBottom: "1rem" }}>
           <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
           <div className="flex gap-1 mt-1 flex-wrap">
@@ -288,6 +370,25 @@ export function HomePage() {
               </button>
             )}
           </div>
+          {allTags.length > 0 && (
+            <div className="flex gap-1 mt-1 flex-wrap" style={{ alignItems: "center" }}>
+              {allTags.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTag(t)}
+                  className={`tag ${selectedTags.includes(t) ? "tag-selected" : ""}`}
+                >
+                  {t}
+                </button>
+              ))}
+              {selectedTags.length > 0 && (
+                <button type="button" onClick={clearTags} className="tag tag-clear">
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Event list */}
@@ -322,7 +423,7 @@ export function HomePage() {
                 </h2>
                 <div className="flex flex-col gap-1">
                   {dayEvents.map((e) => (
-                    <EventCard key={e.id} event={e} />
+                    <EventCard key={e.id} event={e} selectedTags={selectedTags} />
                   ))}
                 </div>
               </div>

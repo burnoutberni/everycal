@@ -76,10 +76,107 @@ export function eventRoutes(db: DB): Hono {
     return new Map(rows.map((r) => [r.event_uri, r.status]));
   }
 
-  // List public events, optionally filtered by account, date range, source, and scope.
+  // List all distinct tags (optionally filtered by scope and date range)
+  router.get("/tags", (c) => {
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    const scope = c.req.query("scope");
+    const user = c.get("user");
+    const isMineScope = scope === "mine" && !!user;
+    const isCalendarScope = scope === "calendar" && !!user;
+
+    const allTags = new Set<string>();
+
+    // Local event tags
+    {
+      let sql: string;
+      const params: unknown[] = [];
+
+      if (isCalendarScope) {
+        sql = `SELECT DISTINCT t.tag FROM event_tags t
+          JOIN events e ON e.id = t.event_id
+          WHERE e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))
+          AND e.visibility IN ('public','unlisted')`;
+        params.push(user!.id);
+      } else if (isMineScope) {
+        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const feed = buildFeedQuery({ userId: user!.id, baseUrl });
+        sql = `SELECT DISTINCT t.tag FROM event_tags t
+          WHERE t.event_id IN (SELECT combined.id FROM (${feed.sql}) AS combined WHERE 1=1`;
+        params.push(...feed.params);
+      } else {
+        sql = `SELECT DISTINCT t.tag FROM event_tags t
+          JOIN events e ON e.id = t.event_id
+          JOIN accounts a ON a.id = e.account_id
+          WHERE e.visibility = 'public'`;
+      }
+
+      if (!isMineScope && (from || to)) {
+        if (from) {
+          sql += ` AND e.start_date >= ?`;
+          params.push(from);
+        }
+        if (to) {
+          sql += buildToCondition("e.start_date");
+          params.push(...buildToParams(to));
+        }
+      } else if (isMineScope && (from || to)) {
+        if (from) {
+          sql += ` AND combined.start_date >= ?`;
+          params.push(from);
+        }
+        if (to) {
+          sql += buildToCondition("combined.start_date");
+          params.push(...buildToParams(to));
+        }
+      }
+
+      if (isMineScope) sql += ")";
+
+      const rows = db.prepare(sql).all(...params) as { tag: string }[];
+      for (const r of rows) allTags.add(r.tag);
+    }
+
+    // Remote event tags
+    {
+      let sql = `SELECT re.tags FROM remote_events re WHERE re.tags IS NOT NULL AND re.tags != ''`;
+      const params: unknown[] = [];
+
+      if (isCalendarScope) {
+        sql += ` AND re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))`;
+        params.push(user!.id);
+      } else if (isMineScope) {
+        sql += ` AND (re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?) OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?))`;
+        params.push(user!.id, user!.id);
+      }
+
+      if (from) {
+        sql += ` AND re.start_date >= ?`;
+        params.push(from);
+      }
+      if (to) {
+        sql += buildToCondition("re.start_date");
+        params.push(...buildToParams(to));
+      }
+
+      const rows = db.prepare(sql).all(...params) as { tags: string }[];
+      for (const r of rows) {
+        for (const tag of r.tags.split(",")) {
+          const t = tag.trim();
+          if (t) allTags.add(t);
+        }
+      }
+    }
+
+    const tags = [...allTags].sort();
+    return c.json({ tags });
+  });
+
+  // List public events, optionally filtered by account, date range, source, scope, and tags.
   //
   //   source = "local" | "remote" | undefined (both)
   //   scope  = "all" (default) | "mine" (own + followed + RSVP'd) | "calendar" (only going/maybe)
+  //   tags   = comma-separated list; events matching ANY of these tags are included
   router.get("/", (c) => {
     const account = c.req.query("account");
     const from = c.req.query("from");
@@ -87,8 +184,13 @@ export function eventRoutes(db: DB): Hono {
     const q = c.req.query("q");
     const source = c.req.query("source");
     const scope = c.req.query("scope"); // "mine" | "calendar" | undefined (all)
+    const tagsParam = c.req.query("tags");
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
+
+    const tagList = tagsParam
+      ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
+      : [] as string[];
 
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
@@ -144,6 +246,11 @@ export function eventRoutes(db: DB): Hono {
         sql += ` AND (${tablePrefix}.title LIKE ? OR ${tablePrefix}.description LIKE ?)`;
         params.push(`%${q}%`, `%${q}%`);
       }
+      if (tagList.length > 0) {
+        const placeholders = tagList.map(() => "?").join(",");
+        sql += ` AND ${tablePrefix}.id IN (SELECT event_id FROM event_tags WHERE tag IN (${placeholders}))`;
+        params.push(...tagList);
+      }
 
       sql += ` GROUP BY ${tablePrefix}.id ORDER BY ${tablePrefix}.start_date ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
@@ -190,6 +297,17 @@ export function eventRoutes(db: DB): Hono {
       if (q) {
         sql += ` AND (re.title LIKE ? OR re.description LIKE ?)`;
         params.push(`%${q}%`, `%${q}%`);
+      }
+      if (tagList.length > 0) {
+        const escapeLike = (s: string) => s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+        const conditions = tagList.map(() =>
+          `(re.tags = ? OR re.tags LIKE ? OR re.tags LIKE ? OR re.tags LIKE ?)`
+        ).join(" OR ");
+        sql += ` AND (${conditions})`;
+        for (const tag of tagList) {
+          const escaped = escapeLike(tag);
+          params.push(tag, `${escaped},%`, `%,${escaped},%`, `%,${escaped}`);
+        }
       }
 
       sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;

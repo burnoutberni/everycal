@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
-import { eventPath, accountProfilePath, profilePath } from "../lib/urls";
+import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, RepostIcon } from "./icons";
 
@@ -18,12 +18,15 @@ export function EventCard({
   onRsvpChange,
   onRepostChange,
   compact,
+  selectedTags,
 }: {
   event: CalEvent;
   onRsvpChange?: (eventId: string, status: RsvpStatus) => void;
   onRepostChange?: (eventId: string, reposted: boolean) => void;
   /** When true and event has image: image on top full-width, content below. For narrow sidebars. */
   compact?: boolean;
+  /** Tags currently used as filter; matching tags will be highlighted */
+  selectedTags?: string[];
 }) {
   const { user } = useAuth();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
@@ -173,11 +176,16 @@ export function EventCard({
           )}
 
           {event.tags.length > 0 && (
-            <div className="flex gap-1 mt-1" style={{ flexWrap: "wrap" }}>
+            <div className="card-actions flex gap-1 mt-1" style={{ flexWrap: "wrap" }}>
               {event.tags.slice(0, 4).map((t) => (
-                <span key={t} className="tag">
+                <Link
+                  key={t}
+                  href={eventsPathWithTags([t])}
+                  className={`tag tag-clickable ${selectedTags?.includes(t) ? "tag-selected" : ""}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {t}
-                </span>
+                </Link>
               ))}
             </div>
           )}

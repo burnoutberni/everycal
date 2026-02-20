@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
+import { eventsPathWithTags } from "../lib/urls";
 import DOMPurify from "dompurify";
 import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
@@ -398,9 +399,13 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       {event.tags.length > 0 && (
         <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap" }}>
           {event.tags.map((t) => (
-            <span key={t} className="tag">
+            <Link
+              key={t}
+              href={eventsPathWithTags([t])}
+              className="tag tag-clickable"
+            >
               {t}
-            </span>
+            </Link>
           ))}
         </div>
       )}
