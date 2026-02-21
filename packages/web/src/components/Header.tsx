@@ -1,10 +1,13 @@
 import { useRef, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { profilePath } from "../lib/urls";
 import { CalendarIcon, LogOutIcon, PlusIcon, SettingsIcon, UserIcon } from "./icons";
+import { Logo } from "./Logo";
 
 export function Header() {
+  const { t } = useTranslation("common");
   const { user, logout } = useAuth();
   const [location] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -35,14 +38,14 @@ export function Header() {
     >
       <nav className="container flex items-center justify-between" style={{ height: "3.5rem" }}>
         <div className="flex items-center gap-2">
-          <Link href="/" style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text)" }}>
-            🗓️ EveryCal
+          <Link href="/" style={{ display: "flex", alignItems: "center", marginRight: "1rem" }}>
+            <Logo />
           </Link>
           <NavLink href="/" current={location}>
-            Events
+            {t("events")}
           </NavLink>
           <NavLink href="/discover" current={location}>
-            Discover
+            {t("discover")}
           </NavLink>
         </div>
 
@@ -53,7 +56,7 @@ export function Header() {
                 <Link
                   href="/calendar"
                   className={`header-icon-btn header-icon-btn-calendar ${onCalendar ? "header-icon-btn-active" : ""}`}
-                  title="My Calendar"
+                  title={t("myCalendar")}
                 >
                   <CalendarIcon />
                 </Link>
@@ -61,7 +64,7 @@ export function Header() {
                 <Link
                   href="/events/new"
                   className="header-icon-btn"
-                  title="Create new event"
+                  title={t("createNewEvent")}
                 >
                   <PlusIcon />
                 </Link>
@@ -96,21 +99,21 @@ export function Header() {
                       className="header-dropdown-item"
                       onClick={() => setMenuOpen(false)}
                     >
-                      <UserIcon /> My profile
+                      <UserIcon /> {t("myProfile")}
                     </Link>
                     <Link
                       href="/calendar"
                       className="header-dropdown-item"
                       onClick={() => setMenuOpen(false)}
                     >
-                      <CalendarIcon /> My Calendar
+                      <CalendarIcon /> {t("myCalendar")}
                     </Link>
                     <Link
                       href="/settings"
                       className="header-dropdown-item"
                       onClick={() => setMenuOpen(false)}
                     >
-                      <SettingsIcon /> Settings
+                      <SettingsIcon /> {t("settings")}
                     </Link>
                     <button
                       type="button"
@@ -120,7 +123,7 @@ export function Header() {
                         logout();
                       }}
                     >
-                      <LogOutIcon /> Log out
+                      <LogOutIcon /> {t("logOut")}
                     </button>
                   </div>
                 )}
@@ -129,10 +132,10 @@ export function Header() {
           ) : (
             <>
               <Link href="/login">
-                <button className="btn-ghost btn-sm">Log in</button>
+                <button className="btn-ghost btn-sm">{t("logIn")}</button>
               </Link>
               <Link href="/register">
-                <button className="btn-primary btn-sm">Sign up</button>
+                <button className="btn-primary btn-sm">{t("signUp")}</button>
               </Link>
             </>
           )}

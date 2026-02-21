@@ -1,6 +1,11 @@
 @import "@fontsource-variable/bricolage-grotesque";
 
 :root {
+  /* Brand */
+  --brand: #F59E0B;
+  --brand-light: #FCD34D;
+  --brand-dark: #D97706;
+  /* UI */
   --bg: #0d0d0d;
   --bg-raised: #161616;
   --bg-hover: #1e1e1e;
@@ -10,8 +15,8 @@
   --text: #e0e0e0;
   --text-muted: #888;
   --text-dim: #555;
-  --accent: #6e9eff;
-  --accent-hover: #8db4ff;
+  --accent: #FFE185;
+  --accent-hover: #FFF0C2;
   --danger: #e55;
   --danger-hover: #f77;
   --success: #4c8;

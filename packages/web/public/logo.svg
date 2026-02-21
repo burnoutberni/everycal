@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 40" fill="none">
+  <defs>
+    <linearGradient id="orb1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="orb2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#FCD34D"/>
+    </linearGradient>
+  </defs>
+  <!-- Icon mark -->
+  <circle cx="16" cy="20" r="12" fill="url(#orb1)"/>
+  <circle cx="28" cy="20" r="12" fill="url(#orb2)" fill-opacity="0.95"/>
+  <!-- Wordmark -->
+  <text x="48" y="26" font-family="Bricolage Grotesque Variable, -apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="700" fill="currentColor">EveryCal</text>
+</svg>
