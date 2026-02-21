@@ -336,6 +336,7 @@ export function federationRoutes(db: DB): Hono {
         url: row.url,
         tags: row.tags ? (row.tags as string).split(",") : [],
         visibility: "public",
+        canceled: !!row.canceled,
         createdAt: row.published,
         updatedAt: row.updated,
       })),

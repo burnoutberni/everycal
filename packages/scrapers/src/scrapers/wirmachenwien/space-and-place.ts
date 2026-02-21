@@ -87,7 +87,7 @@ export class SpaceAndPlaceScraper implements Scraper {
         url: `https://spaceandplace.at${node.uri}`,
         image,
         organizer: "Space and Place",
-        tags: ["vienna", "public-space", "civic-initiative", "wirmachen-wien"],
+        tags: ["wien", "urbanism", "wirmachenwien"],
         visibility: "public",
       });
     }

@@ -79,7 +79,7 @@ export class MatznerViertelScraper implements Scraper {
         location,
         image: ev.image ? { url: ev.image.url, alt: ev.image.alt } : undefined,
         organizer: "Lebenswertes Matznerviertel",
-        tags: ["vienna", "civic-initiative", "matznerviertel", "wirmachen-wien"],
+        tags: ["wien", "bürgerinnen-initiative", "matznerviertel", "rudolfsheim-fünfhaus", "wirmachenwien"],
         visibility: "public",
       });
     }

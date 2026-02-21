@@ -5,7 +5,8 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import type { DatesSetArg, EventClickArg, EventMountArg } from "@fullcalendar/core";
 import { Link, useLocation } from "wouter";
 import { events as eventsApi, feeds as feedsApi, type CalEvent } from "../lib/api";
-import { LinkIcon, InfoIcon } from "../components/icons";
+import { CheckIcon, LinkIcon, SmartphoneIcon } from "../components/icons";
+import { CalendarSubscribeButtons } from "../components/CalendarSubscribeButtons";
 import { eventPath } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
@@ -56,8 +57,13 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(false);
   const [visibleRange, setVisibleRange] = useState<{ from: string; to: string } | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "error">("idle");
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    feedsApi.getCalendarUrl().then(({ url }) => setFeedUrl(url)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -254,28 +260,16 @@ export function CalendarPage() {
         <div className="flex items-center gap-2" style={{ position: "relative" }} ref={infoRef}>
           <button
             type="button"
-            className="btn-primary"
-            onClick={handleCopyFeedLink}
-            disabled={copyStatus === "copying"}
-            title="Copy iCal feed URL to sync with Apple Calendar, Google Calendar, or other calendar apps"
-          >
-            <LinkIcon />
-            {copyStatus === "copied" && " ✓ Copied!"}
-            {copyStatus === "error" && " Copy failed"}
-            {copyStatus === "copying" && " Copying…"}
-            {copyStatus === "idle" && " Copy feed link"}
-          </button>
-          <button
-            type="button"
-            className="calendar-feed-info-trigger"
+            className="btn-primary btn-sm calendar-add-trigger"
             onClick={(e) => {
               e.stopPropagation();
               setInfoOpen((o) => !o);
             }}
-            title="What can I do with this link?"
+            title="Add your EveryCal events to your device"
             aria-expanded={infoOpen}
           >
-            <InfoIcon />
+            <SmartphoneIcon />
+            Add to your device
           </button>
           {infoOpen && (
             <div
@@ -284,22 +278,27 @@ export function CalendarPage() {
             >
               <h3 className="calendar-feed-info-title">Subscribe to your calendar</h3>
               <p className="calendar-feed-info-text">
-                Use the link to add your EveryCal events to Apple Calendar, Google Calendar,
-                Outlook, or any app that supports iCal feeds. Events you mark as Going or Maybe
-                will sync automatically.
+                Select your calendar app below to add your EveryCal feed. Events you mark as Going or Maybe will sync automatically.
               </p>
-              <p className="calendar-feed-info-text">
-                In your calendar app, add a new calendar subscription and paste the link.
-                The feed updates when your events change.
-              </p>
-              <p className="calendar-feed-info-text">
-                <strong>How-to guides:</strong>{" "}
-                <a href="https://support.apple.com/guide/calendar/subscribe-to-calendars-icl1022/mac" target="_blank" rel="noopener noreferrer">Apple Calendar</a>
-                {" · "}
-                <a href="https://support.google.com/calendar/answer/37100" target="_blank" rel="noopener noreferrer">Google Calendar</a>
-                {" · "}
-                <a href="https://support.microsoft.com/en-us/office/import-or-subscribe-to-a-calendar-in-outlook-com-or-outlook-on-the-web-cff1429c-5af6-41ec-a5b4-74f2c278e98c" target="_blank" rel="noopener noreferrer">Outlook</a>
-              </p>
+              <CalendarSubscribeButtons feedUrl={feedUrl} />
+              <div className="onboarding-copy-row">
+                <button
+                  type="button"
+                  className={`onboarding-copy-btn ${copyStatus === "copied" ? "copied" : ""}`}
+                  onClick={handleCopyFeedLink}
+                  disabled={copyStatus === "copying" || !feedUrl}
+                >
+                  {copyStatus === "copied" ? (
+                    <CheckIcon />
+                  ) : (
+                    <LinkIcon />
+                  )}
+                  {copyStatus === "copied" && "Copied!"}
+                  {copyStatus === "error" && "Copy failed — try again"}
+                  {copyStatus === "copying" && "Copying…"}
+                  {copyStatus === "idle" && "Copy link instead"}
+                </button>
+              </div>
             </div>
           )}
         </div>

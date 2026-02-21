@@ -257,10 +257,24 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const hasLocationCoords =
     event.location?.latitude != null && event.location?.longitude != null;
 
+  const isCanceled = !!event.canceled;
+
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
       {/* Main content */}
       <article style={{ flex: 1, minWidth: 0 }}>
+      {isCanceled && (
+        <div
+          className="canceled-badge mb-2"
+          style={{
+            display: "inline-block",
+            padding: "0.5rem 0.75rem",
+            fontSize: "0.9rem",
+          }}
+        >
+          This event was canceled by the organizer.
+        </div>
+      )}
       {event.image && (
         <div style={{ marginBottom: "1.5rem", position: "relative" }}>
           <img
@@ -303,7 +317,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         )}
       </div>
 
-      <h1 style={{ fontSize: "1.8rem", fontWeight: 700, lineHeight: 1.2, marginBottom: "0.5rem" }}>
+      <h1
+        style={{
+          fontSize: "1.8rem",
+          fontWeight: 700,
+          lineHeight: 1.2,
+          marginBottom: "0.5rem",
+          ...(isCanceled && { textDecoration: "line-through", color: "var(--text-dim)" }),
+        }}
+      >
         {event.title}
       </h1>
 
@@ -337,7 +359,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         </p>
       )}
 
-      {user && (
+      {user && !isCanceled && (
         <div
           className="flex gap-1 mb-4"
           style={{ flexWrap: "wrap", alignItems: "center" }}

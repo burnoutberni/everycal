@@ -14,7 +14,7 @@ import {
   SpaceAndPlaceScraper,
   KirchberggasseScraper,
   WestbahnparkScraper,
-} from "./scrapers/wirmachen-wien/index.js";
+} from "./scrapers/wirmachenwien/index.js";
 
 export const registry: Scraper[] = [
   // Existing scrapers

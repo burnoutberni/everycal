@@ -24,8 +24,8 @@ everycal/
 │   ├── web/           # React + Vite frontend (dark theme)
 │   └── wordpress/     # WordPress plugin with Gutenberg block
 └── scripts/
-    ├── setup-scraper-accounts.ts  # Register scraper accounts with API keys
-    └── setup-wirmachen-wien.ts    # Setup Vienna venue scraper collection
+    ├── setup-scraper-accounts.sh  # Register scraper accounts with API keys
+    └── setup-wirmachenwien.sh     # Setup Vienna venue scraper collection
 ```
 
 | Package | Description | Stack |
@@ -107,10 +107,7 @@ First, create bot accounts for each venue scraper with API keys:
 
 ```bash
 # Register all scraper accounts and save API keys
-npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000
-
-# Optionally run initial import immediately
-npx tsx scripts/setup-scraper-accounts.ts http://localhost:3000 --run
+./scripts/setup-scraper-accounts.sh http://localhost:3000
 ```
 
 This creates individual bot accounts for each venue:
@@ -121,7 +118,7 @@ This creates individual bot accounts for each venue:
 - **critical-mass-vienna** (Critical Mass bike rides)
 - **radlobby-wien** (Radlobby Wien cycling advocacy)
 
-API keys are saved to `scraper-api-keys.json` for use in cron jobs.
+API keys are saved to `scraper-api-keys.json`. For Docker, see [Scrapers in Docker](#scrapers-in-docker) above.
 
 ### Step 2: Create wirmachen.wien umbrella account (optional)
 
@@ -129,10 +126,10 @@ If you want a unified feed that automatically reposts all events from the Vienna
 
 ```bash
 # Create @wirmachen.wien account with auto-repost for all org accounts
-npx tsx scripts/setup-wirmachen-wien.ts http://localhost:3000
+./scripts/setup-wirmachenwien.sh http://localhost:3000
 
 # If account exists, provide password:
-npx tsx scripts/setup-wirmachen-wien.ts http://localhost:3000 --password=<secret>
+./scripts/setup-wirmachenwien.sh http://localhost:3000 --password=<secret>
 ```
 
 This creates a **regular user account** (not a bot) called `@wirmachen.wien` that:
@@ -140,39 +137,27 @@ This creates a **regular user account** (not a bot) called `@wirmachen.wien` tha
 - Enables auto-repost for each one
 - Creates a unified feed at `/@wirmachen.wien` showing all events
 
-The password is auto-generated and saved to `.wirmachen-wien-password` (printed once on first run).
+The password is auto-generated and saved to `.wirmachenwien_password` (printed once on first run).
 
 **Note:** This is a user account, not a scraper. It doesn't scrape anything itself—it just reposts events from the individual venue scraper accounts.
 
 ### Step 3: Run scrapers
 
+**Docker (default):** Scrapers run automatically every 6 hours inside the container. Just provide the API keys as described in [Scrapers in Docker](#scrapers-in-docker).
+
+**Manual / development:**
 ```bash
-# Sync a specific scraper to server
-pnpm --filter @everycal/scrapers scrape -- westbahnpark \
-  --sync http://localhost:3000 --api-key ecal_...
+# Run all scrapers once (uses SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON)
+pnpm job:scrapers:once
 
-# Run using the saved API keys from setup
-pnpm --filter @everycal/scrapers run -- westbahnpark \
-  --sync http://localhost:3000
-
-# Run all scrapers in sequence
-pnpm --filter @everycal/scrapers run -- --all \
-  --sync http://localhost:3000
+# Run on schedule (every 6h)
+pnpm job:scrapers
 ```
 
 Each sync run:
 - **Creates** new events that weren't on the server before
 - **Updates** events that have changed (matched by stable external ID or content hash)
 - **Deletes** events that the venue has removed from their site
-
-Run scrapers on a cron schedule (e.g. every hour) to keep events current.
-
-### Automated runs with cron
-
-```bash
-# Run all scrapers daily at 6am
-0 6 * * * cd /path/to/everycal && pnpm --filter @everycal/scrapers run -- --all --sync https://your-domain.com
-```
 
 ### Other scraper commands
 
@@ -300,23 +285,41 @@ All three methods set the user context on the request:
 
 ## Docker
 
-### Server only
-
 ```bash
 docker compose up -d
 ```
 
 This builds and runs the server at http://localhost:3000. Data is persisted in a Docker volume.
 
-### Server + Scrapers (separate containers)
+**Jobs run internally** — The container runs both the HTTP server and background jobs (scrapers every 6h, reminders every 15min) via node-cron. No separate scraper container.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.scrapers.yml up -d
-```
+### Scrapers in Docker
 
-Runs two containers:
-- **everycal-server** — API server and web UI
-- **everycal-scrapers** — Cron-based scraper runs (every 6 hours)
+Scrapers require API keys for each venue account. Without them, the container runs fine but scrapers are skipped (reminders still work).
+
+1. **Create scraper accounts** (run against your running server):
+   ```bash
+   ./scripts/setup-scraper-accounts.sh https://your-domain.com
+   ```
+   This creates `scraper-api-keys.json` with API keys for each scraper.
+
+2. **Provide keys to the container** — choose one:
+
+   **Option A: Mount the JSON file** (recommended)
+   ```yaml
+   # In docker-compose.yml, add under everycal volumes:
+   volumes:
+     - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
+   ```
+
+   **Option B: Pass JSON as env var** (e.g. for Docker secrets)
+   ```yaml
+   environment:
+     - SCRAPER_API_KEYS_JSON={"westbahnpark":"ecal_xxx","kirchberggasse":"ecal_yyy",...}
+   ```
+   Unset or omit `SCRAPER_API_KEYS_FILE` when using this.
+
+3. **Restart**: `docker compose up -d --build`
 
 ### Environment variables
 
@@ -328,11 +331,15 @@ Copy `.env.example` to `.env` and customize:
 | `PORT` | `3000` | HTTP port |
 | `DATABASE_PATH` | `/data/everycal.db` | SQLite database path |
 | `UPLOAD_DIR` | `uploads` | Directory for uploaded images |
-| `CORS_ORIGIN` | `http://localhost:5173` | Comma-separated allowed origins |
+| `CORS_ORIGIN` | `BASE_URL` | Comma-separated allowed origins |
 | `TRUSTED_PROXY` | `false` | Set to `true` behind reverse proxy |
 | `OPEN_REGISTRATIONS` | `true` | Allow public sign-ups |
 | `UNSPLASH_ACCESS_KEY` | (unset) | Unsplash API key for header image search (optional; falls back to Openverse) |
 | `SKIP_SIGNATURE_VERIFY` | (unset) | Skip ActivityPub signature verification (dev only) |
+| `RUN_JOBS_INTERNALLY` | `true` | If true, run scrapers + reminders in container; if false, server only |
+| `JOBS_API_SERVER` | `http://localhost:3000` | API base URL for scrapers to sync events (required when scrapers run) |
+| `SCRAPER_API_KEYS_FILE` | (unset) | Path to JSON file mapping scraper id → API key (for scrapers job) |
+| `SCRAPER_API_KEYS_JSON` | (unset) | Inline JSON alternative to file (e.g. Docker secrets) |
 
 ### Production deployment
 
@@ -434,7 +441,7 @@ pnpm --filter @everycal/web dev
 1. Create `packages/scrapers/src/scrapers/your-venue.ts` implementing the `Scraper` interface
 2. Register it in `packages/scrapers/src/registry.ts`
 3. Each event needs a stable `id` field for sync (e.g. `your-venue-{external-id}`)
-4. Run `npx tsx scripts/setup-scraper-accounts.ts` to create its server account
+4. Run `./scripts/setup-scraper-accounts.sh` to create its server account
 
 ```typescript
 import type { Scraper } from "../scraper.js";

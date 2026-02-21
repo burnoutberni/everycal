@@ -506,6 +506,46 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     return null;
   }, [startDate, endDate, duration]);
 
+  // Detect if material fields (title, time, location) changed — these trigger notifications to RSVPs
+  const materialFieldsChanged = useMemo(() => {
+    if (!isEdit || !initialEvent) return false;
+    if (title.trim() !== (initialEvent.title || "").trim()) return true;
+    const initStart = initialEvent.allDay ? initialEvent.startDate.slice(0, 10) : toDatetimeLocal(new Date(initialEvent.startDate));
+    const initEnd = initialEvent.endDate
+      ? (initialEvent.allDay ? initialEvent.endDate.slice(0, 10) : toDatetimeLocal(new Date(initialEvent.endDate)))
+      : "";
+    const currStart = allDay ? startDate.slice(0, 10) : startDate;
+    const currEnd = endDate || "";
+    if (currStart !== initStart || currEnd !== initEnd || allDay !== (initialEvent.allDay ?? false)) return true;
+    const initLoc = initialEvent.location;
+    const initOnline = !!(initLoc?.url);
+    if (locationMode === "online" !== initOnline) return true;
+    if (locationMode === "inperson") {
+      const initName = initLoc?.name || "";
+      const initAddr = initLoc?.address || "";
+      const currName = locationName || venueQuery.trim();
+      if (currName !== initName || (locationAddress || "") !== initAddr) return true;
+      if ((locationLat ?? null) !== (initLoc?.latitude ?? null) || (locationLng ?? null) !== (initLoc?.longitude ?? null)) return true;
+    } else {
+      if ((locationUrl || "") !== (initLoc?.url || "")) return true;
+    }
+    return false;
+  }, [
+    isEdit,
+    initialEvent,
+    title,
+    startDate,
+    endDate,
+    allDay,
+    locationMode,
+    locationName,
+    locationAddress,
+    locationLat,
+    locationLng,
+    locationUrl,
+    venueQuery,
+  ]);
+
   if (!user) {
     return (
       <div className="empty-state mt-3">
@@ -1173,6 +1213,21 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               </button>
             )}
           </div>
+
+          {materialFieldsChanged && (
+            <div
+              className="field"
+              style={{
+                padding: "0.5rem 0.75rem",
+                background: "var(--surface)",
+                borderRadius: "var(--radius)",
+                fontSize: "0.9rem",
+                color: "var(--text-dim)",
+              }}
+            >
+              Changing title, time, or location will notify users who RSVP&apos;d to this event and have email notifications enabled.
+            </div>
+          )}
 
           <div className="field">
             <label htmlFor="ce-title">Title *</label>

@@ -382,6 +382,13 @@ export function initDatabase(path: string): DB {
     // Column already exists
   }
 
+  // Migration: canceled flag for remote events (ActivityPub Delete = mark canceled, not delete)
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN canceled INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS saved_locations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -395,6 +402,104 @@ export function initDatabase(path: string): DB {
     )
   `);
   db.exec("CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC)");
+
+  // Migration: email and verification for accounts
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN email TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN email_verified_at TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Grandfather existing accounts (no email) as verified so they can still log in
+  try {
+    db.exec("UPDATE accounts SET email_verified = 1 WHERE email IS NULL");
+  } catch {
+    // Ignore
+  }
+
+  // Migration: email verification tokens
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (account_id)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token ON email_verification_tokens(token)");
+  } catch {
+    // Index already exists
+  }
+
+  // Migration: password reset tokens
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (account_id)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)");
+  } catch {
+    // Index already exists
+  }
+
+  // Migration: account notification preferences
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS account_notification_prefs (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+      reminder_enabled INTEGER NOT NULL DEFAULT 1,
+      reminder_hours_before INTEGER NOT NULL DEFAULT 24,
+      event_updated_enabled INTEGER NOT NULL DEFAULT 1,
+      event_cancelled_enabled INTEGER NOT NULL DEFAULT 1,
+      onboarding_completed INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Migration: email change requests (add/change email with verification)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_change_requests (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      new_email TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (account_id)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_email_change_requests_token ON email_change_requests(token)");
+  } catch {
+    /* index exists */
+  }
+
+  // Migration: event reminder sent (prevent duplicate reminders)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_reminder_sent (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      event_uri TEXT NOT NULL,
+      reminder_type TEXT NOT NULL DEFAULT '24h',
+      sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, event_uri, reminder_type)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_event_reminder_sent_account ON event_reminder_sent(account_id)");
+  } catch {
+    // Index already exists
+  }
 
   return db;
 }

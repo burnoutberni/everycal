@@ -77,7 +77,7 @@ export class WestbahnparkScraper implements Scraper {
           ? { name: locationText, url: BASE_URL }
           : { name: "Westbahnpark", address: "Westbahnhof-Areal, 1150 Wien", latitude: 48.1964, longitude: 16.3387, url: BASE_URL },
         organizer: "Westbahnpark Jetzt",
-        tags: ["vienna", "park", "civic-initiative", "westbahnpark", "wirmachen-wien"],
+        tags: ["wien", "park", "bürgerinnen-initiative", "westbahnpark", "rudolfsheim-fünfhaus", "wirmachenwien"],
         visibility: "public",
       });
     });

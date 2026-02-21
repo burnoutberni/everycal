@@ -63,8 +63,8 @@ app.use("*", async (c, next) => {
   await next();
 });
 
-// CORS — supports comma-separated origins via CORS_ORIGIN env var
-const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+// CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)
+const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http://localhost:5173")
   .split(",")
   .map((o) => o.trim());
 
@@ -79,6 +79,8 @@ app.use(
 // Rate limiting on auth endpoints (prevent brute force)
 app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10 }));
 app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10 }));
+app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5 }));
+app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5 }));
 
 // Rate limiting on federation fetch (prevent SSRF abuse)
 app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10 }));

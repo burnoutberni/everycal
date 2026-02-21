@@ -61,7 +61,7 @@ export class CriticalMassViennaScraper implements Scraper {
           url: "https://www.criticalmass.at",
         },
         organizer: "Critical Mass Vienna",
-        tags: ["vienna", "cycling", "critical-mass", "wirmachen-wien"],
+        tags: ["wien", "cycling", "critical-mass", "wirmachenwien"],
         visibility: "public",
       });
     });

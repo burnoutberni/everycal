@@ -29,6 +29,11 @@
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "job": "node packages/jobs/dist/index.js",
+    "job:scrapers": "node packages/jobs/dist/index.js scrapers",
+    "job:reminders": "node packages/jobs/dist/index.js reminders",
+    "job:scrapers:once": "node packages/jobs/dist/index.js scrapers --once",
+    "job:reminders:once": "node packages/jobs/dist/index.js reminders --once"
   }
 }

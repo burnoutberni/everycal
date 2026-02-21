@@ -36,6 +36,7 @@ export function EventCard({
 
   const dateTimeStr = formatEventDateTime(event);
   const isRemote = event.source === "remote";
+  const isCanceled = !!event.canceled;
 
   const handleRsvp = async (status: RsvpStatus, e: React.MouseEvent) => {
     e.preventDefault();
@@ -81,7 +82,15 @@ export function EventCard({
   };
 
   const cardContent = (
-    <article className="card" style={{ position: "relative", cursor: "pointer", transition: "border-color 0.15s" }}>
+    <article
+      className={`card ${isCanceled ? "event-canceled" : ""}`}
+      style={{
+        position: "relative",
+        cursor: "pointer",
+        transition: "border-color 0.15s",
+        ...(isCanceled && { opacity: 0.85 }),
+      }}
+    >
       <Link
         href={eventPath(event)}
         className="card-link-overlay"
@@ -133,12 +142,17 @@ export function EventCard({
           </div>
         )}
         <div className={compact && event.image ? "" : "flex-1"} style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-1 mb-1">
+          <div className="flex items-center gap-1 mb-1" style={{ flexWrap: "wrap" }}>
             <span className="text-sm" style={{ color: "var(--accent)" }}>
               {dateTimeStr}
             </span>
+            {isCanceled && (
+              <span className="canceled-badge" style={{ fontSize: "0.7rem", fontWeight: 600 }}>
+                Canceled
+              </span>
+            )}
           </div>
-          {event.visibility !== "public" && (
+          {event.visibility !== "public" && !isCanceled && (
             <div className="flex items-center gap-1 mb-1">
               <span className={`visibility-badge ${event.visibility}`}>
                 {event.visibility === "followers_only" ? "followers only" : event.visibility === "private" ? "Only me" : event.visibility}
@@ -146,7 +160,16 @@ export function EventCard({
             </div>
           )}
 
-          <h3 style={{ fontSize: "1.05rem", fontWeight: 600, lineHeight: 1.3 }}>{event.title}</h3>
+          <h3
+            style={{
+              fontSize: "1.05rem",
+              fontWeight: 600,
+              lineHeight: 1.3,
+              ...(isCanceled && { textDecoration: "line-through", color: "var(--text-dim)" }),
+            }}
+          >
+            {event.title}
+          </h3>
 
           {event.location && (
             <p className="text-sm text-muted mt-1" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
@@ -192,8 +215,8 @@ export function EventCard({
             </div>
           )}
 
-          {/* RSVP & Repost buttons */}
-          {user && (
+          {/* RSVP & Repost buttons (disabled when canceled) */}
+          {user && !isCanceled && (
             <div className="card-actions flex gap-1 mt-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
               {RSVP_OPTIONS.map((opt) => (
                 <button

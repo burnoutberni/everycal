@@ -1,4 +1,4 @@
-import { Redirect, Route, Switch } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
 import { Header } from "./components/Header";
 import { HomePage } from "./pages/HomePage";
 import { DiscoverPage } from "./pages/DiscoverPage";
@@ -10,6 +10,11 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { CalendarPage } from "./pages/CalendarPage";
+import { CheckEmailPage } from "./pages/CheckEmailPage";
+import { VerifyEmailPage } from "./pages/VerifyEmailPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
 import { useAuth } from "./hooks/useAuth";
 
 // Regex routes for /@username patterns (regexparam doesn't handle literal @ before :param)
@@ -17,8 +22,11 @@ const profileRegex = /^\/@(?<username>[^/]+)\/?$/;
 const eventRegex = /^\/@(?<username>[^/]+)\/(?<slug>[^/]+)\/?$/;
 const eventEditRegex = /^\/@(?<username>[^/]+)\/(?<slug>[^/]+)\/edit\/?$/;
 
+const ONBOARDING_EXEMPT = ["/onboarding", "/login", "/register", "/check-email", "/verify-email", "/forgot-password", "/reset-password"];
+
 export function App() {
-  const { loading } = useAuth();
+  const { user, loading } = useAuth();
+  const [location] = useLocation();
 
   if (loading) {
     return (
@@ -26,6 +34,10 @@ export function App() {
         <p className="text-muted">Loading…</p>
       </div>
     );
+  }
+
+  if (user && !user.notificationPrefs?.onboardingCompleted && !ONBOARDING_EXEMPT.some((p) => location.startsWith(p))) {
+    return <Redirect to="/onboarding" />;
   }
 
   return (
@@ -63,6 +75,11 @@ export function App() {
           <Route path="/settings" component={SettingsPage} />
           <Route path="/login" component={LoginPage} />
           <Route path="/register" component={RegisterPage} />
+          <Route path="/check-email" component={CheckEmailPage} />
+          <Route path="/verify-email" component={VerifyEmailPage} />
+          <Route path="/forgot-password" component={ForgotPasswordPage} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/onboarding" component={OnboardingPage} />
           <Route>
             <div className="empty-state mt-3">
               <h2>404</h2>

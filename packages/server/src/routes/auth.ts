@@ -17,6 +17,7 @@ import {
   clearFailedLogins,
 } from "../middleware/auth.js";
 import { stripHtml, sanitizeHtml, isValidHttpUrl } from "../lib/security.js";
+import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
@@ -59,11 +60,13 @@ export function authRoutes(db: DB): Hono {
 
     const body = await c.req.json<{
       username: string;
+      email?: string;
       password?: string;
       displayName?: string;
       city?: string;
       cityLat?: number;
       cityLng?: number;
+      isBot?: boolean;
     }>();
 
     if (!body.username) {
@@ -78,13 +81,34 @@ export function authRoutes(db: DB): Hono {
       );
     }
 
-    if (!body.city || body.cityLat == null || body.cityLng == null) {
+    const isBot = !!body.isBot;
+
+    // City required for non-bots; bots can use default
+    const city = body.city || "Wien";
+    const cityLat = body.cityLat ?? 48.2082;
+    const cityLng = body.cityLng ?? 16.3738;
+    if (!isBot && (body.city == null || body.cityLat == null || body.cityLng == null)) {
       return c.json({ error: "City is required" }, 400);
     }
 
-    // Password is optional — accounts without a password can only authenticate
-    // via API key and can never log in with a password.
-    if (body.password !== undefined && body.password.length < 8) {
+    // Email required for non-bots
+    const email = body.email?.trim().toLowerCase();
+    if (!isBot) {
+      if (!email) return c.json({ error: "Email is required" }, 400);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return c.json({ error: "Invalid email address" }, 400);
+      }
+    }
+
+    // Password required for non-bots; optional for bots (API-key-only)
+    if (!isBot) {
+      if (!body.password || typeof body.password !== "string") {
+        return c.json({ error: "Password is required" }, 400);
+      }
+      if (body.password.length < 8) {
+        return c.json({ error: "Password must be at least 8 characters" }, 400);
+      }
+    } else if (body.password !== undefined && body.password.length > 0 && body.password.length < 8) {
       return c.json({ error: "Password must be at least 8 characters" }, 400);
     }
 
@@ -93,25 +117,197 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: "Username already taken" }, 409);
     }
 
+    if (!isBot && email) {
+      const existingEmail = db.prepare("SELECT id FROM accounts WHERE email = ?").get(email);
+      if (existingEmail) {
+        return c.json({ error: "Email is already registered" }, 409);
+      }
+    }
+
     const id = nanoid(16);
     const passwordHash = body.password ? hashPassword(body.password) : null;
 
     db.prepare(
-      `INSERT INTO accounts (id, username, display_name, password_hash, city, city_lat, city_lng)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, username, body.displayName || username, passwordHash, body.city, body.cityLat, body.cityLng);
+      `INSERT INTO accounts (id, username, display_name, password_hash, email, email_verified, city, city_lat, city_lng, is_bot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      username,
+      body.displayName || username,
+      passwordHash,
+      isBot ? null : email,
+      isBot ? 1 : 0,
+      city,
+      cityLat,
+      cityLng,
+      isBot ? 1 : 0
+    );
 
-    const session = createSession(db, id);
+    // Create default notification prefs
+    db.prepare(
+      `INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled)
+       VALUES (?, 1, 24, 1, 1)`
+    ).run(id);
 
-    setSessionCookie(c, session.token, session.expiresAt);
+    if (isBot) {
+      const session = createSession(db, id);
+      setSessionCookie(c, session.token, session.expiresAt);
+      return c.json(
+        {
+          user: { id, username, displayName: body.displayName || username, city, cityLat, cityLng },
+          expiresAt: session.expiresAt,
+        },
+        201
+      );
+    }
+
+    // Human: send verification email, no session
+    const token = nanoid(48);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    db.prepare(
+      `INSERT INTO email_verification_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
+    ).run(id, token, expiresAt);
+
+    await sendVerificationEmail(email!, token);
 
     return c.json(
       {
-        user: { id, username, displayName: body.displayName || username, city: body.city, cityLat: body.cityLat, cityLng: body.cityLng },
-        expiresAt: session.expiresAt,
+        requiresVerification: true,
+        email,
       },
       201
     );
+  });
+
+  // Verify email (registration or add/change email)
+  router.get("/verify-email", async (c) => {
+    const token = c.req.query("token");
+    if (!token) {
+      return c.json({ error: "Token is required" }, 400);
+    }
+
+    // Check email change request first (add/change email on existing account)
+    const changeRow = db
+      .prepare(
+        `SELECT account_id, new_email FROM email_change_requests
+         WHERE token = ? AND expires_at > datetime('now')`
+      )
+      .get(token) as { account_id: string; new_email: string } | undefined;
+
+    if (changeRow) {
+      db.prepare(
+        `UPDATE accounts SET email = ?, email_verified = 1, email_verified_at = datetime('now') WHERE id = ?`
+      ).run(changeRow.new_email, changeRow.account_id);
+      db.prepare("DELETE FROM email_change_requests WHERE account_id = ?").run(changeRow.account_id);
+
+      const account = db.prepare("SELECT username FROM accounts WHERE id = ?").get(changeRow.account_id) as { username: string };
+      await sendWelcomeEmail(changeRow.new_email, account.username);
+
+      return c.json({
+        ok: true,
+        emailChanged: true,
+        redirectTo: "/settings",
+      });
+    }
+
+    // Registration flow
+    const row = db
+      .prepare(
+        `SELECT evt.account_id, a.username, a.display_name, a.email
+         FROM email_verification_tokens evt
+         JOIN accounts a ON a.id = evt.account_id
+         WHERE evt.token = ? AND evt.expires_at > datetime('now')`
+      )
+      .get(token) as { account_id: string; username: string; display_name: string | null; email: string } | undefined;
+
+    if (!row) {
+      return c.json({ error: "Invalid or expired verification link" }, 400);
+    }
+
+    db.prepare(
+      `UPDATE accounts SET email_verified = 1, email_verified_at = datetime('now') WHERE id = ?`
+    ).run(row.account_id);
+    db.prepare("DELETE FROM email_verification_tokens WHERE account_id = ?").run(row.account_id);
+
+    await sendWelcomeEmail(row.email, row.username);
+
+    const session = createSession(db, row.account_id);
+    setSessionCookie(c, session.token, session.expiresAt);
+
+    return c.json({
+      user: {
+        id: row.account_id,
+        username: row.username,
+        displayName: row.display_name,
+        email: row.email,
+        emailVerified: true,
+      },
+      expiresAt: session.expiresAt,
+      redirectTo: "/onboarding",
+    });
+  });
+
+  // Request add/change email (sends verification to new address)
+  router.post("/request-email-change", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const body = await c.req.json<{ email?: string }>();
+    const newEmail = body.email?.trim().toLowerCase();
+
+    if (!newEmail) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return c.json({ error: "Invalid email address" }, 400);
+    }
+
+    const existing = db.prepare("SELECT id FROM accounts WHERE email = ? AND id != ?").get(newEmail, user.id);
+    if (existing) {
+      return c.json({ error: "Email is already registered to another account" }, 409);
+    }
+
+    const token = nanoid(48);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    db.prepare("DELETE FROM email_change_requests WHERE account_id = ?").run(user.id);
+    db.prepare(
+      `INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)`
+    ).run(user.id, newEmail, token, expiresAt);
+
+    await sendEmailChangeVerificationEmail(newEmail, token);
+
+    return c.json({ ok: true, email: newEmail });
+  });
+
+  // Change password (logged-in user)
+  router.post("/change-password", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const body = await c.req.json<{ currentPassword?: string; newPassword?: string }>();
+
+    if (!body.currentPassword || !body.newPassword) {
+      return c.json({ error: "Current password and new password are required" }, 400);
+    }
+    if (body.newPassword.length < 8) {
+      return c.json({ error: "New password must be at least 8 characters" }, 400);
+    }
+
+    const row = db
+      .prepare("SELECT password_hash FROM accounts WHERE id = ?")
+      .get(user.id) as { password_hash: string | null } | undefined;
+
+    if (!row || !row.password_hash) {
+      return c.json({ error: "This account has no password set" }, 400);
+    }
+    if (!verifyPassword(body.currentPassword, row.password_hash)) {
+      return c.json({ error: "Current password is incorrect" }, 401);
+    }
+
+    const passwordHash = hashPassword(body.newPassword);
+    db.prepare("UPDATE accounts SET password_hash = ?, updated_at = datetime('now') WHERE id = ?").run(
+      passwordHash,
+      user.id
+    );
+
+    return c.json({ ok: true });
   });
 
   // Login
@@ -134,9 +330,17 @@ export function authRoutes(db: DB): Hono {
     }
 
     const row = db
-      .prepare("SELECT id, username, display_name, password_hash FROM accounts WHERE username = ?")
+      .prepare(
+        "SELECT id, username, display_name, password_hash, email_verified FROM accounts WHERE username = ?"
+      )
       .get(normalizedUsername) as
-      | { id: string; username: string; display_name: string | null; password_hash: string | null }
+      | {
+          id: string;
+          username: string;
+          display_name: string | null;
+          password_hash: string | null;
+          email_verified: number;
+        }
       | undefined;
 
     if (!row || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
@@ -144,17 +348,112 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: "Invalid username or password" }, 401);
     }
 
+    if (!row.email_verified) {
+      return c.json({ error: "Please verify your email first. Check your inbox for the verification link." }, 403);
+    }
+
     // Successful login — clear failed attempts
     clearFailedLogins(db, normalizedUsername);
 
     const session = createSession(db, row.id);
 
+    const prefsRow = db
+      .prepare(
+        `SELECT reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled, onboarding_completed
+         FROM account_notification_prefs WHERE account_id = ?`
+      )
+      .get(row.id) as
+      | {
+          reminder_enabled: number;
+          reminder_hours_before: number;
+          event_updated_enabled: number;
+          event_cancelled_enabled: number;
+          onboarding_completed: number;
+        }
+      | undefined;
+
+    const notificationPrefs = prefsRow
+      ? {
+          reminderEnabled: !!prefsRow.reminder_enabled,
+          reminderHoursBefore: prefsRow.reminder_hours_before,
+          eventUpdatedEnabled: !!prefsRow.event_updated_enabled,
+          eventCancelledEnabled: !!prefsRow.event_cancelled_enabled,
+          onboardingCompleted: !!prefsRow.onboarding_completed,
+        }
+      : {
+          reminderEnabled: true,
+          reminderHoursBefore: 24,
+          eventUpdatedEnabled: true,
+          eventCancelledEnabled: true,
+          onboardingCompleted: false,
+        };
+
     setSessionCookie(c, session.token, session.expiresAt);
 
     return c.json({
-      user: { id: row.id, username: row.username, displayName: row.display_name },
+      user: {
+        id: row.id,
+        username: row.username,
+        displayName: row.display_name,
+        notificationPrefs,
+      },
       expiresAt: session.expiresAt,
     });
+  });
+
+  // Forgot password
+  router.post("/forgot-password", async (c) => {
+    const body = await c.req.json<{ email?: string }>();
+    const email = body.email?.trim().toLowerCase();
+    if (!email) {
+      return c.json({ error: "Email is required" }, 400);
+    }
+
+    const row = db
+      .prepare("SELECT id, username FROM accounts WHERE email = ? AND email_verified = 1")
+      .get(email) as { id: string; username: string } | undefined;
+
+    if (row) {
+      const token = nanoid(48);
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+      db.prepare(
+        `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
+      ).run(row.id, token, expiresAt);
+      await sendPasswordResetEmail(email, token);
+    }
+
+    return c.json({ ok: true });
+  });
+
+  // Reset password
+  router.post("/reset-password", async (c) => {
+    const body = await c.req.json<{ token?: string; newPassword?: string }>();
+    if (!body.token || !body.newPassword) {
+      return c.json({ error: "Token and new password are required" }, 400);
+    }
+    if (body.newPassword.length < 8) {
+      return c.json({ error: "Password must be at least 8 characters" }, 400);
+    }
+
+    const row = db
+      .prepare(
+        `SELECT prt.account_id FROM password_reset_tokens prt
+         WHERE prt.token = ? AND prt.expires_at > datetime('now')`
+      )
+      .get(body.token) as { account_id: string } | undefined;
+
+    if (!row) {
+      return c.json({ error: "Invalid or expired reset link" }, 400);
+    }
+
+    const passwordHash = hashPassword(body.newPassword);
+    db.prepare("UPDATE accounts SET password_hash = ?, updated_at = datetime('now') WHERE id = ?").run(
+      passwordHash,
+      row.account_id
+    );
+    db.prepare("DELETE FROM password_reset_tokens WHERE account_id = ?").run(row.account_id);
+
+    return c.json({ ok: true });
   });
 
   // Logout
@@ -180,12 +479,43 @@ export function authRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, email, email_verified, created_at,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
       )
       .get(user.id, user.id, user.id) as Record<string, unknown>;
+
+    const prefsRow = db
+      .prepare(
+        `SELECT reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled, onboarding_completed
+         FROM account_notification_prefs WHERE account_id = ?`
+      )
+      .get(user.id) as
+      | {
+          reminder_enabled: number;
+          reminder_hours_before: number;
+          event_updated_enabled: number;
+          event_cancelled_enabled: number;
+          onboarding_completed: number;
+        }
+      | undefined;
+
+    const notificationPrefs = prefsRow
+      ? {
+          reminderEnabled: !!prefsRow.reminder_enabled,
+          reminderHoursBefore: prefsRow.reminder_hours_before,
+          eventUpdatedEnabled: !!prefsRow.event_updated_enabled,
+          eventCancelledEnabled: !!prefsRow.event_cancelled_enabled,
+          onboardingCompleted: !!prefsRow.onboarding_completed,
+        }
+      : {
+          reminderEnabled: true,
+          reminderHoursBefore: 24,
+          eventUpdatedEnabled: true,
+          eventCancelledEnabled: true,
+          onboardingCompleted: false,
+        };
 
     return c.json({
       id: row.id,
@@ -199,9 +529,12 @@ export function authRoutes(db: DB): Hono {
       city: row.city || null,
       cityLat: row.city_lat != null ? Number(row.city_lat) : null,
       cityLng: row.city_lng != null ? Number(row.city_lng) : null,
+      email: row.email || null,
+      emailVerified: !!row.email_verified,
       followingCount: row.following_count,
       followersCount: row.followers_count,
       createdAt: row.created_at,
+      notificationPrefs,
     });
   });
 
@@ -286,6 +619,64 @@ export function authRoutes(db: DB): Hono {
     values.push(user.id);
 
     db.prepare(`UPDATE accounts SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    return c.json({ ok: true });
+  });
+
+  // Update notification preferences
+  router.patch("/notification-prefs", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const body = await c.req.json<{
+      reminderEnabled?: boolean;
+      reminderHoursBefore?: number;
+      eventUpdatedEnabled?: boolean;
+      eventCancelledEnabled?: boolean;
+      onboardingCompleted?: boolean;
+    }>();
+
+    const existing = db
+      .prepare("SELECT account_id FROM account_notification_prefs WHERE account_id = ?")
+      .get(user.id);
+
+    const reminderEnabled = body.reminderEnabled ?? true;
+    const reminderHoursBefore = body.reminderHoursBefore ?? 24;
+    const eventUpdatedEnabled = body.eventUpdatedEnabled ?? true;
+    const eventCancelledEnabled = body.eventCancelledEnabled ?? true;
+    const onboardingCompleted = body.onboardingCompleted ?? false;
+
+    const validHours = [1, 6, 12, 24];
+    if (!validHours.includes(reminderHoursBefore)) {
+      return c.json({ error: "reminderHoursBefore must be 1, 6, 12, or 24" }, 400);
+    }
+
+    if (existing) {
+      db.prepare(
+        `UPDATE account_notification_prefs SET
+          reminder_enabled = ?, reminder_hours_before = ?,
+          event_updated_enabled = ?, event_cancelled_enabled = ?,
+          onboarding_completed = ?
+         WHERE account_id = ?`
+      ).run(
+        reminderEnabled ? 1 : 0,
+        reminderHoursBefore,
+        eventUpdatedEnabled ? 1 : 0,
+        eventCancelledEnabled ? 1 : 0,
+        onboardingCompleted ? 1 : 0,
+        user.id
+      );
+    } else {
+      db.prepare(
+        `INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled, onboarding_completed)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        user.id,
+        reminderEnabled ? 1 : 0,
+        reminderHoursBefore,
+        eventUpdatedEnabled ? 1 : 0,
+        eventCancelledEnabled ? 1 : 0,
+        onboardingCompleted ? 1 : 0
+      );
+    }
+
     return c.json({ ok: true });
   });
 

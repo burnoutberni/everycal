@@ -12,6 +12,8 @@ import { EveryCalEvent } from "./event.js";
 export interface ToICalOptions {
   /** If true, add STATUS:TENTATIVE (e.g. for "maybe" RSVPs). */
   tentative?: boolean;
+  /** If true, add STATUS:CANCELLED (e.g. for remote events that were deleted). */
+  canceled?: boolean;
 }
 
 /** Produce a VEVENT string (without the VCALENDAR wrapper). */
@@ -23,7 +25,9 @@ export function toICal(event: EveryCalEvent, options?: ToICalOptions): string {
     `DTSTART:${toICalDate(event.startDate)}`,
   ];
 
-  if (options?.tentative) {
+  if (options?.canceled) {
+    lines.push("STATUS:CANCELLED");
+  } else if (options?.tentative) {
     lines.push("STATUS:TENTATIVE");
     lines.push("X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE"); // Outlook "Show as: Tentative"
   }

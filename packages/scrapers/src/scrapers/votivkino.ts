@@ -90,7 +90,7 @@ export class VotivkinoScraper implements Scraper {
           endDate = new Date(startMs + parseInt(durationMatch[1], 10) * 60 * 1000).toISOString();
         }
 
-        const tags = ["vienna", "cinema"];
+        const tags = ["wien", "cinema"];
         if (category) tags.push(category.toLowerCase());
 
         const showId = $show.attr("href")?.match(/show=(\d+)/)?.[1];

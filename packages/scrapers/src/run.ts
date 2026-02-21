@@ -3,14 +3,13 @@
  * Production scraper runner — run all scrapers, sync to server, exit.
  *
  * Reads configuration from environment variables:
- *   EVERYCAL_SERVER        — server URL (required)
- *   SCRAPER_API_KEYS_FILE  — path to JSON file mapping scraper id → API key (required)
+ *   JOBS_API_SERVER        — API base URL (required when scrapers run)
+ *   SCRAPER_API_KEYS_FILE  — path to JSON file mapping scraper id → API key
+ *   SCRAPER_API_KEYS_JSON  — inline JSON (alternative to file, e.g. for Docker secrets)
  *   SCRAPE_CONCURRENCY     — max concurrent scrape requests (default: 6)
  *
- * Example:
- *   EVERYCAL_SERVER=https://cal.example.com \
- *   SCRAPER_API_KEYS_FILE=/run/secrets/scraper-api-keys.json \
- *   node packages/scrapers/dist/run.js
+ * At least one of SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON is required.
+ * If neither is set, exits 0 without syncing (reminders and other jobs still work).
  *
  * Exits 0 on success (even if individual scrapers fail), 1 on fatal config error.
  */
@@ -24,27 +23,43 @@ const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
 
 function requireEnv(name: string): string {
   const val = process.env[name];
-  if (!val) {
+  if (!val?.trim()) {
     console.error(`❌ Missing required environment variable: ${name}`);
     process.exit(1);
   }
-  return val;
+  return val.trim();
 }
 
-/** Load API keys from the JSON file at SCRAPER_API_KEYS_FILE. */
-function loadApiKeys(): Record<string, string> {
-  const filePath = requireEnv("SCRAPER_API_KEYS_FILE");
+/** Load API keys from SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON. */
+function loadApiKeys(): Record<string, string> | null {
+  const jsonEnv = process.env.SCRAPER_API_KEYS_JSON?.trim();
+  if (jsonEnv) {
+    try {
+      return JSON.parse(jsonEnv) as Record<string, string>;
+    } catch {
+      console.error(`❌ SCRAPER_API_KEYS_JSON is not valid JSON`);
+      process.exit(1);
+    }
+  }
+
+  const filePath = process.env.SCRAPER_API_KEYS_FILE;
+  if (!filePath) return null;
 
   let raw: string;
   try {
     raw = readFileSync(filePath, "utf-8").trim();
-  } catch (err) {
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      console.error(`❌ SCRAPER_API_KEYS_FILE (${filePath}) not found`);
+      process.exit(1);
+    }
     console.error(`❌ Cannot read SCRAPER_API_KEYS_FILE (${filePath}): ${err}`);
     process.exit(1);
   }
 
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as Record<string, string>;
   } catch {
     console.error(`❌ ${filePath} is not valid JSON`);
     process.exit(1);
@@ -68,6 +83,33 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
+/** Update scraper account profile from scraper metadata (displayName, bio, website, avatarUrl). */
+async function updateProfile(
+  server: string,
+  apiKey: string,
+  scraper: Scraper,
+): Promise<void> {
+  const body: { displayName?: string; bio?: string; website?: string; avatarUrl?: string } = {
+    displayName: scraper.name,
+  };
+  if (scraper.bio) body.bio = scraper.bio;
+  if (scraper.website) body.website = scraper.website;
+  if (scraper.avatarUrl) body.avatarUrl = scraper.avatarUrl;
+
+  const res = await fetch(`${server}/api/v1/auth/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `ApiKey ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`profile update failed: ${res.status} ${text}`);
+  }
+}
+
 function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
   return events
     .filter((ev) => ev.title && ev.startDate)
@@ -87,16 +129,22 @@ function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
 }
 
 async function main() {
-  const server = requireEnv("EVERYCAL_SERVER");
   const apiKeys = loadApiKeys();
+
+  if (!apiKeys) {
+    console.log("⏭️  Scrapers skipped: no SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON configured");
+    return;
+  }
+
+  const server = requireEnv("JOBS_API_SERVER");
 
   // Only run scrapers that have API keys configured
   const scrapers = registry.filter((s) => apiKeys[s.id]);
   const skipped = registry.filter((s) => !apiKeys[s.id]);
 
   if (scrapers.length === 0) {
-    console.error("❌ No scrapers have matching API keys. Check your SCRAPER_API_KEYS_FILE.");
-    process.exit(1);
+    console.log("⏭️  Scrapers skipped: no matching API keys in config");
+    return;
   }
 
   console.log(`🗓️  EveryCal Scraper Run — ${new Date().toISOString()}`);
@@ -121,10 +169,18 @@ async function main() {
   const errors = results.filter((r) => r.error);
   console.log(`   ${totalEvents} events from ${results.length} sources in ${elapsed}s (${errors.length} errors)\n`);
 
-  // Phase 2: Sync to server sequentially
+  // Phase 2: Sync to server sequentially (profile update + event sync)
   let syncErrors = 0;
   for (const { scraper, events, error } of results) {
     process.stdout.write(`   ${scraper.name.padEnd(30)}`);
+
+    // Update profile from scraper metadata (overwrites setup placeholders).
+    // Non-blocking: failures are logged but don't prevent event sync.
+    try {
+      await updateProfile(server, apiKeys[scraper.id], scraper);
+    } catch (err) {
+      console.log(`⚠️ profile: ${err instanceof Error ? err.message : err} (continuing with sync)`);
+    }
 
     if (error) {
       console.log(`❌ scrape failed: ${error}`);

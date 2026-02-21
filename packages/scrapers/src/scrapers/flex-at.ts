@@ -48,7 +48,7 @@ export class FlexScraper implements Scraper {
       };
 
       event.tags = event.tags || [];
-      event.tags.push("vienna", "music");
+      event.tags.push("wien", "music");
 
       events.push(event);
     }

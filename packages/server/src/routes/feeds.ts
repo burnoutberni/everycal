@@ -73,7 +73,7 @@ export function feedRoutes(db: DB): Hono {
       )
       .all(accountId, accountId) as Record<string, unknown>[];
 
-    // Remote events: Going/Maybe (include rsvp_status for tentative)
+    // Remote events: Going/Maybe (include rsvp_status for tentative; include canceled)
     const remoteRows = db
       .prepare(
         `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
@@ -81,7 +81,7 @@ export function feedRoutes(db: DB): Hono {
                 re.location_longitude, re.image_url, re.image_media_type, re.image_alt,
                 re.url, re.tags, re.published AS created_at,
                 COALESCE(re.updated, re.published, datetime('now')) AS updated_at,
-                'public' AS visibility, er.status AS rsvp_status
+                'public' AS visibility, er.status AS rsvp_status, re.canceled
          FROM remote_events re
          JOIN event_rsvps er ON er.event_uri = re.uri AND er.account_id = ?
          WHERE er.status IN ('going','maybe')
@@ -98,7 +98,8 @@ export function feedRoutes(db: DB): Hono {
     const vevents = allRows.map((row) => {
       const event = rowToEvent(row);
       const tentative = row.rsvp_status === "maybe";
-      return toICal(event, { tentative });
+      const canceled = !!row.canceled;
+      return toICal(event, { tentative, canceled });
     });
 
     const ical = [

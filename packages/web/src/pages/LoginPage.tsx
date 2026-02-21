@@ -21,8 +21,12 @@ export function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
-      navigate("/");
+      const u = await login(username, password);
+      if (u.notificationPrefs && !u.notificationPrefs.onboardingCompleted) {
+        navigate("/onboarding");
+      } else {
+        navigate("/");
+      }
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
@@ -57,6 +61,11 @@ export function LoginPage() {
             autoComplete="current-password"
             required
           />
+          <p className="text-sm mt-1">
+            <Link href="/forgot-password" className="text-dim">
+              Forgot password?
+            </Link>
+          </p>
         </div>
         {error && <p className="error-text mb-2">{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>

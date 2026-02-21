@@ -20,6 +20,7 @@ import {
   deliverToFollowers,
 } from "../lib/federation.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
+import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -394,7 +395,7 @@ export function activityPubRoutes(db: DB): Hono {
         break;
       case "Create":
       case "Update":
-        handleCreateUpdate(db, activity);
+        handleCreateUpdate(db, activity, type);
         break;
       case "Delete":
         handleDelete(db, activity);
@@ -476,7 +477,7 @@ export function sharedInboxRoute(db: DB): Hono {
       }
       case "Create":
       case "Update":
-        handleCreateUpdate(db, activity);
+        handleCreateUpdate(db, activity, type);
         break;
       case "Delete":
         handleDelete(db, activity);
@@ -552,7 +553,7 @@ async function handleUndo(
   console.log(`  ✅ ${actorUri} unfollowed ${account.username}`);
 }
 
-function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
+function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string) {
   const object = activity.object as Record<string, unknown>;
   if (!object || object.type !== "Event") return;
 
@@ -609,11 +610,32 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
     ? JSON.stringify(imageAttribution)
     : null;
 
+  const uri = object.id as string;
+  const startDate = object.startTime as string;
+  const endDate = (object.endTime as string) || null;
+  const locationName = loc?.name ? stripHtml(loc.name as string) : null;
+  const locationAddr = locationAddress ? stripHtml(locationAddress) : null;
+
+  // For Update: fetch existing to detect material changes and notify RSVP'd users.
+  // Only title, time, and location trigger notifications (not description, image, url, tags).
+  let changes: string[] = [];
+  if (activityType === "Update") {
+    const existing = db.prepare(
+      "SELECT title, start_date, end_date, location_name, location_address FROM remote_events WHERE uri = ?"
+    ).get(uri) as { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
+    if (existing) {
+      if (existing.title !== title) changes.push("title");
+      if (existing.start_date !== startDate || existing.end_date !== endDate) changes.push("time");
+      const locChanged = (existing.location_name || "") !== (locationName || "") || (existing.location_address || "") !== (locationAddr || "");
+      if (locChanged) changes.push("location");
+    }
+  }
+
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, title, description, start_date, end_date,
       location_name, location_address, location_latitude, location_longitude,
-      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
      ON CONFLICT(uri) DO UPDATE SET
       title=excluded.title, description=excluded.description,
       start_date=excluded.start_date, end_date=excluded.end_date,
@@ -622,16 +644,17 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
       image_url=excluded.image_url, image_media_type=excluded.image_media_type,
       image_alt=excluded.image_alt, image_attribution=excluded.image_attribution,
       url=excluded.url, tags=excluded.tags,
-      raw_json=excluded.raw_json, updated=excluded.updated, fetched_at=datetime('now')`
+      raw_json=excluded.raw_json, updated=excluded.updated, fetched_at=datetime('now'),
+      canceled=excluded.canceled`
   ).run(
-    object.id as string,
+    uri,
     effectiveActor,
     title,
     description,
-    object.startTime as string,
-    (object.endTime as string) || null,
-    loc?.name ? stripHtml(loc.name as string) : null,
-    locationAddress ? stripHtml(locationAddress) : null,
+    startDate,
+    endDate,
+    locationName,
+    locationAddr,
     (loc?.latitude as number) ?? null,
     (loc?.longitude as number) ?? null,
     (image?.url as string) || null,
@@ -646,24 +669,48 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>) {
     (object.updated as string) || null
   );
 
+  if (activityType === "Update" && changes.length > 0) {
+    notifyEventUpdated(db, uri, {
+      id: uri,
+      title,
+      startDate,
+      endDate,
+      allDay: false,
+      location: locationName ? { name: locationName } : null,
+      url: (object.url as string) || null,
+    }, changes);
+  }
+
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
 function handleDelete(db: DB, activity: Record<string, unknown>) {
   const actorUri = activity.actor as string;
-  const objectUri =
-    typeof activity.object === "string"
-      ? activity.object
-      : (activity.object as Record<string, unknown>)?.id;
+  const rawObject = activity.object;
+  const objectUri: string | undefined =
+    typeof rawObject === "string"
+      ? rawObject
+      : (rawObject as Record<string, unknown> | null)?.id as string | undefined;
 
   if (objectUri && actorUri) {
-    // Only delete if the event belongs to the actor sending the Delete
-    const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as
-      | { actor_uri: string }
+    // Only mark canceled if the event belongs to the actor sending the Delete
+    const existing = db.prepare(
+      "SELECT actor_uri, title, start_date, end_date, location_name, url FROM remote_events WHERE uri = ?"
+    ).get(objectUri) as
+      | { actor_uri: string; title: string; start_date: string; end_date: string | null; location_name: string | null; url: string | null }
       | undefined;
     if (existing && existing.actor_uri === actorUri) {
-      db.prepare("DELETE FROM remote_events WHERE uri = ?").run(objectUri);
-      console.log(`  🗑 Deleted remote event: ${objectUri}`);
+      db.prepare("UPDATE remote_events SET canceled = 1 WHERE uri = ?").run(objectUri);
+      notifyEventCancelled(db, objectUri, {
+        id: objectUri,
+        title: existing.title,
+        startDate: existing.start_date,
+        endDate: existing.end_date,
+        allDay: false,
+        location: existing.location_name ? { name: existing.location_name } : null,
+        url: existing.url,
+      });
+      console.log(`  🚫 Marked remote event as canceled: ${objectUri}`);
     } else if (existing) {
       console.log(`  ⚠️  Rejecting Delete: actor ${actorUri} doesn't own event ${objectUri} (owner: ${existing.actor_uri})`);
     }

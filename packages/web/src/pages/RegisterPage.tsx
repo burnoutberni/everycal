@@ -9,6 +9,7 @@ export function RegisterPage() {
   const [, navigate] = useLocation();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [city, setCity] = useState<CitySelection | null>(null);
   const [error, setError] = useState("");
@@ -28,8 +29,20 @@ export function RegisterPage() {
     }
     setLoading(true);
     try {
-      await register(username, password, displayName || undefined, city.city, city.lat, city.lng);
-      navigate("/");
+      const result = await register(
+        username,
+        password,
+        displayName || undefined,
+        city.city,
+        city.lat,
+        city.lng,
+        email || undefined
+      );
+      if (result?.requiresVerification && result.email) {
+        navigate(`/check-email?email=${encodeURIComponent(result.email)}`);
+      } else {
+        navigate("/");
+      }
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {
@@ -62,6 +75,17 @@ export function RegisterPage() {
             id="displayName"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            required
           />
         </div>
         <div className="field">

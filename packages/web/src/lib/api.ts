@@ -73,6 +73,14 @@ export class ApiError extends Error {
 
 // ---- Auth ----
 
+export interface NotificationPrefs {
+  reminderEnabled: boolean;
+  reminderHoursBefore: number;
+  eventUpdatedEnabled: boolean;
+  eventCancelledEnabled: boolean;
+  onboardingCompleted: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -85,6 +93,9 @@ export interface User {
   city?: string | null;
   cityLat?: number | null;
   cityLng?: number | null;
+  email?: string | null;
+  emailVerified?: boolean;
+  notificationPrefs?: NotificationPrefs;
   followersCount?: number;
   followingCount?: number;
   eventsCount?: number;
@@ -101,10 +112,59 @@ export interface AuthResponse {
 }
 
 export const auth = {
-  register(username: string, password: string, displayName?: string, city?: string, cityLat?: number, cityLng?: number) {
-    return request<AuthResponse>("/auth/register", {
+  register(
+    username: string,
+    password: string,
+    displayName?: string,
+    city?: string,
+    cityLat?: number,
+    cityLng?: number,
+    email?: string
+  ) {
+    return request<AuthResponse | { requiresVerification: true; email: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ username, password, displayName, city, cityLat, cityLng }),
+      body: JSON.stringify({ username, password, displayName, city, cityLat, cityLng, email }),
+    });
+  },
+
+  verifyEmail(token: string) {
+    return request<AuthResponse & { redirectTo?: string; ok?: boolean; emailChanged?: boolean }>(
+      "/auth/verify-email?token=" + encodeURIComponent(token)
+    );
+  },
+
+  requestEmailChange(email: string) {
+    return request<{ ok: boolean; email: string }>("/auth/request-email-change", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  changePassword(currentPassword: string, newPassword: string) {
+    return request<{ ok: boolean }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+
+  forgotPassword(email: string) {
+    return request<{ ok: boolean }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  resetPassword(token: string, newPassword: string) {
+    return request<{ ok: boolean }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
+  updateNotificationPrefs(prefs: Partial<NotificationPrefs>) {
+    return request<{ ok: boolean }>("/auth/notification-prefs", {
+      method: "PATCH",
+      body: JSON.stringify(prefs),
     });
   },
 
@@ -197,6 +257,8 @@ export interface CalEvent {
   url: string | null;
   tags: string[];
   visibility: string;
+  /** True for remote events that were canceled (ActivityPub Delete). */
+  canceled?: boolean;
   rsvpStatus?: "going" | "maybe" | null;
   reposted?: boolean;
   repostedBy?: { username: string; displayName: string | null };

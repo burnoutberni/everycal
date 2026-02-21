@@ -532,6 +532,7 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: "public",
+    canceled: !!row.canceled,
     createdAt: row.published,
     updatedAt: row.updated,
   };

@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { deliverToFollowers } from "../lib/federation.js";
+import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
@@ -237,6 +238,7 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: "public",
+    canceled: !!row.canceled,
     createdAt: row.published,
     updatedAt: row.updated,
   };
@@ -290,10 +292,11 @@ export function eventRoutes(db: DB): Hono {
   }
 
   /** Query a local event by ID — format only, no visibility check (for read-back after create/update). */
-  function readLocalEventById(eventId: string): Record<string, unknown> {
+  function readLocalEventById(eventId: string): Record<string, unknown> | null {
     const row = db
       .prepare(`${LOCAL_EVENT_SELECT} WHERE e.id = ? GROUP BY e.id`)
-      .get(eventId) as Record<string, unknown>;
+      .get(eventId) as Record<string, unknown> | undefined;
+    if (!row) return null;
     return formatEvent(row);
   }
 
@@ -664,8 +667,21 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const existing = db
-      .prepare("SELECT id, external_id, content_hash FROM events WHERE account_id = ? AND external_id IS NOT NULL")
-      .all(user.id) as { id: string; external_id: string; content_hash: string | null }[];
+      .prepare(
+        "SELECT id, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+      )
+      .all(user.id) as {
+      id: string;
+      external_id: string;
+      content_hash: string | null;
+      title: string;
+      start_date: string;
+      end_date: string | null;
+      location_name: string | null;
+      location_address: string | null;
+      url: string | null;
+      description: string | null;
+    }[];
 
     const existingByExtId = new Map(existing.map((r) => [r.external_id, r]));
     const incomingExtIds = new Set(deduped.map((e) => e.externalId));
@@ -710,6 +726,17 @@ export function eventRoutes(db: DB): Hono {
     // Batch 1: Delete events no longer in the scraped set
     const toDelete = existing.filter((r) => !incomingExtIds.has(r.external_id));
     if (toDelete.length > 0) {
+      for (const row of toDelete) {
+        notifyEventCancelled(db, row.id, {
+          id: row.id,
+          title: row.title,
+          startDate: row.start_date,
+          endDate: row.end_date,
+          allDay: false,
+          location: row.location_name ? { name: row.location_name } : null,
+          url: row.url,
+        });
+      }
       const deleteBatch = db.transaction((rows: typeof toDelete) => {
         const delTags = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
         const delEvent = db.prepare("DELETE FROM events WHERE id = ?");
@@ -741,6 +768,16 @@ export function eventRoutes(db: DB): Hono {
               continue;
             }
 
+            // Only material changes (title, time, location) trigger notifications
+            const changes: string[] = [];
+            if (existingRow.title !== ev.title) changes.push("title");
+            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || ""))
+              changes.push("time");
+            const locName = ev.location?.name || "";
+            const locAddr = ev.location?.address || "";
+            if ((existingRow.location_name || "") !== locName || (existingRow.location_address || "") !== locAddr)
+              changes.push("location");
+
             const evSlug = uniqueSlug(db, user.id, ev.title, existingRow.id);
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
@@ -755,6 +792,17 @@ export function eventRoutes(db: DB): Hono {
             deleteTagsStmt.run(existingRow.id);
             if (ev.tags) {
               for (const tag of ev.tags) insertTagStmt.run(existingRow.id, tag.trim());
+            }
+            if (changes.length > 0) {
+              notifyEventUpdated(db, existingRow.id, {
+                id: existingRow.id,
+                title: ev.title,
+                startDate: ev.startDate,
+                endDate: ev.endDate || null,
+                allDay: ev.allDay ?? false,
+                location: ev.location ? { name: ev.location.name } : null,
+                url: ev.url || null,
+              }, changes);
             }
             updated++;
           } else {
@@ -961,6 +1009,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const response = readLocalEventById(id);
+    if (!response) return c.json({ error: "Event not found after create" }, 500);
     response.rsvpStatus = "going";
     return c.json(response, 201);
   });
@@ -1044,7 +1093,32 @@ export function eventRoutes(db: DB): Hono {
 
     if (body.tags !== undefined) replaceTags(id, body.tags);
 
-    return c.json(readLocalEventById(id));
+    if (fields.length > 0) {
+      // Only material changes (title, time, location) trigger notifications
+      const changes: string[] = [];
+      if (body.title !== undefined) changes.push("title");
+      if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined)
+        changes.push("time");
+      if (body.location !== undefined) changes.push("location");
+      if (changes.length > 0) {
+        const ev = readLocalEventById(id);
+        if (ev) {
+          notifyEventUpdated(db, id, {
+            id,
+            title: ev.title as string,
+            startDate: ev.startDate as string,
+            endDate: ev.endDate as string | null,
+            allDay: ev.allDay as boolean,
+            location: ev.location as { name?: string } | null,
+            url: ev.url as string | null,
+          }, changes);
+        }
+      }
+    }
+
+    const updated = readLocalEventById(id);
+    if (!updated) return c.json({ error: "Event not found after update" }, 500);
+    return c.json(updated);
   });
 
   // ─── DELETE /:id ────────────────────────────────────────────────────────
@@ -1058,6 +1132,19 @@ export function eventRoutes(db: DB): Hono {
       .get(id) as { account_id: string } | undefined;
     if (!existing) return c.json({ error: "Not found" }, 404);
     if (existing.account_id !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+    const ev = readLocalEventById(id);
+    if (ev) {
+      notifyEventCancelled(db, id, {
+        id,
+        title: ev.title as string,
+        startDate: ev.startDate as string,
+        endDate: ev.endDate as string | null,
+        allDay: ev.allDay as boolean,
+        location: ev.location as { name?: string } | null,
+        url: ev.url as string | null,
+      });
+    }
 
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 

@@ -6,33 +6,24 @@ services:
     volumes:
       - everycal-data:/data
       - everycal-uploads:/app/uploads
+      # Scrapers: mount scraper-api-keys.json when using scrapers (create via setup-scraper-accounts.sh)
+      # - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
     environment:
       - NODE_ENV=production
-      - PORT=3000
       - DATABASE_PATH=/data/everycal.db
       - UPLOAD_DIR=/app/uploads
+      - RUN_JOBS_INTERNALLY=true
+      - SCRAPER_API_KEYS_FILE=/secrets/scraper-api-keys.json
+      # - SCRAPER_API_KEYS_JSON=${SCRAPER_API_KEYS_JSON} # alternatively, pass JSON inline (e.g. from Docker secret)
+      - JOBS_API_SERVER=${JOBS_API_SERVER:-http://localhost:3000}
+      - PORT=${PORT:-3000}
       - BASE_URL=${BASE_URL:-http://localhost:3000}
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - CORS_ORIGIN=${CORS_ORIGIN:-${BASE_URL}}
       - OPEN_REGISTRATIONS=${OPEN_REGISTRATIONS:-true}
       - TRUSTED_PROXY=${TRUSTED_PROXY:-false}
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
-      # Set SKIP_SIGNATURE_VERIFY=true during initial testing if needed
-      # - SKIP_SIGNATURE_VERIFY=true
+      - SKIP_SIGNATURE_VERIFY=${SKIP_SIGNATURE_VERIFY:-false} # dev only
     restart: unless-stopped
-
-  scrapers:
-    build:
-      context: .
-      dockerfile: Dockerfile.scrapers
-    volumes:
-      - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
-    environment:
-      - EVERYCAL_SERVER=http://everycal:3000
-      - SCRAPER_API_KEYS_FILE=/secrets/scraper-api-keys.json
-    depends_on:
-      - everycal
-    profiles:
-      - scrapers
 
 volumes:
   everycal-data:

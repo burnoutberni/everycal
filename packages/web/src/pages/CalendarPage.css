@@ -1,3 +1,13 @@
+/* Add to your device button — larger icon, balanced padding */
+.calendar-add-trigger {
+  padding: 0.38rem 0.7rem;
+  gap: 0.5rem;
+}
+.calendar-add-trigger svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
 /* Calendar feed info trigger — subtle icon, not a full button */
 .calendar-feed-info-trigger {
   display: inline-flex;
@@ -47,6 +57,21 @@
 
 .calendar-feed-info-text:last-child {
   margin-bottom: 0;
+}
+
+/* Calendar subscribe buttons (in popover) — compact variant */
+.calendar-feed-info-popover .calendar-subscribe-buttons {
+  margin-top: 0.75rem;
+}
+
+.calendar-feed-info-popover .calendar-subscribe-btn {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.calendar-feed-info-popover .onboarding-copy-row .onboarding-copy-btn {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
 }
 
 /* FullCalendar dark theme - matches EveryCal UI (--bg, --border, --accent, etc.) */

@@ -69,7 +69,7 @@ export class KirchberggasseScraper implements Scraper {
           url: BASE_URL,
         },
         organizer: "Initiative Kirchberggasse",
-        tags: ["vienna", "civic-initiative", "kirchberggasse", "wirmachen-wien"],
+        tags: ["wien", "bürgerinnen-initiative", "neubau", "wirmachenwien"],
         visibility: "public",
       });
     });
@@ -100,7 +100,7 @@ export class KirchberggasseScraper implements Scraper {
           url: BASE_URL,
         },
         organizer: "Initiative Kirchberggasse",
-        tags: ["vienna", "civic-initiative", "kirchberggasse", "wirmachen-wien"],
+        tags: ["wien", "bürgerinnen-initiative", "kirchberggasse", "wirmachenwien"],
         visibility: "public",
       });
     });

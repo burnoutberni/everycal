@@ -52,7 +52,7 @@ export class RadlobbyWienScraper implements Scraper {
       event.id = `radlobby-wien-${uid}-${instanceKey}`.replace(/[^a-z0-9-]/gi, "-");
 
       event.tags = event.tags || [];
-      event.tags.push("vienna", "cycling", "radlobby", "wirmachen-wien");
+      event.tags.push("wien", "cycling", "radlobby", "wirmachenwien");
       event.organizer = "Radlobby Wien";
       event.visibility = "public";
 
