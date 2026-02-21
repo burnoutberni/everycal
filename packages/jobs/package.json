@@ -1,0 +1,24 @@
+{
+  "name": "@everycal/jobs",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "everycal-job": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "job": "node dist/index.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.7.0"
+  }
+}
