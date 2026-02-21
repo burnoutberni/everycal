@@ -33,11 +33,15 @@ DISPLAY_NAME="Wir machen Wien"
 BIO="Für eine klimagerechte, lebenswerte und partizipative Stadt Wien"
 WEBSITE="https://wirmachen.wien"
 AVATAR_URL="https://wirmachen.wien/wp-content/uploads/2023/09/WMW_favicon-300x300.png"
-PASSWORD_FILE=".wirmachenwien_password"
 COOKIE_FILE="/tmp/wirmachenwien-cookie.txt"
 
-# Scraper account usernames that belong to the wirmachen.wien network
-ORG_USERNAMES="critical_mass_vienna kirchberggasse matznerviertel radlobby_wien space_and_place westbahnpark"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PASSWORD_FILE="$SCRIPT_DIR/.wirmachenwien_password"
+
+# Discover scraper usernames from wirmachenwien subfolder (basename .ts → underscores)
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WIRMACHENWIEN_DIR="$REPO_ROOT/packages/scrapers/src/scrapers/wirmachenwien"
+ORG_USERNAMES=$(find "$WIRMACHENWIEN_DIR" -name "*.ts" -type f ! -name "index.ts" -exec sh -c 'basename "$1" .ts | tr "-" "_"' _ {} \; | sort -u)
 
 # Cleanup on exit
 cleanup() { rm -f "$COOKIE_FILE"; }
@@ -88,7 +92,7 @@ if [ ! -f "$COOKIE_FILE" ] || ! grep -q "everycal_session" "$COOKIE_FILE" 2>/dev
   REG_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVER/api/v1/auth/register" \
     -H "Content-Type: application/json" \
     -c "$COOKIE_FILE" \
-    -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\",\"displayName\":\"$DISPLAY_NAME\"}")
+    -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\",\"displayName\":\"$DISPLAY_NAME\",\"city\":\"Wien\",\"cityLat\":48.2082,\"cityLng\":16.3738,\"email\":\"info@wirmachen.wien\"}")
 
   HTTP_CODE=$(echo "$REG_RESPONSE" | tail -n1)
   REG_BODY=$(echo "$REG_RESPONSE" | sed '$d')
@@ -113,22 +117,20 @@ if [ ! -f "$COOKIE_FILE" ] || ! grep -q "everycal_session" "$COOKIE_FILE" 2>/dev
   echo ""
 fi
 
-# Update profile (only if new account)
-if [ "$IS_NEW_ACCOUNT" = true ]; then
-  PROFILE_RES=$(curl -s -w "%{http_code}" -o /tmp/wirmachen-profile-resp.txt -X PATCH "$SERVER/api/v1/auth/me" \
-    -H "Content-Type: application/json" \
-    -b "$COOKIE_FILE" \
-    -d "{\"displayName\":\"$DISPLAY_NAME\",\"bio\":\"$BIO\",\"website\":\"$WEBSITE\",\"avatarUrl\":\"$AVATAR_URL\",\"discoverable\":true}")
+# Update profile (always when we have a session — new or existing)
+PROFILE_RES=$(curl -s -w "%{http_code}" -o /tmp/wirmachen-profile-resp.txt -X PATCH "$SERVER/api/v1/auth/me" \
+  -H "Content-Type: application/json" \
+  -b "$COOKIE_FILE" \
+  -d "{\"displayName\":\"$DISPLAY_NAME\",\"bio\":\"$BIO\",\"website\":\"$WEBSITE\",\"avatarUrl\":\"$AVATAR_URL\",\"discoverable\":true,\"city\":\"Wien\",\"cityLat\":48.2082,\"cityLng\":16.3738}")
 
-  if [ "$PROFILE_RES" = "200" ]; then
-    echo "  ✅ Profile updated (bio, website, avatar)"
-    echo ""
-  else
-    echo "  ⚠️  Profile update: $PROFILE_RES $(cat /tmp/wirmachen-profile-resp.txt)"
-    echo ""
-  fi
-  rm -f /tmp/wirmachen-profile-resp.txt
+if [ "$PROFILE_RES" = "200" ]; then
+  echo "  ✅ Profile updated (bio, website, avatar)"
+  echo ""
+else
+  echo "  ⚠️  Profile update: $PROFILE_RES $(cat /tmp/wirmachen-profile-resp.txt)"
+  echo ""
 fi
+rm -f /tmp/wirmachen-profile-resp.txt
 
 # Follow + auto-repost each org account
 echo "Setting up auto-reposts from wirmachen.wien org accounts:"
