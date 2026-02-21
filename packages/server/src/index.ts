@@ -8,8 +8,8 @@
 import { config } from "dotenv";
 import { resolve } from "node:path";
 // Load .env from monorepo root (when running via pnpm dev) or server package dir
-config({ path: resolve(process.cwd(), "../../.env") });
-config();
+config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
+config({ quiet: true });
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";

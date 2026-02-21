@@ -8,9 +8,9 @@ import { config } from "dotenv";
 import { resolve } from "node:path";
 
 // Load .env from monorepo root (cwd when run via everycal-job)
-config({ path: resolve(process.cwd(), ".env") });
-config({ path: resolve(process.cwd(), "packages/server/.env") });
-config();
+config({ path: resolve(process.cwd(), ".env"), quiet: true });
+config({ path: resolve(process.cwd(), "packages/server/.env"), quiet: true });
+config({ quiet: true });
 
 import { initDatabase } from "../db.js";
 import { runSendReminders } from "../lib/notifications.js";

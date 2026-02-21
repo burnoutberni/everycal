@@ -23,6 +23,12 @@ services:
       - TRUSTED_PROXY=${TRUSTED_PROXY:-false}
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
       - SKIP_SIGNATURE_VERIFY=${SKIP_SIGNATURE_VERIFY:-false} # dev only
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_SECURE=${SMTP_SECURE:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     restart: unless-stopped
 
 volumes:

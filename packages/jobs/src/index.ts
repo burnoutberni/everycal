@@ -63,10 +63,20 @@ if (once) {
     });
 } else {
   console.log(`EveryCal job runner: ${jobNames.join(", ")} (node-cron)`);
+  // Run scrapers once on startup (then every 6h via cron)
+  if (jobNames.includes("scrapers")) {
+    console.log(`[jobs] Running scrapers on startup...`);
+    runJob("scrapers")
+      .then(() => console.log(`[jobs] scrapers done`))
+      .catch((err) => console.error(`Job scrapers failed:`, err));
+  }
   for (const jobName of jobNames) {
     const { schedule } = JOBS[jobName];
     cron.schedule(schedule, () => {
-      runJob(jobName).catch((err) => console.error(`Job ${jobName} failed:`, err));
+      console.log(`[jobs] Running ${jobName}...`);
+      runJob(jobName)
+        .then(() => console.log(`[jobs] ${jobName} done`))
+        .catch((err) => console.error(`Job ${jobName} failed:`, err));
     });
   }
   // Keep process alive (cron runs in background)
