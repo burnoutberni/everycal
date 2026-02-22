@@ -12,6 +12,7 @@ import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
 import { toICal, type EveryCalEvent } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
   const row = db
@@ -50,11 +51,11 @@ export function feedRoutes(db: DB): Hono {
   router.get("/calendar.ics", (c) => {
     const token = c.req.query("token");
     if (!token) {
-      return c.json({ error: "token query parameter required" }, 400);
+      return c.json({ error: t(getLocale(c), "feeds.token_required") }, 400);
     }
     const accountId = resolveAccountFromCalendarToken(db, token);
     if (!accountId) {
-      return c.json({ error: "Invalid or expired token" }, 401);
+      return c.json({ error: t(getLocale(c), "feeds.invalid_token") }, 401);
     }
 
     // Local events: Going/Maybe (include rsvp_status for tentative); include own events regardless of visibility
@@ -120,7 +121,7 @@ export function feedRoutes(db: DB): Hono {
   router.get("/:file", (c) => {
     const file = c.req.param("file");
     const match = file.match(/^([a-z0-9_]+)\.(ics|json)$/);
-    if (!match) return c.json({ error: "Invalid feed path. Use :username.ics or :username.json (only lowercase letters, numbers, and underscores allowed in username)" }, 400);
+    if (!match) return c.json({ error: t(getLocale(c), "feeds.invalid_feed_path") }, 400);
 
     const [, username, format] = match;
 
@@ -128,7 +129,7 @@ export function feedRoutes(db: DB): Hono {
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
 
-    if (!account) return c.json({ error: "User not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "feeds.user_not_found") }, 404);
 
     // Own public events + explicit reposts + auto-reposted events
     const rows = db

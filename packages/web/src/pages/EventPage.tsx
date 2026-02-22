@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { eventsPathWithTags } from "../lib/urls";
 import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
 import { sanitizeHtml } from "../lib/sanitize";
@@ -14,12 +15,8 @@ import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 
 type RsvpStatus = "going" | "maybe" | null;
 
-const RSVP_OPTIONS: { value: RsvpStatus; label: string; icon: string }[] = [
-  { value: "going", label: "Going", icon: "✓" },
-  { value: "maybe", label: "Maybe", icon: "?" },
-];
-
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
+  const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [event, setEvent] = useState<CalEvent | null>(null);
@@ -34,6 +31,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [followedLocalIds, setFollowedLocalIds] = useState<Set<string>>(new Set());
   const [followedActorUris, setFollowedActorUris] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
+
+  const rsvpOptions = useMemo(
+    () => [
+      { value: "going" as RsvpStatus, label: t("going"), icon: "✓" },
+      { value: "maybe" as RsvpStatus, label: t("maybe"), icon: "?" },
+    ],
+    [t]
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -65,10 +70,13 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       })
       .catch((e) => {
         setEvent(null);
-        setError(e.message);
+        const msg = e.message;
+        if (msg === "Invalid event") setError(t("eventNotFound"));
+        else if (msg === "No event identifier") setError(t("noEventIdentifier"));
+        else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [id, username, slug, user?.id]);
+  }, [id, username, slug, user?.id, t]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
@@ -240,14 +248,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   };
 
   const handleDelete = async () => {
-    if (!event || !confirm("Delete this event?")) return;
+    if (!event || !confirm(t("deleteEventConfirm"))) return;
     await eventsApi.delete(event.id);
     navigate("/");
   };
 
-  if (loading) return <p className="text-muted">Loading…</p>;
+  if (loading) return <p className="text-muted">{t("common:loading")}</p>;
   if (error) return <p className="error-text">{error}</p>;
-  if (!event) return <p className="error-text">Event not found.</p>;
+  if (!event) return <p className="error-text">{t("eventNotFound")}</p>;
 
   const isOwner = user?.id === event.accountId;
   const editHref = event.slug && event.account?.username
@@ -272,7 +280,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             fontSize: "0.9rem",
           }}
         >
-          This event was canceled by the organizer.
+          {t("canceledByOrganizer")}
         </div>
       )}
       {event.image && (
@@ -296,11 +304,11 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       <div className="flex items-center justify-between mb-2">
         <div className="flex flex-col gap-1">
           <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-            {formatEventDateTime(event, true)}
+            {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })}
           </span>
           {event.visibility !== "public" && (
             <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>
-              {event.visibility === "followers_only" ? "followers only" : event.visibility === "private" ? "Only me" : event.visibility}
+              {event.visibility === "followers_only" ? t("followersOnly") : event.visibility === "private" ? t("onlyMe") : event.visibility === "unlisted" ? t("unlisted") : event.visibility}
             </span>
           )}
         </div>
@@ -308,10 +316,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {isOwner && (
           <div className="flex gap-1">
             <Link href={editHref}>
-              <button className="btn-ghost btn-sm">Edit</button>
+              <button className="btn-ghost btn-sm">{t("common:edit")}</button>
             </Link>
             <button className="btn-danger btn-sm" onClick={handleDelete}>
-              Delete
+              {t("common:delete")}
             </button>
           </div>
         )}
@@ -331,7 +339,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
       {event.account && (
         <p className="text-muted mb-2">
-          by{" "}
+          {t("by")}{" "}
           <Link href={accountProfilePath(event.account, event.source)}>
             {event.account.displayName || event.account.username}
           </Link>
@@ -364,7 +372,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           className="flex gap-1 mb-4"
           style={{ flexWrap: "wrap", alignItems: "center" }}
         >
-          {RSVP_OPTIONS.map((opt) => (
+          {rsvpOptions.map((opt) => (
             <button
               key={opt.value}
               onClick={() => handleRsvp(opt.value)}
@@ -389,10 +397,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                 onClick={handleRepost}
                 disabled={repostSaving}
                 className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
-                title={reposted ? "Remove repost" : "Repost to your feed"}
+                title={reposted ? t("removeRepost") : t("repostToFeed")}
               >
                 <RepostIcon />
-                {reposted ? "Reposted" : "Repost"}
+                {reposted ? t("reposted") : t("repost")}
               </button>
             </>
           )}
@@ -417,7 +425,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
           >
             <ExternalLinkIcon />
-            {event.source === "remote" ? "View on original site" : event.url}
+            {event.source === "remote" ? t("viewOnOriginalSite") : event.url}
           </a>
         </p>
       )}
@@ -454,7 +462,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {profileItem && (
           <div className="card">
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              Host
+              {t("host")}
             </div>
             <ProfileCard
               item={profileItem}
@@ -473,7 +481,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {(hasLocationCoords || event.location?.name) && event.location && (
           <div className="card">
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              Location
+              {t("location")}
             </div>
             <LocationMap
               location={event.location}
@@ -486,7 +494,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {suggestedEvents.length > 0 && (
           <div>
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              More from this host
+              {t("moreFromHost")}
             </div>
             <div className="flex flex-col gap-1">
               {suggestedEvents.map((ev) => (
@@ -502,7 +510,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {profileItem && (
           <div className="card mb-3">
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              Host
+              {t("host")}
             </div>
             <ProfileCard
               item={profileItem}
@@ -520,7 +528,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {(hasLocationCoords || event.location?.name) && event.location && (
           <div className="card mb-3">
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              Location
+              {t("location")}
             </div>
             <LocationMap
               location={event.location}
@@ -532,7 +540,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         {suggestedEvents.length > 0 && (
           <div>
             <div className="text-sm text-dim" style={{ marginBottom: "0.5rem", fontWeight: 600 }}>
-              More from this host
+              {t("moreFromHost")}
             </div>
             <div className="flex flex-col gap-1">
               {suggestedEvents.map((ev) => (

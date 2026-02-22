@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { auth as authApi, type User, type AuthResponse } from "../lib/api";
+import { syncLanguageFromUser } from "../i18n";
 
 interface AuthContextValue {
   user: User | null;
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const u = await authApi.me();
       setUser(u);
+      syncLanguageFromUser(u.preferredLanguage);
     } catch {
       setUser(null);
     }
@@ -41,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     const res = await authApi.login(username, password);
     setUser(res.user);
+    syncLanguageFromUser(res.user.preferredLanguage);
     return res.user;
   };
 

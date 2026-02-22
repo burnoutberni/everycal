@@ -8,6 +8,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { images as imagesApi, uploads, type ImageSearchResult, type ImageAttribution } from "../lib/api";
 import { SearchIcon, LinkIcon, UploadIcon } from "./icons";
 
@@ -31,6 +32,7 @@ export function ImagePickerModal({
   onSelect,
   searchHint = "",
 }: ImagePickerModalProps) {
+  const { t } = useTranslation(["createEvent", "common"]);
   const [tab, setTab] = useState<Tab>("search");
   const [searchQuery, setSearchQuery] = useState(searchHint);
   const [searchResults, setSearchResults] = useState<ImageSearchResult[]>([]);
@@ -134,7 +136,7 @@ export function ImagePickerModal({
       onSelect({ url: u });
       onClose();
     } catch {
-      setUrlError("Please enter a valid image URL (https://…)");
+      setUrlError(t("invalidImageUrl"));
     }
   };
 
@@ -147,7 +149,7 @@ export function ImagePickerModal({
       onSelect({ url: result.url });
       onClose();
     } catch {
-      setUploadError("Upload failed");
+      setUploadError(t("uploadFailed"));
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -184,13 +186,13 @@ export function ImagePickerModal({
       <div className="modal-card image-picker-modal">
         <div className="modal-header">
           <h2 id="image-picker-title" style={{ fontSize: "1rem", fontWeight: 600 }}>
-            Choose header image
+            {t("chooseHeaderImage")}
           </h2>
           <button
             type="button"
             className="btn-ghost btn-sm"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common:close")}
           >
             ✕
           </button>
@@ -202,7 +204,7 @@ export function ImagePickerModal({
             onClick={() => { setTab("search"); setUrlError(""); setUploadError(""); }}
           >
             <SearchIcon className="icon-sm" />
-            Search
+            {t("common:search")}
           </button>
           <button
             type="button"
@@ -218,7 +220,7 @@ export function ImagePickerModal({
             onClick={() => { setTab("upload"); setUrlError(""); setUploadError(""); }}
           >
             <UploadIcon className="icon-sm" />
-            Upload
+            {t("upload")}
           </button>
         </div>
         <div className="modal-body">
@@ -228,25 +230,25 @@ export function ImagePickerModal({
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search images…"
+                  placeholder={t("searchImages")}
                   autoFocus
                   autoComplete="off"
                 />
                 {searching && (
-                  <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>Searching…</p>
+                  <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>{t("searchingImages")}</p>
                 )}
               </div>
               <div className="image-picker-filters">
                 {sources && sources.unsplashAvailable && (
                   <div className="field">
-                    <label>Source</label>
+                    <label>{t("source")}</label>
                     <select
                       value={source}
                       onChange={(e) => setSource(e.target.value)}
                     >
-                      <option value="auto">Auto (Unsplash first)</option>
-                      <option value="unsplash">Unsplash</option>
-                      <option value="openverse">Openverse</option>
+                      <option value="auto">{t("sourceAuto")}</option>
+                      <option value="unsplash">{t("sourceUnsplash")}</option>
+                      <option value="openverse">{t("sourceOpenverse")}</option>
                     </select>
                   </div>
                 )}
@@ -273,27 +275,27 @@ export function ImagePickerModal({
                       onClick={loadMore}
                       disabled={loadingMore}
                     >
-                      {loadingMore ? "Loading…" : "Load more"}
+                      {loadingMore ? t("common:loading") : t("loadMore")}
                     </button>
                   )}
                 </>
               )}
               {!searching && searchResults.length === 0 && searchQuery.trim().length >= 2 && (
-                <p className="text-muted text-sm">No images found. Try a different query.</p>
+                <p className="text-muted text-sm">{t("noImagesFound")}</p>
               )}
             </div>
           )}
           {tab === "url" && (
             <div className="image-picker-url">
               <div className="field">
-                <label htmlFor="image-picker-url">Image URL</label>
+                <label htmlFor="image-picker-url">{t("imageUrl")}</label>
                 <input
                   id="image-picker-url"
                   type="url"
                   value={urlInput}
                   onChange={(e) => { setUrlInput(e.target.value); setUrlError(""); }}
                   onKeyDown={(e) => e.key === "Enter" && handleUrlSubmit()}
-                  placeholder="https://example.com/image.jpg"
+                  placeholder={t("imageUrlPlaceholder")}
                   autoFocus
                 />
                 {urlError && <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.25rem" }}>{urlError}</p>}
@@ -304,14 +306,14 @@ export function ImagePickerModal({
                 onClick={handleUrlSubmit}
                 disabled={!urlInput.trim()}
               >
-                Use this URL
+                {t("useThisUrl")}
               </button>
             </div>
           )}
           {tab === "upload" && (
             <div className="image-picker-upload">
               <p className="text-muted text-sm" style={{ marginBottom: "0.75rem" }}>
-                Upload an image from your device. Files are stored on the server.
+                {t("uploadImageDesc")}
               </p>
               <input
                 ref={fileInputRef}
@@ -327,7 +329,7 @@ export function ImagePickerModal({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
               >
-                {uploading ? "Uploading…" : "Choose file"}
+                {uploading ? t("uploading") : t("chooseFile")}
               </button>
               {uploadError && (
                 <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.25rem" }}>{uploadError}</p>

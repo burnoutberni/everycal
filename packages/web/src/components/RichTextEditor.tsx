@@ -4,6 +4,7 @@ import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEffect, useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { sanitizeHtml } from "../lib/sanitize";
 
 const icons = {
@@ -109,6 +110,7 @@ function ToolbarButton({
 }
 
 function BlockDropdown({ editor }: { editor: Editor }) {
+  const { t } = useTranslation("createEvent");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -121,14 +123,14 @@ function BlockDropdown({ editor }: { editor: Editor }) {
   }, []);
 
   const items: { label: string; icon: React.ReactNode; active: boolean; action: () => void }[] = [
-    { label: "Heading 2", icon: <span style={{ fontWeight: 700, fontSize: "0.8rem" }}>H2</span>, active: editor.isActive("heading", { level: 2 }), action: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
-    { label: "Heading 3", icon: <span style={{ fontWeight: 700, fontSize: "0.7rem" }}>H3</span>, active: editor.isActive("heading", { level: 3 }), action: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
-    { label: "Bullet list", icon: icons.bulletList, active: editor.isActive("bulletList"), action: () => editor.chain().focus().toggleBulletList().run() },
-    { label: "Numbered list", icon: icons.orderedList, active: editor.isActive("orderedList"), action: () => editor.chain().focus().toggleOrderedList().run() },
-    { label: "Quote", icon: icons.blockquote, active: editor.isActive("blockquote"), action: () => editor.chain().focus().toggleBlockquote().run() },
-    { label: "Inline code", icon: icons.code, active: editor.isActive("code"), action: () => editor.chain().focus().toggleCode().run() },
-    { label: "Code block", icon: icons.codeBlock, active: editor.isActive("codeBlock"), action: () => editor.chain().focus().toggleCodeBlock().run() },
-    { label: "Divider", icon: icons.horizontalRule, active: false, action: () => editor.chain().focus().setHorizontalRule().run() },
+    { label: t("rteHeading2"), icon: <span style={{ fontWeight: 700, fontSize: "0.8rem" }}>H2</span>, active: editor.isActive("heading", { level: 2 }), action: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { label: t("rteHeading3"), icon: <span style={{ fontWeight: 700, fontSize: "0.7rem" }}>H3</span>, active: editor.isActive("heading", { level: 3 }), action: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
+    { label: t("rteBulletList"), icon: icons.bulletList, active: editor.isActive("bulletList"), action: () => editor.chain().focus().toggleBulletList().run() },
+    { label: t("rteNumberedList"), icon: icons.orderedList, active: editor.isActive("orderedList"), action: () => editor.chain().focus().toggleOrderedList().run() },
+    { label: t("rteQuote"), icon: icons.blockquote, active: editor.isActive("blockquote"), action: () => editor.chain().focus().toggleBlockquote().run() },
+    { label: t("rteInlineCode"), icon: icons.code, active: editor.isActive("code"), action: () => editor.chain().focus().toggleCode().run() },
+    { label: t("rteCodeBlock"), icon: icons.codeBlock, active: editor.isActive("codeBlock"), action: () => editor.chain().focus().toggleCodeBlock().run() },
+    { label: t("rteDivider"), icon: icons.horizontalRule, active: false, action: () => editor.chain().focus().setHorizontalRule().run() },
   ];
 
   const hasActive = items.some((i) => i.active);
@@ -139,7 +141,7 @@ function BlockDropdown({ editor }: { editor: Editor }) {
         type="button"
         className={`rte-btn rte-dropdown-trigger${hasActive ? " rte-btn-active" : ""}`}
         onClick={() => setOpen(!open)}
-        title="More formatting"
+        title={t("rteMoreFormatting")}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
           <circle cx="5" cy="12" r="2" />
@@ -167,26 +169,27 @@ function BlockDropdown({ editor }: { editor: Editor }) {
 }
 
 function Toolbar({ editor }: { editor: Editor }) {
+  const { t } = useTranslation("createEvent");
   return (
     <div className="rte-toolbar">
       <ToolbarButton
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
-        title="Bold (Ctrl+B)"
+        title={t("rteBold")}
       >
         {icons.bold}
       </ToolbarButton>
       <ToolbarButton
         active={editor.isActive("italic")}
         onClick={() => editor.chain().focus().toggleItalic().run()}
-        title="Italic (Ctrl+I)"
+        title={t("rteItalic")}
       >
         {icons.italic}
       </ToolbarButton>
       <ToolbarButton
         active={editor.isActive("underline")}
         onClick={() => editor.chain().focus().toggleUnderline().run()}
-        title="Underline (Ctrl+U)"
+        title={t("rteUnderline")}
       >
         {icons.underline}
       </ToolbarButton>
@@ -197,7 +200,7 @@ function Toolbar({ editor }: { editor: Editor }) {
             editor.chain().focus().unsetLink().run();
             return;
           }
-          const url = window.prompt("URL or email:");
+          const url = window.prompt(t("rteUrlOrEmailPrompt"));
           if (url) {
             let href = url;
             if (url.includes("@") && !url.includes("://")) {
@@ -208,7 +211,7 @@ function Toolbar({ editor }: { editor: Editor }) {
             editor.chain().focus().setLink({ href }).run();
           }
         }}
-        title="Link"
+        title={t("rteLink")}
       >
         {icons.link}
       </ToolbarButton>
@@ -221,12 +224,14 @@ function Toolbar({ editor }: { editor: Editor }) {
 export function RichTextEditor({
   value,
   onChange,
-  placeholder = "Describe your event…",
+  placeholder,
 }: {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
 }) {
+  const { t } = useTranslation("createEvent");
+  const resolvedPlaceholder = placeholder ?? t("descriptionPlaceholder");
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -238,7 +243,7 @@ export function RichTextEditor({
         protocols: ["http", "https", "mailto"],
         HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
       }),
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({ placeholder: resolvedPlaceholder }),
     ],
     content: value,
     onUpdate: ({ editor }) => {

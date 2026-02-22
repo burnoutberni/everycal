@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 export function locationRoutes(db: DB): Hono {
   const router = new Hono();
@@ -46,7 +47,7 @@ export function locationRoutes(db: DB): Hono {
     }>();
 
     if (!body.name) {
-      return c.json({ error: "Name is required" }, 400);
+      return c.json({ error: t(getLocale(c), "locations.name_required") }, 400);
     }
 
     db.prepare(
@@ -66,7 +67,7 @@ export function locationRoutes(db: DB): Hono {
     const id = c.req.param("id");
     const idNum = parseInt(id, 10);
     if (isNaN(idNum)) {
-      return c.json({ error: "Invalid id" }, 400);
+      return c.json({ error: t(getLocale(c), "locations.invalid_id") }, 400);
     }
     const result = db
       .prepare(
@@ -74,7 +75,7 @@ export function locationRoutes(db: DB): Hono {
       )
       .run(idNum, user.id);
     if (result.changes === 0) {
-      return c.json({ error: "Not found" }, 404);
+      return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     }
     return c.json({ ok: true });
   });

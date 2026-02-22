@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { InfoIcon } from "./icons";
 import type { ImageAttribution } from "../lib/api";
 
@@ -11,6 +12,7 @@ export function ImageAttributionBadge({
   attribution: ImageAttribution;
   position?: "top-right" | "bottom-right";
 }) {
+  const { t } = useTranslation("common");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -37,12 +39,12 @@ export function ImageAttributionBadge({
     const licenseUrl = attribution.source === "unsplash"
       ? "https://unsplash.com/license"
       : attribution.licenseUrl;
-    const title = attribution.title || "Image";
-    const author = attribution.creator || "Unknown";
+    const title = attribution.title || t("image");
+    const author = attribution.creator || t("unknown");
 
     const linkStyle = { color: "var(--accent)", textDecoration: "underline" };
     const parts: React.ReactNode[] = [];
-    parts.push("Image: ");
+    parts.push(t("imagePrefix"));
     if (licenseAbbr && licenseUrl) {
       parts.push(<a key="lic" href={licenseUrl} target="_blank" rel="noopener noreferrer" style={linkStyle}>{licenseAbbr}</a>);
     } else if (licenseAbbr) {
@@ -54,7 +56,7 @@ export function ImageAttributionBadge({
     } else {
       parts.push(title);
     }
-    parts.push(" by ");
+    parts.push(t("imageBy"));
     if (attribution.creatorUrl && attribution.creator) {
       parts.push(<a key="author" href={attribution.creatorUrl} target="_blank" rel="noopener noreferrer" style={linkStyle}>{author}</a>);
     } else {
@@ -76,8 +78,8 @@ export function ImageAttributionBadge({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        aria-label="Image attribution"
-        title="Image license and source"
+        aria-label={t("imageAttribution")}
+        title={t("imageLicenseSource")}
         style={{
           display: "flex",
           alignItems: "center",

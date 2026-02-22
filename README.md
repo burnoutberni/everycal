@@ -481,6 +481,13 @@ export class YourVenueScraper implements Scraper {
 
 For iCal-based scrapers, use the built-in `ICalScraper` base class (see `radlobby-wien.ts` for example).
 
+### Internationalization (i18n)
+
+EveryCal supports **English** (default) and **German** (informal "du"). User language is stored in `accounts.preferred_language` and synced on login.
+
+- **Web frontend**: `packages/web/src/i18n/locales/{en,de}/*.json`. Extract new keys: `pnpm --filter @everycal/web i18n:extract`
+- **WordPress plugin**: `packages/wordpress/languages/`. Compile `.po` → `.mo`: `pnpm --filter @everycal/wordpress i18n:compile`. Regenerate `.pot` (requires [WP-CLI](https://wp-cli.org/)): `pnpm --filter @everycal/wordpress i18n:pot`
+
 ### Security Features
 
 - **Rate limiting** — protects auth, uploads, federation endpoints, and ActivityPub inboxes

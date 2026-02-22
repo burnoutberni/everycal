@@ -8,7 +8,9 @@
     "build": "wp-scripts build",
     "dev": "wp-scripts start",
     "lint": "wp-scripts lint-js",
-    "plugin-zip": "wp-scripts plugin-zip"
+    "plugin-zip": "wp-scripts plugin-zip",
+    "i18n:compile": "for f in languages/*.po; do msgfmt -o \"${f%.po}.mo\" \"$f\"; done",
+    "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal"
   },
   "devDependencies": {
     "@wordpress/scripts": "^31.0.0"

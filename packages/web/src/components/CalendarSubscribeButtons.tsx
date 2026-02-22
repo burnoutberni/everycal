@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { CalendarIcon } from "./icons";
 import { buildCalendarUrls, getCalendarOrder } from "../lib/calendarSubscribe";
 
@@ -7,11 +8,12 @@ interface CalendarSubscribeButtonsProps {
 }
 
 export function CalendarSubscribeButtons({ feedUrl }: CalendarSubscribeButtonsProps) {
+  const { t } = useTranslation("calendar");
   const calendarOrder = useMemo(getCalendarOrder, []);
   const urls = buildCalendarUrls(feedUrl);
 
   if (!feedUrl || !urls) {
-    return <span className="calendar-subscribe-loading">Loading…</span>;
+    return <span className="calendar-subscribe-loading">{t("loading")}</span>;
   }
 
   return (
@@ -26,7 +28,7 @@ export function CalendarSubscribeButtons({ feedUrl }: CalendarSubscribeButtonsPr
               className={`calendar-subscribe-btn ${isPrimary ? "calendar-subscribe-btn-primary" : ""}`}
             >
               {isPrimary && <CalendarIcon />}
-              Add to Apple Calendar
+              {t("addToApple")}
             </a>
           );
         }
@@ -38,7 +40,7 @@ export function CalendarSubscribeButtons({ feedUrl }: CalendarSubscribeButtonsPr
               className={`calendar-subscribe-btn ${isPrimary ? "calendar-subscribe-btn-primary" : ""}`}
             >
               {isPrimary && <CalendarIcon />}
-              Add to your local calendar
+              {t("addToLocal")}
             </a>
           );
         }
@@ -52,7 +54,7 @@ export function CalendarSubscribeButtons({ feedUrl }: CalendarSubscribeButtonsPr
               className={`calendar-subscribe-btn ${isPrimary ? "calendar-subscribe-btn-primary" : ""}`}
             >
               {isPrimary && <CalendarIcon />}
-              Add to Google Calendar
+              {t("addToGoogle")}
             </a>
           );
         }
@@ -65,7 +67,7 @@ export function CalendarSubscribeButtons({ feedUrl }: CalendarSubscribeButtonsPr
             className={`calendar-subscribe-btn ${isPrimary ? "calendar-subscribe-btn-primary" : ""}`}
           >
             {isPrimary && <CalendarIcon />}
-            Add to Outlook
+            {t("addToOutlook")}
           </a>
         );
       })}

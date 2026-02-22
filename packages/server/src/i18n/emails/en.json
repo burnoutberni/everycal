@@ -1,0 +1,44 @@
+{
+  "verification": {
+    "subject": "Verify your EveryCal account",
+    "body": "Click the link below to verify your account:",
+    "expires": "The link expires in 24 hours."
+  },
+  "welcome": {
+    "subject": "Welcome to EveryCal",
+    "body": "Welcome to EveryCal, {{username}}!",
+    "getStarted": "Get started"
+  },
+  "emailChange": {
+    "subject": "Verify your new email address",
+    "body": "Click the link below to verify your new email address:",
+    "expires": "The link expires in 24 hours."
+  },
+  "passwordReset": {
+    "subject": "Reset your EveryCal password",
+    "body": "Click the link below to reset your password:",
+    "expires": "The link expires in 1 hour."
+  },
+  "reminder": {
+    "subject": "Reminder: {{title}} in {{hours}} hour(s)",
+    "subject_one": "Reminder: {{title}} in 1 hour",
+    "starts": "starts",
+    "at": " at ",
+    "viewDetails": "View details"
+  },
+  "eventUpdated": {
+    "subject": "Updated: {{title}}",
+    "wasUpdated": "was updated",
+    "viewDetails": "View details"
+  },
+  "eventCancelled": {
+    "subject": "Cancelled: {{title}}",
+    "hasBeenCancelled": "has been cancelled."
+  },
+  "eventFields": {
+    "title": "title",
+    "time": "time",
+    "location": "location",
+    "description": "description"
+  }
+}

@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import type { User } from "../lib/api";
 import { sanitizeHtml } from "../lib/sanitize";
 import type { RemoteActor } from "../lib/api";
@@ -89,6 +90,7 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
   profilePath: (u: string, d?: string) => string;
   remoteProfilePath: (u: string, d: string) => string;
 }) {
+  const { t } = useTranslation("profile");
   const avatar = getProfileAvatar(item);
   const summary = getProfileSummary(item);
   const followers = getFollowersCount(item);
@@ -96,9 +98,9 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
   const eventsCount = getEventsCount(item);
 
   const stats: string[] = [];
-  if (eventsCount != null) stats.push(`${eventsCount} event${eventsCount === 1 ? "" : "s"}`);
-  if (followers != null) stats.push(`${followers} followers`);
-  if (following != null) stats.push(`${following} following`);
+  if (eventsCount != null) stats.push(t("eventsCount", { count: eventsCount }));
+  if (followers != null) stats.push(t("followersCount", { count: followers }));
+  if (following != null) stats.push(t("followingCount", { count: following }));
 
   return (
     <div className="flex items-start gap-2" style={{ minWidth: 0 }}>
@@ -175,13 +177,14 @@ export function FollowButton({
   onUnfollow: () => void;
   busy: boolean;
 }) {
+  const { t } = useTranslation("profile");
   return followed ? (
     <button className="btn-ghost btn-sm" onClick={onUnfollow} disabled={busy}>
-      Following
+      {t("following")}
     </button>
   ) : (
     <button className="btn-primary btn-sm" onClick={onFollow} disabled={busy}>
-      {busy ? "…" : "Follow"}
+      {busy ? "…" : t("follow")}
     </button>
   );
 }

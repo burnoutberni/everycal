@@ -7,6 +7,7 @@
  */
 
 import { Hono } from "hono";
+import { getLocale, t } from "../lib/i18n.js";
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENVERSE_BASE = "https://api.openverse.org/v1";
@@ -66,7 +67,7 @@ export function imageRoutes(): Hono {
     const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: string };
     const url = body?.downloadLocation?.trim();
     if (!url || !UNSPLASH_ACCESS_KEY) {
-      return c.json({ error: "Invalid request" }, 400);
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
     try {
       const sep = url.includes("?") ? "&" : "?";
@@ -80,7 +81,7 @@ export function imageRoutes(): Hono {
   router.get("/search", async (c) => {
     const q = c.req.query("q")?.trim();
     if (!q || q.length < 2) {
-      return c.json({ error: "Query required (min 2 chars)" }, 400);
+      return c.json({ error: t(getLocale(c), "images.query_required") }, 400);
     }
     const limit = Math.min(30, Math.max(1, parseInt(c.req.query("limit") || "12", 10)));
     const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
@@ -180,7 +181,7 @@ export function imageRoutes(): Hono {
       }
     }
 
-    return c.json({ error: "No images found" }, 404);
+    return c.json({ error: t(getLocale(c), "images.no_images_found") }, 404);
   });
 
   return router;

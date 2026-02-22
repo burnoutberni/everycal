@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
 
 export function LoginPage() {
+  const { t } = useTranslation("auth");
   const { user, login } = useAuth();
   const [, navigate] = useLocation();
   const [username, setUsername] = useState("");
@@ -28,7 +30,7 @@ export function LoginPage() {
         navigate("/");
       }
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      setError(err.message || t("loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -37,11 +39,11 @@ export function LoginPage() {
   return (
     <div style={{ maxWidth: 400, margin: "3rem auto" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
-        Log in
+        {t("logIn")}
       </h1>
       <form onSubmit={handleSubmit} className="card">
         <div className="field">
-          <label htmlFor="username">Username</label>
+          <label htmlFor="username">{t("username")}</label>
           <input
             id="username"
             value={username}
@@ -52,7 +54,7 @@ export function LoginPage() {
           />
         </div>
         <div className="field">
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">{t("password")}</label>
           <input
             id="password"
             type="password"
@@ -63,16 +65,16 @@ export function LoginPage() {
           />
           <p className="text-sm mt-1">
             <Link href="/forgot-password" className="text-dim">
-              Forgot password?
+              {t("forgotPassword")}
             </Link>
           </p>
         </div>
         {error && <p className="error-text mb-2">{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>
-          {loading ? "Logging in…" : "Log in"}
+          {loading ? t("loggingIn") : t("logIn")}
         </button>
         <p className="text-sm text-muted text-center mt-2">
-          Don't have an account? <Link href="/register">Sign up</Link>
+          {t("dontHaveAccount")} <Link href="/register">{t("signUp", { ns: "common" })}</Link>
         </p>
       </form>
     </div>

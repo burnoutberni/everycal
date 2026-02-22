@@ -21,6 +21,7 @@ import {
 } from "../lib/federation.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -72,14 +73,14 @@ export function activityPubRoutes(db: DB): Hono {
     // Only serve AP JSON when explicitly requested
     if (!isAPRequest(accept)) {
       // Let it fall through to other handlers (or return 406)
-      return c.json({ error: "Not acceptable. Request with Accept: application/activity+json" }, 406);
+      return c.json({ error: t(getLocale(c), "activitypub.accept_activity_json") }, 406);
     }
 
     const account = db
       .prepare("SELECT * FROM accounts WHERE username = ?")
       .get(username) as Record<string, unknown> | undefined;
 
-    if (!account) return c.json({ error: "Not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     const keys = ensureKeyPair(db, account.id as string);
     const baseUrl = getBaseUrl();
@@ -144,7 +145,7 @@ export function activityPubRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "Not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     // Count: owned public events + explicit reposts + auto-reposted events
     const ownedCount = (
@@ -295,7 +296,7 @@ export function activityPubRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "Not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     // Count remote + local followers
     const remoteCount = (
@@ -331,7 +332,7 @@ export function activityPubRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "Not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     const localCount = (
       db
@@ -357,7 +358,7 @@ export function activityPubRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id, username FROM accounts WHERE username = ?")
       .get(username) as { id: string; username: string } | undefined;
-    if (!account) return c.json({ error: "Not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     // Read raw body for digest verification, then parse JSON
     const rawBody = await c.req.text();
@@ -365,7 +366,7 @@ export function activityPubRoutes(db: DB): Hono {
     try {
       activity = JSON.parse(rawBody);
     } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
+      return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
     }
 
     const type = activity.type as string;
@@ -379,7 +380,7 @@ export function activityPubRoutes(db: DB): Hono {
         const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
         if (!verified) {
           console.log(`  ⚠️  Signature verification failed for ${actorUri}`);
-          return c.json({ error: "Invalid signature" }, 401);
+          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
         }
       }
     }
@@ -423,7 +424,7 @@ export function sharedInboxRoute(db: DB): Hono {
     try {
       activity = JSON.parse(rawBody);
     } catch {
-      return c.json({ error: "Invalid JSON" }, 400);
+      return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
     }
 
     const type = activity.type as string;
@@ -436,7 +437,7 @@ export function sharedInboxRoute(db: DB): Hono {
         const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
         if (!verified) {
           console.log(`  ⚠️  Shared inbox signature verification failed for ${actorUri}`);
-          return c.json({ error: "Invalid signature" }, 401);
+          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
         }
       }
     }
@@ -881,7 +882,7 @@ export function activityPubEventRoutes(db: DB): Hono {
     const accept = c.req.header("accept") || "";
 
     if (!isAPRequest(accept)) {
-      return c.json({ error: "Request with Accept: application/activity+json" }, 406);
+      return c.json({ error: t(getLocale(c), "activitypub.request_accept_activity_json") }, 406);
     }
 
     const row = db
@@ -895,7 +896,7 @@ export function activityPubEventRoutes(db: DB): Hono {
       )
       .get(id) as Record<string, unknown> | undefined;
 
-    if (!row) return c.json({ error: "Not found" }, 404);
+    if (!row) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     const baseUrl = getBaseUrl();
     const actorUrl = `${baseUrl}/users/${row.username}`;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
 import { sanitizeHtml } from "../lib/sanitize";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
@@ -9,8 +10,8 @@ import { MiniCalendar } from "../components/MiniCalendar";
 import { MenuIcon, RepostIcon } from "../components/icons";
 import { useAuth } from "../hooks/useAuth";
 
-function formatDateHeading(d: Date): string {
-  return d.toLocaleDateString(undefined, {
+function formatDateHeading(d: Date, locale?: string): string {
+  return d.toLocaleDateString(locale, {
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -33,7 +34,9 @@ type RangeMode = "day" | "week" | "month" | "upcoming";
 
 function getRangeDates(
   mode: RangeMode,
-  selectedDate: Date
+  selectedDate: Date,
+  locale?: string,
+  upcomingLabel: string
 ): { from: string; to?: string; label: string } {
   const y = selectedDate.getFullYear();
   const m = selectedDate.getMonth();
@@ -44,7 +47,7 @@ function getRangeDates(
       return {
         from: startOfDayForApi(selectedDate),
         to: endOfDayForApi(selectedDate),
-        label: formatDateHeading(selectedDate),
+        label: formatDateHeading(selectedDate, locale),
       };
     case "week": {
       const dow = selectedDate.getDay() || 7;
@@ -53,7 +56,7 @@ function getRangeDates(
       return {
         from: startOfDayForApi(monday),
         to: endOfDayForApi(sunday),
-        label: `${monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+        label: `${monday.toLocaleDateString(locale, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" })}`,
       };
     }
     case "month": {
@@ -62,19 +65,20 @@ function getRangeDates(
       return {
         from: startOfDayForApi(first),
         to: endOfDayForApi(last),
-        label: selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+        label: selectedDate.toLocaleDateString(locale, { month: "long", year: "numeric" }),
       };
     }
     case "upcoming":
     default:
       return {
         from: new Date().toISOString(),
-        label: "Upcoming",
+        label: upcomingLabel,
       };
   }
 }
 
 export function ProfilePage({ username }: { username: string }) {
+  const { t, i18n } = useTranslation(["profile", "events", "common"]);
   const { user: currentUser } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -84,7 +88,10 @@ export function ProfilePage({ username }: { username: string }) {
   const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
 
-  const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
+  const range = useMemo(
+    () => getRangeDates(rangeMode, selectedDate, i18n.language, t("events:upcoming")),
+    [rangeMode, selectedDate, i18n.language, t]
+  );
 
   // Fetch event dates for the minicalendar (visible grid)
   const calendarMonthRange = useMemo(() => {
@@ -245,8 +252,8 @@ export function ProfilePage({ username }: { username: string }) {
     setSelectedDate(d);
   };
 
-  if (profileLoading) return <p className="text-muted">Loading…</p>;
-  if (!profile) return <p className="error-text">User not found.</p>;
+  if (profileLoading) return <p className="text-muted">{t("common:loading")}</p>;
+  if (!profile) return <p className="error-text">{t("userNotFound")}</p>;
 
   const isOwn = currentUser?.id === profile.id;
 
@@ -300,7 +307,7 @@ export function ProfilePage({ username }: { username: string }) {
                       onClick={() => setMenuOpen((o) => !o)}
                       aria-expanded={menuOpen}
                       aria-haspopup="true"
-                      title="More options"
+                      title={t("moreOptions")}
                     >
                       <MenuIcon />
                     </button>
@@ -314,12 +321,12 @@ export function ProfilePage({ username }: { username: string }) {
                             handleAutoRepost();
                           }}
                           title={profile.autoReposting
-                            ? "Stop auto-reposting all events from this account"
-                            : "Automatically repost all events from this account onto your feed"}
+                            ? t("stopAutoRepost")
+                            : t("autoRepostAll")}
                           style={profile.autoReposting ? { color: "var(--accent)" } : undefined}
                         >
                           <RepostIcon />
-                          {profile.autoReposting ? "Auto-reposting" : "Auto-repost"}
+                          {profile.autoReposting ? t("autoReposting") : t("autoRepost")}
                         </button>
                       </div>
                     )}
@@ -356,7 +363,7 @@ export function ProfilePage({ username }: { username: string }) {
                       style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
                       onClick={() => setListModal("followers")}
                     >
-                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
+                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> {t("followers")}
                     </button>
                     <button
                       type="button"
@@ -364,16 +371,16 @@ export function ProfilePage({ username }: { username: string }) {
                       style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
                       onClick={() => setListModal("following")}
                     >
-                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
+                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> {t("following")}
                     </button>
                   </>
                 ) : (
                   <>
                     <span>
-                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> followers
+                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> {t("followers")}
                     </span>
                     <span>
-                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> following
+                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> {t("following")}
                     </span>
                   </>
                 )}
@@ -385,7 +392,7 @@ export function ProfilePage({ username }: { username: string }) {
                   className={profile.following ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
                   onClick={handleFollow}
                 >
-                  {profile.following ? "Unfollow" : "Follow"}
+                  {profile.following ? t("unfollow") : t("follow")}
                 </button>
               </div>
             )}
@@ -408,7 +415,7 @@ export function ProfilePage({ username }: { username: string }) {
                   className={rangeMode === mode ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
                   style={{ textTransform: "capitalize" }}
                 >
-                  {mode}
+                  {t(`events:${mode}`)}
                 </button>
               ))}
             </div>
@@ -425,7 +432,7 @@ export function ProfilePage({ username }: { username: string }) {
                   onClick={() => setSelectedDate(new Date())}
                   style={{ marginLeft: "0.25rem" }}
                 >
-                  Today
+                  {t("common:today")}
                 </button>
               </div>
             )}
@@ -438,14 +445,14 @@ export function ProfilePage({ username }: { username: string }) {
 
           {/* Event list */}
           {eventsLoading ? (
-            <p className="text-muted">Loading…</p>
+            <p className="text-muted">{t("common:loading")}</p>
           ) : events.length === 0 ? (
             <div className="empty-state">
-              <p>No events found.</p>
+              <p>{t("noEventsFound")}</p>
               <p className="text-sm text-dim mt-1">
                 {rangeMode === "upcoming"
-                  ? "No upcoming events from this account."
-                  : "Try a different date range."}
+                  ? t("noUpcomingFromAccount")
+                  : t("events:tryDifferentDate")}
               </p>
             </div>
           ) : (
@@ -462,7 +469,7 @@ export function ProfilePage({ username }: { username: string }) {
                       paddingBottom: "0.3rem",
                     }}
                   >
-                    {formatDateHeading(new Date(dateKey + "T00:00:00"))}
+                    {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
                   </h2>
                   <div className="flex flex-col gap-1">
                     {dayEvents.map((e) => (
@@ -488,23 +495,23 @@ export function ProfilePage({ username }: { username: string }) {
           <div className="modal-card">
             <div className="modal-header">
               <h2 id="list-modal-title" style={{ fontSize: "1rem", fontWeight: 600 }}>
-                {listModal === "followers" ? "Followers" : "Following"}
+                {listModal === "followers" ? t("followersTitle") : t("followingTitle")}
               </h2>
               <button
                 type="button"
                 className="btn-ghost btn-sm"
                 onClick={() => setListModal(null)}
-                aria-label="Close"
+                aria-label={t("common:close")}
               >
                 ✕
               </button>
             </div>
             <div className="modal-body">
               {listLoading ? (
-                <p className="text-muted">Loading…</p>
+                <p className="text-muted">{t("common:loading")}</p>
               ) : listUsers.length === 0 ? (
                 <p className="text-muted">
-                  {listModal === "followers" ? "No followers yet." : "Not following anyone yet."}
+                  {listModal === "followers" ? t("noFollowers") : t("notFollowingAnyone")}
                 </p>
               ) : (
                 listUsers.map((u) => (
@@ -549,7 +556,7 @@ export function ProfilePage({ username }: { username: string }) {
                           }
                         }}
                       >
-                        Unfollow
+                        {t("unfollow")}
                       </button>
                     )}
                   </div>

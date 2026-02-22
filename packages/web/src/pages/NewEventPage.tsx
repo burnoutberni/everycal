@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLocation, Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { events as eventsApi, locations as locationsApi, images as imagesApi, type EventInput, type CalEvent, type SavedLocation, type ImageAttribution } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath } from "../lib/urls";
@@ -50,11 +51,13 @@ function completeDatetimeLocal(
   return null;
 }
 
-const DURATION_PRESETS: { value: Duration; label: string }[] = [
-  { value: "30m", label: "30 min" },
-  { value: "1h", label: "1 h" },
-  { value: "2h", label: "2 h" },
-];
+function getDurationPresets(t: (k: string) => string): { value: Duration; label: string }[] {
+  return [
+    { value: "30m", label: t("duration30m") },
+    { value: "1h", label: t("duration1h") },
+    { value: "2h", label: t("duration2h") },
+  ];
+}
 
 // ---- Draft persistence ----
 
@@ -208,9 +211,9 @@ interface PhotonFeature {
 
 const HOUSE_NUMBER_FIRST = new Set(["us", "gb", "ca", "au", "nz", "ie", "za", "in"]);
 
-function extractVenueParts(f: PhotonFeature): { name: string; address: string } {
+function extractVenueParts(f: PhotonFeature, unknownLabel: string): { name: string; address: string } {
   const p = f.properties;
-  const name = p.name || p.street || p.district || p.city || "Unknown";
+  const name = p.name || p.street || p.district || p.city || unknownLabel;
 
   const road = p.street || "";
   const hn = p.housenumber || "";
@@ -304,6 +307,7 @@ interface NewEventPageProps {
 }
 
 export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
+  const { t, i18n } = useTranslation(["createEvent", "events", "common"]);
   const { user, refreshUser } = useAuth();
   const [, navigate] = useLocation();
   const isEdit = !!initialEvent;
@@ -497,14 +501,15 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   }, [startDate, duration, customEnd]);
 
   // Which preset matches the actual end (for highlighting); null when custom duration
+  const durationPresets = useMemo(() => getDurationPresets(t), [t]);
   const highlightedPreset = useMemo((): Duration | null => {
     if (duration === "allday") return "allday";
     if (!startDate || !endDate) return duration;
-    for (const p of DURATION_PRESETS) {
+    for (const p of durationPresets) {
       if (addDuration(startDate, p.value) === endDate) return p.value;
     }
     return null;
-  }, [startDate, endDate, duration]);
+  }, [startDate, endDate, duration, durationPresets]);
 
   // Detect if material fields (title, time, location) changed — these trigger notifications to RSVPs
   const materialFieldsChanged = useMemo(() => {
@@ -550,7 +555,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     return (
       <div className="empty-state mt-3">
         <p>
-          <Link href="/login">Log in</Link> to create events.
+          <Link href="/login">{t("common:logIn")}</Link> {t("logInToCreate")}
         </p>
       </div>
     );
@@ -607,7 +612,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   }, []);
 
   const selectVenue = (f: PhotonFeature) => {
-    const { name, address } = extractVenueParts(f);
+    const { name, address } = extractVenueParts(f, t("unknown"));
     const [lon, lat] = f.geometry.coordinates;
     setLocationName(name);
     setLocationAddress(address);
@@ -802,7 +807,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   };
 
   const handleClearForm = () => {
-    if (!window.confirm("Clear the form and start over? Your draft will be discarded.")) return;
+    if (!window.confirm(t("clearFormConfirm"))) return;
     resetForm();
   };
 
@@ -847,10 +852,17 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
       if (tagList.length === 0) missing.push("tags");
       if (missing.length > 0) {
+        const fieldKeys: Record<string, string> = {
+          "header image": t("headerImageField"),
+          description: t("descriptionField"),
+          location: t("locationField"),
+          tags: t("tagsField"),
+        };
+        const translatedMissing = missing.map((m) => fieldKeys[m] ?? m);
         const msg =
           missing.length === 1
-            ? `You haven't set a ${missing[0]}. Are you sure you want to create this event?`
-            : `You haven't set: ${missing.join(", ")}. Are you sure you want to create this event?`;
+            ? t("missingFieldConfirmSingle", { field: translatedMissing[0] })
+            : t("missingFieldConfirmMultiple", { fields: translatedMissing.join(", ") });
         if (!window.confirm(msg)) return;
       }
     }
@@ -863,7 +875,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         setUrl(resolvedUrl);
       }
       if (!/^https?:\/\/.+/i.test(resolvedUrl)) {
-        setUrlError("Please enter a valid URL (e.g. https://…)");
+        setUrlError(t("invalidUrl"));
         return;
       }
     }
@@ -923,7 +935,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         };
       } else if (locationMode === "online") {
         data.location = {
-          name: "Online",
+          name: t("online"),
           url: locationUrl || undefined,
         };
       }
@@ -945,7 +957,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       refreshUser().catch(() => {}); // Update auth context (e.g. for profile stats)
       navigate(eventPath(event));
     } catch (err: any) {
-      setError(err.message || "Something went wrong");
+      setError(err.message || t("somethingWentWrong"));
     } finally {
       setSubmitting(false);
     }
@@ -967,6 +979,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           allDay,
         },
         true,
+        { locale: i18n.language, allDayLabel: t("events:allDay") },
       )
     : null;
 
@@ -984,13 +997,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       <article className="create-event-preview">
         <div className="header-image-wrap" style={{ marginBottom: "1.5rem" }}>
           <div className="header-image-skeleton" aria-hidden={imageLoaded}>
-            <span className="skeleton-image-label">Header image</span>
+            <span className="skeleton-image-label">{t("headerImage")}</span>
           </div>
           {imageUrl && (
             <>
               <img
                 src={imageUrl}
-                alt={title || "Event image"}
+                alt={title || t("headerImage")}
                 className={`header-image-img ${imageLoaded ? "header-image-loaded" : ""}`}
                 onLoad={() => setImageLoaded(true)}
               />
@@ -1006,19 +1019,19 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   type="button"
                   className="header-image-btn"
                   onClick={() => setImagePickerOpen(true)}
-                  title="Choose different image"
+                  title={t("chooseDifferentImage")}
                 >
                   <ImageIcon />
-                  Change
+                  {t("change")}
                 </button>
                 <button
                   type="button"
                   className="header-image-btn header-image-btn-danger"
                   onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); }}
-                  title="Remove image"
+                  title={t("removeImage")}
                 >
                   <TrashIcon />
-                  Remove
+                  {t("common:remove")}
                 </button>
               </>
             ) : (
@@ -1026,10 +1039,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 type="button"
                 className="header-image-btn header-image-btn-add"
                 onClick={() => setImagePickerOpen(true)}
-                title="Add header image"
+                title={t("addHeaderImage")}
               >
                 <ImageIcon />
-                Add image
+                {t("addImage")}
               </button>
             )}
           </div>
@@ -1053,7 +1066,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 className={`visibility-badge ${visibility}`}
                 style={{ alignSelf: "flex-start" }}
               >
-                {visibility === "followers_only" ? "followers only" : visibility === "private" ? "Only me" : visibility}
+                {visibility === "followers_only" ? t("events:followersOnly") : visibility === "private" ? t("events:onlyMe") : visibility === "unlisted" ? t("events:unlisted") : visibility}
               </span>
             )}
           </div>
@@ -1076,7 +1089,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           </div>
         )}
 
-        <p className="text-muted mb-2">by {user.displayName || user.username}</p>
+        <p className="text-muted mb-2">{t("events:by")} {user.displayName || user.username}</p>
 
         {/* Location preview */}
         {hasPreviewLocation ? (
@@ -1086,7 +1099,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}
             >
               <GlobeIcon />
-              <span>Online</span>
+              <span>{t("online")}</span>
               {locationUrl && (
                 <>
                   <span style={{ color: "var(--text-dim)" }}>·</span>
@@ -1192,7 +1205,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 color: "var(--text)",
               }}
             >
-              {isEdit ? "Edit Event" : "New Event"}
+              {isEdit ? t("editEvent") : t("newEvent")}
             </div>
             {!isEdit && (
               <button
@@ -1207,9 +1220,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   padding: "0.25rem 0.5rem",
                   textDecoration: "underline",
                 }}
-                title="Clear form and discard draft"
+                title={t("clearForm")}
               >
-                Clear form
+                {t("clearForm")}
               </button>
             )}
           </div>
@@ -1225,32 +1238,32 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 color: "var(--text-dim)",
               }}
             >
-              Changing title, time, or location will notify users who RSVP&apos;d to this event and have email notifications enabled.
+              {t("materialChangeNotice")}
             </div>
           )}
 
           <div className="field">
-            <label htmlFor="ce-title">Title *</label>
+            <label htmlFor="ce-title">{t("titleLabel")}</label>
             <input
               id="ce-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
-              placeholder="Event name"
+              placeholder={t("eventNamePlaceholder")}
             />
           </div>
 
           <div className="field">
-            <label>Description</label>
+            <label>{t("descriptionLabel")}</label>
             <RichTextEditor
               value={description}
               onChange={setDescription}
-              placeholder="What's this event about?"
+              placeholder={t("descriptionPlaceholder")}
             />
           </div>
 
           <div className="field">
-            <label htmlFor="ce-startDate">Start *</label>
+            <label htmlFor="ce-startDate">{t("startLabel")}</label>
             <input
               id="ce-startDate"
               type={allDay ? "date" : "datetime-local"}
@@ -1267,9 +1280,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           </div>
 
           <div className="field">
-            <label>Duration</label>
+            <label>{t("durationLabel")}</label>
             <div className="flex gap-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
-              {DURATION_PRESETS.map((p) => (
+              {durationPresets.map((p) => (
                 <button
                   key={p.value}
                   type="button"
@@ -1285,7 +1298,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 onClick={() => selectDuration("allday")}
                 className={`duration-btn duration-btn-allday ${highlightedPreset === "allday" ? "duration-btn-active" : ""}`}
               >
-                All day
+                {t("allDay")}
               </button>
               <span className="duration-sep" />
               <button
@@ -1293,14 +1306,14 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 onClick={toggleCustomEnd}
                 className={`duration-btn duration-btn-custom ${showCustomEnd ? "duration-btn-active" : ""}`}
               >
-                Custom
+                {t("custom")}
               </button>
             </div>
           </div>
 
           {showCustomEnd && (
             <div className="field">
-              <label htmlFor="ce-endDate">End</label>
+              <label htmlFor="ce-endDate">{t("endLabel")}</label>
               <input
                 id="ce-endDate"
                 type={allDay ? "date" : "datetime-local"}
@@ -1328,21 +1341,21 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
           {/* Location */}
           <div className="field">
-            <label>Location</label>
+            <label>{t("locationLabel")}</label>
             <div className="flex gap-1" style={{ marginBottom: "0.4rem" }}>
               <button
                 type="button"
                 onClick={() => switchLocationMode("inperson")}
                 className={`duration-btn ${locationMode === "inperson" ? "duration-btn-active" : ""}`}
               >
-                In person
+                {t("inPerson")}
               </button>
               <button
                 type="button"
                 onClick={() => switchLocationMode("online")}
                 className={`duration-btn ${locationMode === "online" ? "duration-btn-active" : ""}`}
               >
-                Online
+                {t("online")}
               </button>
             </div>
 
@@ -1360,7 +1373,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                         onBlur={() => {
                           setTimeout(() => maybeUnfoldAddress(), 150);
                         }}
-                        placeholder="Search venue or place…"
+                        placeholder={t("searchVenuePlaceholder")}
                         autoComplete="off"
                       />
                       {locationName && (
@@ -1380,7 +1393,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                             fontSize: "1rem",
                             lineHeight: 1,
                           }}
-                          title="Clear"
+                          title={t("common:clear")}
                         >
                           ×
                         </button>
@@ -1424,7 +1437,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                                   setSavedLocations((prev) => prev.filter((l) => l.id !== loc.id));
                                 }).catch(() => {});
                               }}
-                              title="Remove from suggestions"
+                              title={t("removeFromSuggestions")}
                               className="venue-dropdown-remove"
                               style={{
                                 flexShrink: 0,
@@ -1453,7 +1466,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                       </>
                     )}
                     {venueResults.map((f) => {
-                      const v = extractVenueParts(f);
+                      const v = extractVenueParts(f, t("unknown"));
                       return (
                         <button
                           key={f.properties.osm_id}
@@ -1473,8 +1486,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                         onClick={enterManualLocation}
                       >
                         {venueResults.length === 0 && matchingSavedLocations.length === 0
-                          ? "No results — enter location manually"
-                          : "Not in this list? Enter manually"}
+                          ? t("noResultsEnterManually")
+                          : t("notInListEnterManually")}
                       </button>
                     )}
                         </div>
@@ -1482,7 +1495,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                     </div>
                     {searchingVenue && (
                       <div className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
-                        Searching…
+                        {t("searching")}
                       </div>
                     )}
                   </>
@@ -1498,7 +1511,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                       className="duration-btn duration-btn-custom"
                       style={{ marginLeft: "0.4rem", fontSize: "0.72rem" }}
                     >
-                      Edit address
+                      {t("editAddress")}
                     </button>
                   </div>
                 )}
@@ -1507,7 +1520,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                     <button
                       type="button"
                       onClick={clearLocationCoords}
-                      title="Remove map and coordinates"
+                      title={t("removeMapCoords")}
                       style={{
                         position: "absolute",
                         right: "0.5rem",
@@ -1548,24 +1561,24 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 {manualLocation && (
                   <div style={{ marginTop: "0.4rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                     <div>
-                      <label htmlFor="ce-locname" className="text-sm">Venue name</label>
+                      <label htmlFor="ce-locname" className="text-sm">{t("venueName")}</label>
                       <input
                         id="ce-locname"
                         value={locationName}
                         onChange={(e) => setLocationName(e.target.value)}
-                        placeholder="e.g. Flex"
+                        placeholder={t("venueNamePlaceholder")}
                         autoFocus
                       />
                     </div>
                     <div>
-                      <label htmlFor="ce-address" className="text-sm">Address (optional)</label>
+                      <label htmlFor="ce-address" className="text-sm">{t("addressOptional")}</label>
                       <div style={{ position: "relative" }}>
                         <input
                           id="ce-address"
                           value={locationAddress}
                           onChange={(e) => setLocationAddress(e.target.value)}
                           onBlur={(e) => handleAddressBlur((e.target as HTMLInputElement).value)}
-                          placeholder="Street, city"
+                          placeholder={t("addressPlaceholder")}
                           style={resolvingAddress ? { paddingRight: "2.25rem" } : undefined}
                         />
                         {resolvingAddress && (
@@ -1588,13 +1601,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                       className="text-sm"
                       style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0, textAlign: "left" }}
                     >
-                      ← Back to search
+                      {t("backToSearch")}
                     </button>
                   </div>
                 )}
                 {!manualLocation && (showAddress || venueQuery.trim().length >= 2) && (
                   <div style={{ marginTop: "0.4rem" }}>
-                    <label htmlFor="ce-address" className="text-sm">Address</label>
+                    <label htmlFor="ce-address" className="text-sm">{t("addressLabel")}</label>
                     <div style={{ position: "relative" }}>
                       <input
                         id="ce-address"
@@ -1608,7 +1621,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                           }
                         }}
                         onBlur={(e) => handleAddressBlur((e.target as HTMLInputElement).value)}
-                        placeholder="Street, city"
+                        placeholder={t("addressPlaceholder")}
                         style={resolvingAddress ? { paddingRight: "2.25rem" } : undefined}
                       />
                       {resolvingAddress && (
@@ -1643,10 +1656,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                       setLocationUrl(url);
                     }
                     if (!/^https?:\/\/.+/i.test(url)) {
-                      setLocationUrlError("Please enter a valid URL (e.g. https://…)");
+                      setLocationUrlError(t("invalidUrl"));
                     }
                   }}
-                  placeholder="https://… (optional)"
+                  placeholder={t("urlPlaceholder")}
                   style={locationUrlError ? { borderColor: "var(--danger)" } : undefined}
                 />
                 {locationUrlError && (
@@ -1657,7 +1670,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           </div>
 
           <div className="field">
-            <label htmlFor="ce-url">Event URL</label>
+            <label htmlFor="ce-url">{t("eventUrlLabel")}</label>
             <input
               id="ce-url"
               type="url"
@@ -1671,10 +1684,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   setUrl(urlVal);
                 }
                 if (!/^https?:\/\/.+/i.test(urlVal)) {
-                  setUrlError("Please enter a valid URL (e.g. https://…)");
+                  setUrlError(t("invalidUrl"));
                 }
               }}
-              placeholder="https://... (optional)"
+              placeholder={t("urlPlaceholder")}
               style={urlError ? { borderColor: "var(--danger)" } : undefined}
             />
             {urlError && (
@@ -1683,26 +1696,26 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           </div>
 
           <div className="field">
-            <label htmlFor="ce-tags">Tags</label>
+            <label htmlFor="ce-tags">{t("common:tags")}</label>
             <TagInput
               id="ce-tags"
               value={tags}
               onChange={setTags}
-              placeholder="e.g. music, wien, concert"
+              placeholder={t("tagsPlaceholder")}
             />
           </div>
 
           <div className="field">
-            <label htmlFor="ce-visibility">Visibility</label>
+            <label htmlFor="ce-visibility">{t("visibilityLabel")}</label>
             <select
               id="ce-visibility"
               value={visibility}
               onChange={(e) => setVisibility(e.target.value)}
             >
-              <option value="public">Public</option>
-              <option value="unlisted">Unlisted</option>
-              <option value="followers_only">Followers only</option>
-              <option value="private">Only me</option>
+              <option value="public">{t("visibilityPublic")}</option>
+              <option value="unlisted">{t("visibilityUnlisted")}</option>
+              <option value="followers_only">{t("visibilityFollowersOnly")}</option>
+              <option value="private">{t("visibilityPrivate")}</option>
             </select>
           </div>
 
@@ -1717,7 +1730,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   disabled={submitting}
                   style={{ flexShrink: 0 }}
                 >
-                  Cancel
+                  {t("common:cancel")}
                 </button>
               </Link>
             )}
@@ -1728,8 +1741,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               style={{ flex: 1, minWidth: 0 }}
             >
               {submitting
-                ? (isEdit ? "Saving…" : "Creating…")
-                : (isEdit ? "Save Changes" : "Create Event")}
+                ? (isEdit ? t("common:saving") : t("creating"))
+                : (isEdit ? t("saveChanges") : t("createEvent"))}
             </button>
           </div>
         </form>

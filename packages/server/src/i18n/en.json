@@ -1,0 +1,104 @@
+{
+  "common": {
+    "not_found": "Not found",
+    "forbidden": "Forbidden",
+    "request_body_too_large": "Request body too large",
+    "invalid_request": "Invalid request",
+    "invalid_json": "Invalid JSON",
+    "invalid_signature": "Invalid signature",
+    "authentication_required": "Authentication required",
+    "too_many_requests": "Too many requests. Please try again later."
+  },
+  "auth": {
+    "registration_closed": "Registration is currently closed",
+    "username_required": "Username is required",
+    "username_format": "Username must be 2-40 characters: letters, numbers, and underscores only",
+    "city_required": "City is required",
+    "email_required": "Email is required",
+    "invalid_email": "Invalid email address",
+    "password_required": "Password is required",
+    "password_min_length": "Password must be at least 8 characters",
+    "username_taken": "Username already taken",
+    "email_registered": "Email is already registered",
+    "token_required": "Token is required",
+    "invalid_verification_link": "Invalid or expired verification link",
+    "email_registered_other": "Email is already registered to another account",
+    "current_and_new_password_required": "Current password and new password are required",
+    "new_password_min_length": "New password must be at least 8 characters",
+    "no_password_set": "This account has no password set",
+    "current_password_incorrect": "Current password is incorrect",
+    "username_password_required": "Username and password are required",
+    "invalid_username_password": "Invalid username or password",
+    "verify_email_first": "Please verify your email first. Check your inbox for the verification link.",
+    "token_and_password_required": "Token and new password are required",
+    "invalid_reset_link": "Invalid or expired reset link",
+    "avatar_url_http": "Avatar URL must be an HTTP(S) URL",
+    "website_http": "Website must be an HTTP(S) URL",
+    "invalid_website_url": "Invalid website URL",
+    "no_fields_to_update": "No fields to update",
+    "reminder_hours_invalid": "reminderHoursBefore must be 1, 6, 12, or 24",
+    "login_lockout": "Too many failed login attempts. Try again in {{minutes}} minute(s)."
+  },
+  "events": {
+    "event_uri_required": "eventUri is required",
+    "status_invalid": "status must be going, maybe, or null",
+    "event_not_found": "Event not found",
+    "events_array_required": "events array is required",
+    "event_requires_fields": "Each event requires externalId, title, and startDate",
+    "cannot_repost_own": "Cannot repost your own event",
+    "repost_public_unlisted_only": "Can only repost public or unlisted events",
+    "title_startdate_required": "Title and startDate are required",
+    "invalid_visibility": "Invalid visibility. Must be: public, unlisted, followers_only, or private",
+    "event_not_found_after_create": "Event not found after create",
+    "event_not_found_after_update": "Event not found after update"
+  },
+  "feeds": {
+    "token_required": "token query parameter required",
+    "invalid_token": "Invalid or expired token",
+    "invalid_feed_path": "Invalid feed path. Use :username.ics or :username.json (only lowercase letters, numbers, and underscores allowed in username)",
+    "user_not_found": "User not found"
+  },
+  "users": {
+    "user_not_found": "User not found",
+    "cannot_follow_yourself": "Cannot follow yourself",
+    "cannot_autorepost_yourself": "Cannot auto-repost yourself"
+  },
+  "federation": {
+    "q_required": "Query parameter q is required",
+    "invalid_format": "Invalid format. Use user@domain or a URL",
+    "private_address_not_allowed": "Requests to private/internal addresses are not allowed",
+    "no_actor_found": "No ActivityPub actor found",
+    "could_not_resolve_actor": "Could not resolve actor",
+    "actor_uri_required": "actorUri is required",
+    "could_not_resolve_actor_outbox": "Could not resolve actor or no outbox",
+    "webfinger_lookup_failed_status": "WebFinger lookup failed: {{status}}",
+    "webfinger_lookup_failed_error": "WebFinger lookup failed: {{error}}",
+    "failed_to_fetch_outbox": "Failed to fetch outbox: {{error}}"
+  },
+  "locations": {
+    "name_required": "Name is required",
+    "invalid_id": "Invalid id"
+  },
+  "images": {
+    "query_required": "Query required (min 2 chars)",
+    "no_images_found": "No images found"
+  },
+  "uploads": {
+    "no_file_uploaded": "No file uploaded. Send as multipart with field name 'file'.",
+    "file_too_large": "File too large. Maximum is {{max}}MB.",
+    "file_type_not_allowed": "File type not allowed. Accepted: {{accepted}}",
+    "only_images_allowed": "Only image files are allowed.",
+    "invalid_image": "File content does not appear to be a valid image.",
+    "invalid_path": "Invalid path"
+  },
+  "activitypub": {
+    "accept_activity_json": "Not acceptable. Request with Accept: application/activity+json",
+    "request_accept_activity_json": "Request with Accept: application/activity+json"
+  },
+  "wellknown": {
+    "missing_resource": "Missing resource parameter",
+    "invalid_resource_format": "Invalid resource format",
+    "unknown_domain": "Unknown domain",
+    "account_not_found": "Account not found"
+  }
+}

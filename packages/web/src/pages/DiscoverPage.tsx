@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { users as usersApi, federation, type User, type RemoteActor } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { profilePath, remoteProfilePath } from "../lib/urls";
@@ -43,6 +44,7 @@ function matchesSearch(item: ProfileItem, q: string): boolean {
 }
 
 export function DiscoverPage() {
+  const { t } = useTranslation(["discover", "common"]);
   const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -126,12 +128,12 @@ export function DiscoverPage() {
         setSearchResult(res.actor);
         await loadData();
       } catch (err: unknown) {
-        setSearchError(err instanceof Error ? err.message : "Could not resolve account");
+        setSearchError(err instanceof Error ? err.message : t("couldNotResolve"));
       } finally {
         setSearching(false);
       }
     },
-    [user, loadData]
+    [user, loadData, t]
   );
 
   useEffect(() => {
@@ -282,82 +284,82 @@ export function DiscoverPage() {
         {/* Source filter */}
         <div>
           <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
-            Show
+            {t("common:show")}
           </div>
           <button
             onClick={() => setSourceFilter("all")}
             className={sourceFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
           >
-            All
+            {t("all")}
           </button>
           <button
             onClick={() => setSourceFilter("local")}
             className={sourceFilter === "local" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
           >
-            Local
+            {t("local")}
           </button>
           <button
             onClick={() => setSourceFilter("remote")}
             className={sourceFilter === "remote" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginBottom: "0.3rem" }}
           >
-            Remote
+            {t("remote")}
           </button>
         </div>
         {user && (
           <div style={{ marginTop: "1rem" }}>
             <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
-              Following
+              {t("following")}
             </div>
             <button
               onClick={() => setFollowFilter("all")}
               className={followFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
             >
-              All
+              {t("all")}
             </button>
             <button
               onClick={() => setFollowFilter("following")}
               className={followFilter === "following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
             >
-              Following
+              {t("following")}
             </button>
             <button
               onClick={() => setFollowFilter("not_following")}
               className={followFilter === "not_following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               style={{ marginBottom: "0.3rem" }}
             >
-              Not following
+              {t("notFollowing")}
             </button>
           </div>
         )}
         <div style={{ marginTop: "1rem" }}>
           <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
-            Sort by
+            {t("sortBy")}
           </div>
           <button
             onClick={() => setSortOrder("recent")}
             className={sortOrder === "recent" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
           >
-            Recent
+            {t("recent")}
           </button>
           <button
             onClick={() => setSortOrder("followers")}
             className={sortOrder === "followers" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
           >
-            Most followers
+            {t("mostFollowers")}
           </button>
           <button
             onClick={() => setSortOrder("events")}
             className={sortOrder === "events" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginBottom: "0.3rem" }}
           >
-            Most events
+            {t("mostEvents")}
           </button>
         </div>
         <div style={{ marginTop: "1rem" }}>
@@ -367,7 +369,7 @@ export function DiscoverPage() {
               checked={hideZeroEvents}
               onChange={(e) => setHideZeroEvents(e.target.checked)}
             />
-            <span>Hide accounts without events</span>
+            <span>{t("hideNoEvents")}</span>
           </label>
         </div>
       </aside>
@@ -375,24 +377,24 @@ export function DiscoverPage() {
       {/* Main content */}
       <div className="flex-1" style={{ minWidth: 0 }}>
         <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "0.5rem" }}>
-          Discover
+          {t("title")}
         </h1>
         <p className="text-sm text-muted mb-2">
-          Find and follow accounts from this server or from other federated servers (Mobilizon, Gancio, etc.).
+          {t("description")}
         </p>
 
         {/* Unified search: filters local list; pasting @user@domain or URL resolves instantly */}
         <div className="field mb-2">
           <input
-            placeholder="Search accounts or paste @user@domain / URL…"
+            placeholder={t("searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
         {!user && !isRemoteHandleSearch && (
-          <p className="text-sm text-dim mb-2">Log in to resolve remote accounts by handle or URL.</p>
+          <p className="text-sm text-dim mb-2">{t("logInToResolve")}</p>
         )}
-        {searching && <p className="text-sm text-muted mb-2">Resolving…</p>}
+        {searching && <p className="text-sm text-muted mb-2">{t("resolving")}</p>}
         {searchError && <p className="error-text mb-2">{searchError}</p>}
 
         {/* Mobile: filters */}
@@ -401,19 +403,19 @@ export function DiscoverPage() {
             onClick={() => setSourceFilter("all")}
             className={sourceFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            All
+            {t("all")}
           </button>
           <button
             onClick={() => setSourceFilter("local")}
             className={sourceFilter === "local" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            Local
+            {t("local")}
           </button>
           <button
             onClick={() => setSourceFilter("remote")}
             className={sourceFilter === "remote" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            Remote
+            {t("remote")}
           </button>
           {user && (
             <>
@@ -422,19 +424,19 @@ export function DiscoverPage() {
                 onClick={() => setFollowFilter("all")}
                 className={followFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               >
-                All
+                {t("all")}
               </button>
               <button
                 onClick={() => setFollowFilter("following")}
                 className={followFilter === "following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               >
-                Following
+                {t("following")}
               </button>
               <button
                 onClick={() => setFollowFilter("not_following")}
                 className={followFilter === "not_following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               >
-                Not following
+                {t("notFollowing")}
               </button>
             </>
           )}
@@ -443,19 +445,19 @@ export function DiscoverPage() {
             onClick={() => setSortOrder("recent")}
             className={sortOrder === "recent" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            Recent
+            {t("recent")}
           </button>
           <button
             onClick={() => setSortOrder("followers")}
             className={sortOrder === "followers" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            Most followers
+            {t("mostFollowers")}
           </button>
           <button
             onClick={() => setSortOrder("events")}
             className={sortOrder === "events" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
           >
-            Most events
+            {t("mostEvents")}
           </button>
           <span className="text-dim" style={{ alignSelf: "center", margin: "0 0.2rem" }}>·</span>
           <label className="checkbox-label">
@@ -464,7 +466,7 @@ export function DiscoverPage() {
               checked={hideZeroEvents}
               onChange={(e) => setHideZeroEvents(e.target.checked)}
             />
-            <span>Hide accounts without events</span>
+            <span>{t("hideNoEvents")}</span>
           </label>
         </div>
 
@@ -489,19 +491,19 @@ export function DiscoverPage() {
           /* When searching for a remote handle, show only search result — not the full list */
           !user ? (
             <div className="empty-state">
-              <p>Log in to resolve remote accounts by handle or URL.</p>
+              <p>{t("logInToResolve")}</p>
             </div>
           ) : searching ? (
-            <p className="text-muted">Resolving…</p>
+            <p className="text-muted">{t("resolving")}</p>
           ) : searchError ? (
             <div className="empty-state">
               <p className="error-text mb-1">{searchError}</p>
-              <p className="text-sm text-dim">No account found for this handle or URL.</p>
+              <p className="text-sm text-dim">{t("noAccountFoundForHandle")}</p>
             </div>
           ) : !searchResult ? (
             <div className="empty-state">
-              <p>No account found.</p>
-              <p className="text-sm text-dim mt-1">Check the handle or URL and try again.</p>
+              <p>{t("noAccountFound")}</p>
+              <p className="text-sm text-dim mt-1">{t("checkHandleAndTryAgain")}</p>
             </div>
           ) : searchResultHidden ? (
             /* Resolved account has 0 events and filter is on — show in collapsible section */
@@ -512,7 +514,7 @@ export function DiscoverPage() {
                 onClick={() => setShowHiddenSection((prev) => !prev)}
                 style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
               >
-                {showHiddenSection ? "▼" : "▶"} 1 account without events
+                {showHiddenSection ? "▼" : "▶"} {t("accountWithoutEvents", { count: 1 })}
               </button>
               {showHiddenSection && searchResultItem && (
                 <div className="flex flex-col gap-1 mt-1">
@@ -534,20 +536,20 @@ export function DiscoverPage() {
             </div>
           ) : null
         ) : loading ? (
-          <p className="text-muted">Loading…</p>
+          <p className="text-muted">{t("common:loading")}</p>
         ) : visibleItems.length === 0 && !(hideZeroEvents && hiddenItems.length > 0 && trimmedQuery) ? (
           <div className="empty-state">
-            <p>No accounts found.</p>
+            <p>{t("noAccountsFound")}</p>
             <p className="text-sm text-dim mt-1">
               {followFilter === "following"
-                ? "You're not following anyone matching this filter yet."
+                ? t("followFilterFollowing")
                 : followFilter === "not_following"
-                  ? "You're following everyone matching this filter."
+                  ? t("followFilterNotFollowing")
                   : sourceFilter === "remote"
-                    ? "Paste a remote handle (e.g. @user@domain) or URL in the search bar to find accounts."
+                    ? t("pasteRemoteHandle")
                     : sourceFilter === "local"
-                      ? "No local accounts match your search."
-                      : "Paste a remote handle or URL in the search bar, or try a different search."}
+                      ? t("noLocalMatch")
+                      : t("pasteRemoteOrTryDifferent")}
             </p>
           </div>
         ) : (
@@ -585,7 +587,9 @@ export function DiscoverPage() {
                   onClick={() => setShowHiddenSection((prev) => !prev)}
                   style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
                 >
-                  {showHiddenSection ? "▼" : "▶"} {hiddenItems.length} account{hiddenItems.length === 1 ? "" : "s"} without events
+                  {showHiddenSection ? "▼" : "▶"} {hiddenItems.length === 1
+                    ? t("accountWithoutEvents", { count: 1 })
+                    : t("accountsWithoutEvents", { count: hiddenItems.length })}
                 </button>
                 {showHiddenSection && (
                   <div className="flex flex-col gap-1 mt-1">

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { auth as authApi, feeds as feedsApi } from "../lib/api";
 import { CalendarSubscribeButtons } from "../components/CalendarSubscribeButtons";
 import { CalendarIcon, CheckIcon, LinkIcon, MailIcon } from "../components/icons";
 
 export function OnboardingPage() {
+  const { t } = useTranslation("onboarding");
   const { user, refreshUser } = useAuth();
   const [, navigate] = useLocation();
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
@@ -60,21 +62,19 @@ export function OnboardingPage() {
 
   return (
     <div className="onboarding-page">
-      <h1>Get set up in two steps</h1>
-      <p className="onboarding-subtitle">
-        Put your events in your calendar and choose how you want to stay in the loop.
-      </p>
+      <h1>{t("title")}</h1>
+      <p className="onboarding-subtitle">{t("subtitle")}</p>
 
-      <div className="onboarding-steps" role="progressbar" aria-label="Setup progress: 2 steps">
+      <div className="onboarding-steps" role="progressbar" aria-label={t("setupProgressAria")}>
         <div
           className="onboarding-step-dot active"
-          title="Add to calendar"
+          title={t("addToCalendar")}
           aria-hidden
         />
         <div className="onboarding-step-connector" aria-hidden />
         <div
           className="onboarding-step-dot active"
-          title="Notifications"
+          title={t("notifications")}
           aria-hidden
         />
       </div>
@@ -82,11 +82,9 @@ export function OnboardingPage() {
       <div className="onboarding-card">
         <h2>
           <CalendarIcon />
-          Add your events to your local calendar
+          {t("addToLocalCalendar")}
         </h2>
-        <p className="onboarding-card-desc">
-        Select your calendar app below to add your EveryCal feed. Once connected, any events you mark as “Going” or “Maybe” will automatically appear in your calendar.
-        </p>
+        <p className="onboarding-card-desc">{t("addToCalendarDesc")}</p>
         <div className="onboarding-add-buttons">
           <CalendarSubscribeButtons feedUrl={feedUrl} />
         </div>
@@ -102,10 +100,10 @@ export function OnboardingPage() {
             ) : (
               <LinkIcon />
             )}
-            {copyStatus === "copied" && "Copied!"}
-            {copyStatus === "error" && "Copy failed — try again"}
-            {copyStatus === "copying" && "Copying…"}
-            {copyStatus === "idle" && "Copy link instead"}
+            {copyStatus === "copied" && t("copied")}
+            {copyStatus === "error" && t("copyFailed")}
+            {copyStatus === "copying" && t("copying")}
+            {copyStatus === "idle" && t("copyLinkInstead")}
           </button>
         </div>
       </div>
@@ -113,11 +111,9 @@ export function OnboardingPage() {
       <form onSubmit={handleContinue} className="onboarding-card">
         <h2>
           <MailIcon />
-          Email notifications
+          {t("emailNotifications")}
         </h2>
-        <p className="onboarding-card-desc">
-          We can send you reminders and updates about events you're attending.
-        </p>
+        <p className="onboarding-card-desc">{t("emailNotificationsDesc")}</p>
 
         <label className="onboarding-notification-option">
           <input
@@ -126,7 +122,7 @@ export function OnboardingPage() {
             onChange={(e) => setReminderEnabled(e.target.checked)}
           />
           <span className="option-label">
-            Send reminder before events
+            {t("sendReminder")}
             {reminderEnabled && (
               <div className="option-sublabel">
                 <select
@@ -136,10 +132,10 @@ export function OnboardingPage() {
                   }
                   className="onboarding-reminder-select"
                 >
-                  <option value={1}>1 hour before</option>
-                  <option value={6}>6 hours before</option>
-                  <option value={12}>12 hours before</option>
-                  <option value={24}>24 hours before</option>
+                  <option value={1}>{t("reminder1h")}</option>
+                  <option value={6}>{t("reminder6h")}</option>
+                  <option value={12}>{t("reminder12h")}</option>
+                  <option value={24}>{t("reminder24h")}</option>
                 </select>
               </div>
             )}
@@ -152,7 +148,7 @@ export function OnboardingPage() {
             checked={eventUpdatedEnabled}
             onChange={(e) => setEventUpdatedEnabled(e.target.checked)}
           />
-          <span className="option-label">When an event's time or details change</span>
+          <span className="option-label">{t("whenEventChanges")}</span>
         </label>
 
         <label className="onboarding-notification-option">
@@ -161,7 +157,7 @@ export function OnboardingPage() {
             checked={eventCancelledEnabled}
             onChange={(e) => setEventCancelledEnabled(e.target.checked)}
           />
-          <span className="option-label">When an event is cancelled</span>
+          <span className="option-label">{t("whenEventCancelled")}</span>
         </label>
 
         <button
@@ -169,7 +165,7 @@ export function OnboardingPage() {
           className="onboarding-continue-btn"
           disabled={saving}
         >
-          {saving ? "Saving…" : "Continue to EveryCal"}
+          {saving ? t("saving") : t("continue")}
         </button>
       </form>
     </div>

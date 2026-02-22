@@ -6,6 +6,7 @@
  */
 
 import { createMiddleware } from "hono/factory";
+import { getLocale, t } from "../lib/i18n.js";
 
 interface RateLimiterOptions {
   /** Window size in milliseconds. */
@@ -69,10 +70,7 @@ export function rateLimiter(opts: RateLimiterOptions) {
     c.header("X-RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
 
     if (entry.count > opts.max) {
-      return c.json(
-        { error: "Too many requests. Please try again later." },
-        429
-      );
+      return c.json({ error: t(getLocale(c), "common.too_many_requests") }, 429);
     }
 
     await next();

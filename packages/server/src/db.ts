@@ -501,5 +501,12 @@ export function initDatabase(path: string): DB {
     // Index already exists
   }
 
+  // Migration: preferred language for i18n
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN preferred_language TEXT DEFAULT 'en'");
+  } catch {
+    // Column already exists
+  }
+
   return db;
 }

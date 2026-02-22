@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
@@ -12,8 +13,8 @@ const PAGE_SIZE = 20;
 
 type ScopeFilter = "all" | "feed";
 
-function formatDateHeading(d: Date): string {
-  return d.toLocaleDateString(undefined, {
+function formatDateHeading(d: Date, locale?: string): string {
+  return d.toLocaleDateString(locale, {
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -36,7 +37,9 @@ type RangeMode = "day" | "week" | "month" | "upcoming";
 
 function getRangeDates(
   mode: RangeMode,
-  selectedDate: Date
+  selectedDate: Date,
+  locale?: string,
+  upcomingLabel: string
 ): { from: string; to?: string; label: string } {
   const y = selectedDate.getFullYear();
   const m = selectedDate.getMonth();
@@ -47,7 +50,7 @@ function getRangeDates(
       return {
         from: startOfDayForApi(selectedDate),
         to: endOfDayForApi(selectedDate),
-        label: formatDateHeading(selectedDate),
+        label: formatDateHeading(selectedDate, locale),
       };
     case "week": {
       const dow = selectedDate.getDay() || 7;
@@ -56,7 +59,7 @@ function getRangeDates(
       return {
         from: startOfDayForApi(monday),
         to: endOfDayForApi(sunday),
-        label: `${monday.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+        label: `${monday.toLocaleDateString(locale, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" })}`,
       };
     }
     case "month": {
@@ -65,14 +68,14 @@ function getRangeDates(
       return {
         from: startOfDayForApi(first),
         to: endOfDayForApi(last),
-        label: selectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+        label: selectedDate.toLocaleDateString(locale, { month: "long", year: "numeric" }),
       };
     }
     case "upcoming":
     default:
       return {
         from: new Date().toISOString(),
-        label: "Upcoming",
+        label: upcomingLabel,
       };
   }
 }
@@ -84,6 +87,7 @@ function parseTagsFromSearch(search: string): string[] {
 }
 
 export function HomePage() {
+  const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -102,7 +106,10 @@ export function HomePage() {
     () => parseTagsFromSearch(searchString ? `?${searchString}` : ""),
     [searchString]
   );
-  const range = useMemo(() => getRangeDates(rangeMode, selectedDate), [rangeMode, selectedDate]);
+  const range = useMemo(
+    () => getRangeDates(rangeMode, selectedDate, i18n.language, t("events:upcoming")),
+    [rangeMode, selectedDate, i18n.language, t]
+  );
 
   // Fetch event dates for the minicalendar (visible grid, scope filter only)
   const calendarMonthRange = useMemo(() => {
@@ -252,14 +259,14 @@ export function HomePage() {
         {/* Scope filter */}
         <div style={{ marginTop: "1rem" }}>
           <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
-            Show
+            {t("common:show")}
           </div>
           <button
             onClick={() => setScopeFilter("all")}
             className={scopeFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             style={{ marginRight: "0.3rem", marginBottom: "0.3rem" }}
           >
-            All Events
+            {t("allEvents")}
           </button>
           {user ? (
             <>
@@ -268,12 +275,12 @@ export function HomePage() {
                 className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
                 style={{ marginBottom: "0.3rem" }}
               >
-                For me
+                {t("forMe")}
               </button>
             </>
           ) : (
             <span className="text-sm text-dim" style={{ display: "inline-block", marginTop: "0.2rem" }}>
-              <Link href="/login" style={{ color: "var(--accent)" }}>Log in</Link> to see your events
+              <Link href="/login" style={{ color: "var(--accent)" }}>{t("common:logIn")}</Link> {t("logInToSeeEvents")}
             </span>
           )}
         </div>
@@ -282,7 +289,7 @@ export function HomePage() {
         {allTags.length > 0 && (
           <div style={{ marginTop: "1rem" }}>
             <div className="text-sm text-dim" style={{ marginBottom: "0.3rem", fontWeight: 600 }}>
-              Tags
+              {t("common:tags")}
             </div>
             <div className="flex gap-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
               {allTags.map((t) => (
@@ -302,7 +309,7 @@ export function HomePage() {
                   className="tag tag-clear"
                   style={{ marginLeft: "0.25rem" }}
                 >
-                  Clear
+                  {t("common:clear")}
                 </button>
               )}
             </div>
@@ -328,7 +335,7 @@ export function HomePage() {
                 className={rangeMode === mode ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
                 style={{ textTransform: "capitalize" }}
               >
-                {mode}
+                {t(`events:${mode}`)}
               </button>
             ))}
           </div>
@@ -345,7 +352,7 @@ export function HomePage() {
                 onClick={() => setSelectedDate(new Date())}
                 style={{ marginLeft: "0.25rem" }}
               >
-                Today
+                {t("common:today")}
               </button>
             </div>
           )}
@@ -359,14 +366,14 @@ export function HomePage() {
               onClick={() => setScopeFilter("all")}
               className={scopeFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
             >
-              All Events
+              {t("allEvents")}
             </button>
             {user && (
               <button
                 onClick={() => setScopeFilter("feed")}
                 className={scopeFilter === "feed" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
               >
-                For me
+                {t("forMe")}
               </button>
             )}
           </div>
@@ -384,7 +391,7 @@ export function HomePage() {
               ))}
               {selectedTags.length > 0 && (
                 <button type="button" onClick={clearTags} className="tag tag-clear">
-                  Clear
+                  {t("common:clear")}
                 </button>
               )}
             </div>
@@ -393,16 +400,16 @@ export function HomePage() {
 
         {/* Event list */}
         {loading ? (
-          <p className="text-muted">Loading…</p>
+          <p className="text-muted">{t("common:loading")}</p>
         ) : events.length === 0 ? (
           <div className="empty-state">
-            <p>No events found.</p>
+            <p>{t("noEventsFound")}</p>
             <p className="text-sm text-dim mt-1">
               {scopeFilter === "feed"
-                ? <>Follow accounts on the <Link href="/discover">Discover</Link> page to see their events here.</>
+                ? <>{t("followAccountsHintBefore")}<Link href="/discover">{t("common:discover")}</Link>{t("followAccountsHintAfter")}</>
                 : rangeMode === "upcoming"
-                    ? "Try importing events from the Federation page, or create one!"
-                    : "Try a different date range."}
+                    ? t("tryImportingHint")
+                    : t("tryDifferentDate")}
             </p>
           </div>
         ) : (
@@ -419,7 +426,7 @@ export function HomePage() {
                     paddingBottom: "0.3rem",
                   }}
                 >
-                  {formatDateHeading(new Date(dateKey + "T00:00:00"))}
+                  {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
                 </h2>
                 <div className="flex flex-col gap-1">
                   {dayEvents.map((e) => (
@@ -432,7 +439,7 @@ export function HomePage() {
             {hasMore && (
               <div className="text-center mt-2">
                 <button className="btn-ghost" onClick={loadMore} disabled={loadingMore}>
-                  {loadingMore ? "Loading…" : "Load more events"}
+                  {loadingMore ? t("common:loading") : t("loadMore")}
                 </button>
               </div>
             )}

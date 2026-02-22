@@ -1,6 +1,8 @@
 import { useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
 
 export function CheckEmailPage() {
+  const { t } = useTranslation("auth");
   const search = useSearch();
   const params = new URLSearchParams(search);
   const email = params.get("email") || "your email";
@@ -8,15 +10,11 @@ export function CheckEmailPage() {
   return (
     <div style={{ maxWidth: 400, margin: "3rem auto" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
-        Check your email
+        {t("checkEmailTitle")}
       </h1>
       <div className="card">
-        <p>
-          We sent a verification link to <strong>{email}</strong>. Click it to activate your account.
-        </p>
-        <p className="text-sm text-dim mt-2">
-          The link expires in 24 hours. If you don't see the email, check your spam folder.
-        </p>
+        <p>{t("verificationSent", { email })}</p>
+        <p className="text-sm text-dim mt-2">{t("verificationSentDetails")}</p>
       </div>
     </div>
   );

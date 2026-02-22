@@ -31,6 +31,7 @@ import { locationRoutes } from "./routes/locations.js";
 import { imageRoutes } from "./routes/images.js";
 import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
+import { getLocale, t } from "./lib/i18n.js";
 
 const app = new Hono();
 const db = initDatabase(process.env.DATABASE_PATH || "everycal.db");
@@ -58,7 +59,7 @@ app.use("*", async (c, next) => {
   // Uploads have their own 5MB limit in the upload handler
   const maxSize = path.startsWith("/api/v1/uploads") ? 6 * 1024 * 1024 : 1024 * 1024; // 1MB default
   if (contentLength > maxSize) {
-    return c.json({ error: "Request body too large" }, 413);
+    return c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413);
   }
   await next();
 });

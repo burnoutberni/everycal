@@ -18,6 +18,16 @@ define( 'EVERYCAL_VERSION', '0.1.0' );
 define( 'EVERYCAL_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'EVERYCAL_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
+// Load translations
+add_action( 'init', 'everycal_load_textdomain' );
+function everycal_load_textdomain() {
+    load_plugin_textdomain(
+        'everycal',
+        false,
+        dirname( plugin_basename( __FILE__ ) ) . '/languages'
+    );
+}
+
 // Register the Gutenberg block
 add_action( 'init', 'everycal_register_block' );
 
@@ -411,8 +421,8 @@ add_action( 'admin_init', 'everycal_register_settings' );
 
 function everycal_admin_menu() {
     add_options_page(
-        'EveryCal Settings',
-        'EveryCal',
+        __( 'EveryCal Settings', 'everycal' ),
+        __( 'EveryCal', 'everycal' ),
         'manage_options',
         'everycal',
         'everycal_settings_page'
@@ -433,20 +443,20 @@ function everycal_settings_page() {
     $base = get_option( 'everycal_base_path', 'events' );
     ?>
     <div class="wrap">
-        <h1>EveryCal Settings</h1>
+        <h1><?php echo esc_html( __( 'EveryCal Settings', 'everycal' ) ); ?></h1>
         <form method="post" action="options.php">
             <?php settings_fields( 'everycal_settings' ); ?>
             <table class="form-table">
                 <tr>
-                    <th scope="row"><label for="everycal_base_path">Event pages base path</label></th>
+                    <th scope="row"><label for="everycal_base_path"><?php echo esc_html( __( 'Event pages base path', 'everycal' ) ); ?></label></th>
                     <td>
                         <code><?php echo esc_html( home_url( '/' ) ); ?></code>
                         <input type="text" id="everycal_base_path" name="everycal_base_path"
                                value="<?php echo esc_attr( $base ); ?>" class="regular-text" />
                         <code>/username/event-slug</code>
                         <p class="description">
-                            Individual event detail pages will be served at this path.<br>
-                            After changing this, click <strong>Save</strong> — permalinks are flushed automatically.
+                            <?php echo esc_html__( 'Individual event detail pages will be served at this path.', 'everycal' ); ?><br>
+                            <?php echo esc_html__( 'After changing this, click Save — permalinks are flushed automatically.', 'everycal' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -515,7 +525,7 @@ function everycal_event_template( $template ) {
     $server_url = everycal_discover_server_url();
     if ( ! $server_url ) {
         status_header( 500 );
-        wp_die( 'EveryCal: no server URL configured. Add an EveryCal Feed block to a page first.' );
+        wp_die( esc_html__( 'EveryCal: no server URL configured. Add an EveryCal Feed block to a page first.', 'everycal' ) );
     }
 
     $api_url   = trailingslashit( $server_url ) . 'api/v1/events/by-slug/' . urlencode( $username ) . '/' . urlencode( $slug );

@@ -1,0 +1,130 @@
+# German (informal "du") translation for EveryCal
+# Copyright (C) 2025 EveryCal Contributors
+# This file is distributed under the AGPL-3.0-only.
+msgid ""
+msgstr ""
+"Project-Id-Version: EveryCal 0.1.0\n"
+"Report-Msgid-Bugs-To: https://github.com/everycal/everycal/issues\n"
+"POT-Creation-Date: 2025-02-21 00:00+0000\n"
+"PO-Revision-Date: 2025-02-21 00:00+0000\n"
+"Last-Translator: EveryCal Contributors\n"
+"Language-Team: German\n"
+"Language: de_DE\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: everycal.php:56
+msgid "Please configure an EveryCal server URL."
+msgstr "Bitte konfiguriere eine EveryCal-Server-URL."
+
+#: everycal.php:74
+#: everycal.php:91
+msgid "No events found."
+msgstr "Keine Events gefunden."
+
+#: everycal.php:107
+msgid "Upcoming Events"
+msgstr "Kommende Events"
+
+#: everycal.php:110
+msgid "Past Events"
+msgstr "Vergangene Events"
+
+#: everycal.php:125
+msgid "Previous"
+msgstr "Zurück"
+
+#: everycal.php:126
+msgid "Next"
+msgstr "Weiter"
+
+#: everycal.php:301
+msgid "Ongoing"
+msgstr "Laufend"
+
+#: everycal.php:424
+#: everycal.php:446
+msgid "EveryCal Settings"
+msgstr "EveryCal-Einstellungen"
+
+#: everycal.php:425
+msgid "EveryCal"
+msgstr "EveryCal"
+
+#: everycal.php:451
+msgid "Event pages base path"
+msgstr "Basis-Pfad für Event-Seiten"
+
+#: everycal.php:458
+msgid "Individual event detail pages will be served at this path."
+msgstr "Einzelne Event-Detailseiten werden unter diesem Pfad bereitgestellt."
+
+#: everycal.php:459
+msgid "After changing this, click Save — permalinks are flushed automatically."
+msgstr "Nach der Änderung auf Speichern klicken — Permalinks werden automatisch aktualisiert."
+
+#: everycal.php:528
+msgid "EveryCal: no server URL configured. Add an EveryCal Feed block to a page first."
+msgstr "EveryCal: Keine Server-URL konfiguriert. Füge zuerst einen EveryCal-Feed-Block zu einer Seite hinzu."
+
+#: everycal.php:661
+msgid "All events"
+msgstr "Alle Events"
+
+#: everycal.php:712
+msgid "Original event page"
+msgstr "Original-Event-Seite"
+
+#: src/index.js:32
+msgid "Feed Settings"
+msgstr "Feed-Einstellungen"
+
+#: src/index.js:36
+msgid "EveryCal Server URL"
+msgstr "EveryCal-Server-URL"
+
+#: src/index.js:38
+msgid "e.g. https://events.example.com"
+msgstr "z.B. https://events.example.com"
+
+#: src/index.js:47
+msgid "Account (optional)"
+msgstr "Konto (optional)"
+
+#: src/index.js:49
+msgid "Filter events by account username. Leave empty for all public events."
+msgstr "Events nach Kontonutzernamen filtern. Leer lassen für alle öffentlichen Events."
+
+#: src/index.js:58
+msgid "Number of events"
+msgstr "Anzahl der Events"
+
+#: src/index.js:65
+msgid "Layout"
+msgstr "Layout"
+
+#: src/index.js:69
+msgid "List"
+msgstr "Liste"
+
+#: src/index.js:73
+msgid "Grid"
+msgstr "Raster"
+
+#: src/index.js:77
+msgid "Compact"
+msgstr "Kompakt"
+
+#: src/index.js:84
+msgid "Cache duration (seconds)"
+msgstr "Cache-Dauer (Sekunden)"
+
+#: src/index.js:86
+msgid "How long to cache fetched events. 300 = 5 minutes."
+msgstr "Wie lange abgerufene Events gecacht werden. 300 = 5 Minuten."
+
+#: src/index.js:109
+msgid "Configure an EveryCal server URL in the block settings to display events."
+msgstr "Konfiguriere eine EveryCal-Server-URL in den Blockeinstellungen, um Events anzuzeigen."

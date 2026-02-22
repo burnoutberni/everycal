@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import { auth as authApi } from "../lib/api";
 
 export function ForgotPasswordPage() {
+  const { t } = useTranslation("auth");
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -16,7 +18,7 @@ export function ForgotPasswordPage() {
       await authApi.forgotPassword(email);
       setSent(true);
     } catch (err: any) {
-      setError(err.message || "Request failed");
+      setError(err.message || t("resetFailed"));
     } finally {
       setLoading(false);
     }
@@ -26,17 +28,13 @@ export function ForgotPasswordPage() {
     return (
       <div style={{ maxWidth: 400, margin: "3rem auto" }}>
         <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
-          Check your email
+          {t("checkEmailTitle")}
         </h1>
         <div className="card">
-          <p>
-            If an account exists for <strong>{email}</strong>, we've sent a password reset link.
-          </p>
-          <p className="text-sm text-dim mt-2">
-            The link expires in 1 hour. Check your spam folder if you don't see it.
-          </p>
+          <p>{t("ifAccountExists", { email })}</p>
+          <p className="text-sm text-dim mt-2">{t("ifAccountExistsDetails")}</p>
           <p className="text-sm text-center mt-2">
-            <Link href="/login">Back to log in</Link>
+            <Link href="/login">{t("backToLogIn")}</Link>
           </p>
         </div>
       </div>
@@ -46,11 +44,11 @@ export function ForgotPasswordPage() {
   return (
     <div style={{ maxWidth: 400, margin: "3rem auto" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
-        Reset password
+        {t("resetPassword")}
       </h1>
       <form onSubmit={handleSubmit} className="card">
         <div className="field">
-          <label htmlFor="email">Email</label>
+          <label htmlFor="email">{t("email")}</label>
           <input
             id="email"
             type="email"
@@ -63,10 +61,10 @@ export function ForgotPasswordPage() {
         </div>
         {error && <p className="error-text mb-2">{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>
-          {loading ? "Sending…" : "Send reset link"}
+          {loading ? t("sending") : t("sendResetLink")}
         </button>
         <p className="text-sm text-muted text-center mt-2">
-          <Link href="/login">Back to log in</Link>
+          <Link href="/login">{t("backToLogIn")}</Link>
         </p>
       </form>
     </div>

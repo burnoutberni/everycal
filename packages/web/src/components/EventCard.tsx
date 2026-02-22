@@ -3,15 +3,11 @@ import { Link } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
+import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, RepostIcon } from "./icons";
 
 type RsvpStatus = "going" | "maybe" | null;
-
-const RSVP_OPTIONS: { value: RsvpStatus; label: string; icon: string }[] = [
-  { value: "going", label: "Going", icon: "✓" },
-  { value: "maybe", label: "Maybe", icon: "?" },
-];
 
 export function EventCard({
   event,
@@ -28,13 +24,21 @@ export function EventCard({
   /** Tags currently used as filter; matching tags will be highlighted */
   selectedTags?: string[];
 }) {
+  const { t, i18n } = useTranslation("events");
   const { user } = useAuth();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
   const [reposted, setReposted] = useState(event.reposted ?? false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
 
-  const dateTimeStr = formatEventDateTime(event);
+  const dateTimeStr = formatEventDateTime(event, false, {
+    locale: i18n.language,
+    allDayLabel: t("allDay"),
+  });
+  const rsvpOptions: { value: RsvpStatus; label: string; icon: string }[] = [
+    { value: "going", label: t("going"), icon: "✓" },
+    { value: "maybe", label: t("maybe"), icon: "?" },
+  ];
   const isRemote = event.source === "remote";
   const isCanceled = !!event.canceled;
 
@@ -94,7 +98,7 @@ export function EventCard({
       <Link
         href={eventPath(event)}
         className="card-link-overlay"
-        aria-label={`View event: ${event.title}`}
+        aria-label={t("viewEvent", { title: event.title })}
       />
       {event.repostedBy && (
         <p
@@ -109,7 +113,7 @@ export function EventCard({
           }}
         >
           <RepostIcon />
-          reposted by{" "}
+          {t("repostedBy")}{" "}
           <Link href={profilePath(event.repostedBy.username)}>
             {event.repostedBy.displayName || `@${event.repostedBy.username}`}
           </Link>
@@ -148,14 +152,14 @@ export function EventCard({
             </span>
             {isCanceled && (
               <span className="canceled-badge" style={{ fontSize: "0.7rem", fontWeight: 600 }}>
-                Canceled
+                {t("canceled")}
               </span>
             )}
           </div>
           {event.visibility !== "public" && !isCanceled && (
             <div className="flex items-center gap-1 mb-1">
               <span className={`visibility-badge ${event.visibility}`}>
-                {event.visibility === "followers_only" ? "followers only" : event.visibility === "private" ? "Only me" : event.visibility}
+                {event.visibility === "followers_only" ? t("followersOnly") : event.visibility === "private" ? t("onlyMe") : event.visibility === "unlisted" ? t("unlisted") : event.visibility}
               </span>
             </div>
           )}
@@ -218,7 +222,7 @@ export function EventCard({
           {/* RSVP & Repost buttons (disabled when canceled) */}
           {user && !isCanceled && (
             <div className="card-actions flex gap-1 mt-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
-              {RSVP_OPTIONS.map((opt) => (
+              {rsvpOptions.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={(e) => handleRsvp(opt.value, e)}
@@ -243,10 +247,10 @@ export function EventCard({
                     onClick={handleRepost}
                     disabled={repostSaving}
                     className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
-                    title={reposted ? "Remove repost" : "Repost to your feed"}
+                    title={reposted ? t("removeRepost") : t("repostToFeed")}
                   >
                     <RepostIcon />
-                    {reposted ? "Reposted" : "Repost"}
+                    {reposted ? t("reposted") : t("repost")}
                   </button>
                 </>
               )}

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 
 const PHOTON_URL = "https://photon.komoot.io/api/";
 
@@ -15,9 +16,9 @@ interface PhotonFeature {
   geometry: { type: string; coordinates: [number, number] };
 }
 
-function formatCityResult(f: PhotonFeature): { label: string; sub: string } {
+function formatCityResult(f: PhotonFeature, unknownLabel: string): { label: string; sub: string } {
   const p = f.properties;
-  const label = p.name || p.city || "Unknown";
+  const label = p.name || p.city || unknownLabel;
   const parts = [p.state, p.country].filter((s) => s && s !== label);
   return { label, sub: parts.join(", ") };
 }
@@ -31,7 +32,7 @@ export interface CitySelection {
 export function CitySearch({
   value,
   onChange,
-  placeholder = "Search city…",
+  placeholder,
   required,
   id,
 }: {
@@ -41,6 +42,8 @@ export function CitySearch({
   required?: boolean;
   id?: string;
 }) {
+  const { t } = useTranslation("common");
+  const resolvedPlaceholder = placeholder ?? t("searchCity");
   const [query, setQuery] = useState(value?.city || "");
   const [results, setResults] = useState<PhotonFeature[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -88,7 +91,7 @@ export function CitySearch({
 
   const select = (f: PhotonFeature) => {
     const [lon, lat] = f.geometry.coordinates;
-    const city = f.properties.name || f.properties.city || "Unknown";
+    const city = f.properties.name || f.properties.city || t("unknown");
     setQuery(city);
     setShowResults(false);
     setResults([]);
@@ -119,7 +122,7 @@ export function CitySearch({
           value={query}
           onChange={(e) => handleInput(e.target.value)}
           onFocus={() => { if (results.length > 0) setShowResults(true); }}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           autoComplete="off"
           required={required && !value}
         />
@@ -140,7 +143,7 @@ export function CitySearch({
               fontSize: "1rem",
               lineHeight: 1,
             }}
-            title="Clear"
+            title={t("clear")}
           >
             ×
           </button>
@@ -148,13 +151,13 @@ export function CitySearch({
       </div>
       {searching && (
         <div className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
-          Searching…
+          {t("searching")}
         </div>
       )}
       {showResults && results.length > 0 && (
         <div className="venue-dropdown">
           {results.map((f) => {
-            const v = formatCityResult(f);
+            const v = formatCityResult(f, t("unknown"));
             return (
               <button
                 key={f.properties.osm_id}

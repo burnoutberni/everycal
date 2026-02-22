@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
+import allLocales from "@fullcalendar/core/locales-all";
 import type { DatesSetArg, EventClickArg, EventMountArg } from "@fullcalendar/core";
 import { Link, useLocation } from "wouter";
 import { events as eventsApi, feeds as feedsApi, type CalEvent } from "../lib/api";
 import { CheckIcon, LinkIcon, SmartphoneIcon } from "../components/icons";
 import { CalendarSubscribeButtons } from "../components/CalendarSubscribeButtons";
 import { eventPath } from "../lib/urls";
+import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
 
@@ -51,6 +53,7 @@ function addOneDay(dateStr: string): string {
 }
 
 export function CalendarPage() {
+  const { t, i18n } = useTranslation(["calendar", "events"]);
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -121,22 +124,27 @@ export function CalendarPage() {
       const ev = info.event.extendedProps.event as CalEvent;
       if (!ev) return;
 
-      const dateStr = formatEventDateTime(ev, true);
+      const dateStr = formatEventDateTime(ev, true, {
+        locale: i18n.language,
+        allDayLabel: t("events:allDay"),
+      });
+      const byLabel = t("events:by");
       const parts: string[] = [dateStr];
       if (ev.location?.name) parts.push(ev.location.name);
       if (ev.account?.displayName || ev.account?.username) {
-        parts.push(`by ${ev.account.displayName || ev.account.username}`);
+        parts.push(`${byLabel} ${ev.account.displayName || ev.account.username}`);
       }
       const cleanedDesc = ev.description ? ev.description.replace(/<[^>]*>/g, "") : "";
       const desc = cleanedDesc ? cleanedDesc.slice(0, 120) + (cleanedDesc.length > 120 ? "…" : "") : "";
 
+      const viewDetails = t("events:viewDetails");
       const popover = document.createElement("div");
       popover.className = "fc-event-popover";
       popover.innerHTML = `
         <div class="fc-event-popover-title">${escapeHtml(ev.title)}</div>
         <div class="fc-event-popover-meta">${escapeHtml(parts.join(" · "))}</div>
         ${desc ? `<div class="fc-event-popover-desc">${escapeHtml(desc)}</div>` : ""}
-        <div class="fc-event-popover-link" role="button" tabindex="0">View details →</div>
+        <div class="fc-event-popover-link" role="button" tabindex="0">${escapeHtml(viewDetails)}</div>
       `;
       const linkEl = popover.querySelector(".fc-event-popover-link")!;
       linkEl.addEventListener("click", (e) => {
@@ -223,7 +231,7 @@ export function CalendarPage() {
         popover.remove();
       };
     },
-    [navigate]
+    [navigate, t, i18n.language]
   );
 
   const handleEventWillUnmount = useCallback((info: EventMountArg) => {
@@ -256,7 +264,7 @@ export function CalendarPage() {
         className="flex items-center justify-between"
         style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}
       >
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>My Calendar</h1>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>{t("myCalendar")}</h1>
         <div className="flex items-center gap-2" style={{ position: "relative" }} ref={infoRef}>
           <button
             type="button"
@@ -265,21 +273,19 @@ export function CalendarPage() {
               e.stopPropagation();
               setInfoOpen((o) => !o);
             }}
-            title="Add your EveryCal events to your device"
+            title={t("addToDeviceTitle")}
             aria-expanded={infoOpen}
           >
             <SmartphoneIcon />
-            Add to your device
+            {t("addToDevice")}
           </button>
           {infoOpen && (
             <div
               className="calendar-feed-info-popover"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="calendar-feed-info-title">Subscribe to your calendar</h3>
-              <p className="calendar-feed-info-text">
-                Select your calendar app below to add your EveryCal feed. Events you mark as Going or Maybe will sync automatically.
-              </p>
+              <h3 className="calendar-feed-info-title">{t("subscribeTitle")}</h3>
+              <p className="calendar-feed-info-text">{t("subscribeDesc")}</p>
               <CalendarSubscribeButtons feedUrl={feedUrl} />
               <div className="onboarding-copy-row">
                 <button
@@ -293,10 +299,10 @@ export function CalendarPage() {
                   ) : (
                     <LinkIcon />
                   )}
-                  {copyStatus === "copied" && "Copied!"}
-                  {copyStatus === "error" && "Copy failed — try again"}
-                  {copyStatus === "copying" && "Copying…"}
-                  {copyStatus === "idle" && "Copy link instead"}
+                  {copyStatus === "copied" && t("copied")}
+                  {copyStatus === "error" && t("copyFailed")}
+                  {copyStatus === "copying" && t("copying")}
+                  {copyStatus === "idle" && t("copyLink")}
                 </button>
               </div>
             </div>
@@ -305,18 +311,21 @@ export function CalendarPage() {
       </div>
 
       {loading && (
-        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>Loading…</p>
+        <p className="text-muted text-sm" style={{ marginBottom: "0.5rem" }}>{t("loading")}</p>
       )}
       {events.length === 0 && visibleRange && !loading && (
         <p className="text-sm text-dim" style={{ marginBottom: "1rem" }}>
-          No events in this range. Mark events as Going or Maybe on the{" "}
-          <Link href="/">Events</Link> page to add them here.
+          {t("noEventsInRangeBefore")}
+          <Link href="/">{t("eventsPage")}</Link>
+          {t("noEventsInRangeAfter")}
         </p>
       )}
       <div className="everycal-fullcalendar">
         <FullCalendar
               plugins={[dayGridPlugin, timeGridPlugin]}
               initialView="dayGridMonth"
+              locales={allLocales}
+              locale={i18n.language}
               headerToolbar={{
                 left: "prev,next today",
                 center: "title",
@@ -326,10 +335,10 @@ export function CalendarPage() {
               buttonText={{
                 prev: "\u2039",
                 next: "\u203A",
-                today: "Today",
-                month: "Month",
-                week: "Week",
-                day: "Day",
+                today: t("today"),
+                month: t("month"),
+                week: t("week"),
+                day: t("day"),
               }}
               firstDay={1}
               events={fcEvents}

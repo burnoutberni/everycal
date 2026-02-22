@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation, useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { auth as authApi } from "../lib/api";
 
 export function VerifyEmailPage() {
+  const { t } = useTranslation("auth");
   const [, navigate] = useLocation();
   const search = useSearch();
   const { refreshUser } = useAuth();
@@ -17,7 +19,7 @@ export function VerifyEmailPage() {
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setError("Missing verification token");
+      setError(t("missingToken"));
       return;
     }
 
@@ -37,16 +39,16 @@ export function VerifyEmailPage() {
       .catch((err) => {
         if (!cancelled) {
           setStatus("error");
-          setError(err.message || "Verification failed");
+          setError(err.message || t("verificationFailed"));
         }
       });
     return () => { cancelled = true; };
-  }, [token, navigate, refreshUser]);
+  }, [token, navigate, refreshUser, t]);
 
   if (status === "loading") {
     return (
       <div style={{ maxWidth: 400, margin: "3rem auto", textAlign: "center" }}>
-        <p className="text-muted">Verifying your email…</p>
+        <p className="text-muted">{t("verifying")}</p>
       </div>
     );
   }
@@ -55,13 +57,11 @@ export function VerifyEmailPage() {
     return (
       <div style={{ maxWidth: 400, margin: "3rem auto" }}>
         <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
-          Verification failed
+          {t("verificationFailed")}
         </h1>
         <div className="card">
           <p className="error-text">{error}</p>
-          <p className="text-sm text-dim mt-2">
-            The link may have expired. Try registering again or request a new verification email.
-          </p>
+          <p className="text-sm text-dim mt-2">{t("verificationExpiredHint")}</p>
         </div>
       </div>
     );
@@ -70,12 +70,10 @@ export function VerifyEmailPage() {
   return (
     <div style={{ maxWidth: 400, margin: "3rem auto", textAlign: "center" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem", color: "var(--success)" }}>
-        {emailChanged ? "Email updated successfully!" : "Email verified!"}
+        {emailChanged ? t("emailUpdated") : t("emailVerified")}
       </h1>
       <p className="text-muted">
-        {emailChanged
-          ? "Your new email address is now active. Redirecting to settings…"
-          : "Redirecting to complete setup…"}
+        {emailChanged ? t("emailUpdatedRedirect") : t("emailVerifiedRedirect")}
       </p>
     </div>
   );

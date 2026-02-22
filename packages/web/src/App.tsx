@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Redirect, Route, Switch, useLocation } from "wouter";
 import { Header } from "./components/Header";
 import { HomePage } from "./pages/HomePage";
@@ -25,13 +26,14 @@ const eventEditRegex = /^\/@(?<username>[^/]+)\/(?<slug>[^/]+)\/edit\/?$/;
 const ONBOARDING_EXEMPT = ["/onboarding", "/login", "/register", "/check-email", "/verify-email", "/forgot-password", "/reset-password"];
 
 export function App() {
+  const { t } = useTranslation("common");
   const { user, loading } = useAuth();
   const [location] = useLocation();
 
   if (loading) {
     return (
       <div className="empty-state mt-3">
-        <p className="text-muted">Loading…</p>
+        <p className="text-muted">{t("loading")}</p>
       </div>
     );
   }
@@ -82,8 +84,8 @@ export function App() {
           <Route path="/onboarding" component={OnboardingPage} />
           <Route>
             <div className="empty-state mt-3">
-              <h2>404</h2>
-              <p className="text-muted">Page not found.</p>
+              <h2>{t("404")}</h2>
+              <p className="text-muted">{t("pageNotFound")}</p>
             </div>
           </Route>
         </Switch>

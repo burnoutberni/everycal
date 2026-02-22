@@ -20,6 +20,7 @@ import {
 } from "../lib/federation.js";
 import { generateKeyPair } from "../lib/crypto.js";
 import { stripHtml, sanitizeHtml, isPrivateIP } from "../lib/security.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
@@ -27,7 +28,7 @@ export function federationRoutes(db: DB): Hono {
   // Search for a remote actor via WebFinger (auth required to prevent SSRF)
   router.get("/search", requireAuth(), async (c) => {
     const q = c.req.query("q")?.trim();
-    if (!q) return c.json({ error: "Query parameter q is required" }, 400);
+    if (!q) return c.json({ error: t(getLocale(c), "federation.q_required") }, 400);
 
     // Parse user@domain or @user@domain or full URL
     let actorUri: string | null = null;
@@ -37,7 +38,7 @@ export function federationRoutes(db: DB): Hono {
     } else {
       const match = q.match(/^@?([^@]+)@([^@]+)$/);
       if (!match) {
-        return c.json({ error: "Invalid format. Use user@domain or a URL" }, 400);
+        return c.json({ error: t(getLocale(c), "federation.invalid_format") }, 400);
       }
       const [, username, domain] = match;
 
@@ -45,7 +46,7 @@ export function federationRoutes(db: DB): Hono {
       try {
         // SSRF protection: validate domain is not a private/internal address
         if (isPrivateIP(domain)) {
-          return c.json({ error: "Requests to private/internal addresses are not allowed" }, 400);
+          return c.json({ error: t(getLocale(c), "federation.private_address_not_allowed") }, 400);
         }
 
         const wfUrl = `https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`;
@@ -53,7 +54,7 @@ export function federationRoutes(db: DB): Hono {
           headers: { Accept: "application/jrd+json" },
         });
         if (!res.ok) {
-          return c.json({ error: `WebFinger lookup failed: ${res.status}` }, 404);
+          return c.json({ error: t(getLocale(c), "federation.webfinger_lookup_failed_status", { status: String(res.status) }) }, 404);
         }
         const wf = (await res.json()) as {
           links: Array<{ rel: string; type?: string; href?: string }>;
@@ -62,18 +63,19 @@ export function federationRoutes(db: DB): Hono {
           (l) => l.rel === "self" && l.type === "application/activity+json"
         );
         if (!self?.href) {
-          return c.json({ error: "No ActivityPub actor found" }, 404);
+          return c.json({ error: t(getLocale(c), "federation.no_actor_found") }, 404);
         }
         actorUri = self.href;
       } catch (err) {
-        return c.json({ error: `WebFinger lookup failed: ${err}` }, 502);
+        const msg = err instanceof Error ? err.message : String(err);
+        return c.json({ error: t(getLocale(c), "federation.webfinger_lookup_failed_error", { error: msg }) }, 502);
       }
     }
 
     // Fetch the actor
     const actor = await resolveRemoteActor(db, actorUri, true);
     if (!actor) {
-      return c.json({ error: "Could not resolve actor" }, 404);
+      return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor") }, 404);
     }
 
     // Trigger domain discovery in background (fetch full profile list from server)
@@ -105,11 +107,11 @@ export function federationRoutes(db: DB): Hono {
   // Fetch a remote actor's events (auth required to prevent SSRF abuse)
   router.post("/fetch-actor", requireAuth(), async (c) => {
     const { actorUri } = await c.req.json<{ actorUri: string }>();
-    if (!actorUri) return c.json({ error: "actorUri is required" }, 400);
+    if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri, true);
     if (!actor || !actor.outbox) {
-      return c.json({ error: "Could not resolve actor or no outbox" }, 404);
+      return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor_outbox") }, 404);
     }
 
     try {
@@ -170,7 +172,8 @@ export function federationRoutes(db: DB): Hono {
 
       return c.json({ ok: true, imported, total: items.length });
     } catch (err) {
-      return c.json({ error: `Failed to fetch outbox: ${err}` }, 502);
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json({ error: t(getLocale(c), "federation.failed_to_fetch_outbox", { error: msg }) }, 502);
     }
   });
 
@@ -178,10 +181,10 @@ export function federationRoutes(db: DB): Hono {
   router.post("/follow", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const { actorUri } = await c.req.json<{ actorUri: string }>();
-    if (!actorUri) return c.json({ error: "actorUri is required" }, 400);
+    if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri);
-    if (!actor) return c.json({ error: "Could not resolve actor" }, 404);
+    if (!actor) return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor") }, 404);
 
     // Ensure our account has keys
     const account = db
@@ -233,10 +236,10 @@ export function federationRoutes(db: DB): Hono {
   router.post("/unfollow", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const { actorUri } = await c.req.json<{ actorUri: string }>();
-    if (!actorUri) return c.json({ error: "actorUri is required" }, 400);
+    if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri);
-    if (!actor) return c.json({ error: "Could not resolve actor" }, 404);
+    if (!actor) return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor") }, 404);
 
     const account = db
       .prepare("SELECT username, private_key FROM accounts WHERE id = ?")

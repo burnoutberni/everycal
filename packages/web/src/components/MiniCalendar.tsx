@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { dateToLocalYMD } from "../lib/dateUtils";
 
 interface MiniCalendarProps {
@@ -10,7 +11,16 @@ interface MiniCalendarProps {
   eventDates?: Set<string>;
 }
 
-const DAY_NAMES = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+function getDayNames(locale: string): string[] {
+  const days: string[] = [];
+  const base = new Date(2024, 0, 1); // Monday
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    days.push(d.toLocaleDateString(locale, { weekday: "short" }).slice(0, 2));
+  }
+  return days;
+}
 
 function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -25,9 +35,13 @@ function isPast(day: Date, today: Date): boolean {
 }
 
 export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarProps) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language;
   const year = selected.getFullYear();
   const month = selected.getMonth();
   const today = new Date();
+
+  const dayNames = useMemo(() => getDayNames(locale), [locale]);
 
   const weeks = useMemo(() => {
     const first = new Date(year, month, 1);
@@ -55,7 +69,7 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
   const nextMonth = () => onSelect(new Date(year, month + 1, 1));
   const goToday = () => onSelect(new Date());
 
-  const monthLabel = selected.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const monthLabel = selected.toLocaleDateString(locale, { month: "long", year: "numeric" });
 
   return (
     <div style={{ userSelect: "none" }}>
@@ -93,7 +107,7 @@ export function MiniCalendar({ selected, onSelect, eventDates }: MiniCalendarPro
           textAlign: "center",
         }}
       >
-        {DAY_NAMES.map((d) => (
+        {dayNames.map((d) => (
           <div
             key={d}
             style={{

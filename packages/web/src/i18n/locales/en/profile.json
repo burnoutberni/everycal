@@ -1,0 +1,22 @@
+{
+  "followers": "followers",
+  "following": "following",
+  "follow": "Follow",
+  "unfollow": "Unfollow",
+  "autoRepost": "Auto-repost",
+  "autoReposting": "Auto-reposting",
+  "noEventsFound": "No events found.",
+  "noFollowers": "No followers yet.",
+  "notFollowingAnyone": "Not following anyone yet.",
+  "eventsCount": "{{count}} event(s)",
+  "eventsCount_one": "{{count}} event",
+  "followersCount": "{{count}} followers",
+  "followingCount": "{{count}} following",
+  "userNotFound": "User not found.",
+  "moreOptions": "More options",
+  "stopAutoRepost": "Stop auto-reposting all events from this account",
+  "autoRepostAll": "Automatically repost all events from this account onto your feed",
+  "noUpcomingFromAccount": "No upcoming events from this account.",
+  "followersTitle": "Followers",
+  "followingTitle": "Following"
+}

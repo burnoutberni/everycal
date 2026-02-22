@@ -7,6 +7,7 @@ import type { DB } from "../db.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 import { resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -75,7 +76,7 @@ export function userRoutes(db: DB): Hono {
           )
           .get(localPart, domain) as Record<string, unknown> | undefined;
 
-        if (!remoteRow) return c.json({ error: "User not found" }, 404);
+        if (!remoteRow) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
         const following = currentUser
           ? db
@@ -123,7 +124,7 @@ export function userRoutes(db: DB): Hono {
       )
       .get(username) as Record<string, unknown> | undefined;
 
-    if (!row) return c.json({ error: "User not found" }, 404);
+    if (!row) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const result = formatUser(row);
 
@@ -163,7 +164,7 @@ export function userRoutes(db: DB): Hono {
         const remoteActor = db
           .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string } | undefined;
-        if (!remoteActor) return c.json({ error: "User not found" }, 404);
+        if (!remoteActor) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
         let sql = `
           SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
@@ -196,7 +197,7 @@ export function userRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "User not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const isOwner = currentUser?.id === account.id;
     const isFollower = currentUser
@@ -304,8 +305,8 @@ export function userRoutes(db: DB): Hono {
     const target = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: "User not found" }, 404);
-    if (target.id === currentUser.id) return c.json({ error: "Cannot follow yourself" }, 400);
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+    if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_follow_yourself") }, 400);
 
     db.prepare(
       "INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)"
@@ -322,7 +323,7 @@ export function userRoutes(db: DB): Hono {
     const target = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: "User not found" }, 404);
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     db.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").run(
       currentUser.id,
@@ -340,8 +341,8 @@ export function userRoutes(db: DB): Hono {
     const target = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: "User not found" }, 404);
-    if (target.id === currentUser.id) return c.json({ error: "Cannot auto-repost yourself" }, 400);
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+    if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
 
     db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(
       currentUser.id,
@@ -359,7 +360,7 @@ export function userRoutes(db: DB): Hono {
     const target = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: "User not found" }, 404);
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(
       currentUser.id,
@@ -404,7 +405,7 @@ export function userRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "User not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const localRows = db
       .prepare(
@@ -468,7 +469,7 @@ export function userRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
-    if (!account) return c.json({ error: "User not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const localRows = db
       .prepare(

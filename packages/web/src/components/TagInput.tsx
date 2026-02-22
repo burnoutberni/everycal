@@ -1,4 +1,5 @@
 import { useRef, KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { toSingleWordTag } from "../lib/inferImageSearchTerm";
 
 interface TagInputProps {
@@ -19,7 +20,9 @@ function tagsToString(tags: string[]): string {
   return [...new Set(tags)].join(", ");
 }
 
-export function TagInput({ value, onChange, placeholder = "Add tags…", id }: TagInputProps) {
+export function TagInput({ value, onChange, placeholder, id }: TagInputProps) {
+  const { t } = useTranslation("common");
+  const resolvedPlaceholder = placeholder ?? t("addTags");
   const inputRef = useRef<HTMLInputElement>(null);
   const tags = parseTags(value);
 
@@ -78,7 +81,7 @@ export function TagInput({ value, onChange, placeholder = "Add tags…", id }: T
               e.stopPropagation();
               removeTag(tag);
             }}
-            aria-label={`Remove ${tag}`}
+            aria-label={t("removeTag", { tag })}
           >
             ×
           </button>
@@ -89,7 +92,7 @@ export function TagInput({ value, onChange, placeholder = "Add tags…", id }: T
         id={id}
         type="text"
         className="tag-input-field"
-        placeholder={tags.length === 0 ? placeholder : ""}
+        placeholder={tags.length === 0 ? resolvedPlaceholder : ""}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         autoComplete="off"

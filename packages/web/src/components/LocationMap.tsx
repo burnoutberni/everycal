@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocationPinIcon } from "./icons";
@@ -39,6 +40,7 @@ export function LocationMap({
   /** Called when the user drags the pin to a new position. Only coordinates change. */
   onMarkerDrag?: (lat: number, lng: number) => void;
 }) {
+  const { t } = useTranslation("events");
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -197,7 +199,7 @@ export function LocationMap({
               }}
             >
               <span className="text-sm text-muted" style={{ flexShrink: 0 }}>
-                Maps:
+                {t("mapsLabel")}
               </span>
               <div className="flex" style={{ flex: 1, gap: "0.25rem", minWidth: 0 }}>
                 <a

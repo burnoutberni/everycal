@@ -6,6 +6,7 @@
 
 import { Hono } from "hono";
 import { requireAuth } from "../middleware/auth.js";
+import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
@@ -31,13 +32,13 @@ export function uploadRoutes(): Hono {
     const file = body["file"];
 
     if (!file || typeof file === "string") {
-      return c.json({ error: "No file uploaded. Send as multipart with field name 'file'." }, 400);
+      return c.json({ error: t(getLocale(c), "uploads.no_file_uploaded") }, 400);
     }
 
     const blob = file as File;
 
     if (blob.size > MAX_SIZE) {
-      return c.json({ error: `File too large. Maximum is ${MAX_SIZE / 1024 / 1024}MB.` }, 400);
+      return c.json({ error: t(getLocale(c), "uploads.file_too_large", { max: String(MAX_SIZE / 1024 / 1024) }) }, 400);
     }
 
     // Validate file extension against allowlist
@@ -45,7 +46,7 @@ export function uploadRoutes(): Hono {
     const allowedMime = ALLOWED_EXTENSIONS[ext];
     if (!allowedMime) {
       return c.json(
-        { error: `File type not allowed. Accepted: ${Object.keys(ALLOWED_EXTENSIONS).join(", ")}` },
+        { error: t(getLocale(c), "uploads.file_type_not_allowed", { accepted: Object.keys(ALLOWED_EXTENSIONS).join(", ") }) },
         400
       );
     }
@@ -53,13 +54,13 @@ export function uploadRoutes(): Hono {
     // Validate MIME type matches extension
     const mimeType = blob.type || allowedMime;
     if (!mimeType.startsWith("image/")) {
-      return c.json({ error: "Only image files are allowed." }, 400);
+      return c.json({ error: t(getLocale(c), "uploads.only_images_allowed") }, 400);
     }
 
     // Read the first bytes to verify it's actually an image (magic bytes check)
     const buffer = Buffer.from(await blob.arrayBuffer());
     if (!isImageBuffer(buffer)) {
-      return c.json({ error: "File content does not appear to be a valid image." }, 400);
+      return c.json({ error: t(getLocale(c), "uploads.invalid_image") }, 400);
     }
 
     // Create upload directory
@@ -74,7 +75,7 @@ export function uploadRoutes(): Hono {
     // Defense-in-depth: verify resolved path stays within upload directory
     const resolvedPath = resolve(filepath);
     if (!resolvedPath.startsWith(resolve(UPLOAD_DIR))) {
-      return c.json({ error: "Invalid path" }, 400);
+      return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
     }
 
     writeFileSync(filepath, buffer);

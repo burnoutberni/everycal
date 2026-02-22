@@ -4,6 +4,7 @@
  */
 
 import nodemailer from "nodemailer";
+import { emailT } from "./email-i18n.js";
 import type { Transporter } from "nodemailer";
 
 let transporter: Transporter | null = null;
@@ -42,7 +43,11 @@ export function isEmailConfigured(): boolean {
 }
 
 /** Send verification email with link. */
-export async function sendVerificationEmail(to: string, token: string): Promise<void> {
+export async function sendVerificationEmail(
+  to: string,
+  token: string,
+  locale = "en"
+): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
     if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
@@ -54,17 +59,23 @@ export async function sendVerificationEmail(to: string, token: string): Promise<
   }
 
   const url = `${baseUrl()}/verify-email?token=${token}`;
+  const body = emailT(locale, "verification.body");
+  const expires = emailT(locale, "verification.expires");
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: "Verify your EveryCal account",
-    text: `Click the link below to verify your account:\n\n${url}\n\nThe link expires in 24 hours.`,
-    html: `<p>Click the link below to verify your account:</p><p><a href="${url}">${url}</a></p><p>The link expires in 24 hours.</p>`,
+    subject: emailT(locale, "verification.subject"),
+    text: `${body}\n\n${url}\n\n${expires}`,
+    html: `<p>${body}</p><p><a href="${url}">${url}</a></p><p>${expires}</p>`,
   });
 }
 
 /** Send welcome email after verification. */
-export async function sendWelcomeEmail(to: string, username: string): Promise<void> {
+export async function sendWelcomeEmail(
+  to: string,
+  username: string,
+  locale = "en"
+): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
     if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
@@ -75,17 +86,23 @@ export async function sendWelcomeEmail(to: string, username: string): Promise<vo
   }
 
   const url = baseUrl();
+  const body = emailT(locale, "welcome.body", { username });
+  const getStarted = emailT(locale, "welcome.getStarted");
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: "Welcome to EveryCal",
-    text: `Welcome to EveryCal, ${username}!\n\nGet started at ${url}`,
-    html: `<p>Welcome to EveryCal, ${username}!</p><p><a href="${url}">Get started</a></p>`,
+    subject: emailT(locale, "welcome.subject"),
+    text: `${body}\n\n${getStarted} at ${url}`,
+    html: `<p>${body}</p><p><a href="${url}">${getStarted}</a></p>`,
   });
 }
 
 /** Send email change verification (add or change email on existing account). */
-export async function sendEmailChangeVerificationEmail(to: string, token: string): Promise<void> {
+export async function sendEmailChangeVerificationEmail(
+  to: string,
+  token: string,
+  locale = "en"
+): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
     if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
@@ -97,17 +114,23 @@ export async function sendEmailChangeVerificationEmail(to: string, token: string
   }
 
   const url = `${baseUrl()}/verify-email?token=${token}`;
+  const body = emailT(locale, "emailChange.body");
+  const expires = emailT(locale, "emailChange.expires");
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: "Verify your new email address",
-    text: `Click the link below to verify your new email address:\n\n${url}\n\nThe link expires in 24 hours.`,
-    html: `<p>Click the link below to verify your new email address:</p><p><a href="${url}">${url}</a></p><p>The link expires in 24 hours.</p>`,
+    subject: emailT(locale, "emailChange.subject"),
+    text: `${body}\n\n${url}\n\n${expires}`,
+    html: `<p>${body}</p><p><a href="${url}">${url}</a></p><p>${expires}</p>`,
   });
 }
 
 /** Send password reset email. */
-export async function sendPasswordResetEmail(to: string, token: string): Promise<void> {
+export async function sendPasswordResetEmail(
+  to: string,
+  token: string,
+  locale = "en"
+): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
     if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
@@ -119,12 +142,14 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
   }
 
   const url = `${baseUrl()}/reset-password?token=${token}`;
+  const body = emailT(locale, "passwordReset.body");
+  const expires = emailT(locale, "passwordReset.expires");
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: "Reset your EveryCal password",
-    text: `Click the link below to reset your password:\n\n${url}\n\nThe link expires in 1 hour.`,
-    html: `<p>Click the link below to reset your password:</p><p><a href="${url}">${url}</a></p><p>The link expires in 1 hour.</p>`,
+    subject: emailT(locale, "passwordReset.subject"),
+    text: `${body}\n\n${url}\n\n${expires}`,
+    html: `<p>${body}</p><p><a href="${url}">${url}</a></p><p>${expires}</p>`,
   });
 }
 
@@ -149,29 +174,35 @@ function getEventLink(event: EventInfo): string | null {
 export async function sendEventReminder(
   to: string,
   event: EventInfo,
-  hoursAhead: number
+  hoursAhead: number,
+  locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
   if (!transport) return;
 
   const eventUrl = getEventLink(event);
+  const localeTag = locale === "de" ? "de-AT" : "en";
   const timeStr = event.allDay
-    ? new Date(event.startDate).toLocaleDateString()
-    : new Date(event.startDate).toLocaleString();
-  const locationStr = event.location?.name ? ` at ${event.location.name}` : "";
-  const detailsBlock = eventUrl
-    ? `\n\nView details: ${eventUrl}`
-    : "";
-  const detailsHtml = eventUrl
-    ? `<p><a href="${eventUrl}">View details</a></p>`
-    : "";
+    ? new Date(event.startDate).toLocaleDateString(localeTag)
+    : new Date(event.startDate).toLocaleString(localeTag);
+  const at = emailT(locale, "reminder.at");
+  const locationStr = event.location?.name ? `${at}${event.location.name}` : "";
+  const viewDetails = emailT(locale, "reminder.viewDetails");
+  const starts = emailT(locale, "reminder.starts");
+  const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
+  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
+
+  const subject =
+    hoursAhead === 1
+      ? emailT(locale, "reminder.subject_one", { title: event.title })
+      : emailT(locale, "reminder.subject", { title: event.title, hours: String(hoursAhead) });
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: `Reminder: ${event.title} in ${hoursAhead} hour${hoursAhead === 1 ? "" : "s"}`,
-    text: `${event.title} starts ${timeStr}${locationStr}.${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> starts ${timeStr}${locationStr}.</p>${detailsHtml}`,
+    subject,
+    text: `${event.title} ${starts} ${timeStr}${locationStr}.${detailsBlock}`,
+    html: `<p><strong>${event.title}</strong> ${starts} ${timeStr}${locationStr}.</p>${detailsHtml}`,
   });
 }
 
@@ -179,35 +210,45 @@ export async function sendEventReminder(
 export async function sendEventUpdated(
   to: string,
   event: EventInfo,
-  changes: string[]
+  changes: string[],
+  locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
   if (!transport) return;
 
   const eventUrl = getEventLink(event);
-  const changesStr = changes.join(", ");
-  const detailsBlock = eventUrl ? `\n\nView details: ${eventUrl}` : "";
-  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">View details</a></p>` : "";
+  const translatedChanges = changes.map((c) => emailT(locale, `eventFields.${c}`));
+  const changesStr = translatedChanges.join(", ");
+  const viewDetails = emailT(locale, "eventUpdated.viewDetails");
+  const wasUpdated = emailT(locale, "eventUpdated.wasUpdated");
+  const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
+  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: `Updated: ${event.title}`,
-    text: `${event.title} was updated (${changesStr}).${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> was updated: ${changesStr}.</p>${detailsHtml}`,
+    subject: emailT(locale, "eventUpdated.subject", { title: event.title }),
+    text: `${event.title} ${wasUpdated} (${changesStr}).${detailsBlock}`,
+    html: `<p><strong>${event.title}</strong> ${wasUpdated}: ${changesStr}.</p>${detailsHtml}`,
   });
 }
 
 /** Send event cancelled notification. */
-export async function sendEventCancelled(to: string, event: EventInfo): Promise<void> {
+export async function sendEventCancelled(
+  to: string,
+  event: EventInfo,
+  locale = "en"
+): Promise<void> {
   const transport = getTransporter();
   if (!transport) return;
+
+  const hasBeenCancelled = emailT(locale, "eventCancelled.hasBeenCancelled");
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
-    subject: `Cancelled: ${event.title}`,
-    text: `${event.title} has been cancelled.`,
-    html: `<p><strong>${event.title}</strong> has been cancelled.</p>`,
+    subject: emailT(locale, "eventCancelled.subject", { title: event.title }),
+    text: `${event.title} ${hasBeenCancelled}`,
+    html: `<p><strong>${event.title}</strong> ${hasBeenCancelled}</p>`,
   });
 }

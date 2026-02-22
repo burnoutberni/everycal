@@ -22,6 +22,7 @@ import { buildFeedQuery } from "../lib/feed-query.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
+import { getLocale, t } from "../lib/i18n.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -545,7 +546,7 @@ export function eventRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const body = await c.req.json<{ eventUri: string; status: string | null }>();
 
-    if (!body.eventUri) return c.json({ error: "eventUri is required" }, 400);
+    if (!body.eventUri) return c.json({ error: t(getLocale(c), "events.event_uri_required") }, 400);
 
     if (body.status === null || body.status === undefined || body.status === "") {
       db.prepare("DELETE FROM event_rsvps WHERE account_id = ? AND event_uri = ?").run(user.id, body.eventUri);
@@ -553,14 +554,14 @@ export function eventRoutes(db: DB): Hono {
     }
 
     if (!["going", "maybe"].includes(body.status)) {
-      return c.json({ error: "status must be going, maybe, or null" }, 400);
+      return c.json({ error: t(getLocale(c), "events.status_invalid") }, 400);
     }
 
     const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(body.eventUri);
     const remoteEvent = !localEvent
       ? db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get(body.eventUri)
       : null;
-    if (!localEvent && !remoteEvent) return c.json({ error: "Event not found" }, 404);
+    if (!localEvent && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
 
     db.prepare(
       `INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)
@@ -651,12 +652,12 @@ export function eventRoutes(db: DB): Hono {
     }>();
 
     if (!Array.isArray(body.events)) {
-      return c.json({ error: "events array is required" }, 400);
+      return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
     for (const ev of body.events) {
       if (!ev.externalId || !ev.title || !ev.startDate) {
-        return c.json({ error: "Each event requires externalId, title, and startDate" }, 400);
+        return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
       }
     }
 
@@ -846,10 +847,10 @@ export function eventRoutes(db: DB): Hono {
     const event = db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(id) as
       | { id: string; account_id: string; visibility: string }
       | undefined;
-    if (!event) return c.json({ error: "Event not found" }, 404);
-    if (event.account_id === user.id) return c.json({ error: "Cannot repost your own event" }, 400);
+    if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+    if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
     if (event.visibility !== "public" && event.visibility !== "unlisted") {
-      return c.json({ error: "Can only repost public or unlisted events" }, 403);
+      return c.json({ error: t(getLocale(c), "events.repost_public_unlisted_only") }, 403);
     }
 
     db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
@@ -873,7 +874,7 @@ export function eventRoutes(db: DB): Hono {
     const currentUser = c.get("user");
 
     const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser);
-    if (!event) return c.json({ error: "Not found" }, 404);
+    if (!event) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     return c.json(event);
   });
@@ -907,7 +908,7 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    return c.json({ error: "Not found" }, 404);
+    return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
   });
 
   // ─── POST / — create event ─────────────────────────────────────────────
@@ -934,7 +935,7 @@ export function eventRoutes(db: DB): Hono {
     }>();
 
     if (!body.title || !body.startDate) {
-      return c.json({ error: "Title and startDate are required" }, 400);
+      return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
 
     sanitizeEventFields(body as Record<string, unknown>);
@@ -950,7 +951,7 @@ export function eventRoutes(db: DB): Hono {
     const visibility = body.visibility || defaultVisibility;
 
     if (!isValidVisibility(visibility)) {
-      return c.json({ error: "Invalid visibility. Must be: public, unlisted, followers_only, or private" }, 400);
+      return c.json({ error: t(getLocale(c), "events.invalid_visibility") }, 400);
     }
 
     const imageAttributionJson = body.image?.attribution
@@ -1009,7 +1010,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const response = readLocalEventById(id);
-    if (!response) return c.json({ error: "Event not found after create" }, 500);
+    if (!response) return c.json({ error: t(getLocale(c), "events.event_not_found_after_create") }, 500);
     response.rsvpStatus = "going";
     return c.json(response, 201);
   });
@@ -1023,8 +1024,8 @@ export function eventRoutes(db: DB): Hono {
     const existing = db
       .prepare("SELECT account_id FROM events WHERE id = ?")
       .get(id) as { account_id: string } | undefined;
-    if (!existing) return c.json({ error: "Not found" }, 404);
-    if (existing.account_id !== user.id) return c.json({ error: "Forbidden" }, 403);
+    if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+    if (existing.account_id !== user.id) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const body = await c.req.json<{
       title?: string;
@@ -1055,7 +1056,7 @@ export function eventRoutes(db: DB): Hono {
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {
       if (!isValidVisibility(body.visibility)) {
-        return c.json({ error: "Invalid visibility. Must be: public, unlisted, followers_only, or private" }, 400);
+        return c.json({ error: t(getLocale(c), "events.invalid_visibility") }, 400);
       }
       fields.push("visibility = ?"); values.push(body.visibility);
     }
@@ -1117,7 +1118,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const updated = readLocalEventById(id);
-    if (!updated) return c.json({ error: "Event not found after update" }, 500);
+    if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
     return c.json(updated);
   });
 
@@ -1130,8 +1131,8 @@ export function eventRoutes(db: DB): Hono {
     const existing = db
       .prepare("SELECT account_id FROM events WHERE id = ?")
       .get(id) as { account_id: string } | undefined;
-    if (!existing) return c.json({ error: "Not found" }, 404);
-    if (existing.account_id !== user.id) return c.json({ error: "Forbidden" }, 403);
+    if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+    if (existing.account_id !== user.id) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const ev = readLocalEventById(id);
     if (ev) {

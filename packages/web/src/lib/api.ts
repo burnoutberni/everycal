@@ -5,6 +5,8 @@
  * The Bearer token header is still supported for API key users (scripts/scrapers).
  */
 
+import i18n from "i18next";
+
 const API_PATH = "/api/v1";
 
 /**
@@ -56,7 +58,7 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(res.status, body.error || "Request failed");
+    throw new ApiError(res.status, body.error || i18n.t("common:requestFailed"));
   }
 
   return res.json();
@@ -95,6 +97,7 @@ export interface User {
   cityLng?: number | null;
   email?: string | null;
   emailVerified?: boolean;
+  preferredLanguage?: string;
   notificationPrefs?: NotificationPrefs;
   followersCount?: number;
   followingCount?: number;
@@ -183,7 +186,7 @@ export const auth = {
     return request<User>("/auth/me");
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string; cityLat?: number; cityLng?: number }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string; cityLat?: number; cityLng?: number; preferredLanguage?: string }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),

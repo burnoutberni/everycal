@@ -8,16 +8,17 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { getLocale, t } from "../lib/i18n.js";
 
 export function wellKnownRoutes(db: DB): Hono {
   const router = new Hono();
 
   router.get("/webfinger", (c) => {
     const resource = c.req.query("resource");
-    if (!resource) return c.json({ error: "Missing resource parameter" }, 400);
+    if (!resource) return c.json({ error: t(getLocale(c), "wellknown.missing_resource") }, 400);
 
     const match = resource.match(/^acct:([^@]+)@(.+)$/);
-    if (!match) return c.json({ error: "Invalid resource format" }, 400);
+    if (!match) return c.json({ error: t(getLocale(c), "wellknown.invalid_resource_format") }, 400);
 
     const [, username, domain] = match;
 
@@ -25,11 +26,11 @@ export function wellKnownRoutes(db: DB): Hono {
     const baseUrl = process.env.BASE_URL || `https://${domain}`;
     const expectedDomain = new URL(baseUrl).hostname;
     if (domain !== expectedDomain) {
-      return c.json({ error: "Unknown domain" }, 404);
+      return c.json({ error: t(getLocale(c), "wellknown.unknown_domain") }, 404);
     }
 
     const account = db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username);
-    if (!account) return c.json({ error: "Account not found" }, 404);
+    if (!account) return c.json({ error: t(getLocale(c), "wellknown.account_not_found") }, 404);
 
     return c.json(
       {

@@ -1,20 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { auth as authApi } from "../lib/api";
 import { Link } from "wouter";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon } from "../components/icons";
+import { changeLanguage } from "../i18n";
 import "./SettingsPage.css";
 
-const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
-  { id: "profile", label: "Profile", icon: UserIcon },
-  { id: "account", label: "Account", icon: LockIcon },
-  { id: "notifications", label: "Notifications", icon: BellIcon },
-  { id: "api-keys", label: "API Keys", icon: KeyIcon },
-  { id: "danger", label: "Danger Zone", icon: TrashIcon, danger: true },
-];
-
 export function SettingsPage() {
+  const { t, i18n } = useTranslation(["settings", "common", "auth"]);
+
+  const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
+    { id: "profile", label: t("profile"), icon: UserIcon },
+    { id: "account", label: t("account"), icon: LockIcon },
+    { id: "notifications", label: t("notifications"), icon: BellIcon },
+    { id: "api-keys", label: t("apiKeys"), icon: KeyIcon },
+    { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
+  ];
   const { user, refreshUser } = useAuth();
   const [activeSection, setActiveSection] = useState<string>("profile");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -50,6 +53,8 @@ export function SettingsPage() {
   const [newKeyLabel, setNewKeyLabel] = useState("");
   const [newKeyValue, setNewKeyValue] = useState("");
 
+  const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
+
   useEffect(() => {
     if (!user) return;
     authApi.me().then((u) => {
@@ -57,6 +62,7 @@ export function SettingsPage() {
       setBio(u.bio || "");
       setWebsite(u.website || "");
       setDiscoverable(!!u.discoverable);
+      setPreferredLanguage(u.preferredLanguage || "en");
       if (u.city && u.cityLat != null && u.cityLng != null) {
         setCity({ city: u.city, lat: u.cityLat, lng: u.cityLng });
       }
@@ -102,11 +108,21 @@ export function SettingsPage() {
     return (
       <div className="empty-state mt-3">
         <p>
-          <Link href="/login">Log in</Link> to access settings.
+          <Link href="/login">{t("common:logIn")}</Link> {t("logInToAccess")}
         </p>
       </div>
     );
   }
+
+  const handleLanguageChange = async (locale: "en" | "de") => {
+    setPreferredLanguage(locale);
+    changeLanguage(locale);
+    try {
+      await authApi.updateProfile({ preferredLanguage: locale });
+    } catch {
+      // ignore
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,6 +134,7 @@ export function SettingsPage() {
         bio,
         website,
         discoverable,
+        preferredLanguage: preferredLanguage as "en" | "de",
         ...(city ? { city: city.city, cityLat: city.lat, cityLng: city.lng } : {}),
       });
       await refreshUser();
@@ -143,11 +160,11 @@ export function SettingsPage() {
     setPasswordChangeError("");
     setPasswordChangeSuccess(false);
     if (newPassword !== confirmPassword) {
-      setPasswordChangeError("Passwords do not match");
+      setPasswordChangeError(t("passwordsDoNotMatch"));
       return;
     }
     if (newPassword.length < 8) {
-      setPasswordChangeError("Password must be at least 8 characters");
+      setPasswordChangeError(t("passwordMinLength"));
       return;
     }
     setChangingPassword(true);
@@ -159,43 +176,39 @@ export function SettingsPage() {
       setConfirmPassword("");
       setTimeout(() => setPasswordChangeSuccess(false), 3000);
     } catch (err: unknown) {
-      setPasswordChangeError((err as Error).message || "Failed to change password");
+      setPasswordChangeError((err as Error).message || t("failedChangePassword"));
     } finally {
       setChangingPassword(false);
     }
   };
 
   const handleDeleteKey = async (id: string) => {
-    if (!confirm("Delete this API key?")) return;
+    if (!confirm(t("deleteKeyConfirm"))) return;
     await authApi.deleteApiKey(id);
     setKeys(keys.filter((k) => k.id !== id));
   };
 
   const handleDeleteAccount = async () => {
-    if (
-      !confirm(
-        "Are you sure you want to delete your account? This action cannot be undone and will delete all your events and data."
-      )
-    ) {
+    if (!confirm(t("deleteAccountConfirm"))) {
       return;
     }
-    const username = prompt(`Please type your username (${user.username}) to confirm:`);
+    const username = prompt(t("typeUsernameToConfirm", { username: user.username }));
     if (username !== user.username) {
-      alert("Username does not match.");
+      alert(t("usernameDoesNotMatch"));
       return;
     }
     try {
       await authApi.deleteAccount();
       window.location.href = "/";
     } catch {
-      alert("Failed to delete account");
+      alert(t("failedDeleteAccount"));
     }
   };
 
   return (
     <div className="settings-layout">
       <aside className="settings-sidebar">
-        <nav className="settings-nav" aria-label="Settings sections">
+        <nav className="settings-nav" aria-label={t("settingsSections")}>
           {SECTIONS.map(({ id, label, icon: Icon, danger }) => (
             <button
               key={id}
@@ -211,7 +224,7 @@ export function SettingsPage() {
       </aside>
 
       <div className="settings-content">
-        <h1 className="settings-page-title">Settings</h1>
+        <h1 className="settings-page-title">{t("title")}</h1>
 
         <section
           id="profile"
@@ -221,30 +234,43 @@ export function SettingsPage() {
         >
           <div className="settings-card">
             <h2 id="profile-heading" className="settings-section-title">
-              Profile
+              {t("profile")}
             </h2>
             <form onSubmit={handleSaveProfile}>
               <div className="field">
-                <label htmlFor="displayName">Display name</label>
+                <label htmlFor="displayName">{t("displayName")}</label>
                 <input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
               </div>
               <div className="field">
-                <label htmlFor="bio">Bio</label>
+                <label htmlFor="bio">{t("bio")}</label>
                 <textarea id="bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} />
               </div>
               <div className="field">
-                <label htmlFor="website">Website</label>
+                <label htmlFor="website">{t("website")}</label>
                 <input
                   id="website"
                   type="url"
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
-                  placeholder="https://example.com"
+                  placeholder={t("websitePlaceholder")}
                 />
               </div>
               <div className="field">
-                <label htmlFor="city">City</label>
-                <CitySearch id="city" value={city} onChange={setCity} placeholder="Where are you based?" />
+                <label htmlFor="city">{t("city")}</label>
+                <CitySearch id="city" value={city} onChange={setCity} placeholder={t("auth:whereBased")} />
+              </div>
+              <div className="field">
+                <label htmlFor="language">{t("language")}</label>
+                <select
+                  id="language"
+                  value={preferredLanguage}
+                  onChange={(e) => handleLanguageChange(e.target.value as "en" | "de")}
+                  className="field-input"
+                  style={{ maxWidth: 200 }}
+                >
+                  <option value="en">{t("english")}</option>
+                  <option value="de">{t("german")}</option>
+                </select>
               </div>
               <div className="field">
                 <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
@@ -254,19 +280,17 @@ export function SettingsPage() {
                     onChange={(e) => setDiscoverable(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  Public account
+                  {t("publicAccount")}
                 </label>
                 <p className="text-sm text-dim mt-1">
-                  {discoverable
-                    ? "Your profile is visible on the Explore page. New events default to public."
-                    : "Your profile is hidden from Explore. New events default to only me."}
+                  {discoverable ? t("publicAccountDescVisible") : t("publicAccountDescHidden")}
                 </p>
               </div>
               <div className="flex items-center gap-1">
                 <button type="submit" className="btn-primary btn-sm" disabled={saving}>
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? t("common:saving") : t("common:save")}
                 </button>
-                {saved && <span className="text-sm" style={{ color: "var(--success)" }}>Saved!</span>}
+                {saved && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
             </form>
           </div>
@@ -280,11 +304,11 @@ export function SettingsPage() {
         >
           <div className="settings-card">
             <h2 id="account-heading" className="settings-section-title">
-              Account
+              {t("account")}
             </h2>
-            <p className="text-sm text-dim mb-2">Email: {user.email || "—"}</p>
+            <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
             <div className="field mb-2">
-              <label htmlFor="email">Email change</label>
+              <label htmlFor="email">{t("emailChange")}</label>
               <div className="flex gap-1 items-center" style={{ flexWrap: "wrap" }}>
                 <input
                   id="email"
@@ -295,7 +319,7 @@ export function SettingsPage() {
                     setEmailChangeError("");
                     setEmailChangeSent(false);
                   }}
-                  placeholder={user.email || "you@example.com"}
+                  placeholder={user.email || t("emailPlaceholder")}
                   style={{ flex: 1, minWidth: 200 }}
                 />
                 <button
@@ -311,27 +335,27 @@ export function SettingsPage() {
                       setEmailChangeSent(true);
                       setNewEmail("");
                     } catch (err: unknown) {
-                      setEmailChangeError((err as Error).message || "Failed to send verification email");
+                      setEmailChangeError((err as Error).message || t("failedSendVerification"));
                     } finally {
                       setSendingEmailChange(false);
                     }
                   }}
                 >
-                  {sendingEmailChange ? "Sending…" : "Send verification link"}
+                  {sendingEmailChange ? t("sending") : t("sendVerificationLink")}
                 </button>
               </div>
               {emailChangeSent && (
                 <p className="text-sm mt-1" style={{ color: "var(--success)" }}>
-                  Check your inbox and click the link to verify your new email.
+                  {t("checkInboxVerify")}
                 </p>
               )}
               {emailChangeError && <p className="text-sm mt-1 error-text">{emailChangeError}</p>}
             </div>
 
             <form onSubmit={handleChangePassword} className="mt-3" style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
-              <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>Password change</h3>
+              <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>{t("passwordChange")}</h3>
               <div className="field">
-                <label htmlFor="currentPassword">Current password</label>
+                <label htmlFor="currentPassword">{t("currentPassword")}</label>
                 <input
                   id="currentPassword"
                   type="password"
@@ -341,7 +365,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="newPassword">New password</label>
+                <label htmlFor="newPassword">{t("newPassword")}</label>
                 <input
                   id="newPassword"
                   type="password"
@@ -351,7 +375,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="confirmPassword">Confirm new password</label>
+                <label htmlFor="confirmPassword">{t("confirmNewPassword")}</label>
                 <input
                   id="confirmPassword"
                   type="password"
@@ -361,10 +385,10 @@ export function SettingsPage() {
                 />
               </div>
               {passwordChangeError && <p className="text-sm mt-1 error-text">{passwordChangeError}</p>}
-              {passwordChangeSuccess && <p className="text-sm mt-1" style={{ color: "var(--success)" }}>Password updated!</p>}
+              {passwordChangeSuccess && <p className="text-sm mt-1" style={{ color: "var(--success)" }}>{t("passwordUpdated")}</p>}
               <div className="flex items-center gap-1 mt-1">
                 <button type="submit" className="btn-primary btn-sm" disabled={changingPassword}>
-                  {changingPassword ? "Changing…" : "Change password"}
+                  {changingPassword ? t("changing") : t("changePassword")}
                 </button>
               </div>
             </form>
@@ -379,13 +403,13 @@ export function SettingsPage() {
         >
           <div className="settings-card">
             <h2 id="notifications-heading" className="settings-section-title">
-              Notifications
+              {t("notifications")}
             </h2>
             {user.email ? (
-              <p className="text-sm text-dim mb-2">Email: {user.email}</p>
+              <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email}</p>
             ) : (
               <p className="text-sm mb-2" style={{ color: "var(--warning)" }}>
-                Add an email in the Account section to receive notifications.
+                {t("addEmailForNotifications")}
               </p>
             )}
             <form
@@ -416,7 +440,7 @@ export function SettingsPage() {
                     onChange={(e) => setReminderEnabled(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  Send reminder before events
+                  {t("sendReminderBefore")}
                 </label>
                 {reminderEnabled && (
                   <div className="settings-reminder-select-wrap">
@@ -424,10 +448,10 @@ export function SettingsPage() {
                       value={reminderHoursBefore}
                       onChange={(e) => setReminderHoursBefore(Number(e.target.value))}
                     >
-                    <option value={1}>1 hour before</option>
-                    <option value={6}>6 hours before</option>
-                    <option value={12}>12 hours before</option>
-                    <option value={24}>24 hours before</option>
+                      <option value={1}>{t("hourBefore1")}</option>
+                      <option value={6}>{t("hourBefore6")}</option>
+                      <option value={12}>{t("hourBefore12")}</option>
+                      <option value={24}>{t("hourBefore24")}</option>
                     </select>
                   </div>
                 )}
@@ -440,7 +464,7 @@ export function SettingsPage() {
                     onChange={(e) => setEventUpdatedEnabled(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  When an event&apos;s time or details change
+                  {t("whenEventUpdated")}
                 </label>
               </div>
               <div className="field">
@@ -451,20 +475,20 @@ export function SettingsPage() {
                     onChange={(e) => setEventCancelledEnabled(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  When an event is cancelled
+                  {t("whenEventCancelled")}
                 </label>
               </div>
               {!reminderEnabled && !eventUpdatedEnabled && !eventCancelledEnabled && (
                 <p className="text-sm mb-2" style={{ color: "var(--warning)" }}>
-                  Without email notifications you might miss event changes. We recommend adding the{" "}
-                  <Link href="/calendar">calendar feed</Link> to all your devices instead.
+                  {t("noNotificationsWarning")}{" "}
+                  <Link href="/calendar">{t("calendarFeed")}</Link> {t("noNotificationsWarningSuffix")}
                 </p>
               )}
               <div className="flex items-center gap-1">
                 <button type="submit" className="btn-primary btn-sm" disabled={savingNotif}>
-                  {savingNotif ? "Saving…" : "Save"}
+                  {savingNotif ? t("common:saving") : t("common:save")}
                 </button>
-                {savedNotif && <span className="text-sm" style={{ color: "var(--success)" }}>Saved!</span>}
+                {savedNotif && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
             </form>
           </div>
@@ -478,25 +502,25 @@ export function SettingsPage() {
         >
           <div className="settings-card">
             <h2 id="api-keys-heading" className="settings-section-title">
-              API Keys
+              {t("apiKeys")}
             </h2>
             <p className="text-sm text-muted mb-2">
-              Use API keys to authenticate with the EveryCal API from scripts and scrapers. Send as{" "}
-              <code className="settings-code">Authorization: ApiKey your-key-here</code>
+              {t("apiKeysHelp")}{" "}
+              <code className="settings-code">{t("apiKeyHeaderExample")}</code>
             </p>
 
             {newKeyValue && (
               <div className="settings-new-key-banner">
                 <p className="text-sm" style={{ color: "var(--success)", fontWeight: 600 }}>
-                  New API key created — copy it now, you won&apos;t see it again:
+                  {t("newKeyCreated")}
                 </p>
                 <code className="settings-code-block">{newKeyValue}</code>
                 <div className="flex gap-1 mt-1">
                   <button className="btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(newKeyValue)}>
-                    Copy
+                    {t("common:copy")}
                   </button>
                   <button className="btn-ghost btn-sm" onClick={() => setNewKeyValue("")}>
-                    Dismiss
+                    {t("common:dismiss")}
                   </button>
                 </div>
               </div>
@@ -509,12 +533,12 @@ export function SettingsPage() {
                     <div>
                       <span style={{ fontWeight: 500 }}>{k.label}</span>
                       <span className="text-sm text-dim" style={{ marginLeft: "0.5rem" }}>
-                        created {new Date(k.createdAt).toLocaleDateString()}
-                        {k.lastUsedAt && ` · last used ${new Date(k.lastUsedAt).toLocaleDateString()}`}
+                        {t("keyCreated")} {new Date(k.createdAt).toLocaleDateString(i18n.language)}
+                        {k.lastUsedAt && ` · ${t("keyLastUsed")} ${new Date(k.lastUsedAt).toLocaleDateString(i18n.language)}`}
                       </span>
                     </div>
                     <button className="btn-danger btn-sm" onClick={() => handleDeleteKey(k.id)}>
-                      Delete
+                      {t("common:delete")}
                     </button>
                   </div>
                 ))}
@@ -525,11 +549,11 @@ export function SettingsPage() {
               <input
                 value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)}
-                placeholder="Key label, e.g. 'Scraper bot'"
+                placeholder={t("keyLabelPlaceholder")}
                 style={{ flex: 1 }}
               />
               <button className="btn-ghost btn-sm" onClick={handleCreateKey} disabled={!newKeyLabel}>
-                Create Key
+                {t("createKey")}
               </button>
             </div>
           </div>
@@ -543,13 +567,13 @@ export function SettingsPage() {
         >
           <div className="settings-card danger-card">
             <h2 id="danger-heading" className="settings-section-title">
-              Danger Zone
+              {t("dangerZone")}
             </h2>
             <p className="text-sm text-muted mb-2">
-              Deleting your account is permanent. All your events, follows, and data will be erased.
+              {t("deleteAccountWarning")}
             </p>
             <button className="btn-danger" onClick={handleDeleteAccount}>
-              Delete Account
+              {t("deleteAccount")}
             </button>
           </div>
         </section>
