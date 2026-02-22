@@ -35,8 +35,8 @@ type RangeMode = "day" | "week" | "month" | "upcoming";
 function getRangeDates(
   mode: RangeMode,
   selectedDate: Date,
-  locale?: string,
-  upcomingLabel: string
+  upcomingLabel: string,
+  locale?: string
 ): { from: string; to?: string; label: string } {
   const y = selectedDate.getFullYear();
   const m = selectedDate.getMonth();
@@ -89,7 +89,7 @@ export function ProfilePage({ username }: { username: string }) {
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
 
   const range = useMemo(
-    () => getRangeDates(rangeMode, selectedDate, i18n.language, t("events:upcoming")),
+    () => getRangeDates(rangeMode, selectedDate, t("events:upcoming"), i18n.language),
     [rangeMode, selectedDate, i18n.language, t]
   );
 
