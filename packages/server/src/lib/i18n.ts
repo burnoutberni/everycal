@@ -3,8 +3,8 @@
  */
 
 import type { Context } from "hono";
-import en from "../i18n/en.json";
-import de from "../i18n/de.json";
+import en from "../i18n/en.json" with { type: "json" };
+import de from "../i18n/de.json" with { type: "json" };
 
 const SUPPORTED_LOCALES = ["en", "de"] as const;
 type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];

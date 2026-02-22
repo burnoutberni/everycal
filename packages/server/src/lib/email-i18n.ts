@@ -2,8 +2,8 @@
  * Email-specific i18n. Loads message files for email templates.
  */
 
-import en from "../i18n/emails/en.json";
-import de from "../i18n/emails/de.json";
+import en from "../i18n/emails/en.json" with { type: "json" };
+import de from "../i18n/emails/de.json" with { type: "json" };
 
 const SUPPORTED = ["en", "de"] as const;
 type Locale = (typeof SUPPORTED)[number];
