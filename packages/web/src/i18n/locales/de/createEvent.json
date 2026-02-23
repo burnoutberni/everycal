@@ -65,6 +65,8 @@
   "saveChanges": "Änderungen speichern",
   "creating": "Erstellen…",
   "createEvent": "Event erstellen",
+  "continueToReview": "Weiter",
+  "reviewEvent": "Event prüfen",
   "somethingWentWrong": "Etwas ist schiefgelaufen.",
   "missingFieldConfirmSingle": "Du hast {{field}} nicht angegeben. Möchtest du dieses Event trotzdem erstellen?",
   "missingFieldConfirmMultiple": "Du hast Folgendes nicht angegeben: {{fields}}. Möchtest du dieses Event trotzdem erstellen?",

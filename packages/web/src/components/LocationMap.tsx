@@ -143,6 +143,7 @@ export function LocationMap({
       {coords && (
         <div
           ref={containerRef}
+          className="location-map-container"
           style={{
             width: "100%",
             height: "160px",

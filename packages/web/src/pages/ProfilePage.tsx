@@ -2,80 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
-import { sanitizeHtml } from "../lib/sanitize";
-import { endOfDayForApi, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
-import { MenuIcon, RepostIcon } from "../components/icons";
+import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
+import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
+import { ProfileHeader } from "../components/ProfileHeader";
 import { useAuth } from "../hooks/useAuth";
+import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
+import { useIsMobile } from "../hooks/useIsMobile";
 
-function formatDateHeading(d: Date, locale?: string): string {
-  return d.toLocaleDateString(locale, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function groupByDate(events: CalEvent[]): Map<string, CalEvent[]> {
-  const groups = new Map<string, CalEvent[]>();
-  for (const ev of events) {
-    const key = toLocalYMD(ev.startDate);
-    const list = groups.get(key) || [];
-    list.push(ev);
-    groups.set(key, list);
-  }
-  return groups;
-}
-
-type RangeMode = "day" | "week" | "month" | "upcoming";
-
-function getRangeDates(
-  mode: RangeMode,
-  selectedDate: Date,
-  upcomingLabel: string,
-  locale?: string
-): { from: string; to?: string; label: string } {
-  const y = selectedDate.getFullYear();
-  const m = selectedDate.getMonth();
-  const d = selectedDate.getDate();
-
-  switch (mode) {
-    case "day":
-      return {
-        from: startOfDayForApi(selectedDate),
-        to: endOfDayForApi(selectedDate),
-        label: formatDateHeading(selectedDate, locale),
-      };
-    case "week": {
-      const dow = selectedDate.getDay() || 7;
-      const monday = new Date(y, m, d - dow + 1);
-      const sunday = new Date(y, m, d - dow + 7);
-      return {
-        from: startOfDayForApi(monday),
-        to: endOfDayForApi(sunday),
-        label: `${monday.toLocaleDateString(locale, { month: "short", day: "numeric" })} – ${sunday.toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" })}`,
-      };
-    }
-    case "month": {
-      const first = new Date(y, m, 1);
-      const last = new Date(y, m + 1, 0);
-      return {
-        from: startOfDayForApi(first),
-        to: endOfDayForApi(last),
-        label: selectedDate.toLocaleDateString(locale, { month: "long", year: "numeric" }),
-      };
-    }
-    case "upcoming":
-    default:
-      return {
-        from: new Date().toISOString(),
-        label: upcomingLabel,
-      };
-  }
-}
+/** Linear collapse: progress 0→1 over this scroll range. Once 1, stay compact until header back in flow.
+ *  Keep range short so collapse completes before date separator + first event card scroll out of view. */
+const PROFILE_COLLAPSE_START = 2;
+const PROFILE_COLLAPSE_RANGE = 20;
+const PROFILE_EXPAND_AT_TOP = 18;
+/** Only expand when header top > this — user scrolled back up. Stuck header ≈56px, natural position ≈80px. */
+const PROFILE_EXPAND_HEADER_TOP = 70;
 
 export function ProfilePage({ username }: { username: string }) {
   const { t, i18n } = useTranslation(["profile", "events", "common"]);
@@ -85,13 +29,7 @@ export function ProfilePage({ username }: { username: string }) {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [rangeMode, setRangeMode] = useState<RangeMode>("upcoming");
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
-
-  const range = useMemo(
-    () => getRangeDates(rangeMode, selectedDate, t("events:upcoming"), i18n.language),
-    [rangeMode, selectedDate, i18n.language, t]
-  );
 
   // Fetch event dates for the minicalendar (visible grid)
   const calendarMonthRange = useMemo(() => {
@@ -148,18 +86,11 @@ export function ProfilePage({ username }: { username: string }) {
       if (!profile) return;
       setEventsLoading(true);
       try {
-        const params: { from?: string; to?: string; limit: number; sort?: "asc" | "desc" } = {
+        const res = await usersApi.events(username, {
+          from: new Date().toISOString(),
           limit: 100,
-        };
-        if (range.to) {
-          params.from = range.from;
-          params.to = range.to;
-          params.sort = "asc";
-        } else {
-          params.from = range.from;
-          params.sort = "asc";
-        }
-        const res = await usersApi.events(username, params);
+          sort: "asc",
+        });
         setEvents(res.events);
       } catch {
         setEvents([]);
@@ -167,31 +98,39 @@ export function ProfilePage({ username }: { username: string }) {
         setEventsLoading(false);
       }
     },
-    [username, profile, range, currentUser?.id]
+    [username, profile, currentUser?.id]
   );
 
   useEffect(() => {
     if (profile) fetchEvents();
   }, [profile, fetchEvents]);
 
-  const grouped = useMemo(() => groupByDate(events), [events]);
+  useEffect(() => {
+    if (eventsLoading) {
+      scrollSpyReadyRef.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      scrollSpyReadyRef.current = true;
+    }, 400);
+    return () => clearTimeout(t);
+  }, [eventsLoading]);
+
+  const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
+  const eventDatesFromList = useMemo(() => new Set(grouped.keys()), [grouped]);
   const isRemote = profile?.source === "remote";
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const [profileCollapseProgress, setProfileCollapseProgress] = useState(0);
+  const [calendarExpanded, setCalendarExpanded] = useState(false);
+  const profileHeaderRef = useRef<HTMLDivElement>(null);
+  const dateSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const ignoreScrollSpyUntilRef = useRef(0);
+  const ignoreScrollCollapseUntilRef = useRef(0);
+  const scrollSpyReadyRef = useRef(false);
+  const calendarFoldRef = useRef<MobileCalendarFoldRef>(null);
   const [listModal, setListModal] = useState<"followers" | "following" | null>(null);
   const [listUsers, setListUsers] = useState<User[]>([]);
   const [listLoading, setListLoading] = useState(false);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
-  }, [menuOpen]);
 
   useEffect(() => {
     if (!listModal || !username) return;
@@ -202,6 +141,74 @@ export function ProfilePage({ username }: { username: string }) {
       .catch(() => setListUsers([]))
       .finally(() => setListLoading(false));
   }, [listModal, username]);
+
+  const profileCollapseRafRef = useRef<number | null>(null);
+  const hasReachedCompactRef = useRef(false);
+  useEffect(() => {
+    const el = profileHeaderRef.current;
+    if (!isMobile || !el) return;
+    const updateProgress = () => {
+      profileCollapseRafRef.current = null;
+      const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
+      const headerTop = el.getBoundingClientRect().top;
+
+      if (headerTop > PROFILE_EXPAND_HEADER_TOP) {
+        hasReachedCompactRef.current = false;
+        setProfileCollapseProgress(0);
+        return;
+      }
+
+      if (hasReachedCompactRef.current) {
+        setProfileCollapseProgress(1);
+        return;
+      }
+
+      if (scrollY <= PROFILE_EXPAND_AT_TOP && headerTop >= PROFILE_EXPAND_HEADER_TOP) {
+        hasReachedCompactRef.current = false;
+        setProfileCollapseProgress(0);
+        return;
+      }
+
+      const raw = (scrollY - PROFILE_COLLAPSE_START) / PROFILE_COLLAPSE_RANGE;
+      const progress = Math.min(Math.max(raw, 0), 1);
+      if (progress >= 1) hasReachedCompactRef.current = true;
+      setProfileCollapseProgress(progress);
+    };
+    const handleScroll = () => {
+      if (profileCollapseRafRef.current != null) return;
+      profileCollapseRafRef.current = requestAnimationFrame(updateProgress);
+    };
+    updateProgress();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (profileCollapseRafRef.current != null) cancelAnimationFrame(profileCollapseRafRef.current);
+    };
+  }, [isMobile, profile]);
+
+  const dateKeys = useMemo(() => [...grouped.keys()].sort(), [grouped]);
+  useDateScrollSpy({
+    dateSectionRefs,
+    dateKeys,
+    onVisibleDateChange: useCallback((ymd: string) => {
+      const [y, m, d] = ymd.split("-").map(Number);
+      setSelectedDate((prev) => {
+        if (prev.getFullYear() === y && prev.getMonth() === m - 1 && prev.getDate() === d) return prev;
+        return new Date(y, m - 1, d);
+      });
+    }, []),
+    ignoreUntilRef: ignoreScrollSpyUntilRef,
+    triggerTop: 220,
+    isReadyRef: scrollSpyReadyRef,
+    enabled: isMobile,
+  });
+
+  const handleCalendarExpandedChange = useCallback((expanded: boolean) => {
+    setCalendarExpanded(expanded);
+    if (expanded) {
+      ignoreScrollSpyUntilRef.current = Date.now() + 500;
+    }
+  }, []);
 
   const handleFollow = async () => {
     if (!profile) return;
@@ -231,26 +238,40 @@ export function ProfilePage({ username }: { username: string }) {
     fetchProfile();
   };
 
+  const [scrollToDate, setScrollToDate] = useState<string | null>(null);
+
   const handleDateSelect = (date: Date) => {
     setSelectedDate(date);
-    if (rangeMode === "upcoming") setRangeMode("day");
+    setScrollToDate(dateToLocalYMD(date));
   };
 
-  const goPrev = () => {
-    const d = new Date(selectedDate);
-    if (rangeMode === "day") d.setDate(d.getDate() - 1);
-    else if (rangeMode === "week") d.setDate(d.getDate() - 7);
-    else if (rangeMode === "month") d.setMonth(d.getMonth() - 1);
-    setSelectedDate(d);
+  const handleDateSelectMobile = (date: Date) => {
+    ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    setSelectedDate(date);
+    setScrollToDate(dateToLocalYMD(date));
   };
 
-  const goNext = () => {
-    const d = new Date(selectedDate);
-    if (rangeMode === "day") d.setDate(d.getDate() + 1);
-    else if (rangeMode === "week") d.setDate(d.getDate() + 7);
-    else if (rangeMode === "month") d.setMonth(d.getMonth() + 1);
-    setSelectedDate(d);
-  };
+  useEffect(() => {
+    if (!scrollToDate || events.length === 0) return;
+    const keys = [...grouped.keys()].sort();
+    const idx = keys.findIndex((k) => k >= scrollToDate);
+    const targetKey = idx >= 0 ? keys[idx] : keys[keys.length - 1];
+    setScrollToDate(null);
+    if (!targetKey) return;
+    const [y, m, d] = targetKey.split("-").map(Number);
+    setSelectedDate(new Date(y, m - 1, d));
+    if (isMobile) {
+      ignoreScrollSpyUntilRef.current = Date.now() + 800;
+      ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+    }
+    requestAnimationFrame(() => {
+      const el = dateSectionRefs.current.get(targetKey);
+      if (el) {
+        el.style.scrollMarginTop = "calc(3.5rem + 52px + 68px + 2rem)";
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }, [scrollToDate, grouped, events.length, isMobile]);
 
   if (profileLoading) return <p className="text-muted">{t("common:loading")}</p>;
   if (!profile) return <p className="error-text">{t("userNotFound")}</p>;
@@ -267,198 +288,85 @@ export function ProfilePage({ username }: { username: string }) {
 
       {/* Main content */}
       <div className="flex-1" style={{ minWidth: 0 }}>
-        {/* Profile header */}
-        <div className="card mb-2">
-          <div className="flex items-center gap-2">
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "var(--bg-hover)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "1.8rem",
-                flexShrink: 0,
-                overflow: "hidden",
-              }}
-            >
-              {profile.avatarUrl ? (
-                <img
-                  src={profile.avatarUrl}
-                  alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              ) : (
-                profile.username[0].toUpperCase()
-              )}
+        {isMobile ? (
+          <MobileHeaderContainer paddingTop={`${0.2 * profileCollapseProgress}rem`}>
+            <ProfileHeader
+              profile={profile}
+              currentUser={currentUser}
+              isOwn={isOwn}
+              isRemote={isRemote}
+              collapseProgress={profileCollapseProgress}
+              isMobile={isMobile}
+              headerRef={profileHeaderRef}
+              onFollow={handleFollow}
+              onAutoRepost={handleAutoRepost}
+              onOpenFollowers={() => setListModal("followers")}
+              onOpenFollowing={() => setListModal("following")}
+            />
+            <div className="profile-mobile-calendar-wrap">
+              <MobileCalendarFold
+            ref={calendarFoldRef}
+            selectedDate={selectedDate}
+            onDateSelect={handleDateSelectMobile}
+            eventDates={eventDatesFromList}
+            collapseOnSelect
+            layout="sticky"
+            onMonthNavigate={(date) => {
+              ignoreScrollSpyUntilRef.current = Date.now() + 600;
+              ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+              setSelectedDate(date);
+              setScrollToDate(dateToLocalYMD(date));
+            }}
+            onMonthClick={() => {
+              ignoreScrollSpyUntilRef.current = Date.now() + 600;
+              ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+              const today = new Date();
+              setSelectedDate(today);
+              setScrollToDate(dateToLocalYMD(today));
+            }}
+            ignoreScrollSpyUntilRef={ignoreScrollSpyUntilRef}
+            ignoreScrollCollapseUntilRef={ignoreScrollCollapseUntilRef}
+            onExpandedChange={handleCalendarExpandedChange}
+          />
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-1" style={{ flexWrap: "wrap" }}>
-                <h1 style={{ fontSize: "1.3rem", fontWeight: 700 }}>
-                  {profile.displayName || profile.username}
-                </h1>
-                {currentUser && !isOwn && !isRemote && (
-                  <div ref={menuRef} style={{ position: "relative" }}>
-                    <button
-                      type="button"
-                      className="profile-menu-btn"
-                      onClick={() => setMenuOpen((o) => !o)}
-                      aria-expanded={menuOpen}
-                      aria-haspopup="true"
-                      title={t("moreOptions")}
-                    >
-                      <MenuIcon />
-                    </button>
-                    {menuOpen && (
-                      <div className="header-dropdown">
-                        <button
-                          type="button"
-                          className="header-dropdown-item"
-                          onClick={() => {
-                            setMenuOpen(false);
-                            handleAutoRepost();
-                          }}
-                          title={profile.autoReposting
-                            ? t("stopAutoRepost")
-                            : t("autoRepostAll")}
-                          style={profile.autoReposting ? { color: "var(--accent)" } : undefined}
-                        >
-                          <RepostIcon />
-                          {profile.autoReposting ? t("autoReposting") : t("autoRepost")}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <p className="text-muted">@{profile.username}</p>
-              {profile.bio && (
-                <div
-                  className="profile-bio mt-1"
-                  dangerouslySetInnerHTML={{
-                    __html: sanitizeHtml(profile.bio.replace(/\n/g, "<br>")),
-                  }}
-                />
-              )}
-              {profile.website && (
-                <p className="mt-1">
-                  <a
-                    href={profile.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--accent)" }}
-                  >
-                    🔗 {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
-                  </a>
-                </p>
-              )}
-              <div className="flex gap-2 mt-1 text-sm text-muted">
-                {(isOwn || isRemote) ? (
-                  <>
-                    <button
-                      type="button"
-                      className="profile-stat-clickable"
-                      style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
-                      onClick={() => setListModal("followers")}
-                    >
-                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> {t("followers")}
-                    </button>
-                    <button
-                      type="button"
-                      className="profile-stat-clickable"
-                      style={{ background: "none", border: "none", color: "inherit", padding: 0, font: "inherit" }}
-                      onClick={() => setListModal("following")}
-                    >
-                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> {t("following")}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span>
-                      <strong style={{ color: "var(--text)" }}>{profile.followersCount}</strong> {t("followers")}
-                    </span>
-                    <span>
-                      <strong style={{ color: "var(--text)" }}>{profile.followingCount}</strong> {t("following")}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-            {currentUser && !isOwn && (
-              <div style={{ flexShrink: 0 }}>
-                <button
-                  className={profile.following ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
-                  onClick={handleFollow}
-                >
-                  {profile.following ? t("unfollow") : t("follow")}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+          </MobileHeaderContainer>
+        ) : (
+          <ProfileHeader
+            profile={profile}
+            currentUser={currentUser}
+            isOwn={isOwn}
+            isRemote={isRemote}
+            isMobile={false}
+            onFollow={handleFollow}
+            onAutoRepost={handleAutoRepost}
+            onOpenFollowers={() => setListModal("followers")}
+            onOpenFollowing={() => setListModal("following")}
+          />
+        )}
 
-        {/* Range controls */}
-          <div
-            className="flex items-center justify-between"
-            style={{ marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}
-          >
-            <div className="flex items-center gap-1">
-              {(["upcoming", "day", "week", "month"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => {
-                    setRangeMode(mode);
-                    if (mode === "upcoming") setSelectedDate(new Date());
-                  }}
-                  className={rangeMode === mode ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-                  style={{ textTransform: "capitalize" }}
-                >
-                  {t(`events:${mode}`)}
-                </button>
-              ))}
-            </div>
-
-            {rangeMode !== "upcoming" && (
-              <div className="flex items-center gap-1">
-                <button className="btn-ghost btn-sm" onClick={goPrev}>‹</button>
-                <span className="text-sm" style={{ fontWeight: 600, minWidth: "10rem", textAlign: "center" }}>
-                  {range.label}
-                </span>
-                <button className="btn-ghost btn-sm" onClick={goNext}>›</button>
-                <button
-                  className="btn-ghost btn-sm"
-                  onClick={() => setSelectedDate(new Date())}
-                  style={{ marginLeft: "0.25rem" }}
-                >
-                  {t("common:today")}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile: inline calendar */}
-          <div className="show-mobile" style={{ marginBottom: "1rem" }}>
-            <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
-          </div>
-
-          {/* Event list */}
+        {/* Event list */}
+        <div className="profile-mobile-events-wrap">
           {eventsLoading ? (
             <p className="text-muted">{t("common:loading")}</p>
           ) : events.length === 0 ? (
             <div className="empty-state">
               <p>{t("noEventsFound")}</p>
               <p className="text-sm text-dim mt-1">
-                {rangeMode === "upcoming"
-                  ? t("noUpcomingFromAccount")
-                  : t("events:tryDifferentDate")}
+                {t("noUpcomingFromAccount")}
               </p>
             </div>
           ) : (
             <>
               {[...grouped.entries()].map(([dateKey, dayEvents]) => (
-                <div key={dateKey} style={{ marginBottom: "1.25rem" }}>
+                <div
+                  key={dateKey}
+                  ref={(el) => {
+                    if (el) dateSectionRefs.current.set(dateKey, el);
+                  }}
+                  data-date={dateKey}
+                  className="profile-date-section"
+                  style={{ marginBottom: "1.25rem" }}
+                >
                   <h2
                     className="text-sm"
                     style={{
@@ -480,6 +388,17 @@ export function ProfilePage({ username }: { username: string }) {
               ))}
             </>
           )}
+          {isMobile && calendarExpanded && (
+            <div
+              className="profile-mobile-events-overlay"
+              onClick={() => calendarFoldRef.current?.collapse()}
+              onKeyDown={(e) => e.key === "Enter" && calendarFoldRef.current?.collapse()}
+              role="button"
+              tabIndex={0}
+              aria-label={t("common:close")}
+            />
+          )}
+        </div>
         </div>
       </div>
 

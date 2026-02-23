@@ -24,6 +24,8 @@
   "day": "Day",
   "upcoming": "Upcoming",
   "allEvents": "All Events",
+  "past": "Past",
+  "showUpcomingEvents": "Show upcoming events",
   "forMe": "For me",
   "logInToSeeEvents": "to see your events",
   "noEventsFound": "No events found.",

@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { users as usersApi, federation, type User, type RemoteActor } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { profilePath, remoteProfilePath } from "../lib/urls";
 import {
   ProfileCard,
@@ -14,6 +15,7 @@ import {
   getEventsCount,
   type ProfileItem,
 } from "../components/ProfileCard";
+import { ChevronDownIcon, ChevronUpIcon } from "../components/icons";
 
 /** Check if input looks like a remote handle or URL (for instant resolve) */
 function looksLikeRemoteHandle(q: string): boolean {
@@ -63,6 +65,73 @@ export function DiscoverPage() {
   const [sortOrder, setSortOrder] = useState<"recent" | "followers" | "events">("recent");
   const [hideZeroEvents, setHideZeroEvents] = useState(true);
   const [showHiddenSection, setShowHiddenSection] = useState(false);
+  const [filtersUnfolded, setFiltersUnfolded] = useState(false);
+  const isMobile = useIsMobile();
+  const filtersBarRef = useRef<HTMLDivElement>(null);
+  const filtersUnfoldScrollYRef = useRef(0);
+  const filtersRafRef = useRef<number | null>(null);
+  const ignoreFiltersScrollUntilRef = useRef(0);
+  const [headerCollapseProgress, setHeaderCollapseProgress] = useState(0);
+  const headerCollapseRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (filtersUnfolded) {
+      filtersUnfoldScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+    }
+  }, [filtersUnfolded]);
+
+  useEffect(() => {
+    if (!filtersUnfolded) return;
+    const SCROLL_CLOSE_RANGE = 120;
+    const handleScroll = () => {
+      if (filtersRafRef.current != null) return;
+      if (Date.now() < ignoreFiltersScrollUntilRef.current) return;
+      filtersRafRef.current = requestAnimationFrame(() => {
+        filtersRafRef.current = null;
+        if (Date.now() < ignoreFiltersScrollUntilRef.current) return;
+        const y = window.scrollY;
+        const delta = y - filtersUnfoldScrollYRef.current;
+        if (delta >= SCROLL_CLOSE_RANGE) {
+          setFiltersUnfolded(false);
+        }
+      });
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (filtersRafRef.current != null) cancelAnimationFrame(filtersRafRef.current);
+    };
+  }, [filtersUnfolded]);
+
+  const openFilters = () => {
+    ignoreFiltersScrollUntilRef.current = Date.now() + 300;
+    setFiltersUnfolded(true);
+  };
+
+  const closeFilters = useCallback(() => {
+    setFiltersUnfolded(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const COLLAPSE_START = 32;
+    const COLLAPSE_RANGE = 96;
+    const handleScroll = () => {
+      if (headerCollapseRafRef.current != null) return;
+      headerCollapseRafRef.current = requestAnimationFrame(() => {
+        headerCollapseRafRef.current = null;
+        const y = window.scrollY;
+        const progress = Math.min(Math.max((y - COLLAPSE_START) / COLLAPSE_RANGE, 0), 1);
+        setHeaderCollapseProgress(progress);
+      });
+    };
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (headerCollapseRafRef.current != null) cancelAnimationFrame(headerCollapseRafRef.current);
+    };
+  }, [isMobile]);
 
   // Collapse hidden section when search query changes
   useEffect(() => {
@@ -376,100 +445,170 @@ export function DiscoverPage() {
 
       {/* Main content */}
       <div className="flex-1" style={{ minWidth: 0 }}>
-        <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "0.5rem" }}>
-          {t("title")}
-        </h1>
-        <p className="text-sm text-muted mb-2">
-          {t("description")}
-        </p>
+        {/* Header: h1, p, search, filters — on mobile: sticky, collapses on scroll */}
+        <div
+          className="discover-header"
+          style={
+            isMobile
+              ? { ["--discover-collapse-progress" as string]: headerCollapseProgress }
+              : undefined
+          }
+        >
+          <div className="discover-mobile-hero">
+            <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "0.5rem" }}>
+              {t("title")}
+            </h1>
+            <p className="text-sm text-muted mb-2">
+              {t("description")}
+            </p>
+          </div>
+          <div className="discover-mobile-tools">
+            {/* Unified search: filters local list; pasting @user@domain or URL resolves instantly */}
+            <div className="field mb-2">
+              <input
+                placeholder={t("searchPlaceholder")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            {!user && !isRemoteHandleSearch && (
+              <p className="text-sm text-dim mb-2">{t("logInToResolve")}</p>
+            )}
+            {searching && <p className="text-sm text-muted mb-2">{t("resolving")}</p>}
+            {searchError && <p className="error-text mb-2">{searchError}</p>}
 
-        {/* Unified search: filters local list; pasting @user@domain or URL resolves instantly */}
-        <div className="field mb-2">
-          <input
-            placeholder={t("searchPlaceholder")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+            {/* Mobile: filters - fold-out behind toggle */}
+            <div className="show-mobile discover-mobile-filters-wrap mb-2">
+              <div
+                ref={filtersBarRef}
+                className={`discover-mobile-filters-bar ${filtersUnfolded ? "discover-mobile-filters-unfolded" : ""}`}
+              >
+                <div className={`discover-mobile-filters-row ${filtersUnfolded ? "discover-mobile-filters-row-expanded" : ""}`}>
+              {!filtersUnfolded ? (
+                <>
+                  <span className="discover-mobile-filters-label">{t("filters")}</span>
+                  <button
+                    type="button"
+                    className="discover-mobile-filters-toggle"
+                    onClick={openFilters}
+                    aria-expanded={false}
+                    aria-label={t("filters")}
+                  >
+                    <ChevronDownIcon />
+                  </button>
+                </>
+              ) : (
+                <div className="discover-mobile-filters-expanded">
+                  <div className="discover-mobile-filters-expanded-header">
+                    <h2 className="discover-mobile-filters-headline">{t("filters")}</h2>
+                    <button
+                      type="button"
+                      className="discover-mobile-filters-toggle discover-mobile-filters-toggle-inline"
+                      onClick={() => setFiltersUnfolded(false)}
+                      aria-expanded={true}
+                      aria-label={t("common:close")}
+                    >
+                      <ChevronUpIcon />
+                    </button>
+                  </div>
+                  <div className="discover-mobile-filters-content">
+                    <div className="discover-mobile-filters-group">
+                      <div className="discover-mobile-filters-group-label">{t("common:show")}</div>
+                      <div className="discover-mobile-filters-buttons">
+                        <button
+                          onClick={() => setSourceFilter("all")}
+                          className={sourceFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("all")}
+                        </button>
+                        <button
+                          onClick={() => setSourceFilter("local")}
+                          className={sourceFilter === "local" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("local")}
+                        </button>
+                        <button
+                          onClick={() => setSourceFilter("remote")}
+                          className={sourceFilter === "remote" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("remote")}
+                        </button>
+                      </div>
+                    </div>
+                    {user && (
+                      <div className="discover-mobile-filters-group">
+                        <div className="discover-mobile-filters-group-label">{t("following")}</div>
+                        <div className="discover-mobile-filters-buttons">
+                          <button
+                            onClick={() => setFollowFilter("all")}
+                            className={followFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                          >
+                            {t("all")}
+                          </button>
+                          <button
+                            onClick={() => setFollowFilter("following")}
+                            className={followFilter === "following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                          >
+                            {t("following")}
+                          </button>
+                          <button
+                            onClick={() => setFollowFilter("not_following")}
+                            className={followFilter === "not_following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                          >
+                            {t("notFollowing")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="discover-mobile-filters-group">
+                      <div className="discover-mobile-filters-group-label">{t("sortBy")}</div>
+                      <div className="discover-mobile-filters-buttons">
+                        <button
+                          onClick={() => setSortOrder("recent")}
+                          className={sortOrder === "recent" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("recent")}
+                        </button>
+                        <button
+                          onClick={() => setSortOrder("followers")}
+                          className={sortOrder === "followers" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("mostFollowers")}
+                        </button>
+                        <button
+                          onClick={() => setSortOrder("events")}
+                          className={sortOrder === "events" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                        >
+                          {t("mostEvents")}
+                        </button>
+                      </div>
+                    </div>
+                    <label className="checkbox-label" style={{ marginTop: "0.5rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={hideZeroEvents}
+                        onChange={(e) => setHideZeroEvents(e.target.checked)}
+                      />
+                      <span>{t("hideNoEvents")}</span>
+                    </label>
+                  </div>
+                </div>
+                )}
+                </div>
+              </div>
+              {filtersUnfolded && (
+                <div
+                  className="discover-mobile-filters-spacer"
+                  style={{ height: "calc(min(80dvh, 600px) + 2rem)" }}
+                  aria-hidden
+                />
+              )}
+            </div>
+          </div>
         </div>
-        {!user && !isRemoteHandleSearch && (
-          <p className="text-sm text-dim mb-2">{t("logInToResolve")}</p>
-        )}
-        {searching && <p className="text-sm text-muted mb-2">{t("resolving")}</p>}
-        {searchError && <p className="error-text mb-2">{searchError}</p>}
 
-        {/* Mobile: filters */}
-        <div className="show-mobile flex gap-1 flex-wrap mb-2">
-          <button
-            onClick={() => setSourceFilter("all")}
-            className={sourceFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("all")}
-          </button>
-          <button
-            onClick={() => setSourceFilter("local")}
-            className={sourceFilter === "local" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("local")}
-          </button>
-          <button
-            onClick={() => setSourceFilter("remote")}
-            className={sourceFilter === "remote" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("remote")}
-          </button>
-          {user && (
-            <>
-              <span className="text-dim" style={{ alignSelf: "center", margin: "0 0.2rem" }}>·</span>
-              <button
-                onClick={() => setFollowFilter("all")}
-                className={followFilter === "all" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-              >
-                {t("all")}
-              </button>
-              <button
-                onClick={() => setFollowFilter("following")}
-                className={followFilter === "following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-              >
-                {t("following")}
-              </button>
-              <button
-                onClick={() => setFollowFilter("not_following")}
-                className={followFilter === "not_following" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-              >
-                {t("notFollowing")}
-              </button>
-            </>
-          )}
-          <span className="text-dim" style={{ alignSelf: "center", margin: "0 0.2rem" }}>·</span>
-          <button
-            onClick={() => setSortOrder("recent")}
-            className={sortOrder === "recent" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("recent")}
-          </button>
-          <button
-            onClick={() => setSortOrder("followers")}
-            className={sortOrder === "followers" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("mostFollowers")}
-          </button>
-          <button
-            onClick={() => setSortOrder("events")}
-            className={sortOrder === "events" ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
-          >
-            {t("mostEvents")}
-          </button>
-          <span className="text-dim" style={{ alignSelf: "center", margin: "0 0.2rem" }}>·</span>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={hideZeroEvents}
-              onChange={(e) => setHideZeroEvents(e.target.checked)}
-            />
-            <span>{t("hideNoEvents")}</span>
-          </label>
-        </div>
-
+        {/* Content wrapper with overlay when filters unfolded */}
+        <div className="discover-mobile-content-wrap">
         {/* Remote resolve result (when searching by handle/URL) */}
         {searchResult && isRemoteHandleSearch && !searchResultHidden && (
           <div className="card mb-3">
@@ -622,6 +761,17 @@ export function DiscoverPage() {
             )}
           </>
         )}
+          {isMobile && filtersUnfolded && (
+            <div
+              className="discover-mobile-content-overlay"
+              onClick={closeFilters}
+              onKeyDown={(e) => e.key === "Enter" && closeFilters()}
+              role="button"
+              tabIndex={0}
+              aria-label={t("common:close")}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

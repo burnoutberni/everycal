@@ -7,6 +7,7 @@
   "metaDescription": "Federated event calendar — self-host, discover events, connect via ActivityPub.",
   "logIn": "Log in",
   "signUp": "Sign up",
+  "back": "Back",
   "cancel": "Cancel",
   "save": "Save",
   "saving": "Saving…",
@@ -24,8 +25,11 @@
   "copying": "Copying…",
   "copyLinkInstead": "Copy link instead",
   "today": "Today",
+  "yesterday": "Yesterday",
+  "tomorrow": "Tomorrow",
   "show": "Show",
   "tags": "Tags",
+  "allTopics": "All topics",
   "remove": "Remove",
   "add": "Add",
   "search": "Search",
@@ -47,5 +51,10 @@
   "unknown": "Unknown",
   "imagePrefix": "Image: ",
   "imageBy": " by ",
-  "requestFailed": "Request failed"
+  "requestFailed": "Request failed",
+  "menu": "Menu",
+  "closeMenu": "Close menu",
+  "unfoldTags": "Show all tags",
+  "unfoldCalendar": "Show calendar",
+  "tagsDescription": "Filter events by topic. Tap a tag to show only events with that tag."
 }

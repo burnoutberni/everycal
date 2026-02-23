@@ -1,6 +1,6 @@
 {
   "followers": "Follower",
-  "following": "Folgt",
+  "following": "Folge ich",
   "follow": "Folgen",
   "unfollow": "Entfolgen",
   "autoRepost": "Auto-Repost",
@@ -11,12 +11,12 @@
   "eventsCount": "{{count}} Events",
   "eventsCount_one": "{{count}} Event",
   "followersCount": "{{count}} Follower",
-  "followingCount": "{{count}} folgt",
+  "followingCount": "{{count}} folge ich",
   "userNotFound": "Benutzer nicht gefunden.",
   "moreOptions": "Weitere Optionen",
   "stopAutoRepost": "Auto-Repost aller Events von diesem Konto beenden",
   "autoRepostAll": "Alle Events von diesem Konto automatisch in deinen Feed reposten",
   "noUpcomingFromAccount": "Keine bevorstehenden Events von diesem Konto.",
   "followersTitle": "Follower",
-  "followingTitle": "Folgt"
+  "followingTitle": "Folge ich"
 }

@@ -1,8 +1,11 @@
 /**
- * Modal for choosing an event header image:
+ * Fold-out panel for choosing an event header image (80vh, like homepage tags):
  * - Search Unsplash/Openverse by query (all licenses allowed)
  * - Paste a URL
  * - Upload a file (stored on server)
+ *
+ * Closes by: scrolling up (window scroll), clicking darkened overlay, or close button.
+ * Inner scroll (image grid) works independently for loading more images.
  *
  * Attribution is saved for Unsplash/Openverse images per API guidelines.
  */
@@ -10,7 +13,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { images as imagesApi, uploads, type ImageSearchResult, type ImageAttribution } from "../lib/api";
-import { SearchIcon, LinkIcon, UploadIcon } from "./icons";
+import { SearchIcon, LinkIcon, UploadIcon, ChevronUpIcon } from "./icons";
 
 type Tab = "search" | "url" | "upload";
 
@@ -25,6 +28,8 @@ interface ImagePickerModalProps {
   onSelect: (selection: ImageSelection) => void;
   searchHint?: string;
 }
+
+const SCROLL_CLOSE_RANGE = 80;
 
 export function ImagePickerModal({
   isOpen,
@@ -48,14 +53,40 @@ export function ImagePickerModal({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unfoldScrollYRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+  const resultsScrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<() => void>(() => {});
 
   const PAGE_SIZE = 12;
 
   useEffect(() => {
     if (isOpen) {
       imagesApi.getSources().then((s) => s && setSources(s));
+      unfoldScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
     }
   }, [isOpen]);
+
+  // Scroll-to-close: when user scrolls up (scrollY decreases), close. Window scroll only — inner panel scroll (images) does not trigger.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleScroll = () => {
+      if (rafRef.current != null) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        const y = window.scrollY;
+        const delta = unfoldScrollYRef.current - y; // positive when user scrolled up
+        const progress = Math.min(Math.max(delta / SCROLL_CLOSE_RANGE, 0), 1);
+        if (progress >= 1) onClose();
+      });
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isOpen, onClose]);
 
   const searchOptions = () => {
     const opts: { source?: string } = {};
@@ -125,6 +156,23 @@ export function ImagePickerModal({
       setLoadingMore(false);
     }
   };
+  loadMoreRef.current = loadMore;
+
+  // Load more when user scrolls to bottom of results (inside the fold)
+  useEffect(() => {
+    if (!isOpen || tab !== "search" || !hasMore || loadingMore) return;
+    const sentinel = loadMoreSentinelRef.current;
+    const scrollRoot = resultsScrollRef.current;
+    if (!sentinel || !scrollRoot) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMoreRef.current();
+      },
+      { root: scrollRoot, rootMargin: "100px", threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isOpen, tab, hasMore, loadingMore, searchResults.length]);
 
   const handleUrlSubmit = () => {
     const u = urlInput.trim();
@@ -176,25 +224,24 @@ export function ImagePickerModal({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="modal-overlay"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="image-picker-title"
-    >
-      <div className="modal-card image-picker-modal">
-        <div className="modal-header">
-          <h2 id="image-picker-title" style={{ fontSize: "1rem", fontWeight: 600 }}>
+    <>
+      <div
+        className="image-picker-fold-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="image-picker-title"
+      >
+        <div className="image-picker-fold-header">
+          <h2 id="image-picker-title" className="image-picker-fold-title">
             {t("chooseHeaderImage")}
           </h2>
           <button
             type="button"
-            className="btn-ghost btn-sm"
+            className="image-picker-fold-close"
             onClick={onClose}
             aria-label={t("common:close")}
           >
-            ✕
+            <ChevronUpIcon />
           </button>
         </div>
         <div className="image-picker-tabs">
@@ -223,36 +270,40 @@ export function ImagePickerModal({
             {t("upload")}
           </button>
         </div>
-        <div className="modal-body">
+        {tab === "search" && (
+          <div className="image-picker-fold-search-bar">
+            <div className="field">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("searchImages")}
+                autoFocus
+                autoComplete="off"
+              />
+              {searching && (
+                <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>{t("searchingImages")}</p>
+              )}
+            </div>
+            <div className="image-picker-filters">
+              {sources && sources.unsplashAvailable && (
+                <div className="field">
+                  <label>{t("source")}</label>
+                  <select
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                  >
+                    <option value="auto">{t("sourceAuto")}</option>
+                    <option value="unsplash">{t("sourceUnsplash")}</option>
+                    <option value="openverse">{t("sourceOpenverse")}</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        <div ref={resultsScrollRef} className="image-picker-fold-body">
           {tab === "search" && (
             <div className="image-picker-search">
-              <div className="field">
-                <input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t("searchImages")}
-                  autoFocus
-                  autoComplete="off"
-                />
-                {searching && (
-                  <p className="text-sm text-muted" style={{ marginTop: "0.25rem" }}>{t("searchingImages")}</p>
-                )}
-              </div>
-              <div className="image-picker-filters">
-                {sources && sources.unsplashAvailable && (
-                  <div className="field">
-                    <label>{t("source")}</label>
-                    <select
-                      value={source}
-                      onChange={(e) => setSource(e.target.value)}
-                    >
-                      <option value="auto">{t("sourceAuto")}</option>
-                      <option value="unsplash">{t("sourceUnsplash")}</option>
-                      <option value="openverse">{t("sourceOpenverse")}</option>
-                    </select>
-                  </div>
-                )}
-              </div>
               {searchResults.length > 0 && (
                 <>
                   <div className="image-picker-results">
@@ -268,15 +319,7 @@ export function ImagePickerModal({
                     ))}
                   </div>
                   {hasMore && (
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      style={{ marginTop: "0.75rem", width: "100%" }}
-                      onClick={loadMore}
-                      disabled={loadingMore}
-                    >
-                      {loadingMore ? t("common:loading") : t("loadMore")}
-                    </button>
+                    <div ref={loadMoreSentinelRef} className="image-picker-fold-sentinel" aria-hidden />
                   )}
                 </>
               )}
@@ -338,6 +381,15 @@ export function ImagePickerModal({
           )}
         </div>
       </div>
-    </div>
+      <div className="image-picker-fold-spacer" aria-hidden />
+      <div
+        className="image-picker-fold-overlay"
+        onClick={onClose}
+        onKeyDown={(e) => e.key === "Enter" && onClose()}
+        role="button"
+        tabIndex={0}
+        aria-label={t("common:close")}
+      />
+    </>
   );
 }

@@ -45,7 +45,7 @@ export function App() {
   return (
     <>
       <Header />
-      <main className="container" style={{ paddingTop: "1.5rem", paddingBottom: "3rem" }}>
+      <main className="container app-main" style={{ paddingBottom: "3rem" }}>
         <Switch>
           <Route path="/" component={HomePage} />
           <Route path="/calendar" component={CalendarPage} />

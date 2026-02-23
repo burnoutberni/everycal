@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import type { User } from "../lib/api";
-import { sanitizeHtml } from "../lib/sanitize";
+import { sanitizeHtmlWithNewlines, stripHtmlToText } from "../lib/sanitize";
 import type { RemoteActor } from "../lib/api";
 
 export type ProfileItem =
@@ -78,13 +78,6 @@ export function getEventsCount(item: ProfileItem): number | null {
   return null;
 }
 
-/** Strip HTML tags for safe truncation */
-export function stripHtmlForDisplay(html: string): string {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent || div.innerText || "";
-}
-
 export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
   item: ProfileItem;
   profilePath: (u: string, d?: string) => string;
@@ -150,9 +143,9 @@ export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
                 wordBreak: "break-word",
                 overflowWrap: "break-word",
               }}
-              title={stripHtmlForDisplay(summary).slice(0, 200)}
+              title={stripHtmlToText(summary).slice(0, 200)}
               dangerouslySetInnerHTML={{
-                __html: sanitizeHtml(summary.replace(/\n/g, "<br>")),
+                __html: sanitizeHtmlWithNewlines(summary),
               }}
             />
           )}

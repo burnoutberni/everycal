@@ -3,10 +3,12 @@ import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { events as eventsApi, locations as locationsApi, images as imagesApi, type EventInput, type CalEvent, type SavedLocation, type ImageAttribution } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { eventPath } from "../lib/urls";
 import { inferImageSearchTerm, inferTagsFromTitle, toSingleWordTag } from "../lib/inferImageSearchTerm";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
-import { LocationPinIcon, ExternalLinkIcon, GlobeIcon, TrashIcon, ImageIcon } from "../components/icons";
+import { LocationPinIcon, ExternalLinkIcon, GlobeIcon, TrashIcon, ImageIcon, ChevronLeftIcon } from "../components/icons";
+import { sanitizeHtml } from "../lib/sanitize";
 import { ImagePickerModal } from "../components/ImagePickerModal";
 import { LocationMap } from "../components/LocationMap";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
@@ -311,6 +313,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const { user, refreshUser } = useAuth();
   const [, navigate] = useLocation();
   const isEdit = !!initialEvent;
+
+  const isMobile = useIsMobile();
+  const [createStep, setCreateStep] = useState<"form" | "review">("form");
 
   const defaultVis = user?.discoverable ? "public" : "private";
   const initialState = initialEvent ? eventToInitialState(initialEvent) : null;
@@ -835,8 +840,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setShowCustomEnd(!showCustomEnd);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const performSubmit = async () => {
     setError("");
 
     // Check for commonly recommended fields; ask confirmation if any are missing (create mode only)
@@ -963,6 +967,11 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    performSubmit();
+  };
+
   // ---- Derived for preview ----
 
   const parsedTags = tags
@@ -989,29 +998,76 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
   const previewLocationName = locationMode === "inperson" ? (locationName || venueQuery) : null;
 
+  const showMobileStepFlow = !isEdit && isMobile;
+
   // ---- Render ----
 
   return (
-    <div className="create-event-layout">
-      {/* Live preview */}
-      <article className="create-event-preview">
-        <div className="header-image-wrap" style={{ marginBottom: "1.5rem" }}>
-          <div className="header-image-skeleton" aria-hidden={imageLoaded}>
-            <span className="skeleton-image-label">{t("headerImage")}</span>
-          </div>
-          {imageUrl && (
+    <div className={`create-event-layout ${showMobileStepFlow ? "create-event-mobile-steps" : ""} ${showMobileStepFlow && createStep === "review" ? "create-event-mobile-review" : ""}`}>
+      {/* Mobile create: sticky header */}
+      {showMobileStepFlow && (
+        <header className="create-event-mobile-header">
+          {createStep === "form" ? (
+            <>
+              <h1 className="create-event-mobile-header-title">{t("newEvent")}</h1>
+              <button
+                type="button"
+                onClick={handleClearForm}
+                className="create-event-mobile-header-action"
+              >
+                {t("clearForm")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setCreateStep("form")}
+                className="create-event-mobile-header-back"
+                aria-label={t("common:edit")}
+              >
+                <ChevronLeftIcon />
+              </button>
+              <h1 className="create-event-mobile-header-title">{t("reviewEvent")}</h1>
+              <span style={{ width: "4rem" }} aria-hidden />
+            </>
+          )}
+        </header>
+      )}
+
+      {/* Live preview — hidden on mobile step 1 */}
+      {(!showMobileStepFlow || createStep === "review") && (
+      <article className={`create-event-preview ${showMobileStepFlow && createStep === "review" ? "create-event-preview-review" : ""}`}>
+        <div className={showMobileStepFlow && createStep === "review" ? "create-event-preview-image" : "header-image-wrap"} style={{ marginBottom: "1.5rem" }}>
+          {!(showMobileStepFlow && createStep === "review") && (
+            <div className="header-image-skeleton" aria-hidden={imageLoaded}>
+              <span className="skeleton-image-label">{t("headerImage")}</span>
+            </div>
+          )}
+          {imageUrl ? (
             <>
               <img
                 src={imageUrl}
                 alt={title || t("headerImage")}
-                className={`header-image-img ${imageLoaded ? "header-image-loaded" : ""}`}
+                className={showMobileStepFlow && createStep === "review" ? "" : `header-image-img ${imageLoaded ? "header-image-loaded" : ""}`}
                 onLoad={() => setImageLoaded(true)}
+                style={showMobileStepFlow && createStep === "review" ? { width: "100%", maxHeight: "350px", objectFit: "cover", borderRadius: "var(--radius)", display: "block" } : undefined}
               />
               {imageAttribution && (
-                <ImageAttributionBadge attribution={imageAttribution} position="top-right" />
+                <ImageAttributionBadge
+                  attribution={imageAttribution}
+                  position={showMobileStepFlow && createStep === "review" ? "bottom-right" : "top-right"}
+                />
               )}
             </>
+          ) : showMobileStepFlow && createStep === "review" ? (
+            <div className="create-event-preview-image-placeholder" />
+          ) : (
+            <div className="header-image-skeleton" aria-hidden={false}>
+              <span className="skeleton-image-label">{t("headerImage")}</span>
+            </div>
           )}
+          {!(showMobileStepFlow && createStep === "review") && (
           <div className={`header-image-actions ${!imageUrl ? "header-image-actions-visible" : ""}`}>
             {imageUrl ? (
               <>
@@ -1046,14 +1102,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               </button>
             )}
           </div>
+          )}
         </div>
-        <ImagePickerModal
-          isOpen={imagePickerOpen}
-          onClose={() => setImagePickerOpen(false)}
-          onSelect={(sel) => { setImageLoaded(false); setImageUrl(sel.url); setImageAttribution(sel.attribution); }}
-          searchHint={inferImageSearchTerm(title)}
-        />
 
+        {(previewDateStr || !(showMobileStepFlow && createStep === "review")) && (
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col gap-1">
             {previewDateStr ? (
@@ -1071,6 +1123,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             )}
           </div>
         </div>
+        )}
 
         {title ? (
           <h1
@@ -1083,7 +1136,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           >
             {title}
           </h1>
-        ) : (
+        ) : !(showMobileStepFlow && createStep === "review") && (
           <div style={{ marginBottom: "0.5rem" }}>
             <span className="skeleton-line" style={{ width: "60%", height: "1.8rem" }} />
           </div>
@@ -1125,7 +1178,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               {locationAddress && ` — ${locationAddress}`}
             </p>
           )
-        ) : (
+        ) : !(showMobileStepFlow && createStep === "review") && (
           <p
             className="mb-2"
             style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
@@ -1138,9 +1191,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         {description ? (
           <div
             className="event-description"
-            dangerouslySetInnerHTML={{ __html: description }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
           />
-        ) : (
+        ) : !(showMobileStepFlow && createStep === "review") && (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
             <span className="skeleton-line" style={{ width: "100%", height: "0.9em" }} />
             <span className="skeleton-line" style={{ width: "92%", height: "0.9em" }} />
@@ -1177,7 +1230,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               </span>
             ))}
           </div>
-        ) : (
+        ) : !(showMobileStepFlow && createStep === "review") && (
           <div className="flex gap-1 mt-2">
             <span className="skeleton-tag" />
             <span className="skeleton-tag" style={{ width: "52px" }} />
@@ -1185,10 +1238,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           </div>
         )}
       </article>
+      )}
 
-      {/* Form sidebar */}
+      {/* Form sidebar — hidden on mobile step 2 */}
+      {(!showMobileStepFlow || createStep === "form") && (
       <aside className="create-event-form">
         <form onSubmit={handleSubmit}>
+          {!showMobileStepFlow && (
           <div
             style={{
               display: "flex",
@@ -1226,6 +1282,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               </button>
             )}
           </div>
+          )}
 
           {materialFieldsChanged && (
             <div
@@ -1239,6 +1296,44 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               }}
             >
               {t("materialChangeNotice")}
+            </div>
+          )}
+
+          {showMobileStepFlow && (
+            <div className="field">
+              <label>{t("headerImage")}</label>
+              <div className="create-event-form-image-row">
+                {imageUrl ? (
+                  <div className="create-event-form-image-preview">
+                    <img src={imageUrl} alt="" />
+                    <div className="create-event-form-image-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => setImagePickerOpen(true)}
+                      >
+                        {t("change")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); }}
+                      >
+                        {t("common:remove")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="create-event-form-image-add"
+                    onClick={() => setImagePickerOpen(true)}
+                  >
+                    <ImageIcon />
+                    {t("addImage")}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -1295,7 +1390,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               <span className="duration-sep" />
               <button
                 type="button"
-                onClick={() => selectDuration("allday")}
+                onClick={() => selectDuration(duration === "allday" ? "1h" : "allday")}
                 className={`duration-btn duration-btn-allday ${highlightedPreset === "allday" ? "duration-btn-active" : ""}`}
               >
                 {t("allDay")}
@@ -1721,32 +1816,78 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
           {error && <p className="error-text mb-2">{error}</p>}
 
-          <div style={{ display: "flex", gap: "0.5rem", width: "100%" }}>
-            {isEdit && (
-              <Link href={initialEvent ? eventPath(initialEvent) : "/"}>
+          <div style={{ display: "flex", gap: "0.5rem", width: "100%", flexWrap: "wrap" }}>
+            {showMobileStepFlow ? (
+              <button
+                type="button"
+                onClick={() => setCreateStep("review")}
+                className="btn-primary"
+                style={{ flex: 1, minWidth: 0 }}
+              >
+                {t("continueToReview")}
+              </button>
+            ) : (
+              <>
+                {isEdit && (
+                  <Link href={initialEvent ? eventPath(initialEvent) : "/"}>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={submitting}
+                      style={{ flexShrink: 0 }}
+                    >
+                      {t("common:cancel")}
+                    </button>
+                  </Link>
+                )}
                 <button
-                  type="button"
-                  className="btn-ghost"
+                  type="submit"
+                  className="btn-primary"
                   disabled={submitting}
-                  style={{ flexShrink: 0 }}
+                  style={{ flex: 1, minWidth: 0 }}
                 >
-                  {t("common:cancel")}
+                  {submitting
+                    ? (isEdit ? t("common:saving") : t("creating"))
+                    : (isEdit ? t("saveChanges") : t("createEvent"))}
                 </button>
-              </Link>
+              </>
             )}
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={submitting}
-              style={{ flex: 1, minWidth: 0 }}
-            >
-              {submitting
-                ? (isEdit ? t("common:saving") : t("creating"))
-                : (isEdit ? t("saveChanges") : t("createEvent"))}
-            </button>
           </div>
         </form>
       </aside>
+      )}
+
+      {/* Mobile step 2: confirm actions */}
+      {showMobileStepFlow && createStep === "review" && (
+        <div className="create-event-mobile-actions-wrap">
+          {error && <p className="error-text mb-2">{error}</p>}
+          <div className="create-event-mobile-actions">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setCreateStep("form")}
+          >
+            {t("common:edit")}
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={submitting}
+            onClick={() => performSubmit()}
+            style={{ flex: 1, minWidth: 0 }}
+          >
+            {submitting ? t("creating") : t("createEvent")}
+          </button>
+          </div>
+        </div>
+      )}
+
+      <ImagePickerModal
+        isOpen={imagePickerOpen}
+        onClose={() => setImagePickerOpen(false)}
+        onSelect={(sel) => { setImageLoaded(false); setImageUrl(sel.url); setImageAttribution(sel.attribution); }}
+        searchHint={inferImageSearchTerm(title)}
+      />
     </div>
   );
 }

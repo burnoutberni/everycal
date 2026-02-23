@@ -3,7 +3,7 @@ import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { eventsPathWithTags } from "../lib/urls";
 import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
-import { sanitizeHtml } from "../lib/sanitize";
+import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
@@ -411,7 +411,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div
           className="event-description"
           dangerouslySetInnerHTML={{
-            __html: sanitizeHtml(event.description.replace(/\n/g, "<br>")),
+            __html: sanitizeHtmlWithNewlines(event.description),
           }}
         />
       )}
@@ -431,14 +431,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       )}
 
       {event.tags.length > 0 && (
-        <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap" }}>
-          {event.tags.map((t) => (
+        <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap", alignItems: "center", minWidth: 0, width: "100%" }}>
+          {event.tags.map((tag) => (
             <Link
-              key={t}
-              href={eventsPathWithTags([t])}
+              key={tag}
+              href={eventsPathWithTags([tag])}
               className="tag tag-clickable"
             >
-              {t}
+              {tag}
             </Link>
           ))}
         </div>

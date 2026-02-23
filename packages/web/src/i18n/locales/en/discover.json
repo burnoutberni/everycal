@@ -1,5 +1,6 @@
 {
   "title": "Discover",
+  "filters": "Filters",
   "searchPlaceholder": "Search accounts or paste @user@domain / URL…",
   "all": "All",
   "local": "Local",

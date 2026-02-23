@@ -30,3 +30,28 @@ export function endOfDayForApi(d: Date): string {
   const day = d.getDate();
   return new Date(Date.UTC(y, m, day, 23, 59, 59, 999)).toISOString();
 }
+
+/** Format date for section headings (e.g. "Monday, Jan 15, 2025"). */
+export function formatDateHeading(d: Date, locale?: string): string {
+  return d.toLocaleDateString(locale, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Group events by local YYYY-MM-DD. */
+export function groupEventsByDate<T extends { startDate: string }>(
+  events: T[],
+  getKey: (ev: T) => string
+): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const ev of events) {
+    const key = getKey(ev);
+    const list = groups.get(key) || [];
+    list.push(ev);
+    groups.set(key, list);
+  }
+  return groups;
+}

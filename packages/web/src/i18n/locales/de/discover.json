@@ -1,10 +1,11 @@
 {
   "title": "Entdecken",
+  "filters": "Filter",
   "searchPlaceholder": "Konten suchen oder @user@domain / URL einfügen…",
   "all": "Alle",
   "local": "Lokal",
   "remote": "Remote",
-  "following": "Folgt",
+  "following": "Folge ich",
   "notFollowing": "Folgt nicht",
   "sortBy": "Sortieren nach",
   "recent": "Neueste",

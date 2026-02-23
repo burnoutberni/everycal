@@ -12,6 +12,7 @@ import { eventPath } from "../lib/urls";
 import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
+import { escapeHtml, stripHtmlToText } from "../lib/sanitize";
 
 import "./CalendarPage.css";
 
@@ -39,18 +40,15 @@ function toFullCalendarEvent(ev: CalEvent) {
   };
 }
 
-function escapeHtml(s: string): string {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
-
 /** Add one day for FullCalendar's exclusive end date */
 function addOneDay(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
 }
+
+const SWIPE_THRESHOLD = 50;
+const SWIPE_COOLDOWN_MS = 300;
 
 export function CalendarPage() {
   const { t, i18n } = useTranslation(["calendar", "events"]);
@@ -63,6 +61,9 @@ export function CalendarPage() {
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
+  const calendarRef = useRef<InstanceType<typeof FullCalendar> | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastSwipeRef = useRef<number>(0);
 
   useEffect(() => {
     feedsApi.getCalendarUrl().then(({ url }) => setFeedUrl(url)).catch(() => {});
@@ -134,7 +135,7 @@ export function CalendarPage() {
       if (ev.account?.displayName || ev.account?.username) {
         parts.push(`${byLabel} ${ev.account.displayName || ev.account.username}`);
       }
-      const cleanedDesc = ev.description ? ev.description.replace(/<[^>]*>/g, "") : "";
+      const cleanedDesc = ev.description ? stripHtmlToText(ev.description) : "";
       const desc = cleanedDesc ? cleanedDesc.slice(0, 120) + (cleanedDesc.length > 120 ? "…" : "") : "";
 
       const viewDetails = t("events:viewDetails");
@@ -239,6 +240,36 @@ export function CalendarPage() {
     if (cleanup) cleanup();
   }, []);
 
+  const handleSwipeStart = useCallback((e: React.TouchEvent) => {
+    swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, []);
+
+  const handleSwipeEnd = useCallback((e: React.TouchEvent) => {
+    const start = swipeStartRef.current;
+    if (!start) return;
+    const end = e.changedTouches[0];
+    const deltaX = end.clientX - start.x;
+    const deltaY = end.clientY - start.y;
+    swipeStartRef.current = null;
+
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD) return;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
+    const now = Date.now();
+    if (now - lastSwipeRef.current < SWIPE_COOLDOWN_MS) return;
+
+    const api = calendarRef.current?.getApi?.();
+    if (!api) return;
+
+    lastSwipeRef.current = now;
+    if (deltaX < 0) {
+      api.next();
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(10);
+    } else {
+      api.prev();
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(10);
+    }
+  }, []);
+
   const handleCopyFeedLink = useCallback(async () => {
     setCopyStatus("copying");
     try {
@@ -320,35 +351,40 @@ export function CalendarPage() {
           {t("noEventsInRangeAfter")}
         </p>
       )}
-      <div className="everycal-fullcalendar">
+      <div
+        className="everycal-fullcalendar everycal-fullcalendar-swipe"
+        onTouchStart={handleSwipeStart}
+        onTouchEnd={handleSwipeEnd}
+      >
         <FullCalendar
-              plugins={[dayGridPlugin, timeGridPlugin]}
-              initialView="dayGridMonth"
-              locales={allLocales}
-              locale={i18n.language}
-              headerToolbar={{
-                left: "prev,next today",
-                center: "title",
-                right: "dayGridMonth,timeGridWeek,timeGridDay",
-              }}
-              buttonIcons={false}
-              buttonText={{
-                prev: "\u2039",
-                next: "\u203A",
-                today: t("today"),
-                month: t("month"),
-                week: t("week"),
-                day: t("day"),
-              }}
-              firstDay={1}
-              events={fcEvents}
-              datesSet={handleDatesSet}
-              eventClick={handleEventClick}
-              eventDidMount={handleEventDidMount}
-              eventWillUnmount={handleEventWillUnmount}
-              eventDisplay="block"
-              height="auto"
-            />
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin]}
+          initialView="dayGridMonth"
+          locales={allLocales}
+          locale={i18n.language}
+          headerToolbar={{
+            left: "prev,next today",
+            center: "title",
+            right: "dayGridMonth,timeGridWeek,timeGridDay",
+          }}
+          buttonIcons={false}
+          buttonText={{
+            prev: "\u2039",
+            next: "\u203A",
+            today: t("today"),
+            month: t("month"),
+            week: t("week"),
+            day: t("day"),
+          }}
+          firstDay={1}
+          events={fcEvents}
+          datesSet={handleDatesSet}
+          eventClick={handleEventClick}
+          eventDidMount={handleEventDidMount}
+          eventWillUnmount={handleEventWillUnmount}
+          eventDisplay="block"
+          height="auto"
+        />
       </div>
     </div>
   );

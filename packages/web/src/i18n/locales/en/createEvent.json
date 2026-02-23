@@ -65,6 +65,8 @@
   "saveChanges": "Save Changes",
   "creating": "Creating…",
   "createEvent": "Create Event",
+  "continueToReview": "Continue",
+  "reviewEvent": "Review event",
   "somethingWentWrong": "Something went wrong",
   "missingFieldConfirmSingle": "You haven't set a {{field}}. Are you sure you want to create this event?",
   "missingFieldConfirmMultiple": "You haven't set: {{fields}}. Are you sure you want to create this event?",
