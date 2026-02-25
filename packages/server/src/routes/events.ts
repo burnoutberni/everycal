@@ -66,52 +66,6 @@ function uniqueSlug(db: DB, accountId: string, title: string, excludeEventId?: s
   }
 }
 
-const MAX_ACTIVITYPUB_CONTENT_LENGTH = 360;
-const MAX_ACTIVITYPUB_CONTENT_LINES = 8;
-
-function buildActivityPubContent(
-  title: string,
-  startDate: string,
-  locale: string,
-  locationName?: string,
-  locationAddress?: string,
-  description?: string
-): string {
-  const lines: string[] = [];
-
-  lines.push(title);
-
-  const localeTag = locale || "en";
-  const start = new Date(startDate);
-  const formattedDate = start.toLocaleString(localeTag, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  lines.push(formattedDate);
-
-  if (locationName) {
-    lines.push(locationName);
-    if (locationAddress) lines.push(locationAddress);
-  }
-
-  if (description) {
-    lines.push(...description.split("\n"));
-  }
-
-  let finalLines = lines.slice(0, MAX_ACTIVITYPUB_CONTENT_LINES);
-
-  let result = finalLines.join("\n");
-  if (result.length > MAX_ACTIVITYPUB_CONTENT_LENGTH) {
-    result = result.substring(0, MAX_ACTIVITYPUB_CONTENT_LENGTH - 3) + "...";
-  }
-
-  return result;
-}
-
 function sanitizeEventFields(body: Record<string, unknown>): void {
   if (typeof body.title === "string") body.title = stripHtml(body.title);
   if (typeof body.description === "string") body.description = sanitizeHtml(body.description);
@@ -1029,15 +983,6 @@ export function eventRoutes(db: DB): Hono {
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${user.username}`;
-      const userLocale = (user as { preferredLanguage?: string }).preferredLanguage || "en";
-      const content = buildActivityPubContent(
-        body.title,
-        body.startDate,
-        userLocale,
-        body.location?.name,
-        body.location?.address,
-        body.description
-      );
       const createActivity = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `${baseUrl}/events/${id}/activity`,
@@ -1050,7 +995,7 @@ export function eventRoutes(db: DB): Hono {
           id: `${baseUrl}/events/${id}`,
           type: "Event",
           name: body.title,
-          content,
+          content: body.description || undefined,
           startTime: body.startDate,
           endTime: body.endDate || undefined,
           url: `${baseUrl}/@${user.username}/${slug}`,
@@ -1178,15 +1123,6 @@ export function eventRoutes(db: DB): Hono {
       if (updated) {
         const baseUrl = process.env.BASE_URL || "http://localhost:3000";
         const actorUrl = `${baseUrl}/users/${user.username}`;
-        const userLocale = (user as { preferredLanguage?: string }).preferredLanguage || "en";
-        const content = buildActivityPubContent(
-          updated.title as string,
-          updated.startDate as string,
-          userLocale,
-          (updated.location as { name?: string })?.name,
-          (updated.location as { address?: string })?.address,
-          updated.description as string | undefined
-        );
         const updateActivity = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: `${baseUrl}/events/${id}/update`,
@@ -1199,7 +1135,7 @@ export function eventRoutes(db: DB): Hono {
             id: `${baseUrl}/events/${id}`,
             type: "Event",
             name: updated.title,
-            content,
+            content: updated.description as string | undefined,
             startTime: updated.startDate,
             url: `${baseUrl}/@${user.username}/${updated.slug}`,
             attributedTo: actorUrl,
