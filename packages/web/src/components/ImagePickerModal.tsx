@@ -104,7 +104,7 @@ export function ImagePickerModal({
 
   // Typeahead: search automatically as user types (debounced)
   useEffect(() => {
-    if (tab !== "search") return;
+    if (!isOpen || tab !== "search") return;
     const q = searchQuery.trim();
     if (q.length < 2) {
       setSearchResults([]);
@@ -134,7 +134,7 @@ export function ImagePickerModal({
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-  }, [tab, searchQuery, source]);
+  }, [tab, searchQuery, source, isOpen]);
 
   const loadMore = async () => {
     const q = searchQuery.trim();

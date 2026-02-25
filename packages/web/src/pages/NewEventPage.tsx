@@ -372,6 +372,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   // Uses heuristics to infer event type → search term; never sends raw title to API
   useEffect(() => {
     if (isEdit) return;
+    if (imageUrl) return;
     const t = title.trim();
     if (t.length < 2) return;
     const searchTerm = inferImageSearchTerm(t);
@@ -406,7 +407,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       }
     }, 500);
     return () => clearTimeout(searchTimer.current);
-  }, [title, isEdit]);
+  }, [title, isEdit, imageUrl]);
 
   useEffect(() => {
     if (user) {

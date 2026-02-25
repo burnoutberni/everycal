@@ -43,7 +43,7 @@ app.use("*", secureHeaders({
     scriptSrc: ["'self'"],
     styleSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", "https:", "data:"],
-    connectSrc: ["'self'"],
+    connectSrc: ["'self'", "https://photon.komoot.io"],
     fontSrc: ["'self'"],
     objectSrc: ["'none'"],
     frameAncestors: ["'none'"],

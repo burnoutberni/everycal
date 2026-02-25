@@ -104,7 +104,7 @@ export function Header() {
                 </Link>
                 <span className="header-icon-sep" aria-hidden="true" />
                 <Link
-                  href="/events/new"
+                  href="/create"
                   className="header-icon-btn"
                   title={t("createNewEvent")}
                 >
@@ -271,7 +271,7 @@ export function Header() {
             <GlobeIcon /> {t("discover")}
           </Link>
           <Link
-            href="/events/new"
+            href="/create"
             className="header-drawer-item"
             onClick={() => setDrawerOpen(false)}
           >
