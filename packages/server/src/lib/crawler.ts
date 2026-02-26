@@ -80,6 +80,7 @@ export function isCrawler(userAgent: string | undefined): boolean {
   // Check specific patterns first
   for (const pattern of CRAWLER_PATTERNS) {
     if (ua.includes(pattern.toLowerCase())) {
+      console.log(`[Crawler] Detected: "${pattern}" in UA: ${userAgent.slice(0, 100)}`);
       return true;
     }
   }

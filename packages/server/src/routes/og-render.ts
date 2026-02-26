@@ -25,8 +25,13 @@ export function ogRenderRoutes(db: DB): Hono {
       return next();
     }
 
-    const userAgent = c.req.header("user-agent");
-    if (!isCrawler(userAgent)) {
+    const userAgent = c.req.header("user-agent") || "";
+    const isCrawlerResult = isCrawler(userAgent);
+    
+    // Debug logging
+    console.log(`[OG] Request: ${c.req.path}, UA: ${userAgent.slice(0, 50)}..., isCrawler: ${isCrawlerResult}`);
+    
+    if (!isCrawlerResult) {
       return next();
     }
 
@@ -63,8 +68,11 @@ export function ogRenderRoutes(db: DB): Hono {
     } | undefined;
 
     if (!event) {
+      console.log(`[OG] Event not found: @${username}/${slug}`);
       return next();
     }
+
+    console.log(`[OG] Found event: ${event.title}`);
 
     // Build OG tags
     const eventUrl = `${baseUrl}/@${username}/${slug}`;
