@@ -86,6 +86,7 @@ interface EventDraft {
   locationUrl: string;
   showAddress: boolean;
   manualLocation: boolean;
+  userRemovedAutoImage: boolean;
 }
 
 function loadDraft(): EventDraft | null {
@@ -330,6 +331,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [imageUrl, setImageUrl] = useState(initialState?.imageUrl ?? "");
   const [imageAttribution, setImageAttribution] = useState<ImageAttribution | undefined>(initialState?.imageAttribution);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [userRemovedAutoImage, setUserRemovedAutoImage] = useState(false);
   const [url, setUrl] = useState(initialState?.url ?? "");
   const [urlError, setUrlError] = useState("");
   const [tags, setTags] = useState(initialState?.tags ?? "");
@@ -373,6 +375,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   useEffect(() => {
     if (isEdit) return;
     if (imageUrl) return;
+    if (userRemovedAutoImage) return;
     const t = title.trim();
     if (t.length < 2) return;
     const searchTerm = inferImageSearchTerm(t);
@@ -407,7 +410,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       }
     }, 500);
     return () => clearTimeout(searchTimer.current);
-  }, [title, isEdit, imageUrl]);
+  }, [title, isEdit, imageUrl, userRemovedAutoImage]);
 
   useEffect(() => {
     if (user) {
@@ -440,6 +443,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setLocationUrl(d.locationUrl || "");
     setShowAddress(d.showAddress ?? false);
     setManualLocation(d.manualLocation ?? false);
+    setUserRemovedAutoImage(d.userRemovedAutoImage ?? false);
   }, [user, isEdit]);
 
   // Save draft to localStorage (debounced, create mode only)
@@ -466,6 +470,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       locationUrl,
       showAddress,
       manualLocation,
+      userRemovedAutoImage,
     };
     if (!hasDraftContent(draft)) return;
     const t = setTimeout(() => saveDraft(draft), 500);
@@ -493,6 +498,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     locationUrl,
     showAddress,
     manualLocation,
+    userRemovedAutoImage,
   ]);
 
   // Derived
@@ -1075,7 +1081,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 <button
                   type="button"
                   className="header-image-btn"
-                  onClick={() => setImagePickerOpen(true)}
+                  onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
                   title={t("chooseDifferentImage")}
                 >
                   <ImageIcon />
@@ -1084,7 +1090,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 <button
                   type="button"
                   className="header-image-btn header-image-btn-danger"
-                  onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); }}
+                  onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
                   title={t("removeImage")}
                 >
                   <TrashIcon />
@@ -1095,7 +1101,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               <button
                 type="button"
                 className="header-image-btn header-image-btn-add"
-                onClick={() => setImagePickerOpen(true)}
+                onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
                 title={t("addHeaderImage")}
               >
                 <ImageIcon />
@@ -1311,14 +1317,14 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                       <button
                         type="button"
                         className="btn-ghost btn-sm"
-                        onClick={() => setImagePickerOpen(true)}
+                        onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
                       >
                         {t("change")}
                       </button>
                       <button
                         type="button"
                         className="btn-ghost btn-sm"
-                        onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); }}
+                        onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
                       >
                         {t("common:remove")}
                       </button>
@@ -1328,7 +1334,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   <button
                     type="button"
                     className="create-event-form-image-add"
-                    onClick={() => setImagePickerOpen(true)}
+                    onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
                   >
                     <ImageIcon />
                     {t("addImage")}
