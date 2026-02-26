@@ -48,6 +48,7 @@ COPY --from=base /app/scripts scripts/
 COPY --from=base /app/node_modules node_modules
 COPY --from=base /app/packages/core/node_modules packages/core/node_modules
 COPY --from=base /app/packages/server/node_modules packages/server/node_modules
+COPY --from=base /app/packages/og/node_modules packages/og/node_modules
 COPY --from=base /app/packages/jobs/node_modules packages/jobs/node_modules
 COPY --from=base /app/packages/scrapers/node_modules packages/scrapers/node_modules
 
