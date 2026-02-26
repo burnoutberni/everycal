@@ -6,10 +6,15 @@
  */
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(process.cwd(), "../..");
-const indexHtmlPath = resolve(repoRoot, "packages/web/dist/index.html");
+// Get the directory of this module (packages/server/src/lib/)
+const serverLibDir = dirname(fileURLToPath(import.meta.url));
+// Go up to packages/server/, then to repo root, then to web/dist
+const serverDir = resolve(serverLibDir, "..");
+const packagesDir = resolve(serverDir, "..");
+const indexHtmlPath = resolve(packagesDir, "web/dist/index.html");
 
 /** OG tag data for rendering */
 export interface OgTags {
