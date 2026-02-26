@@ -9,11 +9,12 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Get the directory of this module (packages/server/src/lib/)
+// Get the directory of this module (packages/server/dist/lib/ when compiled, or src/lib/ in dev)
 const serverLibDir = dirname(fileURLToPath(import.meta.url));
-// Go up to packages/server/, then to repo root, then to web/dist
-const serverDir = resolve(serverLibDir, "..");
-const packagesDir = resolve(serverDir, "..");
+// Go up to packages/server/ (dist -> server)
+const serverRoot = resolve(serverLibDir, "../..");
+// Go up to repo root
+const packagesDir = resolve(serverRoot, "..");
 const indexHtmlPath = resolve(packagesDir, "web/dist/index.html");
 
 /** OG tag data for rendering */
