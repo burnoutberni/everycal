@@ -22,7 +22,9 @@
       "minimatch": ">=10.2.1",
       "webpack-dev-server": ">=5.2.1",
       "ajv": ">=8.18.0",
-      "qs": ">=6.14.2"
+      "qs": ">=6.14.2",
+      "basic-ftp": ">=5.2.0",
+      "rollup": ">=4.59.0"
     }
   },
   "scripts": {
