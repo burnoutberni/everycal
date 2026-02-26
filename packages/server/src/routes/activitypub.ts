@@ -816,6 +816,13 @@ function rowToAPEvent(
     }));
   }
 
+  if (row.og_image_url) {
+    event.image = {
+      type: "Image",
+      url: `${baseUrl}${row.og_image_url}`,
+    };
+  }
+
   event.mediaType = "text/html";
 
   return event;

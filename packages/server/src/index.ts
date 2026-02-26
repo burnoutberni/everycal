@@ -30,11 +30,14 @@ import { directoryRoutes } from "./routes/directory.js";
 import { locationRoutes } from "./routes/locations.js";
 import { imageRoutes } from "./routes/images.js";
 import { serveUploadsRoutes } from "./routes/serve-uploads.js";
+import { serveOgImagesRoutes } from "./routes/serve-og-images.js";
+import { ogImageRoutes } from "./routes/og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
+import { DATABASE_PATH } from "./lib/paths.js";
 
 const app = new Hono();
-const db = initDatabase(process.env.DATABASE_PATH || "everycal.db");
+const db = initDatabase(DATABASE_PATH);
 
 // Security headers with Content-Security-Policy
 app.use("*", secureHeaders({
@@ -112,6 +115,9 @@ app.get("/healthz", (c) => c.json({ status: "ok" }));
 // Serve uploads with on-the-fly re-encoding (strip metadata, compress, cap dimensions)
 app.route("/uploads", serveUploadsRoutes());
 
+// Serve OG images
+app.route("/og-images", serveOgImagesRoutes());
+
 // Auth
 app.route("/api/v1/auth", authRoutes(db));
 
@@ -124,6 +130,7 @@ app.route("/api/v1/uploads", uploadRoutes());
 app.route("/api/v1/locations", locationRoutes(db));
 app.route("/api/v1/images", imageRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
+app.route("/api/v1/og-images", ogImageRoutes(db));
 
 // ActivityPub / WebFinger / NodeInfo
 app.route("/.well-known", wellKnownRoutes(db));

@@ -6,12 +6,14 @@ services:
     volumes:
       - everycal-data:/data
       - everycal-uploads:/app/uploads
+      - everycal-og-images:/app/og-images
       # Scrapers: mount scraper-api-keys.json when using scrapers (create via setup-scraper-accounts.sh)
       # - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
     environment:
       - NODE_ENV=production
       - DATABASE_PATH=/data/everycal.db
       - UPLOAD_DIR=/app/uploads
+      - OG_DIR=/app/og-images
       - RUN_JOBS_INTERNALLY=true
       - SCRAPER_API_KEYS_FILE=/secrets/scraper-api-keys.json
       # - SCRAPER_API_KEYS_JSON=${SCRAPER_API_KEYS_JSON} # alternatively, pass JSON inline (e.g. from Docker secret)
@@ -34,3 +36,4 @@ services:
 volumes:
   everycal-data:
   everycal-uploads:
+  everycal-og-images:

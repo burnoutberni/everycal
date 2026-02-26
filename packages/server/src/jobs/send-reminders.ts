@@ -14,9 +14,9 @@ config({ quiet: true });
 
 import { initDatabase } from "../db.js";
 import { runSendReminders } from "../lib/notifications.js";
+import { DATABASE_PATH } from "../lib/paths.js";
 
-const dbPath = process.env.DATABASE_PATH || resolve(process.cwd(), "packages/server/everycal.db");
-const db = initDatabase(dbPath);
+const db = initDatabase(DATABASE_PATH);
 
 runSendReminders(db)
   .then(() => process.exit(0))

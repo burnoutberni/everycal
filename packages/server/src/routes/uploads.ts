@@ -10,8 +10,8 @@ import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
+import { UPLOAD_DIR } from "../lib/paths.js";
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || "uploads";
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
 /** Allowed image extensions and their MIME types. */

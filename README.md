@@ -329,8 +329,9 @@ Copy `.env.example` to `.env` and customize:
 |----------|---------|-------------|
 | `BASE_URL` | `http://localhost:3000` | Public-facing URL (for federation) |
 | `PORT` | `3000` | HTTP port |
-| `DATABASE_PATH` | `/data/everycal.db` | SQLite database path |
-| `UPLOAD_DIR` | `uploads` | Directory for uploaded images |
+| `DATABASE_PATH` | `./everycal.db` | SQLite database path |
+| `UPLOAD_DIR` | `./uploads` | Directory for uploaded images |
+| `OG_DIR` | `./og-images` | Directory for generated Open Graph images |
 | `CORS_ORIGIN` | `BASE_URL` | Comma-separated allowed origins |
 | `TRUSTED_PROXY` | `false` | Set to `true` behind reverse proxy |
 | `OPEN_REGISTRATIONS` | `true` | Allow public sign-ups |

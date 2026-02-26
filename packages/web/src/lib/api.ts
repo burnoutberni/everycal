@@ -257,6 +257,7 @@ export interface CalEvent {
   allDay: boolean;
   location: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
   image: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution } | null;
+  ogImageUrl?: string | null;
   url: string | null;
   tags: string[];
   visibility: string;

@@ -1,0 +1,26 @@
+{
+  "name": "@everycal/og",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@everycal/core": "workspace:*",
+    "@fontsource/bricolage-grotesque": "^5.2.0",
+    "satori": "^0.19.2",
+    "satori-html": "^0.3.2",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

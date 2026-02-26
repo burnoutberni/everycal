@@ -508,5 +508,12 @@ export function initDatabase(path: string): DB {
     // Column already exists
   }
 
+  // Migration: og_image_url for custom OG images
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN og_image_url TEXT");
+  } catch {
+    // Column already exists
+  }
+
   return db;
 }

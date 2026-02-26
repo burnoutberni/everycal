@@ -51,7 +51,7 @@ COPY docker-entrypoint.sh /app/
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Create data directory owned by non-root user
-RUN mkdir -p /data /app/uploads && chown -R everycal:everycal /data /app/uploads /app
+RUN mkdir -p /data /app/uploads /app/og-images && chown -R everycal:everycal /data /app/uploads /app/og-images /app
 
 USER everycal
 
@@ -59,6 +59,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV DATABASE_PATH=/data/everycal.db
 ENV UPLOAD_DIR=/app/uploads
+ENV OG_DIR=/app/og-images
 EXPOSE 3000
 
 VOLUME /data

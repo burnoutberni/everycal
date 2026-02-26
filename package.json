@@ -4,7 +4,7 @@
   "description": "Federated event calendar built on ActivityPub",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=20",
+    "node": ">=22",
     "pnpm": ">=10"
   },
   "packageManager": "pnpm@10.29.2",

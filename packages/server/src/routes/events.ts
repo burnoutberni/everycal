@@ -23,6 +23,7 @@ import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
+import { generateAndSaveOgImage } from "./og-images.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -189,6 +190,7 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
             : undefined,
         }
       : null,
+    ogImageUrl: row.og_image_url || null,
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: row.visibility,
@@ -1012,6 +1014,11 @@ export function eventRoutes(db: DB): Hono {
     const response = readLocalEventById(id);
     if (!response) return c.json({ error: t(getLocale(c), "events.event_not_found_after_create") }, 500);
     response.rsvpStatus = "going";
+
+    generateAndSaveOgImage(db, id)
+      .then()
+      .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+
     return c.json(response, 201);
   });
 
@@ -1150,6 +1157,20 @@ export function eventRoutes(db: DB): Hono {
 
     const updated = readLocalEventById(id);
     if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
+
+    const ogRelevantFieldsChanged =
+      body.title !== undefined ||
+      body.startDate !== undefined ||
+      body.endDate !== undefined ||
+      body.location !== undefined ||
+      body.image !== undefined;
+
+    if (ogRelevantFieldsChanged) {
+      generateAndSaveOgImage(db, id)
+        .then()
+        .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+    }
+
     return c.json(updated);
   });
 

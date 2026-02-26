@@ -247,6 +247,31 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     }
   };
 
+  // Update meta tags for social sharing
+  useEffect(() => {
+    if (!event) return;
+
+    const baseUrl = window.location.origin;
+    const ogImageUrl = event.ogImageUrl || event.image?.url
+      ? `${baseUrl}${event.ogImageUrl || event.image?.url}`
+      : undefined;
+
+    const title = event.title;
+    const description = event.location?.name
+      ? `${formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })} • ${event.location.name}`
+      : formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") });
+
+    document.title = title;
+    document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
+    document.querySelector('meta[property="og:description"]')?.setAttribute("content", description);
+    document.querySelector('meta[name="twitter:title"]')?.setAttribute("content", title);
+    document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", description);
+    if (ogImageUrl) {
+      document.querySelector('meta[property="og:image"]')?.setAttribute("content", ogImageUrl);
+      document.querySelector('meta[name="twitter:image"]')?.setAttribute("content", ogImageUrl);
+    }
+  }, [event, i18n.language, t]);
+
   const handleDelete = async () => {
     if (!event || !confirm(t("deleteEventConfirm"))) return;
     await eventsApi.delete(event.id);

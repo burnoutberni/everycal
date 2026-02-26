@@ -14,6 +14,10 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
+      "/og-images": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
       // Proxy well-known and ActivityPub routes for dev
       "/.well-known": {
         target: "http://localhost:3000",

@@ -8,8 +8,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve, extname } from "node:path";
 import sharp from "sharp";
+import { UPLOAD_DIR } from "../lib/paths.js";
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || "uploads";
 const MAX_DIMENSION = 2048; // Cap to prevent image bombs
 
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"]);
