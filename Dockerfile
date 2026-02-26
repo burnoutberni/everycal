@@ -1,4 +1,4 @@
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 WORKDIR /app
 
@@ -6,6 +6,7 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
+COPY packages/og/package.json packages/og/
 COPY packages/jobs/package.json packages/jobs/
 COPY packages/scrapers/package.json packages/scrapers/
 COPY packages/web/package.json packages/web/
@@ -14,6 +15,7 @@ RUN pnpm install --frozen-lockfile || pnpm install
 # Copy source and build
 COPY packages/core/ packages/core/
 COPY packages/server/ packages/server/
+COPY packages/og/ packages/og/
 COPY packages/jobs/ packages/jobs/
 COPY packages/scrapers/ packages/scrapers/
 COPY packages/web/ packages/web/
@@ -21,7 +23,7 @@ COPY scripts/ scripts/
 RUN pnpm -r build
 
 # Production image
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
 # Run as non-root user
@@ -35,6 +37,8 @@ COPY --from=base /app/packages/core/package.json packages/core/
 COPY --from=base /app/packages/core/dist packages/core/dist
 COPY --from=base /app/packages/server/package.json packages/server/
 COPY --from=base /app/packages/server/dist packages/server/dist
+COPY --from=base /app/packages/og/package.json packages/og/
+COPY --from=base /app/packages/og/dist packages/og/dist
 COPY --from=base /app/packages/jobs/package.json packages/jobs/
 COPY --from=base /app/packages/jobs/dist packages/jobs/dist
 COPY --from=base /app/packages/scrapers/package.json packages/scrapers/
