@@ -21,12 +21,12 @@ const PROFILE_EXPAND_AT_TOP = 18;
 /** Only expand when header top > this — user scrolled back up. Stuck header ≈56px, natural position ≈80px. */
 const PROFILE_EXPAND_HEADER_TOP = 70;
 
-export function ProfilePage({ username }: { username: string }) {
+export function ProfilePage({ username, initialProfile, initialEvents }: { username: string; initialProfile?: User | null; initialEvents?: CalEvent[] }) {
   const { t, i18n } = useTranslation(["profile", "events", "common"]);
   const { user: currentUser } = useAuth();
-  const [profile, setProfile] = useState<User | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [events, setEvents] = useState<CalEvent[]>([]);
+  const [profile, setProfile] = useState<User | null>(initialProfile ?? null);
+  const [profileLoading, setProfileLoading] = useState(!initialProfile);
+  const [events, setEvents] = useState<CalEvent[]>(initialEvents ?? []);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
@@ -56,8 +56,10 @@ export function ProfilePage({ username }: { username: string }) {
   }, [username]);
 
   useEffect(() => {
+    // Skip fetch if we have SSR data
+    if (initialProfile !== undefined) return;
     fetchProfile();
-  }, [fetchProfile]);
+  }, [fetchProfile, initialProfile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +104,13 @@ export function ProfilePage({ username }: { username: string }) {
   );
 
   useEffect(() => {
-    if (profile) fetchEvents();
-  }, [profile, fetchEvents]);
+    // Skip fetch if we have SSR data
+    if (profile && initialEvents === undefined) fetchEvents();
+    else if (profile && initialEvents) {
+      // Still set scrollSpyReady after SSR data
+      scrollSpyReadyRef.current = true;
+    }
+  }, [profile, fetchEvents, initialEvents]);
 
   useEffect(() => {
     if (eventsLoading) {

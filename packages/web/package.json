@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ssr": "vike dev",
     "build": "tsc -b && vite build",
+    "build:ssr": "tsc -b && vite build && vike build",
     "generate:logos": "node scripts/generate-logos.mjs",
     "preview": "vite preview",
     "lint": "eslint src/",
@@ -33,6 +35,7 @@
     "react-dom": "^19.0.0",
     "react-i18next": "^15.1.0",
     "react-router-dom": "^7.0.0",
+    "vike": "^0.4.222",
     "wouter": "^3.0.0"
   },
   "devDependencies": {

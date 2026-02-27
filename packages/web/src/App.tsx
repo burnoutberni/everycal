@@ -17,6 +17,7 @@ import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { useAuth } from "./hooks/useAuth";
+import { usePageContext } from "./renderer/PageContextProvider";
 
 // Regex routes for /@username patterns (regexparam doesn't handle literal @ before :param)
 const profileRegex = /^\/@(?<username>[^/]+)\/?$/;
@@ -29,6 +30,12 @@ export function App() {
   const { t } = useTranslation("common");
   const { user, loading } = useAuth();
   const [location] = useLocation();
+  const pageContext = usePageContext();
+
+  // Get initial data from SSR context
+  const initialProfile = pageContext?.pageProps?.profile;
+  const initialEvents = pageContext?.pageProps?.events;
+  const initialEvent = pageContext?.pageProps?.event;
 
   if (loading) {
     return (
@@ -61,12 +68,24 @@ export function App() {
 
           {/* /@username/:slug */}
           <Route path={eventRegex}>
-            {(params) => <EventPage username={params.username!} slug={params.slug!} />}
+            {(params) => (
+              <EventPage 
+                username={params.username!} 
+                slug={params.slug!} 
+                initialEvent={initialEvent}
+              />
+            )}
           </Route>
 
           {/* /@username */}
           <Route path={profileRegex}>
-            {(params) => <ProfilePage username={params.username!} />}
+            {(params) => (
+              <ProfilePage 
+                username={params.username!} 
+                initialProfile={initialProfile}
+                initialEvents={initialEvents}
+              />
+            )}
           </Route>
 
           {/* Legacy routes */}

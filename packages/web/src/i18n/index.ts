@@ -22,10 +22,15 @@ import deCreateEvent from "./locales/de/createEvent.json";
 const STORAGE_KEY = "everycal_locale";
 
 function getInitialLanguage(): string {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "en" || stored === "de") return stored;
-  const browser = navigator.language?.toLowerCase().split("-")[0];
-  return browser === "de" ? "de" : "en";
+  // In browser, try localStorage first
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "en" || stored === "de") return stored;
+    const browser = navigator.language?.toLowerCase().split("-")[0];
+    return browser === "de" ? "de" : "en";
+  }
+  // Default for SSR
+  return "en";
 }
 
 i18n.use(initReactI18next).init({
@@ -59,6 +64,17 @@ i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
+/** Initialize locale for SSR - call with server-provided locale */
+export function initializeLocale(locale: string) {
+  if (locale === "en" || locale === "de") {
+    i18n.changeLanguage(locale);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, locale);
+      document.documentElement.lang = locale;
+    }
+  }
+}
+
 /** Sync i18n language with user preference (call when user logs in). */
 export function syncLanguageFromUser(preferredLanguage?: string | null) {
   if (preferredLanguage === "en" || preferredLanguage === "de") {
@@ -85,9 +101,11 @@ function updateDocumentHead() {
   document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", desc);
 }
 
-// Set initial lang attribute and document head
-document.documentElement.lang = i18n.language;
-i18n.on("initialized", updateDocumentHead);
-i18n.on("languageChanged", updateDocumentHead);
+// Set initial lang attribute and document head (client-side only)
+if (typeof window !== "undefined") {
+  document.documentElement.lang = i18n.language;
+  i18n.on("initialized", updateDocumentHead);
+  i18n.on("languageChanged", updateDocumentHead);
+}
 
 export { STORAGE_KEY };

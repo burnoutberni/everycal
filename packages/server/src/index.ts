@@ -35,6 +35,7 @@ import { ogImageRoutes } from "./routes/og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
 import { DATABASE_PATH } from "./lib/paths.js";
+import { isSsrRoute, renderSsrPage } from "./vike.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -147,11 +148,32 @@ app.route("/", sharedInboxRoute(db));
 
 // Serve web frontend (production only) — must be last to not override API routes
 if (process.env.NODE_ENV === "production") {
-  // Serve static assets from /packages/web/dist
-  app.use("*", serveStatic({ root: "./packages/web/dist" }));
+  // SSR routes for profile and event pages
+  app.get("/@:username/:slug?", async (c) => {
+    const url = c.req.path;
+    
+    // Check if this is an SSR route (profile or event page)
+    if (isSsrRoute(url)) {
+      try {
+        const result = await renderSsrPage(c, url);
+        return c.html(result.body, result.statusCode as any);
+      } catch (error) {
+        console.error("SSR rendering error:", error);
+        // Fall through to SPA fallback
+      }
+    }
+    
+    // SPA fallback for non-SSR routes
+    const fs = await import("node:fs/promises");
+    const indexHtml = await fs.readFile("./packages/web/dist/client/index.html", "utf-8");
+    return c.html(indexHtml);
+  });
+
+  // Serve static assets from /packages/web/dist/client
+  app.use("*", serveStatic({ root: "./packages/web/dist/client" }));
   
   // SPA fallback — serve index.html for all non-API routes (client-side routing)
-  app.get("*", serveStatic({ path: "./packages/web/dist/index.html" }));
+  app.get("*", serveStatic({ path: "./packages/web/dist/client/index.html" }));
 }
 
 const port = parseInt(process.env.PORT || "3000", 10);

@@ -21,9 +21,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>(null!);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider({ children, initialUser }: { children: ReactNode; initialUser?: User | null }) {
+  const [user, setUser] = useState<User | null>(initialUser ?? null);
+  const [loading, setLoading] = useState(!initialUser);
 
   const refreshUser = async () => {
     try {
@@ -36,9 +36,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Always check session on mount — the HttpOnly cookie is sent automatically
+  // Skip if we have initial user from SSR
   useEffect(() => {
+    if (initialUser) {
+      setLoading(false);
+      return;
+    }
     refreshUser().finally(() => setLoading(false));
-  }, []);
+  }, [initialUser]);
 
   const login = async (username: string, password: string) => {
     const res = await authApi.login(username, password);
