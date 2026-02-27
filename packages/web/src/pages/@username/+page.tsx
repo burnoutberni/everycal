@@ -1,9 +1,7 @@
 import { usePageContext } from "../../renderer/PageContextProvider";
 import { ProfilePage } from "../ProfilePage";
 
-export { Page };
-
-function Page() {
+export default function Page() {
   const pageContext = usePageContext();
   const username = pageContext.urlParsed?.search?.username as string;
 
