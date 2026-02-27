@@ -15,13 +15,19 @@ import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 
 type RsvpStatus = "going" | "maybe" | null;
 
-export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
+export interface EventPageSSRData {
+  event: CalEvent | null;
+  error?: string;
+}
+
+/** EventPage with optional SSR data support */
+export function EventPage({ id, username, slug, ssrData }: { id?: string; username?: string; slug?: string; ssrData?: EventPageSSRData }) {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  const [event, setEvent] = useState<CalEvent | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [event, setEvent] = useState<CalEvent | null>(ssrData?.event ?? null);
+  const [loading, setLoading] = useState(!ssrData);
+  const [error, setError] = useState(ssrData?.error ?? "");
   const [rsvp, setRsvp] = useState<RsvpStatus>(null);
   const [reposted, setReposted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -40,7 +46,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     [t]
   );
 
+  // Skip fetching if we have SSR data (event is already loaded)
   useEffect(() => {
+    if (ssrData?.event) {
+      setLoading(false);
+      setRsvp((ssrData.event.rsvpStatus ?? null) as RsvpStatus);
+      setReposted(ssrData.event.reposted ?? false);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -76,7 +90,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [id, username, slug, user?.id, t]);
+  }, [id, username, slug, user?.id, t, ssrData?.event]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {

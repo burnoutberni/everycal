@@ -21,15 +21,24 @@ const PROFILE_EXPAND_AT_TOP = 18;
 /** Only expand when header top > this — user scrolled back up. Stuck header ≈56px, natural position ≈80px. */
 const PROFILE_EXPAND_HEADER_TOP = 70;
 
-export function ProfilePage({ username }: { username: string }) {
+export interface ProfilePageSSRData {
+  profile: User | null;
+  events: CalEvent[];
+  calendarEventDates: string[];
+}
+
+/** SSR wrapper for ProfilePage - uses preloaded data when available */
+export function ProfilePage({ username, ssrData }: { username: string; ssrData?: ProfilePageSSRData }) {
   const { t, i18n } = useTranslation(["profile", "events", "common"]);
   const { user: currentUser } = useAuth();
-  const [profile, setProfile] = useState<User | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [events, setEvents] = useState<CalEvent[]>([]);
+  const [profile, setProfile] = useState<User | null>(ssrData?.profile ?? null);
+  const [profileLoading, setProfileLoading] = useState(!ssrData);
+  const [events, setEvents] = useState<CalEvent[]>(ssrData?.events ?? []);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
+  const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(
+    ssrData?.calendarEventDates ? new Set(ssrData.calendarEventDates) : new Set()
+  );
 
   // Fetch event dates for the minicalendar (visible grid)
   const calendarMonthRange = useMemo(() => {
@@ -55,9 +64,14 @@ export function ProfilePage({ username }: { username: string }) {
       .finally(() => setProfileLoading(false));
   }, [username]);
 
+  // Skip fetching if we have SSR data (profile is already loaded)
   useEffect(() => {
+    if (ssrData?.profile) {
+      setProfileLoading(false);
+      return;
+    }
     fetchProfile();
-  }, [fetchProfile]);
+  }, [fetchProfile, ssrData?.profile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +116,12 @@ export function ProfilePage({ username }: { username: string }) {
   );
 
   useEffect(() => {
+    // Skip fetching if we have SSR events data
+    if (ssrData?.events && ssrData.events.length > 0) {
+      return;
+    }
     if (profile) fetchEvents();
-  }, [profile, fetchEvents]);
+  }, [profile, fetchEvents, ssrData?.events]);
 
   useEffect(() => {
     if (eventsLoading) {

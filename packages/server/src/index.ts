@@ -32,6 +32,7 @@ import { imageRoutes } from "./routes/images.js";
 import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { serveOgImagesRoutes } from "./routes/serve-og-images.js";
 import { ogImageRoutes } from "./routes/og-images.js";
+import { ssrRoutes } from "./routes/ssr.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
 import { DATABASE_PATH } from "./lib/paths.js";
@@ -144,6 +145,9 @@ app.route("/events", activityPubEventRoutes(db));
 
 // Shared inbox for federation
 app.route("/", sharedInboxRoute(db));
+
+// SSR routes for /@username and /@username/:slug - must be before static file serving
+app.route("/", ssrRoutes(db));
 
 // Serve web frontend (production only) — must be last to not override API routes
 if (process.env.NODE_ENV === "production") {

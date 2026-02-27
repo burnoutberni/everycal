@@ -1,3 +1,7 @@
+/**
+ * Client entry point - works for both SPA and SSR hydration.
+ */
+
 import "./i18n";
 import { StrictMode } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
@@ -6,14 +10,13 @@ import { AuthProvider } from "./hooks/useAuth";
 import "./index.css";
 
 const rootElement = document.getElementById("root");
+const ssrData = (window as any).__SSR_DATA__;
 
-// Check if SSR rendered content exists (has children besides just the root div)
-const hasSsrContent = rootElement && rootElement.innerHTML && rootElement.innerHTML.trim() !== "";
-
-if (hasSsrContent) {
-  // SSR was done - hydrate to preserve server-rendered content
+// Check if there's already content from SSR
+if (rootElement && rootElement.innerHTML && rootElement.innerHTML.trim() !== "") {
+  // SSR was done - hydrate the existing content
   hydrateRoot(
-    rootElement!,
+    rootElement,
     <StrictMode>
       <AuthProvider>
         <App />
@@ -21,7 +24,7 @@ if (hasSsrContent) {
     </StrictMode>
   );
 } else {
-  // No SSR - regular client-side render
+  // No SSR - render from scratch
   createRoot(rootElement!).render(
     <StrictMode>
       <AuthProvider>
