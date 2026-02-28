@@ -6,13 +6,16 @@
  */
 
 import { config } from "dotenv";
-import { resolve } from "node:path";
+import { createServer } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 // Load .env from monorepo root (when running via pnpm dev) or server package dir
 config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
 config({ quiet: true });
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serve } from "@hono/node-server";
+import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { secureHeaders } from "hono/secure-headers";
 import { initDatabase } from "./db.js";
@@ -35,9 +38,19 @@ import { ogImageRoutes } from "./routes/og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
 import { DATABASE_PATH } from "./lib/paths.js";
+import { handleHtmlRequest } from "./ssr/handleHtmlRequest.js";
+import type { CachedSsrResponse } from "./ssr/cache.js";
+import { resolveBootstrap } from "./lib/bootstrap.js";
+import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
+import { createDevMiddleware } from "vike/server";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WEB_ROOT = resolve(__dirname, "../../web");
+
+const SSR_ANON_CACHE_TTL_MS = Math.max(0, parseInt(process.env.SSR_ANON_CACHE_TTL_MS || "15000", 10));
+const ssrAnonymousCache = new Map<string, CachedSsrResponse>();
 
 // Security headers with Content-Security-Policy
 app.use("*", secureHeaders({
@@ -112,6 +125,16 @@ app.use("*", authMiddleware(db));
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
+app.get("/api/v1/bootstrap", (c) => {
+  const bootstrap = resolveBootstrap(c, db);
+  if (shouldSetLocaleCookie(c.req.header("cookie"), bootstrap.locale)) {
+    c.header("Set-Cookie", buildLocaleCookie(bootstrap.locale), { append: true });
+  }
+  c.header("Cache-Control", "private, no-store");
+  c.header("Vary", "Cookie, Authorization, Accept-Language");
+  return c.json(bootstrap);
+});
+
 // Serve uploads with on-the-fly re-encoding (strip metadata, compress, cap dimensions)
 app.route("/uploads", serveUploadsRoutes());
 
@@ -145,19 +168,97 @@ app.route("/events", activityPubEventRoutes(db));
 // Shared inbox for federation
 app.route("/", sharedInboxRoute(db));
 
-// Serve web frontend (production only) — must be last to not override API routes
+// Serve web frontend assets (production) — must be last to not override API routes
 if (process.env.NODE_ENV === "production") {
-  // Serve static assets from /packages/web/dist
+  // Serve static assets from generic dist (old setup) and new Vike dist/client
   app.use("*", serveStatic({ root: "./packages/web/dist" }));
-  
-  // SPA fallback — serve index.html for all non-API routes (client-side routing)
-  app.get("*", serveStatic({ path: "./packages/web/dist/index.html" }));
+  app.use("*", serveStatic({ root: "./packages/web/dist/client" }));
 }
+
+if (process.env.NODE_ENV !== "production") {
+  console.log(`[DEV] Using in-process Vite middleware at ${WEB_ROOT}`);
+}
+
+// Hand off all other document requests to Vike SSR
+app.get("*", async (c, next) => {
+  return handleHtmlRequest(c, next, {
+    db,
+    ssrAnonymousCache,
+    anonymousCacheTtlMs: SSR_ANON_CACHE_TTL_MS,
+  });
+});
 
 const port = parseInt(process.env.PORT || "3000", 10);
 console.log(`🗓️  EveryCal server starting on http://localhost:${port}`);
 
-serve({ fetch: app.fetch, port });
+type NodeMiddleware = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: (err?: unknown) => void
+) => void;
+
+function getPathname(req: IncomingMessage): string {
+  const rawUrl = req.url || "/";
+  try {
+    return new URL(rawUrl, "http://localhost").pathname;
+  } catch {
+    return "/";
+  }
+}
+
+function shouldBypassViteDevMiddleware(pathname: string): boolean {
+  return (
+    pathname === "/healthz" ||
+    pathname.startsWith("/api/") ||
+    pathname === "/api" ||
+    pathname.startsWith("/uploads") ||
+    pathname.startsWith("/og-images") ||
+    pathname.startsWith("/.well-known") ||
+    pathname.startsWith("/users") ||
+    pathname.startsWith("/events") ||
+    pathname.startsWith("/nodeinfo") ||
+    pathname === "/inbox"
+  );
+}
+
+let viteDevMiddleware: NodeMiddleware | null = null;
+
+if (process.env.NODE_ENV !== "production") {
+  process.env.EVERYCAL_IN_PROCESS_VITE = "1";
+  const { devMiddleware } = await createDevMiddleware({ root: WEB_ROOT });
+  viteDevMiddleware = devMiddleware as unknown as NodeMiddleware;
+}
+
+const honoRequestListener = getRequestListener(app.fetch);
+
+const server = createServer((req, res) => {
+  const pathname = getPathname(req);
+  if (shouldBypassViteDevMiddleware(pathname)) {
+    void honoRequestListener(req, res);
+    return;
+  }
+
+  if (viteDevMiddleware) {
+    viteDevMiddleware(req, res, (error?: unknown) => {
+      if (error) {
+        console.error("[DEV] Vite middleware error", error);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.end("Vite middleware error");
+        }
+        return;
+      }
+      if (!res.writableEnded) {
+        void honoRequestListener(req, res);
+      }
+    });
+    return;
+  }
+
+  void honoRequestListener(req, res);
+});
+
+server.listen(port);
 
 // Periodic session cleanup (every hour)
 cleanupExpiredSessions(db);

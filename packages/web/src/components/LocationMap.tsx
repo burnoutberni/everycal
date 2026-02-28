@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import L from "leaflet";
+import type L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocationPinIcon } from "./icons";
 
@@ -75,42 +75,57 @@ export function LocationMap({
     }
     if (!containerRef.current || !coords) return;
 
-    const map = L.map(containerRef.current, {
-      center: [coords.lat, coords.lon],
-      zoom: 15,
-      zoomControl: false,
-      scrollWheelZoom: false,
-      dragging: false,
-      doubleClickZoom: false,
-      boxZoom: false,
-      keyboard: false,
-    });
+    let isMounted = true;
+    let localMap: L.Map | null = null;
 
-    L.tileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+    import("leaflet").then((LeafletModule) => {
+      if (!isMounted) return;
+      const L = LeafletModule.default || LeafletModule;
 
-    const icon = L.divIcon({
-      className: "leaflet-div-icon location-marker",
-      html: `<div style="width:16px;height:16px;background:var(--accent);border:2px solid var(--bg);border-radius:50%;"></div>`,
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-    });
-
-    const marker = L.marker([coords.lat, coords.lon], {
-      icon,
-      draggable: !!onMarkerDragRef.current,
-    }).addTo(map);
-
-    if (onMarkerDragRef.current) {
-      marker.on("dragend", () => {
-        const pos = marker.getLatLng();
-        onMarkerDragRef.current?.(pos.lat, pos.lng);
+      const map = L.map(containerRef.current!, {
+        center: [coords.lat, coords.lon],
+        zoom: 15,
+        zoomControl: false,
+        scrollWheelZoom: false,
+        dragging: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        keyboard: false,
       });
-    }
 
-    mapRef.current = map;
-    markerRef.current = marker;
+      L.tileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
+
+      const icon = L.divIcon({
+        className: "leaflet-div-icon location-marker",
+        html: `<div style="width:16px;height:16px;background:var(--accent);border:2px solid var(--bg);border-radius:50%;"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+
+      const marker = L.marker([coords.lat, coords.lon], {
+        icon,
+        draggable: !!onMarkerDragRef.current,
+      }).addTo(map);
+
+      if (onMarkerDragRef.current) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          onMarkerDragRef.current?.(pos.lat, pos.lng);
+        });
+      }
+
+      mapRef.current = map;
+      markerRef.current = marker;
+      localMap = map;
+    }).catch(console.error);
+
     return () => {
-      map.remove();
+      isMounted = false;
+      if (localMap) {
+        localMap.remove();
+      } else if (mapRef.current) {
+        mapRef.current.remove();
+      }
       mapRef.current = null;
       markerRef.current = null;
     };

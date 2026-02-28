@@ -12,6 +12,7 @@ import { ProfileHeader } from "../components/ProfileHeader";
 import { useAuth } from "../hooks/useAuth";
 import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useOptionalPageContext } from "../renderer/PageContext";
 
 /** Linear collapse: progress 0→1 over this scroll range. Once 1, stay compact until header back in flow.
  *  Keep range short so collapse completes before date separator + first event card scroll out of view. */
@@ -24,10 +25,16 @@ const PROFILE_EXPAND_HEADER_TOP = 70;
 export function ProfilePage({ username }: { username: string }) {
   const { t, i18n } = useTranslation(["profile", "events", "common"]);
   const { user: currentUser } = useAuth();
-  const [profile, setProfile] = useState<User | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [events, setEvents] = useState<CalEvent[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Use SSR initial context if available
+  const pageContext = useOptionalPageContext();
+  const initialProfile = ((pageContext?.data as any)?.profile ?? null) as User | null;
+  const initialEvents = (((pageContext?.data as any)?.events ?? []) as CalEvent[]);
+
+  const [profile, setProfile] = useState<User | null>(initialProfile);
+  const [profileLoading, setProfileLoading] = useState(!initialProfile);
+  const [events, setEvents] = useState<CalEvent[]>(initialEvents);
+  const [eventsLoading, setEventsLoading] = useState(!initialEvents.length);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
 
@@ -45,6 +52,9 @@ export function ProfilePage({ username }: { username: string }) {
   }, [selectedDate]);
 
   const fetchProfile = useCallback(() => {
+    // If we already have SSR profile for this username, skip initial load
+    if (profile?.username === username || (profile?.source === "remote" && username.includes("@"))) return;
+
     setProfileLoading(true);
     usersApi
       .get(username)
@@ -84,6 +94,8 @@ export function ProfilePage({ username }: { username: string }) {
   const fetchEvents = useCallback(
     async () => {
       if (!profile) return;
+      if (events.length > 0 && String(events[0]?.accountId) === profile.id) return; // Skip if loaded via SSR
+
       setEventsLoading(true);
       try {
         const res = await usersApi.events(username, {
@@ -280,125 +292,125 @@ export function ProfilePage({ username }: { username: string }) {
 
   return (
     <>
-    <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
-      {/* Sidebar */}
-      <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
-      </aside>
+      <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
+        {/* Sidebar */}
+        <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
+        </aside>
 
-      {/* Main content */}
-      <div className="flex-1" style={{ minWidth: 0 }}>
-        {isMobile ? (
-          <MobileHeaderContainer paddingTop={`${0.2 * profileCollapseProgress}rem`}>
+        {/* Main content */}
+        <div className="flex-1" style={{ minWidth: 0 }}>
+          {isMobile ? (
+            <MobileHeaderContainer paddingTop={`${0.2 * profileCollapseProgress}rem`}>
+              <ProfileHeader
+                profile={profile}
+                currentUser={currentUser}
+                isOwn={isOwn}
+                isRemote={isRemote}
+                collapseProgress={profileCollapseProgress}
+                isMobile={isMobile}
+                headerRef={profileHeaderRef}
+                onFollow={handleFollow}
+                onAutoRepost={handleAutoRepost}
+                onOpenFollowers={() => setListModal("followers")}
+                onOpenFollowing={() => setListModal("following")}
+              />
+              <div className="profile-mobile-calendar-wrap">
+                <MobileCalendarFold
+                  ref={calendarFoldRef}
+                  selectedDate={selectedDate}
+                  onDateSelect={handleDateSelectMobile}
+                  eventDates={eventDatesFromList}
+                  collapseOnSelect
+                  layout="sticky"
+                  onMonthNavigate={(date) => {
+                    ignoreScrollSpyUntilRef.current = Date.now() + 600;
+                    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+                    setSelectedDate(date);
+                    setScrollToDate(dateToLocalYMD(date));
+                  }}
+                  onMonthClick={() => {
+                    ignoreScrollSpyUntilRef.current = Date.now() + 600;
+                    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+                    const today = new Date();
+                    setSelectedDate(today);
+                    setScrollToDate(dateToLocalYMD(today));
+                  }}
+                  ignoreScrollSpyUntilRef={ignoreScrollSpyUntilRef}
+                  ignoreScrollCollapseUntilRef={ignoreScrollCollapseUntilRef}
+                  onExpandedChange={handleCalendarExpandedChange}
+                />
+              </div>
+            </MobileHeaderContainer>
+          ) : (
             <ProfileHeader
               profile={profile}
               currentUser={currentUser}
               isOwn={isOwn}
               isRemote={isRemote}
-              collapseProgress={profileCollapseProgress}
-              isMobile={isMobile}
-              headerRef={profileHeaderRef}
+              isMobile={false}
               onFollow={handleFollow}
               onAutoRepost={handleAutoRepost}
               onOpenFollowers={() => setListModal("followers")}
               onOpenFollowing={() => setListModal("following")}
             />
-            <div className="profile-mobile-calendar-wrap">
-              <MobileCalendarFold
-            ref={calendarFoldRef}
-            selectedDate={selectedDate}
-            onDateSelect={handleDateSelectMobile}
-            eventDates={eventDatesFromList}
-            collapseOnSelect
-            layout="sticky"
-            onMonthNavigate={(date) => {
-              ignoreScrollSpyUntilRef.current = Date.now() + 600;
-              ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-              setSelectedDate(date);
-              setScrollToDate(dateToLocalYMD(date));
-            }}
-            onMonthClick={() => {
-              ignoreScrollSpyUntilRef.current = Date.now() + 600;
-              ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-              const today = new Date();
-              setSelectedDate(today);
-              setScrollToDate(dateToLocalYMD(today));
-            }}
-            ignoreScrollSpyUntilRef={ignoreScrollSpyUntilRef}
-            ignoreScrollCollapseUntilRef={ignoreScrollCollapseUntilRef}
-            onExpandedChange={handleCalendarExpandedChange}
-          />
-            </div>
-          </MobileHeaderContainer>
-        ) : (
-          <ProfileHeader
-            profile={profile}
-            currentUser={currentUser}
-            isOwn={isOwn}
-            isRemote={isRemote}
-            isMobile={false}
-            onFollow={handleFollow}
-            onAutoRepost={handleAutoRepost}
-            onOpenFollowers={() => setListModal("followers")}
-            onOpenFollowing={() => setListModal("following")}
-          />
-        )}
+          )}
 
-        {/* Event list */}
-        <div className="profile-mobile-events-wrap">
-          {eventsLoading ? (
-            <p className="text-muted">{t("common:loading")}</p>
-          ) : events.length === 0 ? (
-            <div className="empty-state">
-              <p>{t("noEventsFound")}</p>
-              <p className="text-sm text-dim mt-1">
-                {t("noUpcomingFromAccount")}
-              </p>
-            </div>
-          ) : (
-            <>
-              {[...grouped.entries()].map(([dateKey, dayEvents]) => (
-                <div
-                  key={dateKey}
-                  ref={(el) => {
-                    if (el) dateSectionRefs.current.set(dateKey, el);
-                  }}
-                  data-date={dateKey}
-                  className="profile-date-section"
-                  style={{ marginBottom: "1.25rem" }}
-                >
-                  <h2
-                    className="text-sm"
-                    style={{
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
-                      marginBottom: "0.4rem",
-                      borderBottom: "1px solid var(--border)",
-                      paddingBottom: "0.3rem",
+          {/* Event list */}
+          <div className="profile-mobile-events-wrap">
+            {eventsLoading ? (
+              <p className="text-muted">{t("common:loading")}</p>
+            ) : events.length === 0 ? (
+              <div className="empty-state">
+                <p>{t("noEventsFound")}</p>
+                <p className="text-sm text-dim mt-1">
+                  {t("noUpcomingFromAccount")}
+                </p>
+              </div>
+            ) : (
+              <>
+                {[...grouped.entries()].map(([dateKey, dayEvents]) => (
+                  <div
+                    key={dateKey}
+                    ref={(el) => {
+                      if (el) dateSectionRefs.current.set(dateKey, el);
                     }}
+                    data-date={dateKey}
+                    className="profile-date-section"
+                    style={{ marginBottom: "1.25rem" }}
                   >
-                    {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
-                  </h2>
-                  <div className="flex flex-col gap-1">
-                    {dayEvents.map((e) => (
-                      <EventCard key={e.id} event={e} />
-                    ))}
+                    <h2
+                      className="text-sm"
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--text-muted)",
+                        marginBottom: "0.4rem",
+                        borderBottom: "1px solid var(--border)",
+                        paddingBottom: "0.3rem",
+                      }}
+                    >
+                      {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
+                    </h2>
+                    <div className="flex flex-col gap-1">
+                      {dayEvents.map((e) => (
+                        <EventCard key={e.id} event={e} />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </>
-          )}
-          {isMobile && calendarExpanded && (
-            <div
-              className="profile-mobile-events-overlay"
-              onClick={() => calendarFoldRef.current?.collapse()}
-              onKeyDown={(e) => e.key === "Enter" && calendarFoldRef.current?.collapse()}
-              role="button"
-              tabIndex={0}
-              aria-label={t("common:close")}
-            />
-          )}
-        </div>
+                ))}
+              </>
+            )}
+            {isMobile && calendarExpanded && (
+              <div
+                className="profile-mobile-events-overlay"
+                onClick={() => calendarFoldRef.current?.collapse()}
+                onKeyDown={(e) => e.key === "Enter" && calendarFoldRef.current?.collapse()}
+                role="button"
+                tabIndex={0}
+                aria-label={t("common:close")}
+              />
+            )}
+          </div>
         </div>
       </div>
 

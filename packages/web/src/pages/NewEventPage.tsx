@@ -91,6 +91,7 @@ interface EventDraft {
 
 function loadDraft(): EventDraft | null {
   try {
+    if (typeof window === "undefined") return null;
     const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as EventDraft;
@@ -101,7 +102,9 @@ function loadDraft(): EventDraft | null {
 
 function saveDraft(draft: EventDraft): void {
   try {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    }
   } catch {
     // Ignore quota/parse errors
   }
@@ -109,7 +112,9 @@ function saveDraft(draft: EventDraft): void {
 
 function clearDraft(): void {
   try {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
   } catch {
     // Ignore
   }
@@ -414,7 +419,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
   useEffect(() => {
     if (user) {
-      locationsApi.list().then(setSavedLocations).catch(() => {});
+      locationsApi.list().then(setSavedLocations).catch(() => { });
     }
   }, [user]);
 
@@ -959,13 +964,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           address: locationAddress || undefined,
           latitude: locLat,
           longitude: locLng,
-        }).catch(() => {});
+        }).catch(() => { });
       }
       const event = isEdit && initialEvent
         ? await eventsApi.update(initialEvent.id, data)
         : await eventsApi.create(data);
       if (!isEdit) clearDraft();
-      refreshUser().catch(() => {}); // Update auth context (e.g. for profile stats)
+      refreshUser().catch(() => { }); // Update auth context (e.g. for profile stats)
       navigate(eventPath(event));
     } catch (err: any) {
       setError(err.message || t("somethingWentWrong"));
@@ -987,16 +992,16 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
   const previewDateStr = startDate
     ? formatEventDateTime(
-        {
-          startDate: allDay ? startDate.slice(0, 10) : new Date(startDate).toISOString(),
-          endDate: endDate
-            ? allDay ? endDate.slice(0, 10) : new Date(endDate).toISOString()
-            : null,
-          allDay,
-        },
-        true,
-        { locale: i18n.language, allDayLabel: t("events:allDay") },
-      )
+      {
+        startDate: allDay ? startDate.slice(0, 10) : new Date(startDate).toISOString(),
+        endDate: endDate
+          ? allDay ? endDate.slice(0, 10) : new Date(endDate).toISOString()
+          : null,
+        allDay,
+      },
+      true,
+      { locale: i18n.language, allDayLabel: t("events:allDay") },
+    )
     : null;
 
   const hasPreviewLocation =
@@ -1044,641 +1049,684 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
       {/* Live preview — hidden on mobile step 1 */}
       {(!showMobileStepFlow || createStep === "review") && (
-      <article className={`create-event-preview ${showMobileStepFlow && createStep === "review" ? "create-event-preview-review" : ""}`}>
-        <div className={showMobileStepFlow && createStep === "review" ? "create-event-preview-image" : "header-image-wrap"} style={{ marginBottom: "1.5rem" }}>
-          {!(showMobileStepFlow && createStep === "review") && (
-            <div className="header-image-skeleton" aria-hidden={imageLoaded}>
-              <span className="skeleton-image-label">{t("headerImage")}</span>
-            </div>
-          )}
-          {imageUrl ? (
-            <>
-              <img
-                src={imageUrl}
-                alt={title || t("headerImage")}
-                className={showMobileStepFlow && createStep === "review" ? "" : `header-image-img ${imageLoaded ? "header-image-loaded" : ""}`}
-                onLoad={() => setImageLoaded(true)}
-                style={showMobileStepFlow && createStep === "review" ? { width: "100%", maxHeight: "350px", objectFit: "cover", borderRadius: "var(--radius)", display: "block" } : undefined}
-              />
-              {imageAttribution && (
-                <ImageAttributionBadge
-                  attribution={imageAttribution}
-                  position={showMobileStepFlow && createStep === "review" ? "bottom-right" : "top-right"}
-                />
-              )}
-            </>
-          ) : showMobileStepFlow && createStep === "review" ? (
-            <div className="create-event-preview-image-placeholder" />
-          ) : (
-            <div className="header-image-skeleton" aria-hidden={false}>
-              <span className="skeleton-image-label">{t("headerImage")}</span>
-            </div>
-          )}
-          {!(showMobileStepFlow && createStep === "review") && (
-          <div className={`header-image-actions ${!imageUrl ? "header-image-actions-visible" : ""}`}>
+        <article className={`create-event-preview ${showMobileStepFlow && createStep === "review" ? "create-event-preview-review" : ""}`}>
+          <div className={showMobileStepFlow && createStep === "review" ? "create-event-preview-image" : "header-image-wrap"} style={{ marginBottom: "1.5rem" }}>
+            {!(showMobileStepFlow && createStep === "review") && (
+              <div className="header-image-skeleton" aria-hidden={imageLoaded}>
+                <span className="skeleton-image-label">{t("headerImage")}</span>
+              </div>
+            )}
             {imageUrl ? (
               <>
-                <button
-                  type="button"
-                  className="header-image-btn"
-                  onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
-                  title={t("chooseDifferentImage")}
-                >
-                  <ImageIcon />
-                  {t("change")}
-                </button>
-                <button
-                  type="button"
-                  className="header-image-btn header-image-btn-danger"
-                  onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
-                  title={t("removeImage")}
-                >
-                  <TrashIcon />
-                  {t("common:remove")}
-                </button>
+                <img
+                  src={imageUrl}
+                  alt={title || t("headerImage")}
+                  className={showMobileStepFlow && createStep === "review" ? "" : `header-image-img ${imageLoaded ? "header-image-loaded" : ""}`}
+                  onLoad={() => setImageLoaded(true)}
+                  style={showMobileStepFlow && createStep === "review" ? { width: "100%", maxHeight: "350px", objectFit: "cover", borderRadius: "var(--radius)", display: "block" } : undefined}
+                />
+                {imageAttribution && (
+                  <ImageAttributionBadge
+                    attribution={imageAttribution}
+                    position={showMobileStepFlow && createStep === "review" ? "bottom-right" : "top-right"}
+                  />
+                )}
               </>
+            ) : showMobileStepFlow && createStep === "review" ? (
+              <div className="create-event-preview-image-placeholder" />
             ) : (
-              <button
-                type="button"
-                className="header-image-btn header-image-btn-add"
-                onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
-                title={t("addHeaderImage")}
-              >
-                <ImageIcon />
-                {t("addImage")}
-              </button>
+              <div className="header-image-skeleton" aria-hidden={false}>
+                <span className="skeleton-image-label">{t("headerImage")}</span>
+              </div>
             )}
-          </div>
-          )}
-        </div>
-
-        {(previewDateStr || !(showMobileStepFlow && createStep === "review")) && (
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex flex-col gap-1">
-            {previewDateStr ? (
-              <span style={{ color: "var(--accent)", fontWeight: 600 }}>{previewDateStr}</span>
-            ) : (
-              <span className="skeleton-line" style={{ width: "220px", height: "1.1em" }} />
-            )}
-            {visibility !== "public" && (
-              <span
-                className={`visibility-badge ${visibility}`}
-                style={{ alignSelf: "flex-start" }}
-              >
-                {visibility === "followers_only" ? t("events:followersOnly") : visibility === "private" ? t("events:onlyMe") : visibility === "unlisted" ? t("events:unlisted") : visibility}
-              </span>
-            )}
-          </div>
-        </div>
-        )}
-
-        {title ? (
-          <h1
-            style={{
-              fontSize: "1.8rem",
-              fontWeight: 700,
-              lineHeight: 1.2,
-              marginBottom: "0.5rem",
-            }}
-          >
-            {title}
-          </h1>
-        ) : !(showMobileStepFlow && createStep === "review") && (
-          <div style={{ marginBottom: "0.5rem" }}>
-            <span className="skeleton-line" style={{ width: "60%", height: "1.8rem" }} />
-          </div>
-        )}
-
-        <p className="text-muted mb-2">{t("events:by")} {user.displayName || user.username}</p>
-
-        {/* Location preview */}
-        {hasPreviewLocation ? (
-          locationMode === "online" ? (
-            <p
-              className="mb-2"
-              style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}
-            >
-              <GlobeIcon />
-              <span>{t("online")}</span>
-              {locationUrl && (
-                <>
-                  <span style={{ color: "var(--text-dim)" }}>·</span>
-                  <a
-                    href={locationUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}
-                  >
-                    {(() => { try { return new URL(locationUrl).hostname; } catch { return locationUrl; } })()}
-                    <ExternalLinkIcon className="text-sm" />
-                  </a>
-                </>
-              )}
-            </p>
-          ) : (
-            <p
-              className="mb-2"
-              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
-            >
-              <LocationPinIcon />
-              {previewLocationName}
-              {locationAddress && ` — ${locationAddress}`}
-            </p>
-          )
-        ) : !(showMobileStepFlow && createStep === "review") && (
-          <p
-            className="mb-2"
-            style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
-          >
-            <LocationPinIcon />
-            <span className="skeleton-line" style={{ width: "180px", height: "1em" }} />
-          </p>
-        )}
-
-        {description ? (
-          <div
-            className="event-description"
-            dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
-          />
-        ) : !(showMobileStepFlow && createStep === "review") && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-            <span className="skeleton-line" style={{ width: "100%", height: "0.9em" }} />
-            <span className="skeleton-line" style={{ width: "92%", height: "0.9em" }} />
-            <span className="skeleton-line" style={{ width: "75%", height: "0.9em" }} />
-          </div>
-        )}
-
-        {url && (
-          <p
-            className="mt-2"
-            style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
-          >
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.35rem",
-              }}
-            >
-              <ExternalLinkIcon />
-              {url}
-            </a>
-          </p>
-        )}
-
-        {parsedTags.length > 0 ? (
-          <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap" }}>
-            {parsedTags.map((t) => (
-              <span key={t} className="tag">
-                {t}
-              </span>
-            ))}
-          </div>
-        ) : !(showMobileStepFlow && createStep === "review") && (
-          <div className="flex gap-1 mt-2">
-            <span className="skeleton-tag" />
-            <span className="skeleton-tag" style={{ width: "52px" }} />
-            <span className="skeleton-tag" style={{ width: "44px" }} />
-          </div>
-        )}
-      </article>
-      )}
-
-      {/* Form sidebar — hidden on mobile step 2 */}
-      {(!showMobileStepFlow || createStep === "form") && (
-      <aside className="create-event-form">
-        <form onSubmit={handleSubmit}>
-          {!showMobileStepFlow && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: "0.75rem",
-              gap: "0.5rem",
-            }}
-          >
-            <div
-              style={{
-                fontWeight: 600,
-                fontSize: "1.1rem",
-                color: "var(--text)",
-              }}
-            >
-              {isEdit ? t("editEvent") : t("newEvent")}
-            </div>
-            {!isEdit && (
-              <button
-                type="button"
-                onClick={handleClearForm}
-                className="text-sm"
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-dim)",
-                  cursor: "pointer",
-                  padding: "0.25rem 0.5rem",
-                  textDecoration: "underline",
-                }}
-                title={t("clearForm")}
-              >
-                {t("clearForm")}
-              </button>
-            )}
-          </div>
-          )}
-
-          {materialFieldsChanged && (
-            <div
-              className="field"
-              style={{
-                padding: "0.5rem 0.75rem",
-                background: "var(--surface)",
-                borderRadius: "var(--radius)",
-                fontSize: "0.9rem",
-                color: "var(--text-dim)",
-              }}
-            >
-              {t("materialChangeNotice")}
-            </div>
-          )}
-
-          {showMobileStepFlow && (
-            <div className="field">
-              <label>{t("headerImage")}</label>
-              <div className="create-event-form-image-row">
+            {!(showMobileStepFlow && createStep === "review") && (
+              <div className={`header-image-actions ${!imageUrl ? "header-image-actions-visible" : ""}`}>
                 {imageUrl ? (
-                  <div className="create-event-form-image-preview">
-                    <img src={imageUrl} alt="" />
-                    <div className="create-event-form-image-actions">
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
-                      >
-                        {t("change")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
-                      >
-                        {t("common:remove")}
-                      </button>
-                    </div>
-                  </div>
+                  <>
+                    <button
+                      type="button"
+                      className="header-image-btn"
+                      onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
+                      title={t("chooseDifferentImage")}
+                    >
+                      <ImageIcon />
+                      {t("change")}
+                    </button>
+                    <button
+                      type="button"
+                      className="header-image-btn header-image-btn-danger"
+                      onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
+                      title={t("removeImage")}
+                    >
+                      <TrashIcon />
+                      {t("common:remove")}
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
-                    className="create-event-form-image-add"
+                    className="header-image-btn header-image-btn-add"
                     onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
+                    title={t("addHeaderImage")}
                   >
                     <ImageIcon />
                     {t("addImage")}
                   </button>
                 )}
               </div>
+            )}
+          </div>
+
+          {(previewDateStr || !(showMobileStepFlow && createStep === "review")) && (
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex flex-col gap-1">
+                {previewDateStr ? (
+                  <span style={{ color: "var(--accent)", fontWeight: 600 }}>{previewDateStr}</span>
+                ) : (
+                  <span className="skeleton-line" style={{ width: "220px", height: "1.1em" }} />
+                )}
+                {visibility !== "public" && (
+                  <span
+                    className={`visibility-badge ${visibility}`}
+                    style={{ alignSelf: "flex-start" }}
+                  >
+                    {visibility === "followers_only" ? t("events:followersOnly") : visibility === "private" ? t("events:onlyMe") : visibility === "unlisted" ? t("events:unlisted") : visibility}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
-          <div className="field">
-            <label htmlFor="ce-title">{t("titleLabel")}</label>
-            <input
-              id="ce-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              placeholder={t("eventNamePlaceholder")}
-            />
-          </div>
-
-          <div className="field">
-            <label>{t("descriptionLabel")}</label>
-            <RichTextEditor
-              value={description}
-              onChange={setDescription}
-              placeholder={t("descriptionPlaceholder")}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="ce-startDate">{t("startLabel")}</label>
-            <input
-              id="ce-startDate"
-              type={allDay ? "date" : "datetime-local"}
-              value={allDay ? startDate.slice(0, 10) : startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              onBlur={(e) => {
-                if (allDay) return;
-                const completed = completeDatetimeLocal(e.target.value, "00:00");
-                if (completed) setStartDate(completed);
+          {title ? (
+            <h1
+              style={{
+                fontSize: "1.8rem",
+                fontWeight: 700,
+                lineHeight: 1.2,
+                marginBottom: "0.5rem",
               }}
-              min={allDay ? minStartToday : minStartNow}
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label>{t("durationLabel")}</label>
-            <div className="flex gap-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
-              {durationPresets.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => selectDuration(p.value)}
-                  className={`duration-btn ${highlightedPreset === p.value ? "duration-btn-active" : ""}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-              <span className="duration-sep" />
-              <button
-                type="button"
-                onClick={() => selectDuration(duration === "allday" ? "1h" : "allday")}
-                className={`duration-btn duration-btn-allday ${highlightedPreset === "allday" ? "duration-btn-active" : ""}`}
-              >
-                {t("allDay")}
-              </button>
-              <span className="duration-sep" />
-              <button
-                type="button"
-                onClick={toggleCustomEnd}
-                className={`duration-btn duration-btn-custom ${showCustomEnd ? "duration-btn-active" : ""}`}
-              >
-                {t("custom")}
-              </button>
-            </div>
-          </div>
-
-          {showCustomEnd && (
-            <div className="field">
-              <label htmlFor="ce-endDate">{t("endLabel")}</label>
-              <input
-                id="ce-endDate"
-                type={allDay ? "date" : "datetime-local"}
-                value={allDay ? customEnd.slice(0, 10) : customEnd}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const min = allDay ? startDate.slice(0, 10) : startDate;
-                  setCustomEnd(val && val < min ? min : val);
-                }}
-                onBlur={(e) => {
-                  if (allDay) return;
-                  const val = e.target.value;
-                  const datePart = val.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
-                  const defaultTime =
-                    datePart && startDate.startsWith(datePart)
-                      ? addDuration(startDate, "1h").slice(11, 16)
-                      : "00:00";
-                  const completed = completeDatetimeLocal(val, defaultTime);
-                  if (completed) setCustomEnd(completed);
-                }}
-                min={allDay ? startDate.slice(0, 10) : startDate}
-              />
+            >
+              {title}
+            </h1>
+          ) : !(showMobileStepFlow && createStep === "review") && (
+            <div style={{ marginBottom: "0.5rem" }}>
+              <span className="skeleton-line" style={{ width: "60%", height: "1.8rem" }} />
             </div>
           )}
 
-          {/* Location */}
-          <div className="field">
-            <label>{t("locationLabel")}</label>
-            <div className="flex gap-1" style={{ marginBottom: "0.4rem" }}>
-              <button
-                type="button"
-                onClick={() => switchLocationMode("inperson")}
-                className={`duration-btn ${locationMode === "inperson" ? "duration-btn-active" : ""}`}
-              >
-                {t("inPerson")}
-              </button>
-              <button
-                type="button"
-                onClick={() => switchLocationMode("online")}
-                className={`duration-btn ${locationMode === "online" ? "duration-btn-active" : ""}`}
-              >
-                {t("online")}
-              </button>
-            </div>
+          <p className="text-muted mb-2">{t("events:by")} {user.displayName || user.username}</p>
 
-            {locationMode === "inperson" && (
-              <div ref={resultsRef}>
-                {!manualLocation && (
+          {/* Location preview */}
+          {hasPreviewLocation ? (
+            locationMode === "online" ? (
+              <p
+                className="mb-2"
+                style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}
+              >
+                <GlobeIcon />
+                <span>{t("online")}</span>
+                {locationUrl && (
                   <>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        value={venueQuery}
-                        onChange={(e) => handleVenueInput(e.target.value)}
-                        onFocus={() => {
-                          if (venueResults.length > 0 || savedLocations.length > 0) setShowResults(true);
-                        }}
-                        onBlur={() => {
-                          setTimeout(() => maybeUnfoldAddress(), 150);
-                        }}
-                        placeholder={t("searchVenuePlaceholder")}
-                        autoComplete="off"
-                      />
-                      {locationName && (
-                        <button
-                          type="button"
-                          onClick={clearVenue}
-                          style={{
-                            position: "absolute",
-                            right: "0.5rem",
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            background: "none",
-                            border: "none",
-                            color: "var(--text-dim)",
-                            cursor: "pointer",
-                            padding: "0.2rem",
-                            fontSize: "1rem",
-                            lineHeight: 1,
-                          }}
-                          title={t("common:clear")}
-                        >
-                          ×
-                        </button>
-                      )}
-                      {showResults && (matchingSavedLocations.length > 0 || venueResults.length > 0 || (!searchingVenue && venueQuery.length >= 3)) && (
-                        <div className="venue-dropdown">
-                    {matchingSavedLocations.length > 0 && (
-                      <>
-                        {matchingSavedLocations.map((loc) => (
-                          <div
-                            key={`saved-${loc.id}`}
-                            className="venue-dropdown-item"
-                            style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => selectSavedLocation(loc)}
-                              style={{
-                                flex: 1,
-                                minWidth: 0,
-                                display: "flex",
-                                alignItems: "baseline",
-                                gap: "0.5rem",
-                                background: "none",
-                                border: "none",
-                                padding: 0,
-                                color: "inherit",
-                                cursor: "pointer",
-                                font: "inherit",
-                                textAlign: "left",
-                              }}
-                            >
-                              <span className="venue-dropdown-name">{loc.name}</span>
-                              <span className="venue-dropdown-addr">{loc.address || ""}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                locationsApi.delete(loc.id).then(() => {
-                                  setSavedLocations((prev) => prev.filter((l) => l.id !== loc.id));
-                                }).catch(() => {});
-                              }}
-                              title={t("removeFromSuggestions")}
-                              className="venue-dropdown-remove"
-                              style={{
-                                flexShrink: 0,
-                                width: "1.25rem",
-                                height: "1.25rem",
-                                padding: 0,
-                                borderRadius: "50%",
-                                border: "none",
-                                background: "transparent",
-                                color: "var(--text-dim)",
-                                cursor: "pointer",
-                                fontSize: "0.9rem",
-                                lineHeight: 1,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        {venueResults.length > 0 && (
-                          <div className="venue-dropdown-sep" />
-                        )}
-                      </>
-                    )}
-                    {venueResults.map((f) => {
-                      const v = extractVenueParts(f, t("unknown"));
-                      return (
-                        <button
-                          key={f.properties.osm_id}
-                          type="button"
-                          className="venue-dropdown-item"
-                          onClick={() => selectVenue(f)}
-                        >
-                          <span className="venue-dropdown-name">{v.name}</span>
-                          <span className="venue-dropdown-addr">{v.address}</span>
-                        </button>
-                      );
-                    })}
-                    {(venueResults.length > 0 || (!searchingVenue && venueQuery.length >= 3)) && (
-                      <button
-                        type="button"
-                        className="venue-dropdown-item venue-dropdown-manual"
-                        onClick={enterManualLocation}
-                      >
-                        {venueResults.length === 0 && matchingSavedLocations.length === 0
-                          ? t("noResultsEnterManually")
-                          : t("notInListEnterManually")}
-                      </button>
-                    )}
-                        </div>
-                      )}
-                    </div>
-                    {searchingVenue && (
-                      <div className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
-                        {t("searching")}
-                      </div>
-                    )}
+                    <span style={{ color: "var(--text-dim)" }}>·</span>
+                    <a
+                      href={locationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem" }}
+                    >
+                      {(() => { try { return new URL(locationUrl).hostname; } catch { return locationUrl; } })()}
+                      <ExternalLinkIcon className="text-sm" />
+                    </a>
                   </>
                 )}
-                {!manualLocation && locationName && !showAddress && (
-                  <div style={{ marginTop: "0.3rem" }}>
-                    <span className="text-sm text-muted">
-                      {locationAddress}
-                    </span>
+              </p>
+            ) : (
+              <p
+                className="mb-2"
+                style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+              >
+                <LocationPinIcon />
+                {previewLocationName}
+                {locationAddress && ` — ${locationAddress}`}
+              </p>
+            )
+          ) : !(showMobileStepFlow && createStep === "review") && (
+            <p
+              className="mb-2"
+              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <LocationPinIcon />
+              <span className="skeleton-line" style={{ width: "180px", height: "1em" }} />
+            </p>
+          )}
+
+          {description ? (
+            <div
+              className="event-description"
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
+            />
+          ) : !(showMobileStepFlow && createStep === "review") && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+              <span className="skeleton-line" style={{ width: "100%", height: "0.9em" }} />
+              <span className="skeleton-line" style={{ width: "92%", height: "0.9em" }} />
+              <span className="skeleton-line" style={{ width: "75%", height: "0.9em" }} />
+            </div>
+          )}
+
+          {url && (
+            <p
+              className="mt-2"
+              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+              >
+                <ExternalLinkIcon />
+                {url}
+              </a>
+            </p>
+          )}
+
+          {parsedTags.length > 0 ? (
+            <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap" }}>
+              {parsedTags.map((t) => (
+                <span key={t} className="tag">
+                  {t}
+                </span>
+              ))}
+            </div>
+          ) : !(showMobileStepFlow && createStep === "review") && (
+            <div className="flex gap-1 mt-2">
+              <span className="skeleton-tag" />
+              <span className="skeleton-tag" style={{ width: "52px" }} />
+              <span className="skeleton-tag" style={{ width: "44px" }} />
+            </div>
+          )}
+        </article>
+      )}
+
+      {/* Form sidebar — hidden on mobile step 2 */}
+      {(!showMobileStepFlow || createStep === "form") && (
+        <aside className="create-event-form">
+          <form onSubmit={handleSubmit}>
+            {!showMobileStepFlow && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "0.75rem",
+                  gap: "0.5rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "1.1rem",
+                    color: "var(--text)",
+                  }}
+                >
+                  {isEdit ? t("editEvent") : t("newEvent")}
+                </div>
+                {!isEdit && (
+                  <button
+                    type="button"
+                    onClick={handleClearForm}
+                    className="text-sm"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-dim)",
+                      cursor: "pointer",
+                      padding: "0.25rem 0.5rem",
+                      textDecoration: "underline",
+                    }}
+                    title={t("clearForm")}
+                  >
+                    {t("clearForm")}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {materialFieldsChanged && (
+              <div
+                className="field"
+                style={{
+                  padding: "0.5rem 0.75rem",
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  fontSize: "0.9rem",
+                  color: "var(--text-dim)",
+                }}
+              >
+                {t("materialChangeNotice")}
+              </div>
+            )}
+
+            {showMobileStepFlow && (
+              <div className="field">
+                <label>{t("headerImage")}</label>
+                <div className="create-event-form-image-row">
+                  {imageUrl ? (
+                    <div className="create-event-form-image-preview">
+                      <img src={imageUrl} alt="" />
+                      <div className="create-event-form-image-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
+                        >
+                          {t("change")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => { setImageUrl(""); setImageAttribution(undefined); setImageLoaded(false); setUserRemovedAutoImage(true); }}
+                        >
+                          {t("common:remove")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => setShowAddress(true)}
-                      className="duration-btn duration-btn-custom"
-                      style={{ marginLeft: "0.4rem", fontSize: "0.72rem" }}
+                      className="create-event-form-image-add"
+                      onClick={() => { setImagePickerOpen(true); setUserRemovedAutoImage(false); }}
                     >
-                      {t("editAddress")}
+                      <ImageIcon />
+                      {t("addImage")}
                     </button>
-                  </div>
-                )}
-                {locationName && locationLat != null && locationLng != null && (
-                  <div style={{ marginTop: "0.5rem", position: "relative" }}>
-                    <button
-                      type="button"
-                      onClick={clearLocationCoords}
-                      title={t("removeMapCoords")}
-                      style={{
-                        position: "absolute",
-                        right: "0.5rem",
-                        top: "0.5rem",
-                        zIndex: 1000,
-                        width: "1.75rem",
-                        height: "1.75rem",
-                        minWidth: "1.75rem",
-                        minHeight: "1.75rem",
-                        padding: 0,
-                        borderRadius: "50%",
-                        border: "1px solid rgba(0,0,0,0.2)",
-                        background: "rgba(13, 13, 13, 0.92)",
-                        color: "var(--text)",
-                        cursor: "pointer",
-                        fontSize: "1.1rem",
-                        lineHeight: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-                      }}
-                    >
-                      ×
-                    </button>
-                    <LocationMap
-                      location={{ name: locationName, address: locationAddress }}
-                      latitude={locationLat}
-                      longitude={locationLng}
-                      compact
-                      onMarkerDrag={(lat, lng) => {
-                        setLocationLat(lat);
-                        setLocationLng(lng);
-                      }}
-                    />
-                  </div>
-                )}
-                {manualLocation && (
-                  <div style={{ marginTop: "0.4rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    <div>
-                      <label htmlFor="ce-locname" className="text-sm">{t("venueName")}</label>
-                      <input
-                        id="ce-locname"
-                        value={locationName}
-                        onChange={(e) => setLocationName(e.target.value)}
-                        placeholder={t("venueNamePlaceholder")}
-                        autoFocus
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="field">
+              <label htmlFor="ce-title">{t("titleLabel")}</label>
+              <input
+                id="ce-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+                placeholder={t("eventNamePlaceholder")}
+              />
+            </div>
+
+            <div className="field">
+              <label>{t("descriptionLabel")}</label>
+              <RichTextEditor
+                value={description}
+                onChange={setDescription}
+                placeholder={t("descriptionPlaceholder")}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="ce-startDate">{t("startLabel")}</label>
+              <input
+                id="ce-startDate"
+                type={allDay ? "date" : "datetime-local"}
+                value={allDay ? startDate.slice(0, 10) : startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onBlur={(e) => {
+                  if (allDay) return;
+                  const completed = completeDatetimeLocal(e.target.value, "00:00");
+                  if (completed) setStartDate(completed);
+                }}
+                min={allDay ? minStartToday : minStartNow}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label>{t("durationLabel")}</label>
+              <div className="flex gap-1" style={{ flexWrap: "wrap", alignItems: "center" }}>
+                {durationPresets.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => selectDuration(p.value)}
+                    className={`duration-btn ${highlightedPreset === p.value ? "duration-btn-active" : ""}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                <span className="duration-sep" />
+                <button
+                  type="button"
+                  onClick={() => selectDuration(duration === "allday" ? "1h" : "allday")}
+                  className={`duration-btn duration-btn-allday ${highlightedPreset === "allday" ? "duration-btn-active" : ""}`}
+                >
+                  {t("allDay")}
+                </button>
+                <span className="duration-sep" />
+                <button
+                  type="button"
+                  onClick={toggleCustomEnd}
+                  className={`duration-btn duration-btn-custom ${showCustomEnd ? "duration-btn-active" : ""}`}
+                >
+                  {t("custom")}
+                </button>
+              </div>
+            </div>
+
+            {showCustomEnd && (
+              <div className="field">
+                <label htmlFor="ce-endDate">{t("endLabel")}</label>
+                <input
+                  id="ce-endDate"
+                  type={allDay ? "date" : "datetime-local"}
+                  value={allDay ? customEnd.slice(0, 10) : customEnd}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const min = allDay ? startDate.slice(0, 10) : startDate;
+                    setCustomEnd(val && val < min ? min : val);
+                  }}
+                  onBlur={(e) => {
+                    if (allDay) return;
+                    const val = e.target.value;
+                    const datePart = val.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+                    const defaultTime =
+                      datePart && startDate.startsWith(datePart)
+                        ? addDuration(startDate, "1h").slice(11, 16)
+                        : "00:00";
+                    const completed = completeDatetimeLocal(val, defaultTime);
+                    if (completed) setCustomEnd(completed);
+                  }}
+                  min={allDay ? startDate.slice(0, 10) : startDate}
+                />
+              </div>
+            )}
+
+            {/* Location */}
+            <div className="field">
+              <label>{t("locationLabel")}</label>
+              <div className="flex gap-1" style={{ marginBottom: "0.4rem" }}>
+                <button
+                  type="button"
+                  onClick={() => switchLocationMode("inperson")}
+                  className={`duration-btn ${locationMode === "inperson" ? "duration-btn-active" : ""}`}
+                >
+                  {t("inPerson")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchLocationMode("online")}
+                  className={`duration-btn ${locationMode === "online" ? "duration-btn-active" : ""}`}
+                >
+                  {t("online")}
+                </button>
+              </div>
+
+              {locationMode === "inperson" && (
+                <div ref={resultsRef}>
+                  {!manualLocation && (
+                    <>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          value={venueQuery}
+                          onChange={(e) => handleVenueInput(e.target.value)}
+                          onFocus={() => {
+                            if (venueResults.length > 0 || savedLocations.length > 0) setShowResults(true);
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => maybeUnfoldAddress(), 150);
+                          }}
+                          placeholder={t("searchVenuePlaceholder")}
+                          autoComplete="off"
+                        />
+                        {locationName && (
+                          <button
+                            type="button"
+                            onClick={clearVenue}
+                            style={{
+                              position: "absolute",
+                              right: "0.5rem",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              background: "none",
+                              border: "none",
+                              color: "var(--text-dim)",
+                              cursor: "pointer",
+                              padding: "0.2rem",
+                              fontSize: "1rem",
+                              lineHeight: 1,
+                            }}
+                            title={t("common:clear")}
+                          >
+                            ×
+                          </button>
+                        )}
+                        {showResults && (matchingSavedLocations.length > 0 || venueResults.length > 0 || (!searchingVenue && venueQuery.length >= 3)) && (
+                          <div className="venue-dropdown">
+                            {matchingSavedLocations.length > 0 && (
+                              <>
+                                {matchingSavedLocations.map((loc) => (
+                                  <div
+                                    key={`saved-${loc.id}`}
+                                    className="venue-dropdown-item"
+                                    style={{ display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => selectSavedLocation(loc)}
+                                      style={{
+                                        flex: 1,
+                                        minWidth: 0,
+                                        display: "flex",
+                                        alignItems: "baseline",
+                                        gap: "0.5rem",
+                                        background: "none",
+                                        border: "none",
+                                        padding: 0,
+                                        color: "inherit",
+                                        cursor: "pointer",
+                                        font: "inherit",
+                                        textAlign: "left",
+                                      }}
+                                    >
+                                      <span className="venue-dropdown-name">{loc.name}</span>
+                                      <span className="venue-dropdown-addr">{loc.address || ""}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        locationsApi.delete(loc.id).then(() => {
+                                          setSavedLocations((prev) => prev.filter((l) => l.id !== loc.id));
+                                        }).catch(() => { });
+                                      }}
+                                      title={t("removeFromSuggestions")}
+                                      className="venue-dropdown-remove"
+                                      style={{
+                                        flexShrink: 0,
+                                        width: "1.25rem",
+                                        height: "1.25rem",
+                                        padding: 0,
+                                        borderRadius: "50%",
+                                        border: "none",
+                                        background: "transparent",
+                                        color: "var(--text-dim)",
+                                        cursor: "pointer",
+                                        fontSize: "0.9rem",
+                                        lineHeight: 1,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                                {venueResults.length > 0 && (
+                                  <div className="venue-dropdown-sep" />
+                                )}
+                              </>
+                            )}
+                            {venueResults.map((f) => {
+                              const v = extractVenueParts(f, t("unknown"));
+                              return (
+                                <button
+                                  key={f.properties.osm_id}
+                                  type="button"
+                                  className="venue-dropdown-item"
+                                  onClick={() => selectVenue(f)}
+                                >
+                                  <span className="venue-dropdown-name">{v.name}</span>
+                                  <span className="venue-dropdown-addr">{v.address}</span>
+                                </button>
+                              );
+                            })}
+                            {(venueResults.length > 0 || (!searchingVenue && venueQuery.length >= 3)) && (
+                              <button
+                                type="button"
+                                className="venue-dropdown-item venue-dropdown-manual"
+                                onClick={enterManualLocation}
+                              >
+                                {venueResults.length === 0 && matchingSavedLocations.length === 0
+                                  ? t("noResultsEnterManually")
+                                  : t("notInListEnterManually")}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {searchingVenue && (
+                        <div className="text-sm text-muted" style={{ marginTop: "0.2rem" }}>
+                          {t("searching")}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!manualLocation && locationName && !showAddress && (
+                    <div style={{ marginTop: "0.3rem" }}>
+                      <span className="text-sm text-muted">
+                        {locationAddress}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddress(true)}
+                        className="duration-btn duration-btn-custom"
+                        style={{ marginLeft: "0.4rem", fontSize: "0.72rem" }}
+                      >
+                        {t("editAddress")}
+                      </button>
+                    </div>
+                  )}
+                  {locationName && locationLat != null && locationLng != null && (
+                    <div style={{ marginTop: "0.5rem", position: "relative" }}>
+                      <button
+                        type="button"
+                        onClick={clearLocationCoords}
+                        title={t("removeMapCoords")}
+                        style={{
+                          position: "absolute",
+                          right: "0.5rem",
+                          top: "0.5rem",
+                          zIndex: 1000,
+                          width: "1.75rem",
+                          height: "1.75rem",
+                          minWidth: "1.75rem",
+                          minHeight: "1.75rem",
+                          padding: 0,
+                          borderRadius: "50%",
+                          border: "1px solid rgba(0,0,0,0.2)",
+                          background: "rgba(13, 13, 13, 0.92)",
+                          color: "var(--text)",
+                          cursor: "pointer",
+                          fontSize: "1.1rem",
+                          lineHeight: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                        }}
+                      >
+                        ×
+                      </button>
+                      <LocationMap
+                        location={{ name: locationName, address: locationAddress }}
+                        latitude={locationLat}
+                        longitude={locationLng}
+                        compact
+                        onMarkerDrag={(lat, lng) => {
+                          setLocationLat(lat);
+                          setLocationLng(lng);
+                        }}
                       />
                     </div>
-                    <div>
-                      <label htmlFor="ce-address" className="text-sm">{t("addressOptional")}</label>
+                  )}
+                  {manualLocation && (
+                    <div style={{ marginTop: "0.4rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <div>
+                        <label htmlFor="ce-locname" className="text-sm">{t("venueName")}</label>
+                        <input
+                          id="ce-locname"
+                          value={locationName}
+                          onChange={(e) => setLocationName(e.target.value)}
+                          placeholder={t("venueNamePlaceholder")}
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="ce-address" className="text-sm">{t("addressOptional")}</label>
+                        <div style={{ position: "relative" }}>
+                          <input
+                            id="ce-address"
+                            value={locationAddress}
+                            onChange={(e) => setLocationAddress(e.target.value)}
+                            onBlur={(e) => handleAddressBlur((e.target as HTMLInputElement).value)}
+                            placeholder={t("addressPlaceholder")}
+                            style={resolvingAddress ? { paddingRight: "2.25rem" } : undefined}
+                          />
+                          {resolvingAddress && (
+                            <div
+                              className="address-field-spinner"
+                              style={{
+                                position: "absolute",
+                                right: "0.6rem",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                pointerEvents: "none",
+                              }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearVenue}
+                        className="text-sm"
+                        style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0, textAlign: "left" }}
+                      >
+                        {t("backToSearch")}
+                      </button>
+                    </div>
+                  )}
+                  {!manualLocation && (showAddress || venueQuery.trim().length >= 2) && (
+                    <div style={{ marginTop: "0.4rem" }}>
+                      <label htmlFor="ce-address" className="text-sm">{t("addressLabel")}</label>
                       <div style={{ position: "relative" }}>
                         <input
                           id="ce-address"
                           value={locationAddress}
                           onChange={(e) => setLocationAddress(e.target.value)}
+                          onFocus={() => {
+                            if (venueQuery.trim() && !locationName) {
+                              setLocationName(venueQuery.trim());
+                              setShowAddress(true);
+                              setShowResults(false);
+                            }
+                          }}
                           onBlur={(e) => handleAddressBlur((e.target as HTMLInputElement).value)}
                           placeholder={t("addressPlaceholder")}
                           style={resolvingAddress ? { paddingRight: "2.25rem" } : undefined}
@@ -1697,171 +1745,128 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                         )}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={clearVenue}
-                      className="text-sm"
-                      style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: 0, textAlign: "left" }}
-                    >
-                      {t("backToSearch")}
-                    </button>
-                  </div>
-                )}
-                {!manualLocation && (showAddress || venueQuery.trim().length >= 2) && (
-                  <div style={{ marginTop: "0.4rem" }}>
-                    <label htmlFor="ce-address" className="text-sm">{t("addressLabel")}</label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        id="ce-address"
-                        value={locationAddress}
-                        onChange={(e) => setLocationAddress(e.target.value)}
-                        onFocus={() => {
-                          if (venueQuery.trim() && !locationName) {
-                            setLocationName(venueQuery.trim());
-                            setShowAddress(true);
-                            setShowResults(false);
-                          }
-                        }}
-                        onBlur={(e) => handleAddressBlur((e.target as HTMLInputElement).value)}
-                        placeholder={t("addressPlaceholder")}
-                        style={resolvingAddress ? { paddingRight: "2.25rem" } : undefined}
-                      />
-                      {resolvingAddress && (
-                        <div
-                          className="address-field-spinner"
-                          style={{
-                            position: "absolute",
-                            right: "0.6rem",
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            pointerEvents: "none",
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
 
-            {locationMode === "online" && (
-              <div>
-                <input
-                  type="url"
-                  value={locationUrl}
-                  onChange={(e) => { setLocationUrl(e.target.value); setLocationUrlError(""); }}
-                  onBlur={() => {
-                    if (!locationUrl) return;
-                    let url = locationUrl.trim();
-                    if (!/^https?:\/\//i.test(url) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(url)) {
-                      url = `https://${url}`;
-                      setLocationUrl(url);
-                    }
-                    if (!/^https?:\/\/.+/i.test(url)) {
-                      setLocationUrlError(t("invalidUrl"));
-                    }
-                  }}
-                  placeholder={t("urlPlaceholder")}
-                  style={locationUrlError ? { borderColor: "var(--danger)" } : undefined}
-                />
-                {locationUrlError && (
-                  <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.2rem" }}>{locationUrlError}</p>
-                )}
-              </div>
-            )}
-          </div>
+              {locationMode === "online" && (
+                <div>
+                  <input
+                    type="url"
+                    value={locationUrl}
+                    onChange={(e) => { setLocationUrl(e.target.value); setLocationUrlError(""); }}
+                    onBlur={() => {
+                      if (!locationUrl) return;
+                      let url = locationUrl.trim();
+                      if (!/^https?:\/\//i.test(url) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(url)) {
+                        url = `https://${url}`;
+                        setLocationUrl(url);
+                      }
+                      if (!/^https?:\/\/.+/i.test(url)) {
+                        setLocationUrlError(t("invalidUrl"));
+                      }
+                    }}
+                    placeholder={t("urlPlaceholder")}
+                    style={locationUrlError ? { borderColor: "var(--danger)" } : undefined}
+                  />
+                  {locationUrlError && (
+                    <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.2rem" }}>{locationUrlError}</p>
+                  )}
+                </div>
+              )}
+            </div>
 
-          <div className="field">
-            <label htmlFor="ce-url">{t("eventUrlLabel")}</label>
-            <input
-              id="ce-url"
-              type="url"
-              value={url}
-              onChange={(e) => { setUrl(e.target.value); setUrlError(""); }}
-              onBlur={() => {
-                if (!url) return;
-                let urlVal = url.trim();
-                if (!/^https?:\/\//i.test(urlVal) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(urlVal)) {
-                  urlVal = `https://${urlVal}`;
-                  setUrl(urlVal);
-                }
-                if (!/^https?:\/\/.+/i.test(urlVal)) {
-                  setUrlError(t("invalidUrl"));
-                }
-              }}
-              placeholder={t("urlPlaceholder")}
-              style={urlError ? { borderColor: "var(--danger)" } : undefined}
-            />
-            {urlError && (
-              <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.2rem" }}>{urlError}</p>
-            )}
-          </div>
+            <div className="field">
+              <label htmlFor="ce-url">{t("eventUrlLabel")}</label>
+              <input
+                id="ce-url"
+                type="url"
+                value={url}
+                onChange={(e) => { setUrl(e.target.value); setUrlError(""); }}
+                onBlur={() => {
+                  if (!url) return;
+                  let urlVal = url.trim();
+                  if (!/^https?:\/\//i.test(urlVal) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(urlVal)) {
+                    urlVal = `https://${urlVal}`;
+                    setUrl(urlVal);
+                  }
+                  if (!/^https?:\/\/.+/i.test(urlVal)) {
+                    setUrlError(t("invalidUrl"));
+                  }
+                }}
+                placeholder={t("urlPlaceholder")}
+                style={urlError ? { borderColor: "var(--danger)" } : undefined}
+              />
+              {urlError && (
+                <p className="text-sm" style={{ color: "var(--danger)", marginTop: "0.2rem" }}>{urlError}</p>
+              )}
+            </div>
 
-          <div className="field">
-            <label htmlFor="ce-tags">{t("common:tags")}</label>
-            <TagInput
-              id="ce-tags"
-              value={tags}
-              onChange={setTags}
-              placeholder={t("tagsPlaceholder")}
-            />
-          </div>
+            <div className="field">
+              <label htmlFor="ce-tags">{t("common:tags")}</label>
+              <TagInput
+                id="ce-tags"
+                value={tags}
+                onChange={setTags}
+                placeholder={t("tagsPlaceholder")}
+              />
+            </div>
 
-          <div className="field">
-            <label htmlFor="ce-visibility">{t("visibilityLabel")}</label>
-            <select
-              id="ce-visibility"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-            >
-              <option value="public">{t("visibilityPublic")}</option>
-              <option value="unlisted">{t("visibilityUnlisted")}</option>
-              <option value="followers_only">{t("visibilityFollowersOnly")}</option>
-              <option value="private">{t("visibilityPrivate")}</option>
-            </select>
-          </div>
-
-          {error && <p className="error-text mb-2">{error}</p>}
-
-          <div style={{ display: "flex", gap: "0.5rem", width: "100%", flexWrap: "wrap" }}>
-            {showMobileStepFlow ? (
-              <button
-                type="button"
-                onClick={() => setCreateStep("review")}
-                className="btn-primary"
-                style={{ flex: 1, minWidth: 0 }}
+            <div className="field">
+              <label htmlFor="ce-visibility">{t("visibilityLabel")}</label>
+              <select
+                id="ce-visibility"
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value)}
               >
-                {t("continueToReview")}
-              </button>
-            ) : (
-              <>
-                {isEdit && (
-                  <Link href={initialEvent ? eventPath(initialEvent) : "/"}>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      disabled={submitting}
-                      style={{ flexShrink: 0 }}
-                    >
-                      {t("common:cancel")}
-                    </button>
-                  </Link>
-                )}
+                <option value="public">{t("visibilityPublic")}</option>
+                <option value="unlisted">{t("visibilityUnlisted")}</option>
+                <option value="followers_only">{t("visibilityFollowersOnly")}</option>
+                <option value="private">{t("visibilityPrivate")}</option>
+              </select>
+            </div>
+
+            {error && <p className="error-text mb-2">{error}</p>}
+
+            <div style={{ display: "flex", gap: "0.5rem", width: "100%", flexWrap: "wrap" }}>
+              {showMobileStepFlow ? (
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => setCreateStep("review")}
                   className="btn-primary"
-                  disabled={submitting}
                   style={{ flex: 1, minWidth: 0 }}
                 >
-                  {submitting
-                    ? (isEdit ? t("common:saving") : t("creating"))
-                    : (isEdit ? t("saveChanges") : t("createEvent"))}
+                  {t("continueToReview")}
                 </button>
-              </>
-            )}
-          </div>
-        </form>
-      </aside>
+              ) : (
+                <>
+                  {isEdit && (
+                    <Link href={initialEvent ? eventPath(initialEvent) : "/"}>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={submitting}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {t("common:cancel")}
+                      </button>
+                    </Link>
+                  )}
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={submitting}
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    {submitting
+                      ? (isEdit ? t("common:saving") : t("creating"))
+                      : (isEdit ? t("saveChanges") : t("createEvent"))}
+                  </button>
+                </>
+              )}
+            </div>
+          </form>
+        </aside>
       )}
 
       {/* Mobile step 2: confirm actions */}
@@ -1869,22 +1874,22 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         <div className="create-event-mobile-actions-wrap">
           {error && <p className="error-text mb-2">{error}</p>}
           <div className="create-event-mobile-actions">
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => setCreateStep("form")}
-          >
-            {t("common:edit")}
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={submitting}
-            onClick={() => performSubmit()}
-            style={{ flex: 1, minWidth: 0 }}
-          >
-            {submitting ? t("creating") : t("createEvent")}
-          </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setCreateStep("form")}
+            >
+              {t("common:edit")}
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={submitting}
+              onClick={() => performSubmit()}
+              style={{ flex: 1, minWidth: 0 }}
+            >
+              {submitting ? t("creating") : t("createEvent")}
+            </button>
           </div>
         </div>
       )}
