@@ -74,5 +74,6 @@ export function rateLimiter(opts: RateLimiterOptions) {
     }
 
     await next();
+    return undefined;
   });
 }

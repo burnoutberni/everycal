@@ -4,7 +4,6 @@
 
 import type { Scraper } from "./scraper.js";
 import { FlexScraper } from "./scrapers/flex-at.js";
-import { VotivkinoScraper } from "./scrapers/votivkino.js";
 
 // wirmachen.wien scrapers (6 organisations)
 import {

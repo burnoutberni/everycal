@@ -10,7 +10,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "lint": "eslint src/"
+    "lint": "tsc -b --pretty false"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

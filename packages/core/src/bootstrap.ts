@@ -71,7 +71,7 @@ export function bootstrapViewerToUser(viewer: BootstrapViewer | null | undefined
     id: viewer.id,
     username: viewer.username,
     displayName: viewer.displayName,
-    avatarUrl: viewer.avatarUrl,
+    ...(viewer.avatarUrl !== undefined ? { avatarUrl: viewer.avatarUrl } : {}),
     notificationPrefs: {
       reminderEnabled: true,
       reminderHoursBefore: 24,

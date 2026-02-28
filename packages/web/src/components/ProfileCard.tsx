@@ -78,10 +78,8 @@ export function getEventsCount(item: ProfileItem): number | null {
   return null;
 }
 
-export function ProfileCardContent({ item, profilePath, remoteProfilePath }: {
+export function ProfileCardContent({ item }: {
   item: ProfileItem;
-  profilePath: (u: string, d?: string) => string;
-  remoteProfilePath: (u: string, d: string) => string;
 }) {
   const { t } = useTranslation("profile");
   const avatar = getProfileAvatar(item);
@@ -204,7 +202,7 @@ export function ProfileCard({
   remoteProfilePath: (u: string, d: string) => string;
 }) {
   const href = getProfileHref(item, profilePath, remoteProfilePath);
-  const content = <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />;
+  const content = <ProfileCardContent item={item} />;
   const linkWrap = (children: React.ReactNode) => (
     <Link href={href} style={{ minWidth: 0, textDecoration: "none", color: "inherit" }}>
       {children}

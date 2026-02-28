@@ -59,15 +59,27 @@ export function fromICal(vevent: string): Partial<EveryCalEvent> {
   const props = parseProperties(vevent);
 
   const event: Partial<EveryCalEvent> = {
-    id: props["UID"],
-    title: props["SUMMARY"] ? unescapeICalText(props["SUMMARY"]) : undefined,
-    description: props["DESCRIPTION"] ? unescapeICalText(props["DESCRIPTION"]) : undefined,
-    startDate: props["DTSTART"] ? fromICalDate(props["DTSTART"]) : undefined,
-    endDate: props["DTEND"] ? fromICalDate(props["DTEND"]) : undefined,
-    url: props["URL"],
-    createdAt: props["CREATED"] ? fromICalDate(props["CREATED"]) : undefined,
-    updatedAt: props["LAST-MODIFIED"] ? fromICalDate(props["LAST-MODIFIED"]) : undefined,
     visibility: "public", // iCal doesn't carry visibility in our sense
+    ...(props["UID"] !== undefined ? { id: props["UID"] } : {}),
+    ...(props["SUMMARY"] !== undefined
+      ? { title: unescapeICalText(props["SUMMARY"]) }
+      : {}),
+    ...(props["DESCRIPTION"] !== undefined
+      ? { description: unescapeICalText(props["DESCRIPTION"]) }
+      : {}),
+    ...(props["DTSTART"] !== undefined
+      ? { startDate: fromICalDate(props["DTSTART"]) }
+      : {}),
+    ...(props["DTEND"] !== undefined
+      ? { endDate: fromICalDate(props["DTEND"]) }
+      : {}),
+    ...(props["URL"] !== undefined ? { url: props["URL"] } : {}),
+    ...(props["CREATED"] !== undefined
+      ? { createdAt: fromICalDate(props["CREATED"]) }
+      : {}),
+    ...(props["LAST-MODIFIED"] !== undefined
+      ? { updatedAt: fromICalDate(props["LAST-MODIFIED"]) }
+      : {}),
   };
 
   if (props["LOCATION"]) {

@@ -79,6 +79,7 @@ app.use("*", async (c, next) => {
     return c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413);
   }
   await next();
+  return undefined;
 });
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)

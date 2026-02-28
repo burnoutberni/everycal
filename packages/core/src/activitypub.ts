@@ -135,34 +135,36 @@ export function toActivityPubEvent(event: EveryCalEvent): APEvent {
 export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
   const visibility = addressingToVisibility(ap.to ?? [], ap.cc ?? []);
   const image = ap.attachment?.find((a) => a.type === "Image");
+  const location = ap.location
+    ? {
+        name: ap.location.name,
+        ...(ap.location.address !== undefined ? { address: ap.location.address } : {}),
+        ...(ap.location.latitude !== undefined ? { latitude: ap.location.latitude } : {}),
+        ...(ap.location.longitude !== undefined ? { longitude: ap.location.longitude } : {}),
+        ...(ap.location.url !== undefined ? { url: ap.location.url } : {}),
+      }
+    : undefined;
+  const eventImage = image
+    ? {
+        url: image.url,
+        ...(image.mediaType !== undefined ? { mediaType: image.mediaType } : {}),
+        ...(image.name !== undefined ? { alt: image.name } : {}),
+        ...(image.width !== undefined ? { width: image.width } : {}),
+        ...(image.height !== undefined ? { height: image.height } : {}),
+      }
+    : undefined;
 
   return {
     id: ap.id,
     title: ap.name,
-    description: ap.content,
     startDate: ap.startTime,
-    endDate: ap.endTime,
-    location: ap.location
-      ? {
-          name: ap.location.name,
-          address: ap.location.address,
-          latitude: ap.location.latitude,
-          longitude: ap.location.longitude,
-          url: ap.location.url,
-        }
-      : undefined,
-    image: image
-      ? {
-          url: image.url,
-          mediaType: image.mediaType,
-          alt: image.name,
-          width: image.width,
-          height: image.height,
-        }
-      : undefined,
-    url: ap.url,
-    tags: ap.tag?.map((t) => t.name.replace(/^#/, "")),
-    organizer: ap.attributedTo,
+    ...(ap.content !== undefined ? { description: ap.content } : {}),
+    ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
+    ...(location !== undefined ? { location } : {}),
+    ...(eventImage !== undefined ? { image: eventImage } : {}),
+    ...(ap.url !== undefined ? { url: ap.url } : {}),
+    ...(ap.tag !== undefined ? { tags: ap.tag.map((t) => t.name.replace(/^#/, "")) } : {}),
+    ...(ap.attributedTo !== undefined ? { organizer: ap.attributedTo } : {}),
     visibility,
     createdAt: ap.published,
     updatedAt: ap.updated,

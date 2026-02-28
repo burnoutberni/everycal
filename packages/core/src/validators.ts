@@ -19,7 +19,9 @@ function isIPv6Literal(host: string): boolean {
 function isPrivateIPv4Literal(host: string): boolean {
   const octets = host.split(".").map((part) => Number(part));
   if (octets.length !== 4 || octets.some((part) => Number.isNaN(part))) return false;
-  const [a, b, c] = octets;
+  const a = octets[0]!;
+  const b = octets[1]!;
+  const c = octets[2]!;
   if (a === 10 || a === 127 || a === 0) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;

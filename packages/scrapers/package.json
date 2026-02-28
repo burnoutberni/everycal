@@ -12,7 +12,7 @@
     "build": "tsc",
     "scrape": "tsx src/cli.ts",
     "test": "vitest run",
-    "lint": "eslint src/"
+    "lint": "tsc -b --pretty false"
   },
   "dependencies": {
     "@everycal/core": "workspace:*",

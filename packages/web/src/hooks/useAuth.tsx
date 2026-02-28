@@ -102,6 +102,7 @@ export function AuthProvider({
     }
 
     refreshUser().catch(() => {});
+    return undefined;
   }, []);
 
   const login = async (username: string, password: string) => {
@@ -125,6 +126,7 @@ export function AuthProvider({
       return { requiresVerification: true, email: res.email };
     }
     setAuthState({ status: "authenticated", user: (res as AuthResponse).user });
+    return undefined;
   };
 
   const logout = async () => {

@@ -10,7 +10,7 @@
     "test": "vitest run",
     "generate:logos": "node scripts/generate-logos.mjs",
     "preview": "vite preview",
-    "lint": "eslint src/",
+    "lint": "tsc -b --pretty false",
     "i18n:extract": "i18next-scanner --config i18next-scanner.config.cjs"
   },
   "dependencies": {

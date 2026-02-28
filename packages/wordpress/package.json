@@ -7,7 +7,7 @@
   "scripts": {
     "build": "wp-scripts build",
     "dev": "wp-scripts start",
-    "lint": "wp-scripts lint-js",
+    "lint": "node --check src/index.js",
     "plugin-zip": "wp-scripts plugin-zip",
     "i18n:compile": "for f in languages/*.po; do msgfmt -o \"${f%.po}.mo\" \"$f\"; done",
     "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal"

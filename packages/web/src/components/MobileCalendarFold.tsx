@@ -36,8 +36,6 @@ export interface MobileCalendarFoldProps {
   ignoreScrollSpyUntilRef?: React.MutableRefObject<number>;
   /** Ref to ignore scroll collapse briefly (parent sets) */
   ignoreScrollCollapseUntilRef?: React.MutableRefObject<number>;
-  /** Overlay close handler when expanded */
-  onOverlayClose?: () => void;
   /** Called when expanded state changes (parent can use for overlay) */
   onExpandedChange?: (expanded: boolean) => void;
 }
@@ -54,7 +52,6 @@ export const MobileCalendarFold = forwardRef<MobileCalendarFoldRef, MobileCalend
   layout = "sticky",
   ignoreScrollSpyUntilRef,
   ignoreScrollCollapseUntilRef,
-  onOverlayClose,
   onExpandedChange,
 }, ref) {
   const [calendarExpanded, setCalendarExpandedState] = useState(false);

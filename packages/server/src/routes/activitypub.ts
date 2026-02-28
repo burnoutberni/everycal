@@ -17,7 +17,6 @@ import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
   resolveRemoteActor,
   deliverActivity,
-  deliverToFollowers,
 } from "../lib/federation.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";

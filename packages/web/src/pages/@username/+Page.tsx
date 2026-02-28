@@ -1,4 +1,3 @@
-import React from "react";
 import { usePageContext } from "../../renderer/PageContext";
 import { ProfilePage } from "../ProfilePage";
 
