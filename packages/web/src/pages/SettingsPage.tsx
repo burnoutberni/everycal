@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
-import { auth as authApi } from "../lib/api";
+import {
+  auth as authApi,
+  identities as identitiesApi,
+  type PublishingIdentity,
+  type IdentityMember,
+  type IdentityRole,
+} from "../lib/api";
 import { Link } from "wouter";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon } from "../components/icons";
@@ -13,6 +19,7 @@ export function SettingsPage() {
 
   const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
     { id: "profile", label: t("profile"), icon: UserIcon },
+    { id: "identities", label: t("publishingIdentities"), icon: UserIcon },
     { id: "account", label: t("account"), icon: LockIcon },
     { id: "notifications", label: t("notifications"), icon: BellIcon },
     { id: "api-keys", label: t("apiKeys"), icon: KeyIcon },
@@ -55,6 +62,22 @@ export function SettingsPage() {
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
 
+  const [identities, setIdentities] = useState<PublishingIdentity[]>([]);
+  const [selectedIdentityUsername, setSelectedIdentityUsername] = useState("");
+  const [identityMembers, setIdentityMembers] = useState<IdentityMember[]>([]);
+  const [identityError, setIdentityError] = useState("");
+  const [identityBusy, setIdentityBusy] = useState(false);
+  const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
+  const [createIdentityOpen, setCreateIdentityOpen] = useState(false);
+  const [createIdentityUsername, setCreateIdentityUsername] = useState("");
+  const [createIdentityDisplayName, setCreateIdentityDisplayName] = useState("");
+  const [createIdentityBio, setCreateIdentityBio] = useState("");
+  const [createIdentityWebsite, setCreateIdentityWebsite] = useState("");
+  const [createIdentityAvatarUrl, setCreateIdentityAvatarUrl] = useState("");
+  const [createIdentityDiscoverable, setCreateIdentityDiscoverable] = useState(false);
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [inviteRole, setInviteRole] = useState<IdentityRole>("editor");
+
   useEffect(() => {
     if (!user) return;
     authApi.me().then((u) => {
@@ -75,7 +98,33 @@ export function SettingsPage() {
       }
     });
     authApi.listApiKeys().then((r) => setKeys(r.keys));
+    identitiesApi.list().then((res) => {
+      const scoped = res.identities.filter((identity) => identity.accountType === "identity");
+      setIdentities(scoped);
+      if (!selectedIdentityUsername && scoped.length > 0) {
+        setSelectedIdentityUsername(scoped[0].username);
+      }
+    }).catch(() => {
+      setIdentities([]);
+    });
   }, [user]);
+
+  const roleRank: Record<IdentityRole, number> = { editor: 1, admin: 2, owner: 3 };
+  const selectedIdentity = identities.find((identity) => identity.username === selectedIdentityUsername) || null;
+  const selectedRole = selectedIdentity?.role;
+  const canAdminMembers = !!selectedRole && roleRank[selectedRole] >= roleRank.admin;
+  const isOwner = selectedRole === "owner";
+
+  useEffect(() => {
+    if (!selectedIdentity) {
+      setIdentityMembers([]);
+      return;
+    }
+    identitiesApi
+      .listMembers(selectedIdentity.username)
+      .then((res) => setIdentityMembers(res.members))
+      .catch(() => setIdentityMembers([]));
+  }, [selectedIdentity?.username]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -155,6 +204,109 @@ export function SettingsPage() {
     authApi.listApiKeys().then((r) => setKeys(r.keys));
   };
 
+  const handleCreateIdentity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIdentityError("");
+    setIdentityBusy(true);
+    try {
+      await identitiesApi.create({
+        username: createIdentityUsername,
+        displayName: createIdentityDisplayName || undefined,
+        bio: createIdentityBio || undefined,
+        website: createIdentityWebsite || undefined,
+        avatarUrl: createIdentityAvatarUrl || undefined,
+        discoverable: createIdentityDiscoverable,
+      });
+      const res = await identitiesApi.list();
+      const scoped = res.identities.filter((identity) => identity.accountType === "identity");
+      setIdentities(scoped);
+      const created = scoped.find((identity) => identity.username === createIdentityUsername.toLowerCase().trim());
+      if (created) setSelectedIdentityUsername(created.username);
+      setCreateIdentityOpen(false);
+      setCreateIdentityUsername("");
+      setCreateIdentityDisplayName("");
+      setCreateIdentityBio("");
+      setCreateIdentityWebsite("");
+      setCreateIdentityAvatarUrl("");
+      setCreateIdentityDiscoverable(false);
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleSaveIdentityProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedIdentity) return;
+    setIdentityError("");
+    setIdentityBusy(true);
+    try {
+      const res = await identitiesApi.update(selectedIdentity.username, {
+        displayName: selectedIdentity.displayName || undefined,
+        bio: selectedIdentity.bio || undefined,
+        website: selectedIdentity.website || null,
+        avatarUrl: selectedIdentity.avatarUrl || null,
+        discoverable: selectedIdentity.discoverable,
+      });
+      setIdentities((prev) => prev.map((identity) => (
+        identity.username === selectedIdentity.username ? res.identity : identity
+      )));
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleInviteMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedIdentity) return;
+    setIdentityError("");
+    setIdentityBusy(true);
+    try {
+      await identitiesApi.addMember(selectedIdentity.username, inviteUsername, inviteRole);
+      const res = await identitiesApi.listMembers(selectedIdentity.username);
+      setIdentityMembers(res.members);
+      setInviteUsername("");
+      setInviteRole("editor");
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleUpdateMemberRole = async (memberId: string, role: IdentityRole) => {
+    if (!selectedIdentity) return;
+    setIdentityError("");
+    setMemberBusyId(memberId);
+    try {
+      await identitiesApi.updateMember(selectedIdentity.username, memberId, role);
+      const res = await identitiesApi.listMembers(selectedIdentity.username);
+      setIdentityMembers(res.members);
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setMemberBusyId(null);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!selectedIdentity) return;
+    if (!confirm(t("removeMemberConfirm"))) return;
+    setIdentityError("");
+    setMemberBusyId(memberId);
+    try {
+      await identitiesApi.removeMember(selectedIdentity.username, memberId);
+      setIdentityMembers((prev) => prev.filter((member) => member.memberId !== memberId));
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setMemberBusyId(null);
+    }
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordChangeError("");
@@ -203,6 +355,15 @@ export function SettingsPage() {
     } catch {
       alert(t("failedDeleteAccount"));
     }
+  };
+
+  const patchSelectedIdentity = (patch: Partial<PublishingIdentity>) => {
+    if (!selectedIdentity) return;
+    setIdentities((prev) => prev.map((identity) => (
+      identity.username === selectedIdentity.username
+        ? { ...identity, ...patch }
+        : identity
+    )));
   };
 
   return (
@@ -293,6 +454,233 @@ export function SettingsPage() {
                 {saved && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
             </form>
+          </div>
+        </section>
+
+        <section
+          id="identities"
+          ref={(el) => { sectionRefs.current.identities = el; }}
+          className="settings-section"
+          aria-labelledby="identities-heading"
+        >
+          <div className="settings-card">
+            <h2 id="identities-heading" className="settings-section-title">
+              {t("publishingIdentities")}
+            </h2>
+            <p className="text-sm text-dim mb-2">{t("publishingIdentitiesHelp")}</p>
+
+            {identities.length === 0 ? (
+              <p className="text-sm text-dim mb-2">{t("noPublishingIdentities")}</p>
+            ) : (
+              <div className="settings-keys-list">
+                {identities.map((identity) => (
+                  <button
+                    key={identity.id}
+                    type="button"
+                    className="settings-key-row"
+                    style={{
+                      background: identity.username === selectedIdentityUsername ? "var(--bg-hover)" : "transparent",
+                      borderRadius: "var(--radius-sm)",
+                      border: "none",
+                      cursor: "pointer",
+                      width: "100%",
+                      textAlign: "left",
+                    }}
+                    onClick={() => setSelectedIdentityUsername(identity.username)}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{identity.displayName || identity.username}</span>
+                      <span className="text-sm text-dim" style={{ marginLeft: "0.5rem" }}>@{identity.username}</span>
+                    </div>
+                    <span className="text-sm text-dim">{t(`role.${identity.role}`)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!createIdentityOpen ? (
+              <button type="button" className="btn-ghost btn-sm" onClick={() => setCreateIdentityOpen(true)}>
+                {t("createPublishingIdentity")}
+              </button>
+            ) : (
+              <form onSubmit={handleCreateIdentity}>
+                <div className="field">
+                  <label>{t("identityHandle")}</label>
+                  <input
+                    value={createIdentityUsername}
+                    onChange={(e) => setCreateIdentityUsername(e.target.value)}
+                    placeholder="navigating-contradictions"
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label>{t("displayName")}</label>
+                  <input value={createIdentityDisplayName} onChange={(e) => setCreateIdentityDisplayName(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t("bio")}</label>
+                  <textarea rows={3} value={createIdentityBio} onChange={(e) => setCreateIdentityBio(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t("website")}</label>
+                  <input type="url" value={createIdentityWebsite} onChange={(e) => setCreateIdentityWebsite(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t("avatarUrl")}</label>
+                  <input type="url" value={createIdentityAvatarUrl} onChange={(e) => setCreateIdentityAvatarUrl(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={createIdentityDiscoverable}
+                      onChange={(e) => setCreateIdentityDiscoverable(e.target.checked)}
+                      style={{ width: "auto" }}
+                    />
+                    {t("discoverableIdentity")}
+                  </label>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button type="submit" className="btn-primary btn-sm" disabled={identityBusy}>
+                    {identityBusy ? t("common:saving") : t("createIdentity")}
+                  </button>
+                  <button type="button" className="btn-ghost btn-sm" onClick={() => setCreateIdentityOpen(false)}>
+                    {t("common:cancel")}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {selectedIdentity && (
+              <>
+                <form onSubmit={handleSaveIdentityProfile} className="mt-3" style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
+                  <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>
+                    {t("identityProfile")}: @{selectedIdentity.username}
+                  </h3>
+                  <div className="field">
+                    <label>{t("displayName")}</label>
+                    <input
+                      value={selectedIdentity.displayName || ""}
+                      onChange={(e) => patchSelectedIdentity({ displayName: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("bio")}</label>
+                    <textarea
+                      rows={3}
+                      value={selectedIdentity.bio || ""}
+                      onChange={(e) => patchSelectedIdentity({ bio: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("website")}</label>
+                    <input
+                      type="url"
+                      value={selectedIdentity.website || ""}
+                      onChange={(e) => patchSelectedIdentity({ website: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("avatarUrl")}</label>
+                    <input
+                      type="url"
+                      value={selectedIdentity.avatarUrl || ""}
+                      onChange={(e) => patchSelectedIdentity({ avatarUrl: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIdentity.discoverable}
+                        onChange={(e) => patchSelectedIdentity({ discoverable: e.target.checked })}
+                        style={{ width: "auto" }}
+                      />
+                      {t("discoverableIdentity")}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button type="submit" className="btn-primary btn-sm" disabled={identityBusy || !canAdminMembers}>
+                      {identityBusy ? t("common:saving") : t("common:save")}
+                    </button>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="btn-danger btn-sm"
+                        onClick={async () => {
+                          if (!confirm(t("deleteIdentityConfirm", { username: selectedIdentity.username }))) return;
+                          try {
+                            await identitiesApi.delete(selectedIdentity.username);
+                            const res = await identitiesApi.list();
+                            const scoped = res.identities.filter((identity) => identity.accountType === "identity");
+                            setIdentities(scoped);
+                            setSelectedIdentityUsername(scoped[0]?.username || "");
+                          } catch (err: unknown) {
+                            setIdentityError((err as Error).message || t("identityActionFailed"));
+                          }
+                        }}
+                      >
+                        {t("deleteIdentity")}
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                <form onSubmit={handleInviteMember} className="mt-3" style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
+                  <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>{t("identityMembers")}</h3>
+                  {canAdminMembers && (
+                    <div className="flex gap-1 items-center mb-2" style={{ flexWrap: "wrap" }}>
+                      <input
+                        value={inviteUsername}
+                        onChange={(e) => setInviteUsername(e.target.value)}
+                        placeholder={t("memberUsernamePlaceholder")}
+                        style={{ flex: 1, minWidth: 200 }}
+                      />
+                      <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as IdentityRole)}>
+                        <option value="editor">{t("role.editor")}</option>
+                        <option value="admin">{t("role.admin")}</option>
+                        <option value="owner">{t("role.owner")}</option>
+                      </select>
+                      <button type="submit" className="btn-ghost btn-sm" disabled={!inviteUsername.trim() || identityBusy}>
+                        {t("inviteMember")}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="settings-keys-list">
+                    {identityMembers.map((member) => (
+                      <div key={member.memberId} className="settings-key-row">
+                        <div>
+                          <span style={{ fontWeight: 500 }}>{member.displayName || member.username}</span>
+                          <span className="text-sm text-dim" style={{ marginLeft: "0.5rem" }}>@{member.username}</span>
+                        </div>
+                        <div className="flex gap-1 items-center">
+                          <select
+                            value={member.role}
+                            disabled={!canAdminMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                            onChange={(e) => handleUpdateMemberRole(member.memberId, e.target.value as IdentityRole)}
+                          >
+                            <option value="editor">{t("role.editor")}</option>
+                            <option value="admin">{t("role.admin")}</option>
+                            <option value="owner">{t("role.owner")}</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="btn-danger btn-sm"
+                            disabled={!canAdminMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                            onClick={() => handleRemoveMember(member.memberId)}
+                          >
+                            {t("common:remove")}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </form>
+              </>
+            )}
+
+            {identityError && <p className="text-sm mt-2 error-text">{identityError}</p>}
           </div>
         </section>
 

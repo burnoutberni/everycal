@@ -1,7 +1,17 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
-import { events as eventsApi, locations as locationsApi, images as imagesApi, type EventInput, type CalEvent, type SavedLocation, type ImageAttribution } from "../lib/api";
+import {
+  events as eventsApi,
+  locations as locationsApi,
+  images as imagesApi,
+  identities as identitiesApi,
+  type EventInput,
+  type CalEvent,
+  type SavedLocation,
+  type ImageAttribution,
+  type PublishingIdentity,
+} from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { eventPath } from "../lib/urls";
@@ -77,6 +87,7 @@ interface EventDraft {
   url: string;
   tags: string;
   visibility: string;
+  postAsAccountId: string;
   locationMode: LocationMode;
   venueQuery: string;
   locationName: string;
@@ -341,6 +352,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [urlError, setUrlError] = useState("");
   const [tags, setTags] = useState(initialState?.tags ?? "");
   const [visibility, setVisibility] = useState(initialState?.visibility ?? defaultVis);
+  const [availableIdentities, setAvailableIdentities] = useState<PublishingIdentity[]>([]);
+  const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -420,8 +433,22 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   useEffect(() => {
     if (user) {
       locationsApi.list().then(setSavedLocations).catch(() => { });
+      identitiesApi.list()
+        .then((res) => setAvailableIdentities(res.identities))
+        .catch(() => setAvailableIdentities([]));
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (isEdit && initialEvent?.accountId) {
+      setPostAsAccountId(initialEvent.accountId);
+      return;
+    }
+    if (!postAsAccountId) {
+      setPostAsAccountId(user.id);
+    }
+  }, [user, isEdit, initialEvent?.accountId, postAsAccountId]);
 
   // Load draft from localStorage when user is available (create mode only)
   useEffect(() => {
@@ -439,6 +466,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setUrl(d.url || "");
     setTags(d.tags || "");
     setVisibility(d.visibility || defaultVis);
+    setPostAsAccountId(d.postAsAccountId || user.id);
     setLocationMode(d.locationMode || "inperson");
     setVenueQuery(d.venueQuery || "");
     setLocationName(d.locationName || "");
@@ -466,6 +494,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       url,
       tags,
       visibility,
+      postAsAccountId,
       locationMode,
       venueQuery,
       locationName,
@@ -494,6 +523,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     url,
     tags,
     visibility,
+    postAsAccountId,
     locationMode,
     venueQuery,
     locationName,
@@ -806,6 +836,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setUrlError("");
     setTags("");
     setVisibility(defaultVis);
+    setPostAsAccountId(user?.id || "");
     setError("");
     setLocationMode("inperson");
     setVenueQuery("");
@@ -941,6 +972,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         tags: locTags
           ? locTags.split(",").map((t) => t.trim()).filter(Boolean)
           : undefined,
+        postAsAccountId: isEdit ? undefined : postAsAccountId,
       };
       if (locationMode === "inperson" && effectiveLocationName) {
         data.location = {
@@ -1011,6 +1043,35 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const previewLocationName = locationMode === "inperson" ? (locationName || venueQuery) : null;
 
   const showMobileStepFlow = !isEdit && isMobile;
+  const baseIdentityOptions = availableIdentities.length > 0
+    ? availableIdentities
+    : [{
+        id: user.id,
+        username: user.username,
+        accountType: "person" as const,
+        role: "owner" as const,
+        displayName: user.displayName,
+        bio: null,
+        website: null,
+        avatarUrl: null,
+        discoverable: !!user.discoverable,
+      }];
+  const identityOptions =
+    postAsAccountId && !baseIdentityOptions.some((identity) => identity.id === postAsAccountId)
+      ? [...baseIdentityOptions, {
+          id: postAsAccountId,
+          username: initialEvent?.account?.username || user.username,
+          accountType: "identity" as const,
+          role: "editor" as const,
+          displayName: initialEvent?.account?.displayName || initialEvent?.account?.username || user.displayName,
+          bio: null,
+          website: null,
+          avatarUrl: null,
+          discoverable: false,
+        }]
+      : baseIdentityOptions;
+  const selectedIdentity = identityOptions.find((identity) => identity.id === postAsAccountId);
+  const bylineName = selectedIdentity?.displayName || selectedIdentity?.username || user.displayName || user.username;
 
   // ---- Render ----
 
@@ -1154,7 +1215,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             </div>
           )}
 
-          <p className="text-muted mb-2">{t("events:by")} {user.displayName || user.username}</p>
+          <p className="text-muted mb-2">{t("events:by")} {bylineName}</p>
 
           {/* Location preview */}
           {hasPreviewLocation ? (
@@ -1824,6 +1885,23 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 <option value="followers_only">{t("visibilityFollowersOnly")}</option>
                 <option value="private">{t("visibilityPrivate")}</option>
               </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="ce-postAs">{t("postAsLabel")}</label>
+              <select
+                id="ce-postAs"
+                value={postAsAccountId}
+                onChange={(e) => setPostAsAccountId(e.target.value)}
+                disabled={isEdit}
+              >
+                {identityOptions.map((identity) => (
+                  <option key={identity.id} value={identity.id}>
+                    {identity.displayName || identity.username} (@{identity.username})
+                  </option>
+                ))}
+              </select>
+              {isEdit && <p className="text-sm text-dim mt-1">{t("postAsLockedEdit")}</p>}
             </div>
 
             {error && <p className="error-text mb-2">{error}</p>}

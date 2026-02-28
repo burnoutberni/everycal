@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { eventsPathWithTags } from "../lib/urls";
-import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
+import { events as eventsApi, users as usersApi, federation, identities as identitiesApi, type CalEvent } from "../lib/api";
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
@@ -67,6 +67,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [followedLocalIds, setFollowedLocalIds] = useState<Set<string>>(new Set());
   const [followedActorUris, setFollowedActorUris] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
+  const [canManageEvent, setCanManageEvent] = useState(false);
 
   const rsvpOptions = useMemo(
     () => [
@@ -206,6 +207,21 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     }
   }, [user, profileItem]);
 
+  useEffect(() => {
+    if (!event || !user || event.source === "remote") {
+      setCanManageEvent(false);
+      return;
+    }
+    if (event.accountId === user.id) {
+      setCanManageEvent(true);
+      return;
+    }
+    identitiesApi
+      .list()
+      .then((res) => setCanManageEvent(res.identities.some((identity) => identity.id === event.accountId)))
+      .catch(() => setCanManageEvent(false));
+  }, [event, user]);
+
   const isHostFollowed = profileItem
     ? profileItem.kind === "local"
       ? followedLocalIds.has(profileItem.user.id)
@@ -327,7 +343,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   if (error) return <p className="error-text">{error}</p>;
   if (!event) return <p className="error-text">{t("eventNotFound")}</p>;
 
-  const isOwner = user?.id === event.accountId;
   const editHref = event.slug && event.account?.username
     ? `/@${event.account.username}/${event.slug}/edit`
     : `/events/${event.id}/edit`;
@@ -383,7 +398,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             )}
           </div>
 
-          {isOwner && (
+          {canManageEvent && (
             <div className="flex gap-1">
               <Link href={editHref}>
                 <button className="btn-ghost btn-sm">{t("common:edit")}</button>

@@ -344,6 +344,29 @@ export interface EventInput {
   url?: string;
   tags?: string[];
   visibility?: string;
+  postAsAccountId?: string;
+}
+
+export type IdentityRole = "editor" | "admin" | "owner";
+
+export interface PublishingIdentity {
+  id: string;
+  username: string;
+  accountType: "person" | "identity";
+  role: IdentityRole;
+  displayName: string | null;
+  bio: string | null;
+  website: string | null;
+  avatarUrl: string | null;
+  discoverable: boolean;
+}
+
+export interface IdentityMember {
+  memberId: string;
+  username: string;
+  displayName: string | null;
+  role: IdentityRole;
+  createdAt?: string;
 }
 
 export const events = {
@@ -410,6 +433,72 @@ export const events = {
     return request<{ ok: boolean; status: string | null }>("/events/rsvp", {
       method: "POST",
       body: JSON.stringify({ eventUri, status }),
+    });
+  },
+};
+
+export const identities = {
+  list() {
+    return request<{ identities: PublishingIdentity[] }>("/identities");
+  },
+
+  create(data: {
+    username: string;
+    displayName?: string;
+    bio?: string;
+    website?: string;
+    avatarUrl?: string;
+    discoverable?: boolean;
+  }) {
+    return request<{ identity: PublishingIdentity }>("/identities", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  update(username: string, data: {
+    displayName?: string;
+    bio?: string;
+    website?: string | null;
+    avatarUrl?: string | null;
+    discoverable?: boolean;
+  }) {
+    return request<{ identity: PublishingIdentity }>(`/identities/${encodeURIComponent(username)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete(username: string) {
+    return request<{ ok: boolean }>(`/identities/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+    });
+  },
+
+  listMembers(username: string) {
+    return request<{ members: IdentityMember[] }>(`/identities/${encodeURIComponent(username)}/members`);
+  },
+
+  addMember(username: string, memberUsername: string, role: IdentityRole) {
+    return request<{ member: IdentityMember }>(`/identities/${encodeURIComponent(username)}/members`, {
+      method: "POST",
+      body: JSON.stringify({ memberUsername, role }),
+    });
+  },
+
+  updateMember(username: string, memberId: string, role: IdentityRole) {
+    return request<{ member: IdentityMember }>(
+      `/identities/${encodeURIComponent(username)}/members/${encodeURIComponent(memberId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      }
+    );
+  },
+
+  removeMember(username: string, memberId: string) {
+    return request<{ ok: boolean }>(`/identities/${encodeURIComponent(username)}/members/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
     });
   },
 };

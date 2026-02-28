@@ -58,6 +58,8 @@
   "eventUrlLabel": "Event-URL",
   "tagsPlaceholder": "z.B. musik, wien, konzert",
   "visibilityLabel": "Sichtbarkeit",
+  "postAsLabel": "Posten als",
+  "postAsLockedEdit": "Die Publishing Identity kann im Bearbeiten-Modus nicht geändert werden.",
   "visibilityPublic": "Öffentlich",
   "visibilityUnlisted": "Nicht gelistet",
   "visibilityFollowersOnly": "Nur Follower",
