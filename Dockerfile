@@ -43,6 +43,7 @@ COPY --from=base /app/packages/jobs/package.json packages/jobs/
 COPY --from=base /app/packages/jobs/dist packages/jobs/dist
 COPY --from=base /app/packages/scrapers/package.json packages/scrapers/
 COPY --from=base /app/packages/scrapers/dist packages/scrapers/dist
+COPY --from=base /app/packages/web/package.json packages/web/
 COPY --from=base /app/packages/web/dist packages/web/dist
 COPY --from=base /app/scripts scripts/
 COPY --from=base /app/node_modules node_modules
@@ -51,6 +52,7 @@ COPY --from=base /app/packages/server/node_modules packages/server/node_modules
 COPY --from=base /app/packages/og/node_modules packages/og/node_modules
 COPY --from=base /app/packages/jobs/node_modules packages/jobs/node_modules
 COPY --from=base /app/packages/scrapers/node_modules packages/scrapers/node_modules
+COPY --from=base /app/packages/web/node_modules packages/web/node_modules
 
 COPY docker-entrypoint.sh /app/
 RUN chmod +x /app/docker-entrypoint.sh
