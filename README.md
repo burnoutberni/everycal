@@ -1,506 +1,87 @@
 # EveryCal
 
-A federated event calendar built on [ActivityPub](https://www.w3.org/TR/activitypub/). Self-host a server, import events from venue websites via scrapers, browse them in a dark-mode web UI, and embed feeds in WordPress.
+Federated event calendar built on [ActivityPub](https://www.w3.org/TR/activitypub/).
 
-## Why?
+EveryCal lets you run your own event server, publish rich event pages, follow local and remote accounts, import venue events via scrapers, and expose JSON/iCal feeds.
 
-- **Self-hosted & federated** — your events, your server, connected to everyone else's via ActivityPub
-- **Privacy-first** — public, unlisted, followers-only, or private events
-- **Rich event creation** — rich text descriptions, image search (Unsplash/Openverse) with attribution, location autocomplete with maps, tags
-- **Scraper framework** — automatically import events from venue websites, each scraper runs as its own account
-- **Social features** — follow users, repost events, auto-repost from favorite venues
-- **Web frontend** — dark minimal UI with calendar views, event cards, and federation support
-- **WordPress integration** — Gutenberg block that pulls events from any EveryCal server
-- **Production ready** — rate limiting, SSRF protection, HTML sanitization, Docker support, non-root containers
+## What is in this repo
 
-## Packages
+- `packages/server` - Hono API + SSR entry + SQLite + ActivityPub federation
+- `packages/web` - React + Vike frontend (SSR + client routing)
+- `packages/core` - shared types and utilities
+- `packages/scrapers` - scraper framework + venue integrations
+- `packages/jobs` - scheduled scraper/reminder jobs
+- `packages/wordpress` - optional WordPress Gutenberg feed block
 
-```
-everycal/
-├── packages/
-│   ├── core/          # Shared types, iCal ↔ AP conversion, HTML sanitization config
-│   ├── server/        # Hono HTTP server + SQLite + ActivityPub federation
-│   ├── scrapers/      # CLI tool + venue scrapers (wirmachen.wien collection)
-│   ├── web/           # React + Vite frontend (dark theme)
-│   └── wordpress/     # WordPress plugin with Gutenberg block
-└── scripts/
-    ├── setup-scraper-accounts.sh  # Register scraper accounts with API keys
-    └── setup-wirmachenwien.sh     # Setup Vienna venue scraper collection
-```
+## Requirements
 
-| Package | Description | Stack |
-|---------|-------------|-------|
-| `@everycal/core` | Shared types, iCal ↔ AP conversion, sanitization config | TypeScript |
-| `@everycal/server` | HTTP API, auth, SQLite storage, ActivityPub federation | Hono, better-sqlite3, bcrypt, http-signature |
-| `@everycal/scrapers` | CLI scraper tool with sync support | Cheerio, iCal parsing |
-| `@everycal/web` | Web frontend with rich text, image search, maps | React 19, Vite, TipTap, wouter |
-| `@everycal/wordpress` | WordPress Gutenberg block plugin | PHP + React |
+- Node.js >= 22
+- pnpm >= 10
 
-## Prerequisites
-
-- **Node.js** ≥ 20
-- **pnpm** ≥ 10
-
-## Quick Start
+## Quick start (development)
 
 ```bash
-git clone <repo-url> everycal
-cd everycal
 pnpm install
+pnpm dev
 ```
 
-### 1. Start the server
+This starts the server on `http://localhost:3000` and mounts Vite in-process for SSR/frontend dev.
+
+## Build and run
 
 ```bash
-pnpm --filter @everycal/server dev
+pnpm build
+pnpm --filter @everycal/server start
 ```
-
-Server starts at **http://localhost:3000**. Creates `everycal.db` (SQLite) in the server package directory.
-
-### 2. Start the web frontend
-
-In a second terminal:
-
-```bash
-pnpm --filter @everycal/web dev
-```
-
-Frontend starts at **http://localhost:5173**. API calls are proxied to the server automatically.
-
-### 3. Create an account
-
-Open http://localhost:5173/register in your browser. Pick a username and password (min 8 characters). You'll be logged in automatically.
-
-### 4. Create an event
-
-Click **+ New Event** in the header. Title and start date are required, everything else is optional.
-
-- **Rich text descriptions** — formatting toolbar with bold, italic, headings, lists, links, code blocks (TipTap editor)
-- **Header images** — search Unsplash/Openverse, upload a file, or paste a URL; attribution is tracked automatically
-- **Locations** — search for venues with autocomplete, pick on a map, or enter manually; frequently used locations are saved
-- **Tags** — add tags manually or accept auto-suggestions inferred from the title
-- **Visibility** — public, unlisted, followers-only, or private
-- **Draft persistence** — unsaved drafts are auto-saved to localStorage
-
-### 5. Browse
-
-- **/** — your personal feed: upcoming events from you and people/venues you follow (or public events when logged out)
-- **/explore** — discover and follow other users
-- **/federation** — search and follow remote ActivityPub users from other servers
-- **/@username** — user profile with all their events
-- **/@username/event-slug** — individual event page with clean URLs
-
-### 6. Social Features
-
-- **Follow users** — see their events in your home feed
-- **Repost events** — share individual events to your feed
-- **Auto-repost** — automatically repost all public events from a user (great for following venue accounts)
-- **Remote follows** — follow users on other ActivityPub servers (Mastodon, Mobilizon, etc.)
-
-## Setting Up Scrapers
-
-Scrapers import events from external venue websites. Each scraper runs as its own user account on the server.
-
-### Step 1: Register individual scraper accounts
-
-First, create bot accounts for each venue scraper with API keys:
-
-```bash
-# Register all scraper accounts and save API keys
-./scripts/setup-scraper-accounts.sh http://localhost:3000
-```
-
-This creates individual bot accounts for each venue:
-- **westbahnpark** (Westbahnpark community space)
-- **kirchberggasse** (Kirchberggasse 3)
-- **matznerviertel** (Matznerviertel neighborhood events)
-- **space-and-place** (Space and Place)
-- **critical-mass-vienna** (Critical Mass bike rides)
-- **radlobby-wien** (Radlobby Wien cycling advocacy)
-
-API keys are saved to `scraper-api-keys.json`. For Docker, see [Scrapers in Docker](#scrapers-in-docker) above.
-
-### Step 2: Create wirmachen.wien umbrella account (optional)
-
-If you want a unified feed that automatically reposts all events from the Vienna scraper accounts:
-
-```bash
-# Create @wirmachen.wien account with auto-repost for all org accounts
-./scripts/setup-wirmachenwien.sh http://localhost:3000
-
-# If account exists, provide password:
-./scripts/setup-wirmachenwien.sh http://localhost:3000 --password=<secret>
-```
-
-This creates a **regular user account** (not a bot) called `@wirmachen.wien` that:
-- Follows all 6 wirmachen.wien venue scraper accounts
-- Enables auto-repost for each one
-- Creates a unified feed at `/@wirmachen.wien` showing all events
-
-The password is auto-generated and saved to `.wirmachenwien_password` (printed once on first run).
-
-**Note:** This is a user account, not a scraper. It doesn't scrape anything itself—it just reposts events from the individual venue scraper accounts.
-
-### Step 3: Run scrapers
-
-**Docker (default):** Scrapers run automatically every 6 hours inside the container. Just provide the API keys as described in [Scrapers in Docker](#scrapers-in-docker).
-
-**Manual / development:**
-```bash
-# Run all scrapers once (uses SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON)
-pnpm job:scrapers:once
-
-# Run on schedule (every 6h)
-pnpm job:scrapers
-```
-
-Each sync run:
-- **Creates** new events that weren't on the server before
-- **Updates** events that have changed (matched by stable external ID or content hash)
-- **Deletes** events that the venue has removed from their site
-
-### Other scraper commands
-
-```bash
-# List available scrapers
-pnpm --filter @everycal/scrapers scrape -- --list
-
-# Scrape to stdout (JSON) without syncing
-pnpm --filter @everycal/scrapers scrape -- votivkino
-
-# Dry run — show what would be synced
-pnpm --filter @everycal/scrapers scrape -- votivkino \
-  --sync http://localhost:3000 --api-key ecal_... --dry-run
-```
-
-## Available Scrapers
-
-### wirmachen.wien Collection (Vienna Community Spaces)
-
-| ID | Source | Method | Events |
-|----|--------|--------|--------|
-| `westbahnpark` | [Westbahnpark](https://www.westbahnpark.at) | HTML scraping | Community space events |
-| `kirchberggasse` | [Kirchberggasse 3](https://www.kirchberggasse.at) | HTML scraping | Cultural events |
-| `matznerviertel` | [Matznerviertel](https://matznerviertel.at) | HTML scraping | Neighborhood events |
-| `space-and-place` | [Space and Place](https://spaceandplace.at) | HTML scraping | Community events |
-| `critical-mass-vienna` | [Critical Mass Vienna](https://criticalmass.wien) | HTML scraping | Monthly bike rides |
-| `radlobby-wien` | [Radlobby Wien](https://wien.radlobby.at) | iCal feed | Cycling advocacy events |
-
-All scrapers output events with proper titles, descriptions, dates, locations, and images where available.
-
-## API Reference
-
-### Public (no auth required)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/events` | List public events |
-| `GET` | `/api/v1/events/:id` | Get single event by ID |
-| `GET` | `/api/v1/events/tags` | List all tags (with optional filtering) |
-| `GET` | `/@:username/:slug` | Get event by username and slug |
-| `GET` | `/api/v1/users` | List users (search with `?q=`) |
-| `GET` | `/api/v1/users/:username` | User profile |
-| `GET` | `/api/v1/users/:username/events` | User's public events |
-| `GET` | `/api/v1/users/:username/followers` | User's followers |
-| `GET` | `/api/v1/users/:username/following` | Who user follows |
-| `GET` | `/api/v1/feeds/:username.json` | JSON feed for an account |
-| `GET` | `/api/v1/feeds/:username.ics` | iCal feed for an account |
-| `GET` | `/api/v1/uploads/:filename` | Serve uploaded image |
-| `GET` | `/.well-known/webfinger` | WebFinger discovery for federation |
-| `GET` | `/.well-known/nodeinfo` | NodeInfo discovery |
-| `GET` | `/nodeinfo/2.1` | Server metadata |
-| `GET` | `/users/:username` | ActivityPub actor |
-| `POST` | `/users/:username/inbox` | ActivityPub inbox (signed) |
-| `GET` | `/users/:username/outbox` | ActivityPub outbox |
-| `GET` | `/users/:username/followers` | ActivityPub followers collection |
-| `GET` | `/users/:username/following` | ActivityPub following collection |
-| `POST` | `/inbox` | Shared inbox (signed) |
-| `GET` | `/healthz` | Health check |
-
-Query params for `GET /api/v1/events`: `account`, `from`, `to`, `q` (search), `tag`, `scope` (mine, calendar), `limit`, `offset`.
-
-### Auth
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/v1/auth/register` | Create account (includes city) |
-| `POST` | `/api/v1/auth/login` | Log in, get session token |
-| `POST` | `/api/v1/auth/logout` | Invalidate session |
-| `GET` | `/api/v1/auth/me` | Current user profile |
-| `PATCH` | `/api/v1/auth/me` | Update profile (name, bio, avatar, city, website) |
-| `GET` | `/api/v1/auth/api-keys` | List your API keys |
-| `POST` | `/api/v1/auth/api-keys` | Create API key |
-| `DELETE` | `/api/v1/auth/api-keys/:id` | Delete API key |
-
-### Authenticated
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/events/timeline` | Events from you + followed users |
-| `POST` | `/api/v1/events` | Create event (supports rich text, image attribution, location) |
-| `PUT` | `/api/v1/events/:id` | Update event (owner only) |
-| `DELETE` | `/api/v1/events/:id` | Delete event (owner only) |
-| `POST` | `/api/v1/events/sync` | Sync events (for scrapers) |
-| `POST` | `/api/v1/events/:id/repost` | Repost event to your feed |
-| `DELETE` | `/api/v1/events/:id/repost` | Remove repost |
-| `POST` | `/api/v1/users/:username/follow` | Follow a user |
-| `POST` | `/api/v1/users/:username/unfollow` | Unfollow a user |
-| `POST` | `/api/v1/users/:username/auto-repost` | Auto-repost all events from user |
-| `DELETE` | `/api/v1/users/:username/auto-repost` | Stop auto-reposting |
-| `POST` | `/api/v1/uploads` | Upload an image (5MB max) |
-
-### Images API (Authenticated)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/images/search` | Search Unsplash/Openverse for images |
-| `GET` | `/api/v1/images/sources` | List available image sources |
-| `POST` | `/api/v1/images/trigger-download` | Track Unsplash download (required by API terms) |
-
-### Locations API (Authenticated)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/locations` | List saved locations |
-| `POST` | `/api/v1/locations` | Save a location |
-| `DELETE` | `/api/v1/locations/:id` | Delete saved location |
-
-### Federation API (Authenticated)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/federation/following` | List remote actors you follow |
-| `POST` | `/api/v1/federation/follow` | Follow a remote ActivityPub actor |
-| `POST` | `/api/v1/federation/unfollow` | Unfollow a remote actor |
-| `POST` | `/api/v1/federation/fetch-actor` | Fetch remote actor info |
-| `POST` | `/api/v1/federation/search` | Search for remote actors (WebFinger) |
-
-### Authentication methods
-
-All three methods set the user context on the request:
-
-- **Session token**: `Authorization: Bearer <token>` (from login/register)
-- **API key**: `Authorization: ApiKey <key>` (from API key management)
-- **Cookie**: `everycal_session=<token>` (set automatically by browser)
 
 ## Docker
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-This builds and runs the server at http://localhost:3000. Data is persisted in a Docker volume.
+Container behavior:
 
-**Jobs run internally** — The container runs both the HTTP server and background jobs (scrapers every 6h, reminders every 15min) via node-cron. No separate scraper container.
+- runs as non-root (UID 1001)
+- serves API + SSR web app from one process
+- runs background jobs by default (`RUN_JOBS_INTERNALLY=true`)
 
-### Scrapers in Docker
+## Core environment variables
 
-Scrapers require API keys for each venue account. Without them, the container runs fine but scrapers are skipped (reminders still work).
+- `BASE_URL` - public base URL used for federation links
+- `PORT` - server port (default `3000`)
+- `DATABASE_PATH` - SQLite path (default `/data/everycal.db` in Docker)
+- `UPLOAD_DIR` - upload storage directory
+- `OG_DIR` - generated Open Graph image directory
+- `CORS_ORIGIN` - comma-separated allowed origins
+- `RUN_JOBS_INTERNALLY` - run jobs in same container (`true`/`false`)
+- `SCRAPER_API_KEYS_FILE` or `SCRAPER_API_KEYS_JSON` - scraper auth mapping
 
-1. **Create scraper accounts** (run against your running server):
-   ```bash
-   ./scripts/setup-scraper-accounts.sh https://your-domain.com
-   ```
-   This creates `scraper-api-keys.json` with API keys for each scraper.
+## Scrapers
 
-2. **Provide keys to the container** — choose one:
-
-   **Option A: Mount the JSON file** (recommended)
-   ```yaml
-   # In docker-compose.yml, add under everycal volumes:
-   volumes:
-     - ./scraper-api-keys.json:/secrets/scraper-api-keys.json:ro
-   ```
-
-   **Option B: Pass JSON as env var** (e.g. for Docker secrets)
-   ```yaml
-   environment:
-     - SCRAPER_API_KEYS_JSON={"westbahnpark":"ecal_xxx","kirchberggasse":"ecal_yyy",...}
-   ```
-   Unset or omit `SCRAPER_API_KEYS_FILE` when using this.
-
-3. **Restart**: `docker compose up -d --build`
-
-### Environment variables
-
-Copy `.env.example` to `.env` and customize:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BASE_URL` | `http://localhost:3000` | Public-facing URL (for federation) |
-| `PORT` | `3000` | HTTP port |
-| `DATABASE_PATH` | `./everycal.db` | SQLite database path |
-| `UPLOAD_DIR` | `./uploads` | Directory for uploaded images |
-| `OG_DIR` | `./og-images` | Directory for generated Open Graph images |
-| `CORS_ORIGIN` | `BASE_URL` | Comma-separated allowed origins |
-| `TRUSTED_PROXY` | `false` | Set to `true` behind reverse proxy |
-| `OPEN_REGISTRATIONS` | `true` | Allow public sign-ups |
-| `UNSPLASH_ACCESS_KEY` | (unset) | Unsplash API key for header image search (optional; falls back to Openverse) |
-| `SKIP_SIGNATURE_VERIFY` | (unset) | Skip ActivityPub signature verification (dev only) |
-| `RUN_JOBS_INTERNALLY` | `true` | If true, run scrapers + reminders in container; if false, server only |
-| `JOBS_API_SERVER` | `http://localhost:3000` | API base URL for scrapers to sync events (required when scrapers run) |
-| `SCRAPER_API_KEYS_FILE` | (unset) | Path to JSON file mapping scraper id → API key (for scrapers job) |
-| `SCRAPER_API_KEYS_JSON` | (unset) | Inline JSON alternative to file (e.g. Docker secrets) |
-
-### Production deployment
-
-The Docker image:
-- Runs as non-root user (UID 1001)
-- Includes security headers and rate limiting
-- Has health check endpoint
-- Serves static web UI from `/packages/web/dist`
-- Persists data to `/data` volume
-
-Example nginx reverse proxy config:
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name events.example.com;
-    
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Set `TRUSTED_PROXY=true` when behind nginx/cloudflare so rate limiting uses real client IPs.
-
-## WordPress Plugin
-
-1. Build: `pnpm --filter @everycal/wordpress build`
-2. Copy or symlink `packages/wordpress/` into `wp-content/plugins/everycal`
-3. Activate in WP Admin → Plugins
-4. Add the **EveryCal Feed** Gutenberg block to any page
-5. Configure the server URL and optional account filter in block settings
-
-The block server-side renders events from the EveryCal JSON API and caches them using WordPress transients. Three layout options: list, grid, compact.
-
-## Architecture
-
-```
-┌─────────────┐     ActivityPub     ┌─────────────┐     ┌─────────────┐
-│  EveryCal   │◄───────────────────►│  Mastodon   │     │  Mobilizon  │
-│  Server A   │   (HTTP Signature)  │   Server    │     │   Server    │
-└──────┬──────┘                     └─────────────┘     └─────────────┘
-       │
-       │ JSON/iCal API + ActivityPub
-       │
-┌──────┴──────┐     ┌─────────────┐     ┌─────────────┐
-│    Web UI   │     │  Scrapers   │     │  WordPress  │
-│  (React)    │     │  CLI/Cron   │     │  Plugin     │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │ wirmachen   │
-                    │   .wien     │
-                    │ collection  │
-                    └─────────────┘
-```
-
-### Data model
-
-- **Events** — stored with slugs for clean URLs (`/@username/event-title`), rich text descriptions (sanitized HTML), image attribution metadata, location with coordinates
-- **Tags** — normalized single-word tags per event, filterable via API
-- **Saved locations** — users can save frequently used locations for quick reuse
-- **Scrapers as users** — each scraper is a regular user account (marked `is_bot=1`)
-- **Reposts** — users can repost events (one-time) or auto-repost all events from an account
-- **Local + Remote follows** — follow local users and remote ActivityPub actors
-- **Federation** — full ActivityPub support with HTTP signature verification
-
-Each scraper is a user account. Events scraped from a venue appear under that account's profile and in its iCal/JSON feed. Users can follow scraper accounts to see venue events in their timeline, or enable auto-repost to share all their events.
-
-## Development
+1. Start the app.
+2. Create scraper accounts and keys:
 
 ```bash
-# Build everything
-pnpm build
+./scripts/setup-scraper-accounts.sh http://localhost:3000
+```
 
-# Build specific package
-pnpm --filter @everycal/server build
+3. Run once locally:
+
+```bash
+pnpm job:scrapers:once
+```
+
+4. Or let Docker jobs run on schedule.
+
+## Useful commands
+
+```bash
+pnpm lint
+pnpm test
+pnpm --filter @everycal/server test
 pnpm --filter @everycal/web build
-
-# Dev mode (server + web in parallel)
-pnpm dev
-
-# Just the server
-pnpm --filter @everycal/server dev
-
-# Just the frontend
-pnpm --filter @everycal/web dev
 ```
-
-### Adding a new scraper
-
-1. Create `packages/scrapers/src/scrapers/your-venue.ts` implementing the `Scraper` interface
-2. Register it in `packages/scrapers/src/registry.ts`
-3. Each event needs a stable `id` field for sync (e.g. `your-venue-{external-id}`)
-4. Run `./scripts/setup-scraper-accounts.sh` to create its server account
-
-```typescript
-import type { Scraper } from "../scraper.js";
-import type { EveryCalEvent } from "@everycal/core";
-import * as cheerio from "cheerio";
-
-export class YourVenueScraper implements Scraper {
-  readonly id = "your-venue";
-  readonly name = "Your Venue Name";
-  readonly url = "https://your-venue.com/events";
-
-  async scrape(): Promise<Partial<EveryCalEvent>[]> {
-    const response = await fetch(this.url);
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    
-    const events: Partial<EveryCalEvent>[] = [];
-    
-    $(".event").each((_, el) => {
-      events.push({
-        id: `your-venue-${$(el).data("id")}`,
-        title: $(el).find(".title").text().trim(),
-        startDate: $(el).find(".date").attr("datetime"),
-        description: $(el).find(".description").text().trim(),
-        location: {
-          name: "Your Venue",
-          address: "123 Street, City",
-        },
-        url: new URL($(el).find("a").attr("href")!, this.url).href,
-      });
-    });
-    
-    return events;
-  }
-}
-```
-
-For iCal-based scrapers, use the built-in `ICalScraper` base class (see `radlobby-wien.ts` for example).
-
-### Internationalization (i18n)
-
-EveryCal supports **English** (default) and **German** (informal "du"). User language is stored in `accounts.preferred_language` and synced on login.
-
-- **Web frontend**: `packages/web/src/i18n/locales/{en,de}/*.json`. Extract new keys: `pnpm --filter @everycal/web i18n:extract`
-- **WordPress plugin**: `packages/wordpress/languages/`. Compile `.po` → `.mo`: `pnpm --filter @everycal/wordpress i18n:compile`. Regenerate `.pot` (requires [WP-CLI](https://wp-cli.org/)): `pnpm --filter @everycal/wordpress i18n:pot`
-
-### Security Features
-
-- **Rate limiting** — protects auth, uploads, federation endpoints, and ActivityPub inboxes
-- **Account lockout** — 10 failed login attempts = 15 minute lockout
-- **HTML sanitization** — shared config between server (`sanitize-html`) and client (`DOMPurify`) for safe rich text
-- **SSRF protection** — DNS rebinding protection, private IP detection for outgoing requests
-- **Upload security** — uploaded images are re-encoded to strip metadata and prevent image bombs
-- **HTTP signatures** — verifies authenticity of incoming ActivityPub activities
-- **Content-Security-Policy** — prevents XSS attacks in production
-- **Non-root containers** — Docker images run as UID 1001
-- **API key prefixes** — fast lookup without exposing full keys in logs
-- **Session cleanup** — automatic expiration of old sessions
 
 ## License
 
