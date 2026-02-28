@@ -24,6 +24,7 @@ import { rateLimiter } from "./middleware/rate-limit.js";
 import { authRoutes } from "./routes/auth.js";
 import { eventRoutes } from "./routes/events.js";
 import { feedRoutes } from "./routes/feeds.js";
+import { identityRoutes } from "./routes/identities.js";
 import { userRoutes } from "./routes/users.js";
 import { uploadRoutes } from "./routes/uploads.js";
 import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
@@ -147,6 +148,7 @@ app.route("/api/v1/auth", authRoutes(db));
 // API routes
 app.route("/api/v1/events", eventRoutes(db));
 app.route("/api/v1/feeds", feedRoutes(db));
+app.route("/api/v1/identities", identityRoutes(db));
 app.route("/api/v1/users", userRoutes(db));
 app.route("/api/v1", directoryRoutes(db));
 app.route("/api/v1/uploads", uploadRoutes());

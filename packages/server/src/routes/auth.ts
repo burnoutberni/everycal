@@ -16,9 +16,10 @@ import {
   recordFailedLogin,
   clearFailedLogins,
 } from "../middleware/auth.js";
-import { stripHtml, sanitizeHtml, isValidHttpUrl } from "../lib/security.js";
+import { stripHtml, sanitizeHtml, isValidHttpUrl, normalizeHttpUrlInput } from "../lib/security.js";
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
 
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
@@ -74,8 +75,8 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.username_required") }, 400);
     }
 
-    const username = body.username.toLowerCase().trim();
-    if (!/^[a-z0-9_]{2,40}$/.test(username)) {
+    const username = normalizeHandle(body.username);
+    if (!isValidRegistrationUsername(username)) {
       return c.json({ error: t(getLocale(c), "auth.username_format") }, 400);
     }
 
@@ -566,11 +567,12 @@ export function authRoutes(db: DB): Hono {
     }
     if (body.avatarUrl !== undefined) {
       if (body.avatarUrl) {
-        if (!isValidHttpUrl(body.avatarUrl)) {
+        const normalizedAvatarUrl = normalizeHttpUrlInput(body.avatarUrl);
+        if (!isValidHttpUrl(normalizedAvatarUrl)) {
           return c.json({ error: t(getLocale(c), "auth.avatar_url_http") }, 400);
         }
         fields.push("avatar_url = ?");
-        values.push(body.avatarUrl);
+        values.push(normalizedAvatarUrl);
       } else {
         fields.push("avatar_url = ?");
         values.push(null);
@@ -579,16 +581,12 @@ export function authRoutes(db: DB): Hono {
     if (body.website !== undefined) {
       // Validate website URL
       if (body.website) {
-        try {
-          const url = new URL(body.website);
-          if (url.protocol !== "https:" && url.protocol !== "http:") {
-            return c.json({ error: t(getLocale(c), "auth.website_http") }, 400);
-          }
-          fields.push("website = ?");
-          values.push(body.website);
-        } catch {
+        const normalizedWebsite = normalizeHttpUrlInput(body.website);
+        if (!isValidHttpUrl(normalizedWebsite)) {
           return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
         }
+        fields.push("website = ?");
+        values.push(normalizedWebsite);
       } else {
         fields.push("website = ?");
         values.push(null);
@@ -731,7 +729,41 @@ export function authRoutes(db: DB): Hono {
   router.delete("/me", requireAuth(), (c) => {
     const user = c.get("user")!;
 
+    const lastOwnedIdentities = db
+      .prepare(
+        `SELECT a.username
+         FROM identity_memberships im
+         JOIN accounts a ON a.id = im.identity_account_id
+         WHERE im.member_account_id = ?
+           AND im.role = 'owner'
+           AND a.account_type = 'identity'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM identity_memberships im2
+             WHERE im2.identity_account_id = im.identity_account_id
+               AND im2.role = 'owner'
+               AND im2.member_account_id != ?
+           )
+         ORDER BY a.username ASC`
+      )
+      .all(user.id, user.id) as Array<{ username: string }>;
+
+    if (lastOwnedIdentities.length > 0) {
+      return c.json(
+        {
+          error: "Cannot delete account while you are the last owner of one or more identities",
+          code: "last_identity_owner",
+          identities: lastOwnedIdentities.map((row) => row.username),
+        },
+        409
+      );
+    }
+
     const deleteAccount = db.transaction(() => {
+      // Preserve identity-owned events authored by this user.
+      // They remain with the identity and only lose direct creator link.
+      db.prepare("UPDATE events SET created_by_account_id = NULL WHERE created_by_account_id = ?").run(user.id);
+
       // Delete events + their tags (events table lacks ON DELETE CASCADE)
       const eventIds = db
         .prepare("SELECT id FROM events WHERE account_id = ?")

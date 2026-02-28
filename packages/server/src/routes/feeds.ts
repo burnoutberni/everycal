@@ -13,6 +13,7 @@ import type { DB } from "../db.js";
 import { toICal, type EveryCalEvent } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { isValidIdentityHandle } from "../lib/handles.js";
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
   const row = db
@@ -120,10 +121,13 @@ export function feedRoutes(db: DB): Hono {
 
   router.get("/:file", (c) => {
     const file = c.req.param("file");
-    const match = file.match(/^([a-z0-9_]+)\.(ics|json)$/);
+    const match = file.match(/^(.+)\.(ics|json)$/);
     if (!match) return c.json({ error: t(getLocale(c), "feeds.invalid_feed_path") }, 400);
 
     const [, username, format] = match;
+    if (!isValidIdentityHandle(username)) {
+      return c.json({ error: t(getLocale(c), "feeds.invalid_feed_path") }, 400);
+    }
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")

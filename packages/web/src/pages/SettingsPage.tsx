@@ -1,18 +1,40 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  isValidHttpUrl,
+  normalizeHttpUrlInput,
+  isValidIdentityHandle,
+  normalizeHandle,
+} from "@everycal/core";
 import { useAuth } from "../hooks/useAuth";
-import { auth as authApi } from "../lib/api";
+import { invalidateAdditionalIdentitiesCache } from "../hooks/additionalIdentitiesCache";
+import {
+  auth as authApi,
+  identities as identitiesApi,
+  users as usersApi,
+  type User,
+  type PublishingIdentity,
+  type IdentityMember,
+  type IdentityRole,
+} from "../lib/api";
 import { Link } from "wouter";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon } from "../components/icons";
 import { changeLanguage } from "../i18n";
 import "./SettingsPage.css";
 
+type IdentityFormErrors = {
+  username?: string;
+  website?: string;
+  avatarUrl?: string;
+};
+
 export function SettingsPage() {
   const { t, i18n } = useTranslation(["settings", "common", "auth"]);
 
   const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
     { id: "profile", label: t("profile"), icon: UserIcon },
+    { id: "identities", label: t("publishingIdentities"), icon: UserIcon },
     { id: "account", label: t("account"), icon: LockIcon },
     { id: "notifications", label: t("notifications"), icon: BellIcon },
     { id: "api-keys", label: t("apiKeys"), icon: KeyIcon },
@@ -25,6 +47,7 @@ export function SettingsPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [website, setWebsite] = useState("");
+  const [profileErrors, setProfileErrors] = useState<{ website?: string }>({});
   const [discoverable, setDiscoverable] = useState(false);
   const [city, setCity] = useState<CitySelection | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,6 +78,40 @@ export function SettingsPage() {
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
 
+  const [identities, setIdentities] = useState<PublishingIdentity[]>([]);
+  const [selectedIdentityUsername, setSelectedIdentityUsername] = useState("");
+  const [identityMembers, setIdentityMembers] = useState<IdentityMember[]>([]);
+  const [identityError, setIdentityError] = useState("");
+  const [identityBusy, setIdentityBusy] = useState(false);
+  const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
+  const [identityEditorOpen, setIdentityEditorOpen] = useState<"create" | "edit" | null>(null);
+  const [editIdentityDraft, setEditIdentityDraft] = useState<PublishingIdentity | null>(null);
+  const [membersModalOpen, setMembersModalOpen] = useState(false);
+  const [createIdentityUsername, setCreateIdentityUsername] = useState("");
+  const [createIdentityDisplayName, setCreateIdentityDisplayName] = useState("");
+  const [createIdentityBio, setCreateIdentityBio] = useState("");
+  const [createIdentityWebsite, setCreateIdentityWebsite] = useState("");
+  const [createIdentityAvatarUrl, setCreateIdentityAvatarUrl] = useState("");
+  const [createIdentityErrors, setCreateIdentityErrors] = useState<IdentityFormErrors>({});
+  const [createIdentityDiscoverable, setCreateIdentityDiscoverable] = useState(true);
+  const [createIdentityDefaultVisibility, setCreateIdentityDefaultVisibility] = useState<"public" | "unlisted" | "followers_only" | "private">("public");
+  const [createIdentityCity, setCreateIdentityCity] = useState<CitySelection | null>(null);
+  const [createIdentityPreferredLanguage, setCreateIdentityPreferredLanguage] = useState<"en" | "de">("en");
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [inviteRole, setInviteRole] = useState<IdentityRole>("editor");
+  const [memberSuggestions, setMemberSuggestions] = useState<User[]>([]);
+  const [memberLookupBusy, setMemberLookupBusy] = useState(false);
+  const [showMemberSuggestions, setShowMemberSuggestions] = useState(false);
+  const [editIdentityErrors, setEditIdentityErrors] = useState<Omit<IdentityFormErrors, "username">>({});
+  const memberResultsRef = useRef<HTMLDivElement | null>(null);
+  const skipNextMemberLookupRef = useRef(false);
+  const identityModalRef = useRef<HTMLDivElement | null>(null);
+  const membersModalRef = useRef<HTMLDivElement | null>(null);
+  const identityModalTriggerRef = useRef<HTMLElement | null>(null);
+  const membersModalTriggerRef = useRef<HTMLElement | null>(null);
+  const identityModalTitleId = useId();
+  const membersModalTitleId = useId();
+
   useEffect(() => {
     if (!user) return;
     authApi.me().then((u) => {
@@ -75,7 +132,214 @@ export function SettingsPage() {
       }
     });
     authApi.listApiKeys().then((r) => setKeys(r.keys));
+    identitiesApi.list().then((res) => {
+      setIdentities(res.identities);
+      if (!selectedIdentityUsername && res.identities.length > 0) {
+        setSelectedIdentityUsername(res.identities[0].username);
+      }
+    }).catch(() => {
+      setIdentities([]);
+    });
   }, [user]);
+
+  const roleRank: Record<IdentityRole, number> = { editor: 1, owner: 2 };
+  const visibilityOptions: Array<{ value: "public" | "unlisted" | "followers_only" | "private"; label: string }> = [
+    { value: "public", label: t("visibility.public") },
+    { value: "unlisted", label: t("visibility.unlisted") },
+    { value: "followers_only", label: t("visibility.followersOnly") },
+    { value: "private", label: t("visibility.private") },
+  ];
+  const languageOptions: Array<{ value: "en" | "de"; label: string }> = [
+    { value: "en", label: t("english") },
+    { value: "de", label: t("german") },
+  ];
+
+  const normalizeAndValidateUrl = (value: string, errorKey: "invalidWebsiteUrl" | "invalidAvatarUrl") => {
+    const normalized = normalizeHttpUrlInput(value);
+    if (!normalized) return { normalized: "", error: undefined as string | undefined };
+    if (!isValidHttpUrl(normalized)) return { normalized, error: t(errorKey) };
+    return { normalized, error: undefined as string | undefined };
+  };
+
+  const validateWebsite = (value: string): { normalized: string; error?: string } =>
+    normalizeAndValidateUrl(value, "invalidWebsiteUrl");
+
+  const validateAvatarUrl = (value: string): { normalized: string; error?: string } =>
+    normalizeAndValidateUrl(value, "invalidAvatarUrl");
+
+  const validateIdentityHandle = (value: string): string | undefined => {
+    const normalized = normalizeHandle(value);
+    if (!normalized) return t("identityHandleRequired");
+    if (!isValidIdentityHandle(normalized)) {
+      return t("invalidIdentityHandle");
+    }
+    return undefined;
+  };
+
+  const validateIdentityForm = (
+    values: { username?: string; website?: string; avatarUrl?: string },
+    requireUsername: boolean
+  ): IdentityFormErrors => {
+    const errors: IdentityFormErrors = {};
+    if (requireUsername) {
+      const handleError = validateIdentityHandle(values.username || "");
+      if (handleError) errors.username = handleError;
+    }
+    const websiteResult = validateWebsite(values.website || "");
+    if (websiteResult.error) errors.website = websiteResult.error;
+    const avatarResult = validateAvatarUrl(values.avatarUrl || "");
+    if (avatarResult.error) errors.avatarUrl = avatarResult.error;
+    return errors;
+  };
+
+  const hasErrors = (errors: Record<string, string | undefined>): boolean =>
+    Object.values(errors).some(Boolean);
+
+  const selectedIdentity = identities.find((identity) => identity.username === selectedIdentityUsername) || null;
+  const selectedRole = selectedIdentity?.role;
+  const canEditIdentity = !!selectedRole && roleRank[selectedRole] >= roleRank.editor;
+  const canManageMembers = selectedRole === "owner";
+  const isOwner = selectedRole === "owner";
+
+  useEffect(() => {
+    if (!selectedIdentity) {
+      setIdentityMembers([]);
+      return;
+    }
+    identitiesApi
+      .listMembers(selectedIdentity.username)
+      .then((res) => setIdentityMembers(res.members))
+      .catch(() => setIdentityMembers([]));
+  }, [selectedIdentity?.username]);
+
+  useEffect(() => {
+    if (!membersModalOpen || !showMemberSuggestions) return;
+    if (skipNextMemberLookupRef.current) {
+      skipNextMemberLookupRef.current = false;
+      return;
+    }
+    const q = inviteUsername.trim();
+    if (q.length < 2) {
+      setMemberSuggestions([]);
+      setMemberLookupBusy(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setMemberLookupBusy(true);
+      try {
+        const res = await usersApi.list({ q, limit: 8 });
+        if (cancelled) return;
+        const existing = new Set(identityMembers.map((member) => member.username));
+        setMemberSuggestions(
+          res.users.filter(
+            (candidate) =>
+              candidate.accountType !== "identity"
+              && candidate.username !== selectedIdentity?.username
+              && !existing.has(candidate.username)
+          )
+        );
+      } catch {
+        if (!cancelled) setMemberSuggestions([]);
+      } finally {
+        if (!cancelled) setMemberLookupBusy(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inviteUsername, membersModalOpen, showMemberSuggestions, identityMembers, selectedIdentity?.username]);
+
+  useEffect(() => {
+    if (!membersModalOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (memberResultsRef.current && !memberResultsRef.current.contains(e.target as Node)) {
+        setShowMemberSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [membersModalOpen]);
+
+  useEffect(() => {
+    if (!identityEditorOpen) return;
+    const root = identityModalRef.current;
+    if (!root) return;
+    const focusableSelector =
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector));
+    const first = focusable[0] || null;
+    first?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeIdentityEditorModal();
+        return;
+      }
+      if (event.key !== "Tab" || focusable.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+      if (event.shiftKey) {
+        if (!active || active === firstEl) {
+          event.preventDefault();
+          lastEl.focus();
+        }
+        return;
+      }
+      if (active === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [identityEditorOpen]);
+
+  useEffect(() => {
+    if (!membersModalOpen) return;
+    const root = membersModalRef.current;
+    if (!root) return;
+    const focusableSelector =
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector));
+    const first = focusable[0] || null;
+    first?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMembersModal();
+        return;
+      }
+      if (event.key !== "Tab" || focusable.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+      if (event.shiftKey) {
+        if (!active || active === firstEl) {
+          event.preventDefault();
+          lastEl.focus();
+        }
+        return;
+      }
+      if (active === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [membersModalOpen]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -126,13 +390,20 @@ export function SettingsPage() {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const websiteResult = validateWebsite(website);
+    const normalizedWebsite = websiteResult.normalized;
+    const nextErrors = { website: websiteResult.error };
+    setProfileErrors(nextErrors);
+    setWebsite(normalizedWebsite);
+    if (hasErrors(nextErrors)) return;
+
     setSaving(true);
     setSaved(false);
     try {
       await authApi.updateProfile({
         displayName,
         bio,
-        website,
+        website: normalizedWebsite,
         discoverable,
         preferredLanguage: preferredLanguage as "en" | "de",
         ...(city ? { city: city.city, cityLat: city.lat, cityLng: city.lng } : {}),
@@ -153,6 +424,171 @@ export function SettingsPage() {
     setNewKeyValue(result.key);
     setNewKeyLabel("");
     authApi.listApiKeys().then((r) => setKeys(r.keys));
+  };
+
+  const handleCreateIdentity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIdentityError("");
+    const normalizedUsername = normalizeHandle(createIdentityUsername);
+    const websiteResult = validateWebsite(createIdentityWebsite);
+    const avatarResult = validateAvatarUrl(createIdentityAvatarUrl);
+    const normalizedWebsite = websiteResult.normalized;
+    const normalizedAvatarUrl = avatarResult.normalized;
+    const nextErrors = validateIdentityForm(
+      { username: normalizedUsername, website: normalizedWebsite, avatarUrl: normalizedAvatarUrl },
+      true
+    );
+    setCreateIdentityUsername(normalizedUsername);
+    setCreateIdentityWebsite(normalizedWebsite);
+    setCreateIdentityAvatarUrl(normalizedAvatarUrl);
+    setCreateIdentityErrors(nextErrors);
+    if (hasErrors(nextErrors)) return;
+
+    setIdentityBusy(true);
+    try {
+      await identitiesApi.create({
+        username: normalizedUsername,
+        displayName: createIdentityDisplayName || undefined,
+        bio: createIdentityBio || undefined,
+        website: normalizedWebsite || undefined,
+        avatarUrl: normalizedAvatarUrl || undefined,
+        discoverable: createIdentityDiscoverable,
+        defaultVisibility: createIdentityDefaultVisibility,
+        ...(createIdentityCity ? {
+          city: createIdentityCity.city,
+          cityLat: createIdentityCity.lat,
+          cityLng: createIdentityCity.lng,
+        } : {}),
+        preferredLanguage: createIdentityPreferredLanguage,
+      });
+      if (user?.id) invalidateAdditionalIdentitiesCache(user.id);
+      const res = await identitiesApi.list();
+      setIdentities(res.identities);
+      const created = res.identities.find((identity) => identity.username === normalizeHandle(createIdentityUsername));
+      if (created) setSelectedIdentityUsername(created.username);
+      closeIdentityEditorModal();
+      setCreateIdentityUsername("");
+      setCreateIdentityDisplayName("");
+      setCreateIdentityBio("");
+      setCreateIdentityWebsite("");
+      setCreateIdentityAvatarUrl("");
+      setCreateIdentityDiscoverable(true);
+      setCreateIdentityDefaultVisibility("public");
+      setCreateIdentityCity(null);
+      setCreateIdentityPreferredLanguage(preferredLanguage === "de" ? "de" : "en");
+      setCreateIdentityErrors({});
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleSaveIdentityProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editIdentityDraft) return;
+    setIdentityError("");
+    const websiteResult = validateWebsite(editIdentityDraft.website || "");
+    const avatarResult = validateAvatarUrl(editIdentityDraft.avatarUrl || "");
+    const normalizedWebsite = websiteResult.normalized;
+    const normalizedAvatarUrl = avatarResult.normalized;
+    const nextErrors = validateIdentityForm(
+      { website: normalizedWebsite, avatarUrl: normalizedAvatarUrl },
+      false
+    );
+    setEditIdentityErrors(nextErrors);
+    if (hasErrors(nextErrors)) return;
+
+    setIdentityBusy(true);
+    try {
+      const res = await identitiesApi.update(editIdentityDraft.username, {
+        displayName: editIdentityDraft.displayName || undefined,
+        bio: editIdentityDraft.bio || undefined,
+        website: normalizedWebsite || null,
+        avatarUrl: normalizedAvatarUrl || null,
+        discoverable: editIdentityDraft.discoverable,
+        defaultVisibility: editIdentityDraft.defaultVisibility,
+        ...(editIdentityDraft.city && editIdentityDraft.cityLat != null && editIdentityDraft.cityLng != null
+          ? {
+              city: editIdentityDraft.city,
+              cityLat: editIdentityDraft.cityLat,
+              cityLng: editIdentityDraft.cityLng,
+            }
+          : {}),
+        preferredLanguage: editIdentityDraft.preferredLanguage,
+      });
+      setIdentities((prev) => prev.map((identity) => (
+        identity.username === editIdentityDraft.username ? res.identity : identity
+      )));
+      closeIdentityEditorModal();
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleDeleteIdentity = async (username: string) => {
+    if (!confirm(t("deleteIdentityConfirm", { username }))) return;
+    setIdentityError("");
+    try {
+      await identitiesApi.delete(username);
+      if (user?.id) invalidateAdditionalIdentitiesCache(user.id);
+      const res = await identitiesApi.list();
+      setIdentities(res.identities);
+      setSelectedIdentityUsername((current) => (current === username ? (res.identities[0]?.username || "") : current));
+      closeIdentityEditorModal();
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    }
+  };
+
+  const handleInviteMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedIdentity) return;
+    setIdentityError("");
+    setIdentityBusy(true);
+    try {
+      await identitiesApi.addMember(selectedIdentity.username, inviteUsername, inviteRole);
+      const res = await identitiesApi.listMembers(selectedIdentity.username);
+      setIdentityMembers(res.members);
+      setInviteUsername("");
+      setInviteRole("editor");
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleUpdateMemberRole = async (memberId: string, role: IdentityRole) => {
+    if (!selectedIdentity) return;
+    setIdentityError("");
+    setMemberBusyId(memberId);
+    try {
+      await identitiesApi.updateMember(selectedIdentity.username, memberId, role);
+      const res = await identitiesApi.listMembers(selectedIdentity.username);
+      setIdentityMembers(res.members);
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setMemberBusyId(null);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!selectedIdentity) return;
+    if (!confirm(t("removeMemberConfirm"))) return;
+    setIdentityError("");
+    setMemberBusyId(memberId);
+    try {
+      await identitiesApi.removeMember(selectedIdentity.username, memberId);
+      setIdentityMembers((prev) => prev.filter((member) => member.memberId !== memberId));
+    } catch (err: unknown) {
+      setIdentityError((err as Error).message || t("identityActionFailed"));
+    } finally {
+      setMemberBusyId(null);
+    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -205,6 +641,65 @@ export function SettingsPage() {
     }
   };
 
+  const closeIdentityEditorModal = () => {
+    setIdentityEditorOpen(null);
+    setEditIdentityDraft(null);
+    setCreateIdentityErrors({});
+    setEditIdentityErrors({});
+    setIdentityError("");
+    identityModalTriggerRef.current?.focus();
+  };
+
+  const closeMembersModal = () => {
+    setMembersModalOpen(false);
+    membersModalTriggerRef.current?.focus();
+  };
+
+  const openCreateIdentityModal = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) identityModalTriggerRef.current = active;
+    setIdentityError("");
+    setCreateIdentityErrors({});
+    setEditIdentityErrors({});
+    setEditIdentityDraft(null);
+    setCreateIdentityUsername("");
+    setCreateIdentityDisplayName("");
+    setCreateIdentityBio("");
+    setCreateIdentityWebsite("");
+    setCreateIdentityAvatarUrl("");
+    setCreateIdentityDiscoverable(true);
+    setCreateIdentityDefaultVisibility("public");
+    setCreateIdentityCity(city ? { city: city.city, lat: city.lat, lng: city.lng } : null);
+    setCreateIdentityPreferredLanguage(preferredLanguage === "de" ? "de" : "en");
+    setIdentityEditorOpen("create");
+  };
+
+  const openEditIdentityModal = (username: string) => {
+    const identity = identities.find((candidate) => candidate.username === username);
+    if (!identity) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) identityModalTriggerRef.current = active;
+    setIdentityError("");
+    setEditIdentityErrors({});
+    setCreateIdentityErrors({});
+    setSelectedIdentityUsername(username);
+    setEditIdentityDraft({ ...identity });
+    setIdentityEditorOpen("edit");
+  };
+
+  const openMembersModal = (username: string) => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) membersModalTriggerRef.current = active;
+    setIdentityError("");
+    setInviteUsername("");
+    setInviteRole("editor");
+    setMemberSuggestions([]);
+    setShowMemberSuggestions(false);
+    setMemberLookupBusy(false);
+    setSelectedIdentityUsername(username);
+    setMembersModalOpen(true);
+  };
+
   return (
     <div className="settings-layout">
       <aside className="settings-sidebar">
@@ -239,11 +734,22 @@ export function SettingsPage() {
             <form onSubmit={handleSaveProfile}>
               <div className="field">
                 <label htmlFor="displayName">{t("displayName")}</label>
-                <input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+                <input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={t("displayNamePlaceholder")}
+                />
               </div>
               <div className="field">
                 <label htmlFor="bio">{t("bio")}</label>
-                <textarea id="bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} />
+                <textarea
+                  id="bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  rows={3}
+                  placeholder={t("bioPlaceholder")}
+                />
               </div>
               <div className="field">
                 <label htmlFor="website">{t("website")}</label>
@@ -251,9 +757,18 @@ export function SettingsPage() {
                   id="website"
                   type="url"
                   value={website}
-                  onChange={(e) => setWebsite(e.target.value)}
+                  onChange={(e) => {
+                    setWebsite(e.target.value);
+                    setProfileErrors((prev) => ({ ...prev, website: undefined }));
+                  }}
+                  onBlur={() => {
+                    const result = validateWebsite(website);
+                    setWebsite(result.normalized);
+                    setProfileErrors((prev) => ({ ...prev, website: result.error }));
+                  }}
                   placeholder={t("websitePlaceholder")}
                 />
+                {profileErrors.website && <p className="text-sm mt-1 error-text">{profileErrors.website}</p>}
               </div>
               <div className="field">
                 <label htmlFor="city">{t("city")}</label>
@@ -268,8 +783,9 @@ export function SettingsPage() {
                   className="field-input"
                   style={{ maxWidth: 200 }}
                 >
-                  <option value="en">{t("english")}</option>
-                  <option value="de">{t("german")}</option>
+                  {languageOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="field">
@@ -293,6 +809,78 @@ export function SettingsPage() {
                 {saved && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
             </form>
+          </div>
+        </section>
+
+        <section
+          id="identities"
+          ref={(el) => { sectionRefs.current.identities = el; }}
+          className="settings-section"
+          aria-labelledby="identities-heading"
+        >
+          <div className="settings-card">
+            <h2 id="identities-heading" className="settings-section-title">
+              {t("publishingIdentities")}
+            </h2>
+            <p className="text-sm text-dim mb-2">{t("publishingIdentitiesHelp")}</p>
+
+            {identities.length === 0 ? (
+              <p className="text-sm text-dim mb-2">{t("noPublishingIdentities")}</p>
+            ) : (
+              <div className="identity-list">
+                {identities.map((identity) => (
+                  <article
+                    key={identity.id}
+                    className={`identity-card ${identity.username === selectedIdentityUsername ? "identity-card-selected" : ""}`}
+                  >
+                    <div className="identity-card-header">
+                      <div>
+                        <p className="identity-card-title">{identity.displayName || identity.username}</p>
+                        <p className="identity-card-handle">@{identity.username}</p>
+                      </div>
+                      <span className="identity-role-chip">{t(`role.${identity.role}`)}</span>
+                    </div>
+                    <div className="identity-card-meta">
+                      <span>{t("defaultEventVisibility")}: {t(`visibility.${identity.defaultVisibility === "followers_only" ? "followersOnly" : identity.defaultVisibility}`)}</span>
+                      <span>{t("language")}: {languageOptions.find((option) => option.value === identity.preferredLanguage)?.label || identity.preferredLanguage}</span>
+                      <span>{t("city")}: {identity.city || "-"}</span>
+                      <span>{identity.discoverable ? t("identityDiscoverableYes") : t("identityDiscoverableNo")}</span>
+                    </div>
+                    <div className="identity-card-actions">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => openEditIdentityModal(identity.username)}
+                        disabled={roleRank[identity.role] < roleRank.editor}
+                      >
+                        {t("editIdentity")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => openMembersModal(identity.username)}
+                        disabled={identity.role !== "owner"}
+                      >
+                        {t("manageMembers")}
+                      </button>
+                      {identity.role === "owner" && (
+                        <button
+                          type="button"
+                          className="btn-danger btn-sm"
+                          onClick={() => handleDeleteIdentity(identity.username)}
+                        >
+                          {t("deleteIdentity")}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <button type="button" className="btn-primary btn-sm" onClick={openCreateIdentityModal}>
+              {t("createPublishingIdentity")}
+            </button>
           </div>
         </section>
 
@@ -578,6 +1166,396 @@ export function SettingsPage() {
           </div>
         </section>
       </div>
+
+      {identityEditorOpen && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={identityModalTitleId}
+          onClick={(e) => e.target === e.currentTarget && closeIdentityEditorModal()}
+        >
+          <div className="modal-card settings-identity-modal-card" ref={identityModalRef}>
+            <div className="modal-header">
+              <h3 id={identityModalTitleId} className="settings-section-title" style={{ margin: 0 }}>
+                {identityEditorOpen === "create"
+                  ? t("createPublishingIdentity")
+                  : `${t("identityProfile")}: @${editIdentityDraft?.username || selectedIdentity?.username || ""}`}
+              </h3>
+              <button type="button" className="btn-ghost btn-sm" onClick={closeIdentityEditorModal}>
+                {t("common:close")}
+              </button>
+            </div>
+            <div className="modal-body settings-identity-modal-body">
+              {identityEditorOpen === "create" ? (
+                <form onSubmit={handleCreateIdentity}>
+                  <div className="field">
+                    <label>{t("identityHandle")}</label>
+                    <div className="prefixed-input">
+                      <span className="prefixed-input-prefix" aria-hidden="true">@</span>
+                      <input
+                        value={createIdentityUsername}
+                        onChange={(e) => {
+                          setCreateIdentityUsername(e.target.value);
+                          setCreateIdentityErrors((prev) => ({ ...prev, username: undefined }));
+                        }}
+                        onBlur={() => {
+                          const normalized = normalizeHandle(createIdentityUsername);
+                          setCreateIdentityUsername(normalized);
+                          setCreateIdentityErrors((prev) => ({ ...prev, username: validateIdentityHandle(normalized) }));
+                        }}
+                        placeholder={t("usernamePlaceholder")}
+                        required
+                      />
+                    </div>
+                    {createIdentityErrors.username && <p className="text-sm mt-1 error-text">{createIdentityErrors.username}</p>}
+                </div>
+                <div className="field">
+                  <label>{t("displayName")}</label>
+                  <input
+                    value={createIdentityDisplayName}
+                    onChange={(e) => setCreateIdentityDisplayName(e.target.value)}
+                    placeholder={t("displayNamePlaceholder")}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t("bio")}</label>
+                  <textarea
+                    rows={3}
+                    value={createIdentityBio}
+                    onChange={(e) => setCreateIdentityBio(e.target.value)}
+                    placeholder={t("bioPlaceholder")}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t("website")}</label>
+                  <input
+                    type="url"
+                    value={createIdentityWebsite}
+                    onChange={(e) => {
+                      setCreateIdentityWebsite(e.target.value);
+                      setCreateIdentityErrors((prev) => ({ ...prev, website: undefined }));
+                    }}
+                    onBlur={() => {
+                      const result = validateWebsite(createIdentityWebsite);
+                      setCreateIdentityWebsite(result.normalized);
+                      setCreateIdentityErrors((prev) => ({ ...prev, website: result.error }));
+                    }}
+                    placeholder={t("websitePlaceholder")}
+                  />
+                  {createIdentityErrors.website && <p className="text-sm mt-1 error-text">{createIdentityErrors.website}</p>}
+                </div>
+                <div className="field">
+                  <label>{t("avatarUrl")}</label>
+                  <input
+                    type="url"
+                    value={createIdentityAvatarUrl}
+                    onChange={(e) => {
+                      setCreateIdentityAvatarUrl(e.target.value);
+                      setCreateIdentityErrors((prev) => ({ ...prev, avatarUrl: undefined }));
+                    }}
+                    onBlur={() => {
+                      const result = validateAvatarUrl(createIdentityAvatarUrl);
+                      setCreateIdentityAvatarUrl(result.normalized);
+                      setCreateIdentityErrors((prev) => ({ ...prev, avatarUrl: result.error }));
+                    }}
+                    placeholder={t("avatarUrlPlaceholder")}
+                  />
+                  {createIdentityErrors.avatarUrl && <p className="text-sm mt-1 error-text">{createIdentityErrors.avatarUrl}</p>}
+                </div>
+                <div className="field">
+                  <label>{t("city")}</label>
+                  <CitySearch
+                    value={createIdentityCity}
+                    onChange={setCreateIdentityCity}
+                    placeholder={t("auth:whereBased")}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t("language")}</label>
+                  <select
+                    value={createIdentityPreferredLanguage}
+                    onChange={(e) => setCreateIdentityPreferredLanguage(e.target.value as "en" | "de")}
+                  >
+                    {languageOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                  <div className="field">
+                    <label>{t("defaultEventVisibility")}</label>
+                    <select
+                      value={createIdentityDefaultVisibility}
+                      onChange={(e) => setCreateIdentityDefaultVisibility(e.target.value as "public" | "unlisted" | "followers_only" | "private")}
+                    >
+                      {visibilityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={createIdentityDiscoverable}
+                        onChange={(e) => setCreateIdentityDiscoverable(e.target.checked)}
+                        style={{ width: "auto" }}
+                      />
+                      {t("discoverableIdentity")}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button type="submit" className="btn-primary btn-sm" disabled={identityBusy}>
+                      {identityBusy ? t("common:saving") : t("createIdentity")}
+                    </button>
+                  </div>
+                  {identityError && <p className="text-sm mt-1 error-text">{identityError}</p>}
+                </form>
+              ) : editIdentityDraft ? (
+                <form onSubmit={handleSaveIdentityProfile}>
+                  <div className="field">
+                    <label>{t("displayName")}</label>
+                    <input
+                      value={editIdentityDraft.displayName || ""}
+                      onChange={(e) => setEditIdentityDraft((prev) => (prev ? { ...prev, displayName: e.target.value } : prev))}
+                      placeholder={t("displayNamePlaceholder")}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("bio")}</label>
+                    <textarea
+                      rows={3}
+                      value={editIdentityDraft.bio || ""}
+                      onChange={(e) => setEditIdentityDraft((prev) => (prev ? { ...prev, bio: e.target.value } : prev))}
+                      placeholder={t("bioPlaceholder")}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("website")}</label>
+                    <input
+                      type="url"
+                      value={editIdentityDraft.website || ""}
+                      onChange={(e) => {
+                        setEditIdentityDraft((prev) => (prev ? { ...prev, website: e.target.value } : prev));
+                        setEditIdentityErrors((prev) => ({ ...prev, website: undefined }));
+                      }}
+                      onBlur={() => {
+                        const result = validateWebsite(editIdentityDraft.website || "");
+                        setEditIdentityDraft((prev) => (prev ? { ...prev, website: result.normalized || null } : prev));
+                        setEditIdentityErrors((prev) => ({ ...prev, website: result.error }));
+                      }}
+                      placeholder={t("websitePlaceholder")}
+                    />
+                    {editIdentityErrors.website && <p className="text-sm mt-1 error-text">{editIdentityErrors.website}</p>}
+                  </div>
+                  <div className="field">
+                    <label>{t("avatarUrl")}</label>
+                    <input
+                      type="url"
+                      value={editIdentityDraft.avatarUrl || ""}
+                      onChange={(e) => {
+                        setEditIdentityDraft((prev) => (prev ? { ...prev, avatarUrl: e.target.value } : prev));
+                        setEditIdentityErrors((prev) => ({ ...prev, avatarUrl: undefined }));
+                      }}
+                      onBlur={() => {
+                        const result = validateAvatarUrl(editIdentityDraft.avatarUrl || "");
+                        setEditIdentityDraft((prev) => (prev ? { ...prev, avatarUrl: result.normalized || null } : prev));
+                        setEditIdentityErrors((prev) => ({ ...prev, avatarUrl: result.error }));
+                      }}
+                      placeholder={t("avatarUrlPlaceholder")}
+                    />
+                    {editIdentityErrors.avatarUrl && <p className="text-sm mt-1 error-text">{editIdentityErrors.avatarUrl}</p>}
+                  </div>
+                  <div className="field">
+                    <label>{t("city")}</label>
+                    <CitySearch
+                      value={editIdentityDraft.city && editIdentityDraft.cityLat != null && editIdentityDraft.cityLng != null
+                        ? { city: editIdentityDraft.city, lat: editIdentityDraft.cityLat, lng: editIdentityDraft.cityLng }
+                        : null}
+                      onChange={(selection) => {
+                        if (selection) {
+                          setEditIdentityDraft((prev) => (prev ? { ...prev, city: selection.city, cityLat: selection.lat, cityLng: selection.lng } : prev));
+                        } else {
+                          setEditIdentityDraft((prev) => (prev ? { ...prev, city: null, cityLat: null, cityLng: null } : prev));
+                        }
+                      }}
+                      placeholder={t("auth:whereBased")}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>{t("language")}</label>
+                    <select
+                      value={editIdentityDraft.preferredLanguage}
+                      onChange={(e) => setEditIdentityDraft((prev) => (prev ? { ...prev, preferredLanguage: e.target.value as "en" | "de" } : prev))}
+                    >
+                      {languageOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>{t("defaultEventVisibility")}</label>
+                    <select
+                      value={editIdentityDraft.defaultVisibility}
+                      onChange={(e) => setEditIdentityDraft((prev) => (prev ? { ...prev, defaultVisibility: e.target.value as "public" | "unlisted" | "followers_only" | "private" } : prev))}
+                    >
+                      {visibilityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label className="flex items-center gap-1" style={{ cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={editIdentityDraft.discoverable}
+                        onChange={(e) => setEditIdentityDraft((prev) => (prev ? { ...prev, discoverable: e.target.checked } : prev))}
+                        style={{ width: "auto" }}
+                      />
+                      {t("discoverableIdentity")}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-1" style={{ justifyContent: "space-between" }}>
+                    <button type="submit" className="btn-primary btn-sm" disabled={identityBusy || !canEditIdentity}>
+                      {identityBusy ? t("common:saving") : t("common:save")}
+                    </button>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="btn-danger btn-sm"
+                        onClick={() => handleDeleteIdentity(editIdentityDraft.username)}
+                      >
+                        {t("deleteIdentity")}
+                      </button>
+                    )}
+                  </div>
+                  {identityError && <p className="text-sm mt-1 error-text">{identityError}</p>}
+                </form>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {membersModalOpen && selectedIdentity && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={membersModalTitleId}
+          onClick={(e) => e.target === e.currentTarget && closeMembersModal()}
+        >
+          <div className="modal-card settings-members-modal-card" ref={membersModalRef}>
+            <div className="modal-header">
+              <h3 id={membersModalTitleId} className="settings-section-title" style={{ margin: 0 }}>
+                {t("identityMembers")}: @{selectedIdentity.username}
+              </h3>
+              <button type="button" className="btn-ghost btn-sm" onClick={closeMembersModal}>
+                {t("common:close")}
+              </button>
+            </div>
+            <div className="modal-body settings-identity-modal-body">
+              {canManageMembers && (
+                <form onSubmit={handleInviteMember} className="settings-members-invite-form">
+                  <div className="field" ref={memberResultsRef}>
+                    <label>{t("addMember")}</label>
+                    <div style={{ position: "relative" }}>
+                      <div className="prefixed-input">
+                        <span className="prefixed-input-prefix" aria-hidden="true">@</span>
+                        <input
+                          value={inviteUsername}
+                          onChange={(e) => {
+                            setInviteUsername(e.target.value);
+                            setIdentityError("");
+                            setShowMemberSuggestions(true);
+                          }}
+                          onFocus={() => {
+                            if (inviteUsername.trim().length >= 2 || memberSuggestions.length > 0) {
+                              setShowMemberSuggestions(true);
+                            }
+                          }}
+                          placeholder={t("usernamePlaceholder")}
+                          autoComplete="off"
+                        />
+                      </div>
+                      {showMemberSuggestions && inviteUsername.trim().length >= 2 && (
+                        <div className="venue-dropdown">
+                          {memberSuggestions.map((candidate) => (
+                            <button
+                              key={candidate.id}
+                              type="button"
+                              className="venue-dropdown-item"
+                              onClick={() => {
+                                skipNextMemberLookupRef.current = true;
+                                setInviteUsername(candidate.username);
+                                setMemberSuggestions([]);
+                                setShowMemberSuggestions(false);
+                              }}
+                            >
+                              <span className="venue-dropdown-name">{candidate.displayName || candidate.username}</span>
+                              <span className="venue-dropdown-addr">@{candidate.username}</span>
+                            </button>
+                          ))}
+                          {memberLookupBusy && (
+                            <div className="venue-dropdown-item" style={{ cursor: "default" }}>
+                              <span className="venue-dropdown-addr">{t("common:searching")}</span>
+                            </div>
+                          )}
+                          {!memberLookupBusy && memberSuggestions.length === 0 && (
+                            <div className="venue-dropdown-item" style={{ cursor: "default" }}>
+                              <span className="venue-dropdown-addr">{t("noPublicProfilesFound")}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>{t("memberRole")}</label>
+                    <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as IdentityRole)}>
+                      <option value="editor">{t("role.editor")}</option>
+                      <option value="owner">{t("role.owner")}</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="btn-primary btn-sm" disabled={!inviteUsername.trim() || identityBusy}>
+                    {t("inviteMember")}
+                  </button>
+                  {identityError && <p className="text-sm mt-1 error-text">{identityError}</p>}
+                </form>
+              )}
+
+              <div className="settings-keys-list" style={{ marginBottom: 0 }}>
+                {identityMembers.map((member) => (
+                  <div key={member.memberId} className="settings-key-row">
+                    <div>
+                      <span style={{ fontWeight: 500 }}>{member.displayName || member.username}</span>
+                      <span className="text-sm text-dim" style={{ marginLeft: "0.5rem" }}>@{member.username}</span>
+                    </div>
+                    <div className="flex gap-1 items-center">
+                      <select
+                        value={member.role}
+                        disabled={!canManageMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                        onChange={(e) => handleUpdateMemberRole(member.memberId, e.target.value as IdentityRole)}
+                      >
+                        <option value="editor">{t("role.editor")}</option>
+                        <option value="owner">{t("role.owner")}</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn-danger btn-sm"
+                        disabled={!canManageMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                        onClick={() => handleRemoveMember(member.memberId)}
+                      >
+                        {t("common:remove")}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

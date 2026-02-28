@@ -1,17 +1,19 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { eventsPathWithTags } from "../lib/urls";
-import { events as eventsApi, users as usersApi, federation, type CalEvent } from "../lib/api";
+import { events as eventsApi, users as usersApi, federation, identities as identitiesApi, type CalEvent } from "../lib/api";
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
+import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { eventPath, accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
-import { LocationPinIcon, RepostIcon, ExternalLinkIcon } from "../components/icons";
+import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
+import { ActAsActionModal } from "../components/ActAsActionModal";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
@@ -19,6 +21,7 @@ type RsvpStatus = "going" | "maybe" | null;
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
+  const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [location, navigate] = useLocation();
 
   const routeMatch = useMemo((): { id?: string; username?: string; slug?: string } => {
@@ -62,11 +65,38 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [reposted, setReposted] = useState(initialEvent ? (initialEvent.reposted ?? false) : false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
+  const [repostMenuOpen, setRepostMenuOpen] = useState(false);
+  const [repostAsOpen, setRepostAsOpen] = useState(false);
+  const [repostAsError, setRepostAsError] = useState<string | null>(null);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
   const [suggestedEvents, setSuggestedEvents] = useState<CalEvent[]>([]);
   const [followedLocalIds, setFollowedLocalIds] = useState<Set<string>>(new Set());
   const [followedActorUris, setFollowedActorUris] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
+  const [canManageEvent, setCanManageEvent] = useState(false);
+  const repostMenuRef = useRef<HTMLDivElement>(null);
+  const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const repostMenuId = useId();
+
+  useEffect(() => {
+    if (!repostMenuOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (repostMenuRef.current && !repostMenuRef.current.contains(e.target as Node)) {
+        setRepostMenuOpen(false);
+      }
+    };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setRepostMenuOpen(false);
+      repostMenuButtonRef.current?.focus();
+    };
+    document.addEventListener("click", onClickOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("click", onClickOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [repostMenuOpen]);
 
   const rsvpOptions = useMemo(
     () => [
@@ -206,6 +236,21 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     }
   }, [user, profileItem]);
 
+  useEffect(() => {
+    if (!event || !user || event.source === "remote") {
+      setCanManageEvent(false);
+      return;
+    }
+    if (event.accountId === user.id) {
+      setCanManageEvent(true);
+      return;
+    }
+    identitiesApi
+      .list()
+      .then((res) => setCanManageEvent(res.identities.some((identity) => identity.id === event.accountId)))
+      .catch(() => setCanManageEvent(false));
+  }, [event, user]);
+
   const isHostFollowed = profileItem
     ? profileItem.kind === "local"
       ? followedLocalIds.has(profileItem.user.id)
@@ -327,7 +372,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   if (error) return <p className="error-text">{error}</p>;
   if (!event) return <p className="error-text">{t("eventNotFound")}</p>;
 
-  const isOwner = user?.id === event.accountId;
   const editHref = event.slug && event.account?.username
     ? `/@${event.account.username}/${event.slug}/edit`
     : `/events/${event.id}/edit`;
@@ -383,7 +427,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             )}
           </div>
 
-          {isOwner && (
+          {canManageEvent && (
             <div className="flex gap-1">
               <Link href={editHref}>
                 <button className="btn-ghost btn-sm">{t("common:edit")}</button>
@@ -472,10 +516,44 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                   <RepostIcon />
                   {reposted ? t("reposted") : t("repost")}
                 </button>
+                {!identitiesLoading && hasAdditionalIdentities && (
+                  <div ref={repostMenuRef} style={{ position: "relative" }}>
+                    <button
+                      ref={repostMenuButtonRef}
+                      type="button"
+                      className="profile-menu-btn"
+                      onClick={() => setRepostMenuOpen((open) => !open)}
+                      aria-expanded={repostMenuOpen}
+                      aria-haspopup="menu"
+                      aria-controls={repostMenuOpen ? repostMenuId : undefined}
+                      aria-label={t("common:menu")}
+                      title={t("common:menu")}
+                    >
+                      <MenuIcon />
+                    </button>
+                    {repostMenuOpen && (
+                      <div id={repostMenuId} className="header-dropdown" role="menu">
+                        <button
+                          type="button"
+                          className="header-dropdown-item"
+                          role="menuitem"
+                          onClick={() => {
+                            setRepostMenuOpen(false);
+                            setRepostAsError(null);
+                            setRepostAsOpen(true);
+                          }}
+                        >
+                          {t("common:repostAs")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
         )}
+        {repostAsError && <p className="error-text mb-2" role="alert">{repostAsError}</p>}
 
         {event.description && (
           <div
@@ -620,6 +698,25 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           </div>
         )}
       </div>
+
+      {repostAsOpen && user && event.source !== "remote" && event.accountId !== user.id && (
+        <ActAsActionModal
+          open
+          onClose={() => setRepostAsOpen(false)}
+          onComplete={(errorMessage) => setRepostAsError(errorMessage)}
+          excludedAccountIds={event.accountId ? [event.accountId] : undefined}
+          actionKind="repost"
+          loadState={() => eventsApi.repostActors(event.id)}
+          apply={async (desiredAccountIds) => {
+            const res = await eventsApi.setRepostActors(event.id, desiredAccountIds);
+            const me = res.results.find((row) => row.accountId === user.id);
+            if (me && me.status !== "error") {
+              setReposted(!!me.after);
+            }
+            return res;
+          }}
+        />
+      )}
     </div>
   );
 }

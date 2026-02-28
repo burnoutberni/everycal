@@ -7,6 +7,7 @@
  */
 
 const FOLLOW_LIST = `(SELECT following_id FROM follows WHERE follower_id = ?)`;
+const MANAGED_IDENTITY_LIST = `(SELECT identity_account_id FROM identity_memberships WHERE member_account_id = ? AND role IN ('editor','owner'))`;
 
 function remoteFollowLocal(baseUrl: string): string {
   return `(SELECT a2.id FROM accounts a2 WHERE ? || '/users/' || a2.username IN (SELECT actor_uri FROM remote_following WHERE account_id = ?))`;
@@ -37,8 +38,8 @@ export interface FeedQueryResult {
 }
 
 /**
- * Build feed query: own events + direct follows + remote_following local +
- * RSVP'd + explicit reposts + auto-reposts. Repost branches exclude events
+ * Build feed query: own events + managed identities + direct follows +
+ * remote_following local + RSVP'd + explicit reposts + auto-reposts. Repost branches exclude events
  * where we already follow the creator (to avoid duplicates, and to show
  * repost label only when that's why we see the event).
  */
@@ -58,30 +59,35 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   if (dateFrom) push(dateFrom);
   push(userId);
 
-  // Branch 2: Direct follows
-  const b2Where = `${datePrefix}e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only')`;
+  // Branch 2: Managed identities
+  const b2Where = `${datePrefix}e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private')`;
   if (dateFrom) push(dateFrom);
   push(userId);
 
-  // Branch 3: Local accounts we follow via remote_following (Federation)
-  const b3Where = `${datePrefix}e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only')`;
+  // Branch 3: Direct follows
+  const b3Where = `${datePrefix}e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only')`;
+  if (dateFrom) push(dateFrom);
+  push(userId);
+
+  // Branch 4: Local accounts we follow via remote_following (Federation)
+  const b4Where = `${datePrefix}e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only')`;
   if (dateFrom) push(dateFrom);
   push(baseUrl, userId);
 
-  // Branch 4: Events we've RSVP'd to
-  const b4Where = `${datePrefix}e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted')`;
+  // Branch 5: Events we've RSVP'd to
+  const b5Where = `${datePrefix}e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted')`;
   if (dateFrom) push(dateFrom);
   push(userId);
 
-  // Branch 5: Explicit reposts (only when creator not followed)
-  const b5Where = `${datePrefix}(r.account_id IN ${FOLLOW_LIST} OR r.account_id IN ${rfl})
+  // Branch 6: Explicit reposts (only when creator not followed)
+  const b6Where = `${datePrefix}(r.account_id IN ${FOLLOW_LIST} OR r.account_id IN ${rfl})
       AND e.visibility IN ('public','unlisted')
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}`;
   if (dateFrom) push(dateFrom);
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);
 
-  // Branch 6: Auto-reposts (only when creator not followed)
-  const b6Where = `${datePrefix}(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
+  // Branch 7: Auto-reposts (only when creator not followed)
+  const b7Where = `${datePrefix}(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
       AND e.visibility = 'public'
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ar.account_id)`;
@@ -109,13 +115,18 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
     WHERE ${b4Where}
     GROUP BY e.id
     UNION ALL
+    SELECT ${COLS_OTHER}
+    ${EVENTS_JOIN}
+    WHERE ${b5Where}
+    GROUP BY e.id
+    UNION ALL
     SELECT ${COLS_REPOST}
     FROM reposts r
     JOIN events e ON e.id = r.event_id
     JOIN accounts a ON a.id = e.account_id
     JOIN accounts ra ON ra.id = r.account_id
     LEFT JOIN event_tags t ON t.event_id = e.id
-    WHERE ${b5Where}
+    WHERE ${b6Where}
     GROUP BY e.id
     UNION ALL
     SELECT ${COLS_REPOST}
@@ -124,7 +135,7 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
     JOIN accounts a ON a.id = e.account_id
     JOIN accounts ra ON ra.id = ar.account_id
     LEFT JOIN event_tags t ON t.event_id = e.id
-    WHERE ${b6Where}
+    WHERE ${b7Where}
     GROUP BY e.id
   `;
 

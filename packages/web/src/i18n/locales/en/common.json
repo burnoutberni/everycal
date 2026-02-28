@@ -56,5 +56,19 @@
   "closeMenu": "Close menu",
   "unfoldTags": "Show all tags",
   "unfoldCalendar": "Show calendar",
-  "tagsDescription": "Filter events by topic. Tap a tag to show only events with that tag."
+  "tagsDescription": "Filter events by topic. Tap a tag to show only events with that tag.",
+  "followAs": "Follow as...",
+  "autoRepostAs": "Auto-repost as...",
+  "repostAs": "Repost as...",
+  "actAsHint": "Choose which accounts should have this action active after you confirm.",
+  "addAccountPlaceholder": "Add account...",
+  "actAsYou": "you",
+  "confirmChanges": "Confirm",
+  "actAsResultSummary": "Added: {{added}} · Removed: {{removed}} · Unchanged: {{unchanged}} · Failed: {{failed}}",
+  "actAsStatus": {
+    "added": "added",
+    "removed": "removed",
+    "unchanged": "unchanged",
+    "error": "failed"
+  }
 }

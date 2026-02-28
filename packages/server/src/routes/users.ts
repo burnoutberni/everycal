@@ -8,6 +8,15 @@ import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 import { resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { listActingAccounts } from "../lib/identities.js";
+import {
+  ActorSelectionPayloadError,
+  applyLocalActorSelection,
+  buildActorSelectionPlan,
+  isDesiredAccountIdsAllowed,
+  readActorSelectionPayload,
+  summarizeActorSelection,
+} from "../lib/actor-selection.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -32,7 +41,7 @@ export function userRoutes(db: DB): Hono {
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
 
     if (q) {
-      sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+      sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
@@ -41,7 +50,7 @@ export function userRoutes(db: DB): Hono {
              ORDER BY username ASC LIMIT ? OFFSET ?`;
       params = [`%${q}%`, `%${q}%`, limit, offset];
     } else {
-      sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+      sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
@@ -116,7 +125,7 @@ export function userRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+        `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery}
@@ -298,7 +307,7 @@ export function userRoutes(db: DB): Hono {
   });
 
   // Follow a user
-  router.post("/:username/follow", requireAuth(), (c) => {
+  router.post("/:username/follow", requireAuth(), async (c) => {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
 
@@ -306,13 +315,68 @@ export function userRoutes(db: DB): Hono {
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
-    if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_follow_yourself") }, 400);
+    let body: { actorUri?: string; desiredAccountIds?: string[] };
+    try {
+      body = await readActorSelectionPayload(c);
+    } catch (err) {
+      if (err instanceof ActorSelectionPayloadError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
 
-    db.prepare(
-      "INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)"
-    ).run(currentUser.id, target.id);
+    if (!body.desiredAccountIds) {
+      if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_follow_yourself") }, 400);
+      db.prepare("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)").run(currentUser.id, target.id);
+      return c.json({ ok: true, following: true });
+    }
 
-    return c.json({ ok: true, following: true });
+    const acting = listActingAccounts(db, currentUser.id, "editor");
+    const actingIds = acting.map((a) => a.id);
+    if (!isDesiredAccountIdsAllowed(body.desiredAccountIds, actingIds)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const activeRows = db
+      .prepare("SELECT follower_id FROM follows WHERE following_id = ?")
+      .all(target.id) as Array<{ follower_id: string }>;
+    const plan = buildActorSelectionPlan({
+      actingAccountIds: actingIds,
+      desiredAccountIds: body.desiredAccountIds,
+      activeAccountIds: activeRows.map((r) => r.follower_id),
+      validateTransition: ({ accountId, after }) => {
+        if (accountId === target.id && after) return t(getLocale(c), "users.cannot_follow_yourself");
+        return null;
+      },
+    });
+
+    const { operationId, results } = applyLocalActorSelection({
+      db,
+      operation: {
+        actionKind: "follow",
+        targetType: "account",
+        targetId: target.id,
+        initiatedByAccountId: currentUser.id,
+      },
+      plan,
+      applyAdd: (accountId) => {
+        db.prepare("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)").run(accountId, target.id);
+      },
+      applyRemove: (accountId) => {
+        db.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").run(accountId, target.id);
+      },
+    });
+    const summary = summarizeActorSelection(results);
+
+    return c.json({
+      ok: true,
+      operationId,
+      added: summary.added,
+      removed: summary.removed,
+      unchanged: summary.unchanged,
+      failed: summary.failed,
+      results,
+    });
   });
 
   // Unfollow a user
@@ -334,7 +398,7 @@ export function userRoutes(db: DB): Hono {
   });
 
   // Auto-repost: automatically include all public events from target on your feed
-  router.post("/:username/auto-repost", requireAuth(), (c) => {
+  router.post("/:username/auto-repost", requireAuth(), async (c) => {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
 
@@ -342,14 +406,107 @@ export function userRoutes(db: DB): Hono {
       .prepare("SELECT id FROM accounts WHERE username = ?")
       .get(username) as { id: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
-    if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
+    let body: { actorUri?: string; desiredAccountIds?: string[] };
+    try {
+      body = await readActorSelectionPayload(c);
+    } catch (err) {
+      if (err instanceof ActorSelectionPayloadError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
 
-    db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(
-      currentUser.id,
-      target.id
-    );
+    if (!body.desiredAccountIds) {
+      if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
+      db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(
+        currentUser.id,
+        target.id
+      );
+      return c.json({ ok: true, autoReposting: true });
+    }
 
-    return c.json({ ok: true, autoReposting: true });
+    const acting = listActingAccounts(db, currentUser.id, "editor");
+    const actingIds = acting.map((a) => a.id);
+    if (!isDesiredAccountIdsAllowed(body.desiredAccountIds, actingIds)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const activeRows = db
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
+      .all(target.id) as Array<{ account_id: string }>;
+    const plan = buildActorSelectionPlan({
+      actingAccountIds: actingIds,
+      desiredAccountIds: body.desiredAccountIds,
+      activeAccountIds: activeRows.map((r) => r.account_id),
+      validateTransition: ({ accountId, after }) => {
+        if (accountId === target.id && after) return t(getLocale(c), "users.cannot_autorepost_yourself");
+        return null;
+      },
+    });
+
+    const { operationId, results } = applyLocalActorSelection({
+      db,
+      operation: {
+        actionKind: "auto_repost",
+        targetType: "account",
+        targetId: target.id,
+        initiatedByAccountId: currentUser.id,
+      },
+      plan,
+      applyAdd: (accountId) => {
+        db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(accountId, target.id);
+      },
+      applyRemove: (accountId) => {
+        db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(accountId, target.id);
+      },
+    });
+    const summary = summarizeActorSelection(results);
+
+    return c.json({
+      ok: true,
+      operationId,
+      added: summary.added,
+      removed: summary.removed,
+      unchanged: summary.unchanged,
+      failed: summary.failed,
+      results,
+    });
+  });
+
+  router.get("/:username/follow-actors", requireAuth(), (c) => {
+    const currentUser = c.get("user")!;
+    const username = c.req.param("username");
+    const target = db
+      .prepare("SELECT id FROM accounts WHERE username = ?")
+      .get(username) as { id: string } | undefined;
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+
+    const acting = listActingAccounts(db, currentUser.id, "editor");
+    const allowed = new Set(acting.map((a) => a.id));
+    const activeRows = db
+      .prepare("SELECT follower_id FROM follows WHERE following_id = ?")
+      .all(target.id) as Array<{ follower_id: string }>;
+    const activeAccountIds = activeRows.map((r) => r.follower_id).filter((id) => allowed.has(id));
+
+    return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
+  });
+
+  router.get("/:username/auto-repost-actors", requireAuth(), (c) => {
+    const currentUser = c.get("user")!;
+    const username = c.req.param("username");
+    const target = db
+      .prepare("SELECT id FROM accounts WHERE username = ?")
+      .get(username) as { id: string } | undefined;
+    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+
+    const acting = listActingAccounts(db, currentUser.id, "editor");
+    const allowed = new Set(acting.map((a) => a.id));
+    const activeRows = db
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
+      .all(target.id) as Array<{ account_id: string }>;
+    const activeAccountIds = activeRows.map((r) => r.account_id).filter((id) => allowed.has(id));
+
+    return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });
 
   // Remove auto-repost
@@ -543,6 +700,7 @@ function formatUser(row: Record<string, unknown>): Record<string, unknown> {
   return {
     id: row.id,
     username: row.username,
+    accountType: row.account_type,
     displayName: row.display_name,
     bio: row.bio,
     avatarUrl: row.avatar_url,

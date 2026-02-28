@@ -1,7 +1,19 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
-import { events as eventsApi, locations as locationsApi, images as imagesApi, type EventInput, type CalEvent, type SavedLocation, type ImageAttribution } from "../lib/api";
+import {
+  events as eventsApi,
+  locations as locationsApi,
+  images as imagesApi,
+  identities as identitiesApi,
+  ApiError,
+  type EventInput,
+  type CalEvent,
+  type SavedLocation,
+  type ImageAttribution,
+  type PublishingIdentity,
+} from "../lib/api";
+import { resolvePostAsAccountId } from "../lib/postAs";
 import { useAuth } from "../hooks/useAuth";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { eventPath } from "../lib/urls";
@@ -77,6 +89,7 @@ interface EventDraft {
   url: string;
   tags: string;
   visibility: string;
+  postAsAccountId: string;
   locationMode: LocationMode;
   venueQuery: string;
   locationName: string;
@@ -341,6 +354,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [urlError, setUrlError] = useState("");
   const [tags, setTags] = useState(initialState?.tags ?? "");
   const [visibility, setVisibility] = useState(initialState?.visibility ?? defaultVis);
+  const [availableIdentities, setAvailableIdentities] = useState<PublishingIdentity[]>([]);
+  const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
+  const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
+  const [postAsNotice, setPostAsNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -420,8 +437,44 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   useEffect(() => {
     if (user) {
       locationsApi.list().then(setSavedLocations).catch(() => { });
+      setIdentitiesLoaded(false);
+      identitiesApi.list()
+        .then((res) => {
+          setAvailableIdentities(res.identities);
+          setIdentitiesLoaded(true);
+        })
+        .catch(() => {
+          setAvailableIdentities([]);
+          setIdentitiesLoaded(true);
+        });
+    } else {
+      setAvailableIdentities([]);
+      setIdentitiesLoaded(false);
     }
   }, [user]);
+
+  const allowedPostAsAccountIds = useMemo(
+    () => new Set<string>([
+      ...(user?.id ? [user.id] : []),
+      ...availableIdentities.map((identity) => identity.id),
+    ]),
+    [user?.id, availableIdentities]
+  );
+
+  const resolveValidPostAsAccountId = useCallback((candidate: string | null | undefined): string => {
+    return resolvePostAsAccountId(candidate, user?.id, allowedPostAsAccountIds);
+  }, [user, allowedPostAsAccountIds]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (isEdit && initialEvent?.accountId) {
+      setPostAsAccountId(initialEvent.accountId);
+      return;
+    }
+    if (!postAsAccountId) {
+      setPostAsAccountId(user.id);
+    }
+  }, [user, isEdit, initialEvent?.accountId, postAsAccountId]);
 
   // Load draft from localStorage when user is available (create mode only)
   useEffect(() => {
@@ -439,6 +492,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setUrl(d.url || "");
     setTags(d.tags || "");
     setVisibility(d.visibility || defaultVis);
+    setPostAsAccountId(d.postAsAccountId || user.id);
     setLocationMode(d.locationMode || "inperson");
     setVenueQuery(d.venueQuery || "");
     setLocationName(d.locationName || "");
@@ -450,6 +504,15 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setManualLocation(d.manualLocation ?? false);
     setUserRemovedAutoImage(d.userRemovedAutoImage ?? false);
   }, [user, isEdit]);
+
+  useEffect(() => {
+    if (!user || isEdit || !identitiesLoaded) return;
+    const resolved = resolveValidPostAsAccountId(postAsAccountId);
+    if (resolved !== postAsAccountId) {
+      setPostAsAccountId(resolved);
+      setPostAsNotice(t("postAsIdentityUnavailableSwitched"));
+    }
+  }, [user, isEdit, identitiesLoaded, postAsAccountId, resolveValidPostAsAccountId, t]);
 
   // Save draft to localStorage (debounced, create mode only)
   useEffect(() => {
@@ -466,6 +529,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       url,
       tags,
       visibility,
+      postAsAccountId,
       locationMode,
       venueQuery,
       locationName,
@@ -494,6 +558,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     url,
     tags,
     visibility,
+    postAsAccountId,
     locationMode,
     venueQuery,
     locationName,
@@ -806,6 +871,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     setUrlError("");
     setTags("");
     setVisibility(defaultVis);
+    setPostAsAccountId(user?.id || "");
     setError("");
     setLocationMode("inperson");
     setVenueQuery("");
@@ -928,6 +994,12 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         }
       }
 
+      const resolvedPostAsAccountId = resolveValidPostAsAccountId(postAsAccountId);
+      if (!isEdit && resolvedPostAsAccountId !== postAsAccountId) {
+        setPostAsAccountId(resolvedPostAsAccountId);
+        setPostAsNotice(t("postAsIdentityUnavailableSwitched"));
+      }
+
       const data: EventInput = {
         title,
         description: description || undefined,
@@ -941,6 +1013,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         tags: locTags
           ? locTags.split(",").map((t) => t.trim()).filter(Boolean)
           : undefined,
+        postAsAccountId: isEdit ? undefined : resolvedPostAsAccountId,
       };
       if (locationMode === "inperson" && effectiveLocationName) {
         data.location = {
@@ -973,6 +1046,15 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       refreshUser().catch(() => { }); // Update auth context (e.g. for profile stats)
       navigate(eventPath(event));
     } catch (err: any) {
+      if (!isEdit && err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+        const fallbackAccountId = user?.id || "";
+        if (fallbackAccountId && postAsAccountId !== fallbackAccountId) {
+          setPostAsAccountId(fallbackAccountId);
+          setPostAsNotice(t("postAsIdentityUnavailableSwitched"));
+          setError(t("postAsIdentityRetryNeeded"));
+          return;
+        }
+      }
       setError(err.message || t("somethingWentWrong"));
     } finally {
       setSubmitting(false);
@@ -1011,6 +1093,59 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const previewLocationName = locationMode === "inperson" ? (locationName || venueQuery) : null;
 
   const showMobileStepFlow = !isEdit && isMobile;
+  const personalIdentityOption: PublishingIdentity = {
+    id: user.id,
+    username: user.username,
+    accountType: "person",
+    role: "owner",
+    displayName: user.displayName,
+    bio: null,
+    website: null,
+    avatarUrl: null,
+    discoverable: !!user.discoverable,
+    defaultVisibility: defaultVis as "public" | "private",
+    city: user.city ?? null,
+    cityLat: user.cityLat ?? null,
+    cityLng: user.cityLng ?? null,
+    preferredLanguage: (user.preferredLanguage === "de" ? "de" : "en"),
+  };
+  const baseIdentityOptions = [personalIdentityOption, ...availableIdentities.filter((identity) => identity.id !== user.id)];
+  const identityOptions =
+    isEdit && postAsAccountId && !baseIdentityOptions.some((identity) => identity.id === postAsAccountId)
+      ? [...baseIdentityOptions, {
+          id: postAsAccountId,
+          username: initialEvent?.account?.username || user.username,
+          accountType: "identity" as const,
+          role: "editor" as const,
+          displayName: initialEvent?.account?.displayName || initialEvent?.account?.username || user.displayName,
+          bio: null,
+          website: null,
+          avatarUrl: null,
+          discoverable: false,
+          defaultVisibility: initialEvent?.visibility as "public" | "unlisted" | "followers_only" | "private" || defaultVis as "public" | "private",
+        }]
+      : baseIdentityOptions;
+  const selectedIdentity = identityOptions.find((identity) => identity.id === postAsAccountId);
+  const bylineName = selectedIdentity?.displayName || selectedIdentity?.username || user.displayName || user.username;
+  const hasDelegatedIdentities = identityOptions.some((identity) => identity.accountType === "identity");
+  const showPostAsSelector = !isEdit && hasDelegatedIdentities;
+
+  useEffect(() => {
+    if (!user || isEdit || !identitiesLoaded) return;
+    if (!showPostAsSelector && postAsAccountId !== user.id) {
+      setPostAsAccountId(user.id);
+      setPostAsNotice(t("postAsIdentityUnavailableSwitched"));
+    }
+  }, [user, isEdit, identitiesLoaded, showPostAsSelector, postAsAccountId, t]);
+
+  const handlePostAsChange = (nextAccountId: string) => {
+    setPostAsNotice("");
+    setPostAsAccountId(nextAccountId);
+    const identity = identityOptions.find((candidate) => candidate.id === nextAccountId);
+    if (identity) {
+      setVisibility(identity.defaultVisibility);
+    }
+  };
 
   // ---- Render ----
 
@@ -1154,7 +1289,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             </div>
           )}
 
-          <p className="text-muted mb-2">{t("events:by")} {user.displayName || user.username}</p>
+          <p className="text-muted mb-2">{t("events:by")} {bylineName}</p>
 
           {/* Location preview */}
           {hasPreviewLocation ? (
@@ -1347,6 +1482,34 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                   )}
                 </div>
               </div>
+            )}
+
+            {showPostAsSelector && (
+              <div className="field">
+                <label htmlFor="ce-postAs">{t("postAsLabel")}</label>
+                <select
+                  id="ce-postAs"
+                  value={postAsAccountId}
+                  onChange={(e) => handlePostAsChange(e.target.value)}
+                >
+                  {identityOptions.map((identity) => (
+                    <option key={identity.id} value={identity.id}>
+                      {identity.displayName || identity.username} (@{identity.username})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {postAsNotice && (
+              <p
+                className="text-sm"
+                style={{ color: "var(--text-dim)", marginTop: "-0.5rem" }}
+                role="status"
+                aria-live="polite"
+              >
+                {postAsNotice}
+              </p>
             )}
 
             <div className="field">
@@ -1826,7 +1989,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               </select>
             </div>
 
-            {error && <p className="error-text mb-2">{error}</p>}
+            {error && <p className="error-text mb-2" role="alert">{error}</p>}
 
             <div style={{ display: "flex", gap: "0.5rem", width: "100%", flexWrap: "wrap" }}>
               {showMobileStepFlow ? (
@@ -1872,7 +2035,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       {/* Mobile step 2: confirm actions */}
       {showMobileStepFlow && createStep === "review" && (
         <div className="create-event-mobile-actions-wrap">
-          {error && <p className="error-text mb-2">{error}</p>}
+          {error && <p className="error-text mb-2" role="alert">{error}</p>}
           <div className="create-event-mobile-actions">
             <button
               type="button"

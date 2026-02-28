@@ -17,6 +17,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
+      account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
       display_name TEXT,
       bio TEXT,
       avatar_url TEXT,
@@ -25,6 +26,7 @@ export function initDatabase(path: string): DB {
       public_key TEXT,
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
+      default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -48,6 +50,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
+      created_by_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
       external_id TEXT,
       slug TEXT,
       title TEXT NOT NULL,
@@ -82,6 +85,14 @@ export function initDatabase(path: string): DB {
       PRIMARY KEY (follower_id, following_id)
     );
 
+    CREATE TABLE IF NOT EXISTS identity_memberships (
+      identity_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      member_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('owner','editor')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (identity_account_id, member_account_id)
+    );
+
     CREATE TABLE IF NOT EXISTS remote_follows (
       account_id TEXT NOT NULL REFERENCES accounts(id),
       follower_actor_uri TEXT NOT NULL,
@@ -100,6 +111,8 @@ export function initDatabase(path: string): DB {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external ON events(account_id, external_id) WHERE external_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
     CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_memberships_member ON identity_memberships(member_account_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_memberships_identity_role ON identity_memberships(identity_account_id, role);
 
     -- Remote actors (cached ActivityPub actors from other servers)
     CREATE TABLE IF NOT EXISTS remote_actors (
@@ -156,6 +169,8 @@ export function initDatabase(path: string): DB {
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       actor_uri TEXT NOT NULL,
       actor_inbox TEXT NOT NULL,
+      follow_activity_id TEXT,
+      follow_object_uri TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (account_id, actor_uri)
     );
@@ -204,6 +219,33 @@ export function initDatabase(path: string): DB {
     CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id);
     CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id);
 
+    -- Actor selection operations: audit bulk follow/repost changes
+    CREATE TABLE IF NOT EXISTS actor_selection_operations (
+      id TEXT PRIMARY KEY,
+      action_kind TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      initiated_by_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('pending','completed','failed')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS actor_selection_operation_items (
+      operation_id TEXT NOT NULL REFERENCES actor_selection_operations(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      before_state INTEGER NOT NULL,
+      after_state INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('added','removed','unchanged','error')),
+      remote_status TEXT CHECK(remote_status IN ('none','pending','delivered','failed')),
+      message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (operation_id, account_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_actor_selection_ops_initiated_by ON actor_selection_operations(initiated_by_account_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_actor_selection_items_operation ON actor_selection_operation_items(operation_id);
+
     -- Login attempt tracking for account lockout
     CREATE TABLE IF NOT EXISTS login_attempts (
       username TEXT PRIMARY KEY,
@@ -218,6 +260,23 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE remote_follows ADD COLUMN follower_shared_inbox TEXT");
   } catch {
     // Column already exists
+  }
+
+  // Migration: store Follow activity references for interoperable Undo
+  try {
+    db.exec("ALTER TABLE remote_following ADD COLUMN follow_activity_id TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_following ADD COLUMN follow_object_uri TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("UPDATE remote_following SET follow_object_uri = follow_activity_id WHERE follow_object_uri IS NULL AND follow_activity_id IS NOT NULL");
+  } catch {
+    // Ignore when table not yet initialized
   }
 
   // Migration: add is_bot and discoverable to accounts if missing
@@ -237,6 +296,56 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE accounts ADD COLUMN website TEXT");
   } catch {
     // Column already exists
+  }
+
+  // Migration: add default event visibility to accounts if missing
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN default_event_visibility TEXT NOT NULL DEFAULT 'public'");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: account type and delegated publishing membership tables
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'person'");
+  } catch {
+    // Column already exists
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS identity_memberships (
+      identity_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      member_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('owner','editor')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (identity_account_id, member_account_id)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_identity_memberships_member ON identity_memberships(member_account_id)");
+  } catch {
+    // Index already exists
+  }
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_identity_memberships_identity_role ON identity_memberships(identity_account_id, role)");
+  } catch {
+    // Index already exists
+  }
+  try {
+    db.exec("UPDATE identity_memberships SET role = 'editor' WHERE role = 'admin'");
+  } catch {
+    // Ignore if table missing in partial init
+  }
+
+  // Migration: creator attribution for delegated publishing
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN created_by_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("UPDATE events SET created_by_account_id = account_id WHERE created_by_account_id IS NULL");
+  } catch {
+    // Ignore when events table not yet initialized
   }
 
   // Migration: add followers_count, following_count to remote_actors

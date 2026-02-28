@@ -136,6 +136,30 @@ export class ApiError extends Error {
   }
 }
 
+export interface ActorSelectionStateResponse {
+  activeAccountIds: string[];
+  actorIds: string[];
+}
+
+export interface ActorSelectionApplyResult {
+  accountId: string;
+  before: boolean;
+  after: boolean;
+  status: "added" | "removed" | "unchanged" | "error";
+  message?: string;
+  remoteStatus?: "none" | "pending" | "delivered" | "failed";
+}
+
+export interface ActorSelectionApplyResponse {
+  ok: boolean;
+  operationId?: string;
+  added: number;
+  removed: number;
+  unchanged: number;
+  failed: number;
+  results: ActorSelectionApplyResult[];
+}
+
 // ---- Auth ----
 
 export interface NotificationPrefs {
@@ -149,6 +173,7 @@ export interface NotificationPrefs {
 export interface User {
   id: string;
   username: string;
+  accountType?: "person" | "identity";
   displayName: string | null;
   bio?: string | null;
   avatarUrl?: string | null;
@@ -344,6 +369,34 @@ export interface EventInput {
   url?: string;
   tags?: string[];
   visibility?: string;
+  postAsAccountId?: string;
+}
+
+export type IdentityRole = "editor" | "owner";
+
+export interface PublishingIdentity {
+  id: string;
+  username: string;
+  accountType: "person" | "identity";
+  role: IdentityRole;
+  displayName: string | null;
+  bio: string | null;
+  website: string | null;
+  avatarUrl: string | null;
+  discoverable: boolean;
+  defaultVisibility: "public" | "unlisted" | "followers_only" | "private";
+  city: string | null;
+  cityLat: number | null;
+  cityLng: number | null;
+  preferredLanguage: "en" | "de";
+}
+
+export interface IdentityMember {
+  memberId: string;
+  username: string;
+  displayName: string | null;
+  role: IdentityRole;
+  createdAt?: string;
 }
 
 export const events = {
@@ -402,6 +455,17 @@ export const events = {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "POST" });
   },
 
+  repostActors(id: string) {
+    return request<ActorSelectionStateResponse>(`/events/${id}/repost-actors`);
+  },
+
+  setRepostActors(id: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/events/${id}/repost`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
+  },
+
   unrepost(id: string) {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "DELETE" });
   },
@@ -410,6 +474,82 @@ export const events = {
     return request<{ ok: boolean; status: string | null }>("/events/rsvp", {
       method: "POST",
       body: JSON.stringify({ eventUri, status }),
+    });
+  },
+};
+
+export const identities = {
+  list() {
+    return request<{ identities: PublishingIdentity[] }>("/identities");
+  },
+
+  create(data: {
+    username: string;
+    displayName?: string;
+    bio?: string;
+    website?: string;
+    avatarUrl?: string;
+    discoverable?: boolean;
+    defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
+    city?: string;
+    cityLat?: number;
+    cityLng?: number;
+    preferredLanguage?: "en" | "de";
+  }) {
+    return request<{ identity: PublishingIdentity }>("/identities", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  update(username: string, data: {
+    displayName?: string;
+    bio?: string;
+    website?: string | null;
+    avatarUrl?: string | null;
+    discoverable?: boolean;
+    defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
+    city?: string;
+    cityLat?: number;
+    cityLng?: number;
+    preferredLanguage?: "en" | "de";
+  }) {
+    return request<{ identity: PublishingIdentity }>(`/identities/${encodeURIComponent(username)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete(username: string) {
+    return request<{ ok: boolean }>(`/identities/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+    });
+  },
+
+  listMembers(username: string) {
+    return request<{ members: IdentityMember[] }>(`/identities/${encodeURIComponent(username)}/members`);
+  },
+
+  addMember(username: string, memberUsername: string, role: IdentityRole) {
+    return request<{ member: IdentityMember }>(`/identities/${encodeURIComponent(username)}/members`, {
+      method: "POST",
+      body: JSON.stringify({ memberUsername, role }),
+    });
+  },
+
+  updateMember(username: string, memberId: string, role: IdentityRole) {
+    return request<{ member: IdentityMember }>(
+      `/identities/${encodeURIComponent(username)}/members/${encodeURIComponent(memberId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      }
+    );
+  },
+
+  removeMember(username: string, memberId: string) {
+    return request<{ ok: boolean }>(`/identities/${encodeURIComponent(username)}/members/${encodeURIComponent(memberId)}`, {
+      method: "DELETE",
     });
   },
 };
@@ -458,12 +598,34 @@ export const users = {
     return request<{ ok: boolean; following: boolean }>(`/users/${username}/follow`, { method: "POST" });
   },
 
+  followActors(username: string) {
+    return request<ActorSelectionStateResponse>(`/users/${username}/follow-actors`);
+  },
+
+  setFollowActors(username: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/users/${username}/follow`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
+  },
+
   unfollow(username: string) {
     return request<{ ok: boolean; following: boolean }>(`/users/${username}/unfollow`, { method: "POST" });
   },
 
   autoRepost(username: string) {
     return request<{ ok: boolean; autoReposting: boolean }>(`/users/${username}/auto-repost`, { method: "POST" });
+  },
+
+  autoRepostActors(username: string) {
+    return request<ActorSelectionStateResponse>(`/users/${username}/auto-repost-actors`);
+  },
+
+  setAutoRepostActors(username: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/users/${username}/auto-repost`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
   },
 
   removeAutoRepost(username: string) {
@@ -607,8 +769,19 @@ export const federation = {
     });
   },
 
+  followActors(actorUri: string) {
+    return request<ActorSelectionStateResponse>(`/federation/follow-actors?actorUri=${encodeURIComponent(actorUri)}`);
+  },
+
+  setFollowActors(actorUri: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>("/federation/follow", {
+      method: "POST",
+      body: JSON.stringify({ actorUri, desiredAccountIds }),
+    });
+  },
+
   unfollow(actorUri: string) {
-    return request<{ ok: boolean }>("/federation/unfollow", {
+    return request<{ ok: boolean; delivered?: boolean }>("/federation/unfollow", {
       method: "POST",
       body: JSON.stringify({ actorUri }),
     });

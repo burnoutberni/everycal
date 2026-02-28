@@ -24,6 +24,15 @@ import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { generateAndSaveOgImage } from "./og-images.js";
+import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
+import {
+  ActorSelectionPayloadError,
+  applyLocalActorSelection,
+  buildActorSelectionPlan,
+  isDesiredAccountIdsAllowed,
+  readActorSelectionPayload,
+  summarizeActorSelection,
+} from "../lib/actor-selection.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -104,6 +113,17 @@ function canViewEvent(
   if (visibility === "public" || visibility === "unlisted") return true;
   if (!currentUser) return false;
   if (currentUser.id === ownerId) return true;
+  const membership = db
+    .prepare(
+      `SELECT 1 FROM identity_memberships im
+       JOIN accounts a ON a.id = im.identity_account_id
+       WHERE im.identity_account_id = ?
+         AND a.account_type = 'identity'
+         AND im.member_account_id = ?
+         AND im.role IN ('editor','owner')`
+    )
+    .get(ownerId, currentUser.id);
+  if (membership) return true;
   if (visibility === "followers_only") {
     return !!db
       .prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?")
@@ -707,10 +727,10 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const insertEvent = db.prepare(
-      `INSERT INTO events (id, account_id, external_id, slug, title, description, start_date, end_date, all_day,
+      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day,
         location_name, location_address, location_latitude, location_longitude, location_url,
         image_url, image_media_type, image_alt, url, visibility, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const updateEvent = db.prepare(
@@ -812,7 +832,7 @@ export function eventRoutes(db: DB): Hono {
             const id = nanoid(16);
             const evSlug = uniqueSlug(db, user.id, ev.title);
             insertEvent.run(
-              id, user.id, ev.externalId, evSlug,
+              id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
               ev.location?.name || null, ev.location?.address || null,
@@ -842,7 +862,7 @@ export function eventRoutes(db: DB): Hono {
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────
 
-  router.post("/:id/repost", requireAuth(), (c) => {
+  router.post("/:id/repost", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
 
@@ -850,13 +870,71 @@ export function eventRoutes(db: DB): Hono {
       | { id: string; account_id: string; visibility: string }
       | undefined;
     if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
-    if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
     if (event.visibility !== "public" && event.visibility !== "unlisted") {
       return c.json({ error: t(getLocale(c), "events.repost_public_unlisted_only") }, 403);
     }
 
-    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
-    return c.json({ ok: true, reposted: true });
+    let body: { desiredAccountIds?: string[] };
+    try {
+      body = await readActorSelectionPayload(c);
+    } catch (err) {
+      if (err instanceof ActorSelectionPayloadError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
+    if (!body.desiredAccountIds) {
+      if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
+      db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
+      return c.json({ ok: true, reposted: true });
+    }
+
+    const acting = listActingAccounts(db, user.id, "editor");
+    const actingIds = acting.map((a) => a.id);
+    if (!isDesiredAccountIdsAllowed(body.desiredAccountIds, actingIds)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const activeRows = db
+      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
+      .all(id) as Array<{ account_id: string }>;
+    const plan = buildActorSelectionPlan({
+      actingAccountIds: actingIds,
+      desiredAccountIds: body.desiredAccountIds,
+      activeAccountIds: activeRows.map((r) => r.account_id),
+      validateTransition: ({ accountId, after }) => {
+        if (accountId === event.account_id && after) return t(getLocale(c), "events.cannot_repost_own");
+        return null;
+      },
+    });
+
+    const { operationId, results } = applyLocalActorSelection({
+      db,
+      operation: {
+        actionKind: "event_repost",
+        targetType: "event",
+        targetId: id,
+        initiatedByAccountId: user.id,
+      },
+      plan,
+      applyAdd: (accountId) => {
+        db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(accountId, id);
+      },
+      applyRemove: (accountId) => {
+        db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(accountId, id);
+      },
+    });
+    const summary = summarizeActorSelection(results);
+
+    return c.json({
+      ok: true,
+      operationId,
+      added: summary.added,
+      removed: summary.removed,
+      unchanged: summary.unchanged,
+      failed: summary.failed,
+      results,
+    });
   });
 
   // ─── DELETE /:id/repost ─────────────────────────────────────────────────
@@ -866,6 +944,21 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
     db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(user.id, id);
     return c.json({ ok: true, reposted: false });
+  });
+
+  router.get("/:id/repost-actors", requireAuth(), (c) => {
+    const user = c.get("user")!;
+    const id = c.req.param("id");
+    const event = db.prepare("SELECT id FROM events WHERE id = ?").get(id) as { id: string } | undefined;
+    if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+
+    const acting = listActingAccounts(db, user.id, "editor");
+    const allowed = new Set(acting.map((a) => a.id));
+    const activeRows = db
+      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
+      .all(id) as Array<{ account_id: string }>;
+    const activeAccountIds = activeRows.map((r) => r.account_id).filter((accountId) => allowed.has(accountId));
+    return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });
 
   // ─── GET /by-slug/:username/:slug ───────────────────────────────────────
@@ -934,6 +1027,7 @@ export function eventRoutes(db: DB): Hono {
       url?: string;
       tags?: string[];
       visibility?: string;
+      postAsAccountId?: string;
     }>();
 
     if (!body.title || !body.startDate) {
@@ -942,14 +1036,37 @@ export function eventRoutes(db: DB): Hono {
 
     sanitizeEventFields(body as Record<string, unknown>);
 
-    const id = nanoid(16);
-    const slug = uniqueSlug(db, user.id, body.title);
-
-    const accountRow = db.prepare("SELECT is_bot, discoverable FROM accounts WHERE id = ?").get(user.id) as
-      | { is_bot: number; discoverable: number }
+    const postAsAccountId = body.postAsAccountId || user.id;
+    const postingAccount = db
+      .prepare("SELECT id, username, account_type, is_bot, discoverable, default_event_visibility FROM accounts WHERE id = ?")
+      .get(postAsAccountId) as
+      | {
+          id: string;
+          username: string;
+          account_type: string;
+          is_bot: number;
+          discoverable: number;
+          default_event_visibility: EventVisibility;
+        }
       | undefined;
-    const defaultVisibility: EventVisibility =
-      accountRow?.is_bot || accountRow?.discoverable ? "public" : "private";
+    if (!postingAccount) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+
+    if (postAsAccountId !== user.id) {
+      if (postingAccount.account_type !== "identity") {
+        return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+      }
+      if (!canManageIdentityEvents(db, postingAccount.id, user.id, "editor")) {
+        return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+      }
+    }
+
+    const id = nanoid(16);
+    const slug = uniqueSlug(db, postingAccount.id, body.title);
+
+    const fallbackVisibility: EventVisibility = postingAccount.is_bot || postingAccount.discoverable ? "public" : "private";
+    const defaultVisibility = isValidVisibility(postingAccount.default_event_visibility)
+      ? postingAccount.default_event_visibility
+      : fallbackVisibility;
     const visibility = body.visibility || defaultVisibility;
 
     if (!isValidVisibility(visibility)) {
@@ -961,12 +1078,12 @@ export function eventRoutes(db: DB): Hono {
       : null;
 
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, description, start_date, end_date, all_day,
+      `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
         location_name, location_address, location_latitude, location_longitude, location_url,
         image_url, image_media_type, image_alt, image_attribution, url, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, user.id, slug, body.title, body.description || null,
+      id, postingAccount.id, user.id, slug, body.title, body.description || null,
       body.startDate, body.endDate || null, body.allDay ? 1 : 0,
       body.location?.name || null, body.location?.address || null,
       body.location?.latitude ?? null, body.location?.longitude ?? null,
@@ -984,7 +1101,7 @@ export function eventRoutes(db: DB): Hono {
     // Deliver Create activity to remote followers
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const actorUrl = `${baseUrl}/users/${user.username}`;
+      const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
       const createActivity = {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: `${baseUrl}/events/${id}/activity`,
@@ -1000,15 +1117,15 @@ export function eventRoutes(db: DB): Hono {
           content: body.description || undefined,
           startTime: body.startDate,
           endTime: body.endDate || undefined,
-          url: `${baseUrl}/@${user.username}/${slug}`,
-          attributedTo: actorUrl,
+            url: `${baseUrl}/@${postingAccount.username}/${slug}`,
+            attributedTo: actorUrl,
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
           published: new Date().toISOString(),
           updated: new Date().toISOString(),
         },
       };
-      deliverToFollowers(db, user.id, createActivity).catch(() => {});
+      deliverToFollowers(db, postingAccount.id, createActivity).catch(() => {});
     }
 
     const response = readLocalEventById(id);
@@ -1032,7 +1149,9 @@ export function eventRoutes(db: DB): Hono {
       .prepare("SELECT account_id, visibility FROM events WHERE id = ?")
       .get(id) as { account_id: string; visibility: string } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
-    if (existing.account_id !== user.id) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (!canManageIdentityEvents(db, existing.account_id, user.id, "editor")) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
 
     const body = await c.req.json<{
       title?: string;
@@ -1054,7 +1173,7 @@ export function eventRoutes(db: DB): Hono {
 
     if (body.title !== undefined) {
       fields.push("title = ?"); values.push(body.title);
-      const newSlug = uniqueSlug(db, user.id, body.title, id);
+      const newSlug = uniqueSlug(db, existing.account_id, body.title, id);
       fields.push("slug = ?"); values.push(newSlug);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
@@ -1129,7 +1248,11 @@ export function eventRoutes(db: DB): Hono {
       const updated = readLocalEventById(id);
       if (updated) {
         const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-        const actorUrl = `${baseUrl}/users/${user.username}`;
+        const actorAccount = db
+          .prepare("SELECT username FROM accounts WHERE id = ?")
+          .get(existing.account_id) as { username: string } | undefined;
+        if (actorAccount) {
+          const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
         const updateActivity = {
           "@context": "https://www.w3.org/ns/activitystreams",
           id: `${baseUrl}/events/${id}/update`,
@@ -1144,14 +1267,15 @@ export function eventRoutes(db: DB): Hono {
             name: updated.title,
             content: updated.description as string | undefined,
             startTime: updated.startDate,
-            url: `${baseUrl}/@${user.username}/${updated.slug}`,
+            url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
             attributedTo: actorUrl,
             to: ["https://www.w3.org/ns/activitystreams#Public"],
             cc: [`${actorUrl}/followers`],
             updated: new Date().toISOString(),
           },
-        };
-        deliverToFollowers(db, user.id, updateActivity).catch(() => {});
+          };
+          deliverToFollowers(db, existing.account_id, updateActivity).catch(() => {});
+        }
       }
     }
 
@@ -1184,7 +1308,9 @@ export function eventRoutes(db: DB): Hono {
       .prepare("SELECT account_id FROM events WHERE id = ?")
       .get(id) as { account_id: string } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
-    if (existing.account_id !== user.id) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (!canManageIdentityEvents(db, existing.account_id, user.id, "editor")) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
 
     const ev = readLocalEventById(id);
     if (ev) {
@@ -1202,7 +1328,11 @@ export function eventRoutes(db: DB): Hono {
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const actorUrl = `${baseUrl}/users/${user.username}`;
+    const actorAccount = db
+      .prepare("SELECT username FROM accounts WHERE id = ?")
+      .get(existing.account_id) as { username: string } | undefined;
+    if (!actorAccount) return c.json({ ok: true });
+    const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
     const deleteActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
       id: `${baseUrl}/events/${id}/delete`,
@@ -1212,7 +1342,7 @@ export function eventRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
     };
-    deliverToFollowers(db, user.id, deleteActivity).catch(() => {});
+    deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
 
     return c.json({ ok: true });
   });
