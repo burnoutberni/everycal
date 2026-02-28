@@ -16,7 +16,7 @@ import {
   recordFailedLogin,
   clearFailedLogins,
 } from "../middleware/auth.js";
-import { stripHtml, sanitizeHtml, isValidHttpUrl } from "../lib/security.js";
+import { stripHtml, sanitizeHtml, isValidHttpUrl, normalizeHttpUrlInput } from "../lib/security.js";
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
@@ -567,11 +567,12 @@ export function authRoutes(db: DB): Hono {
     }
     if (body.avatarUrl !== undefined) {
       if (body.avatarUrl) {
-        if (!isValidHttpUrl(body.avatarUrl)) {
+        const normalizedAvatarUrl = normalizeHttpUrlInput(body.avatarUrl);
+        if (!isValidHttpUrl(normalizedAvatarUrl)) {
           return c.json({ error: t(getLocale(c), "auth.avatar_url_http") }, 400);
         }
         fields.push("avatar_url = ?");
-        values.push(body.avatarUrl);
+        values.push(normalizedAvatarUrl);
       } else {
         fields.push("avatar_url = ?");
         values.push(null);
@@ -580,16 +581,12 @@ export function authRoutes(db: DB): Hono {
     if (body.website !== undefined) {
       // Validate website URL
       if (body.website) {
-        try {
-          const url = new URL(body.website);
-          if (url.protocol !== "https:" && url.protocol !== "http:") {
-            return c.json({ error: t(getLocale(c), "auth.website_http") }, 400);
-          }
-          fields.push("website = ?");
-          values.push(body.website);
-        } catch {
+        const normalizedWebsite = normalizeHttpUrlInput(body.website);
+        if (!isValidHttpUrl(normalizedWebsite)) {
           return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
         }
+        fields.push("website = ?");
+        values.push(normalizedWebsite);
       } else {
         fields.push("website = ?");
         values.push(null);

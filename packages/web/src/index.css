@@ -184,6 +184,37 @@ label {
   margin-bottom: 1rem;
 }
 
+.prefixed-input {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s;
+}
+
+.prefixed-input:focus-within {
+  border-color: var(--border-focus);
+}
+
+.prefixed-input-prefix {
+  color: var(--text-muted);
+  padding-left: 0.8rem;
+  font-size: 0.95rem;
+}
+
+.prefixed-input input {
+  border: none;
+  background: transparent;
+  padding: 0.6rem 0.8rem 0.6rem 0.35rem;
+}
+
+.prefixed-input input:focus {
+  border: none;
+  box-shadow: none;
+}
+
 /* Buttons */
 button,
 .btn {

@@ -32,7 +32,7 @@ export function userRoutes(db: DB): Hono {
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
 
     if (q) {
-      sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+      sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
@@ -41,7 +41,7 @@ export function userRoutes(db: DB): Hono {
              ORDER BY username ASC LIMIT ? OFFSET ?`;
       params = [`%${q}%`, `%${q}%`, limit, offset];
     } else {
-      sql = `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+      sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                     ${eventsCountSubquery}
@@ -116,7 +116,7 @@ export function userRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
+        `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery}
@@ -543,6 +543,7 @@ function formatUser(row: Record<string, unknown>): Record<string, unknown> {
   return {
     id: row.id,
     username: row.username,
+    accountType: row.account_type,
     displayName: row.display_name,
     bio: row.bio,
     avatarUrl: row.avatar_url,

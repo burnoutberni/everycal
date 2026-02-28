@@ -112,10 +112,24 @@ export function sanitizeHtml(input: string): string {
 export function isValidHttpUrl(input: string): boolean {
   try {
     const url = new URL(input);
-    return url.protocol === "https:" || url.protocol === "http:";
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    const host = url.hostname;
+    if (net.isIP(host)) return true;
+    return host.includes(".") && !host.startsWith(".") && !host.endsWith(".");
   } catch {
     return false;
   }
+}
+
+/**
+ * Normalize user-provided HTTP URL input.
+ * Adds https:// when no scheme is provided.
+ */
+export function normalizeHttpUrlInput(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
 }
 
 /**

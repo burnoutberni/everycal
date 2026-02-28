@@ -149,6 +149,7 @@ export interface NotificationPrefs {
 export interface User {
   id: string;
   username: string;
+  accountType?: "person" | "identity";
   displayName: string | null;
   bio?: string | null;
   avatarUrl?: string | null;
@@ -359,6 +360,11 @@ export interface PublishingIdentity {
   website: string | null;
   avatarUrl: string | null;
   discoverable: boolean;
+  defaultVisibility: "public" | "unlisted" | "followers_only" | "private";
+  city: string | null;
+  cityLat: number | null;
+  cityLng: number | null;
+  preferredLanguage: "en" | "de";
 }
 
 export interface IdentityMember {
@@ -449,6 +455,11 @@ export const identities = {
     website?: string;
     avatarUrl?: string;
     discoverable?: boolean;
+    defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
+    city?: string;
+    cityLat?: number;
+    cityLng?: number;
+    preferredLanguage?: "en" | "de";
   }) {
     return request<{ identity: PublishingIdentity }>("/identities", {
       method: "POST",
@@ -462,6 +473,11 @@ export const identities = {
     website?: string | null;
     avatarUrl?: string | null;
     discoverable?: boolean;
+    defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
+    city?: string;
+    cityLat?: number;
+    cityLng?: number;
+    preferredLanguage?: "en" | "de";
   }) {
     return request<{ identity: PublishingIdentity }>(`/identities/${encodeURIComponent(username)}`, {
       method: "PATCH",

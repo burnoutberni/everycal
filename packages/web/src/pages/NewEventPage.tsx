@@ -1055,6 +1055,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         website: null,
         avatarUrl: null,
         discoverable: !!user.discoverable,
+        defaultVisibility: defaultVis as "public" | "private",
       }];
   const identityOptions =
     postAsAccountId && !baseIdentityOptions.some((identity) => identity.id === postAsAccountId)
@@ -1068,10 +1069,21 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
           website: null,
           avatarUrl: null,
           discoverable: false,
+          defaultVisibility: initialEvent?.visibility as "public" | "unlisted" | "followers_only" | "private" || defaultVis as "public" | "private",
         }]
       : baseIdentityOptions;
   const selectedIdentity = identityOptions.find((identity) => identity.id === postAsAccountId);
   const bylineName = selectedIdentity?.displayName || selectedIdentity?.username || user.displayName || user.username;
+  const hasDelegatedIdentities = identityOptions.some((identity) => identity.accountType === "identity");
+  const showPostAsSelector = !isEdit && hasDelegatedIdentities;
+
+  const handlePostAsChange = (nextAccountId: string) => {
+    setPostAsAccountId(nextAccountId);
+    const identity = identityOptions.find((candidate) => candidate.id === nextAccountId);
+    if (identity) {
+      setVisibility(identity.defaultVisibility);
+    }
+  };
 
   // ---- Render ----
 
@@ -1407,6 +1419,23 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                     </button>
                   )}
                 </div>
+              </div>
+            )}
+
+            {showPostAsSelector && (
+              <div className="field">
+                <label htmlFor="ce-postAs">{t("postAsLabel")}</label>
+                <select
+                  id="ce-postAs"
+                  value={postAsAccountId}
+                  onChange={(e) => handlePostAsChange(e.target.value)}
+                >
+                  {identityOptions.map((identity) => (
+                    <option key={identity.id} value={identity.id}>
+                      {identity.displayName || identity.username} (@{identity.username})
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -1885,23 +1914,6 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 <option value="followers_only">{t("visibilityFollowersOnly")}</option>
                 <option value="private">{t("visibilityPrivate")}</option>
               </select>
-            </div>
-
-            <div className="field">
-              <label htmlFor="ce-postAs">{t("postAsLabel")}</label>
-              <select
-                id="ce-postAs"
-                value={postAsAccountId}
-                onChange={(e) => setPostAsAccountId(e.target.value)}
-                disabled={isEdit}
-              >
-                {identityOptions.map((identity) => (
-                  <option key={identity.id} value={identity.id}>
-                    {identity.displayName || identity.username} (@{identity.username})
-                  </option>
-                ))}
-              </select>
-              {isEdit && <p className="text-sm text-dim mt-1">{t("postAsLockedEdit")}</p>}
             </div>
 
             {error && <p className="error-text mb-2">{error}</p>}

@@ -1,5 +1,5 @@
 const REGISTRATION_USERNAME_PATTERN = /^[a-z0-9_]{2,40}$/;
-const IDENTITY_HANDLE_PATTERN = /^[a-z0-9][a-z0-9._-]{1,39}$/;
+const IDENTITY_HANDLE_PATTERN = /^[a-z0-9_]{2,40}$/;
 
 export function normalizeHandle(raw: string): string {
   return raw.toLowerCase().trim();

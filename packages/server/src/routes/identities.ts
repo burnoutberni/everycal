@@ -3,8 +3,9 @@ import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
-import { sanitizeHtml, stripHtml, isValidHttpUrl } from "../lib/security.js";
+import { sanitizeHtml, stripHtml, isValidHttpUrl, normalizeHttpUrlInput } from "../lib/security.js";
 import { isValidIdentityHandle, normalizeHandle } from "../lib/handles.js";
+import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import {
   type IdentityRole,
   hasRequiredRole,
@@ -13,6 +14,8 @@ import {
 } from "../lib/identities.js";
 
 const VALID_ROLES: IdentityRole[] = ["editor", "admin", "owner"];
+const VALID_LOCALES = ["en", "de"] as const;
+type AppLocale = (typeof VALID_LOCALES)[number];
 
 function parseRole(value: unknown): IdentityRole | null {
   if (typeof value !== "string") return null;
@@ -22,6 +25,17 @@ function parseRole(value: unknown): IdentityRole | null {
 
 function assertWebsite(value: string): boolean {
   return isValidHttpUrl(value);
+}
+
+function normalizeOptionalHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeHttpUrlInput(value);
+  return normalized || null;
+}
+
+function parsePreferredLanguage(value: unknown): AppLocale | null {
+  if (typeof value !== "string") return null;
+  return VALID_LOCALES.includes(value as AppLocale) ? (value as AppLocale) : null;
 }
 
 function formatIdentity(row: Record<string, unknown>): Record<string, unknown> {
@@ -35,6 +49,11 @@ function formatIdentity(row: Record<string, unknown>): Record<string, unknown> {
     website: row.website,
     avatarUrl: row.avatar_url,
     discoverable: !!row.discoverable,
+    defaultVisibility: row.default_event_visibility,
+    city: row.city,
+    cityLat: row.city_lat != null ? Number(row.city_lat) : null,
+    cityLng: row.city_lng != null ? Number(row.city_lng) : null,
+    preferredLanguage: row.preferred_language || "en",
   };
 }
 
@@ -53,7 +72,8 @@ export function identityRoutes(db: DB): Hono {
 
     const personal = db
       .prepare(
-        `SELECT id, username, account_type, display_name, bio, website, avatar_url, discoverable,
+        `SELECT id, username, account_type, display_name, bio, website, avatar_url, discoverable, default_event_visibility,
+                city, city_lat, city_lng, preferred_language,
                 'owner' AS role
          FROM accounts
          WHERE id = ?`
@@ -62,7 +82,8 @@ export function identityRoutes(db: DB): Hono {
 
     const identityRows = db
       .prepare(
-        `SELECT a.id, a.username, a.account_type, a.display_name, a.bio, a.website, a.avatar_url, a.discoverable,
+        `SELECT a.id, a.username, a.account_type, a.display_name, a.bio, a.website, a.avatar_url, a.discoverable, a.default_event_visibility,
+                a.city, a.city_lat, a.city_lng, a.preferred_language,
                 im.role
          FROM identity_memberships im
          JOIN accounts a ON a.id = im.identity_account_id
@@ -85,6 +106,11 @@ export function identityRoutes(db: DB): Hono {
       website?: string;
       avatarUrl?: string;
       discoverable?: boolean;
+      defaultVisibility?: EventVisibility;
+      city?: string;
+      cityLat?: number;
+      cityLng?: number;
+      preferredLanguage?: AppLocale;
     }>();
 
     const username = normalizeHandle(body.username || "");
@@ -96,12 +122,39 @@ export function identityRoutes(db: DB): Hono {
     const existing = db.prepare("SELECT id FROM accounts WHERE username = ?").get(username);
     if (existing) return c.json({ error: t(getLocale(c), "auth.username_taken") }, 409);
 
-    if (body.website && !assertWebsite(body.website)) {
+    const normalizedWebsite = normalizeOptionalHttpUrl(body.website);
+    const normalizedAvatarUrl = normalizeOptionalHttpUrl(body.avatarUrl);
+
+    if (normalizedWebsite && !assertWebsite(normalizedWebsite)) {
       return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
     }
-    if (body.avatarUrl && !isValidHttpUrl(body.avatarUrl)) {
+    if (normalizedAvatarUrl && !isValidHttpUrl(normalizedAvatarUrl)) {
       return c.json({ error: t(getLocale(c), "auth.avatar_url_http") }, 400);
     }
+    const defaultVisibility = body.defaultVisibility || "public";
+    if (!isValidVisibility(defaultVisibility)) {
+      return c.json({ error: t(getLocale(c), "events.invalid_visibility") }, 400);
+    }
+    if (
+      (body.city !== undefined || body.cityLat !== undefined || body.cityLng !== undefined)
+      && !(body.city !== undefined && body.cityLat != null && body.cityLng != null)
+    ) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    if (body.preferredLanguage !== undefined && !parsePreferredLanguage(body.preferredLanguage)) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
+    const creatorDefaults = db
+      .prepare("SELECT city, city_lat, city_lng, preferred_language FROM accounts WHERE id = ?")
+      .get(user.id) as { city: string | null; city_lat: number | null; city_lng: number | null; preferred_language: string | null } | undefined;
+
+    const city = body.city ?? creatorDefaults?.city ?? "Wien";
+    const cityLat = body.cityLat ?? creatorDefaults?.city_lat ?? 48.2082;
+    const cityLng = body.cityLng ?? creatorDefaults?.city_lng ?? 16.3738;
+    const preferredLanguage = parsePreferredLanguage(body.preferredLanguage)
+      || parsePreferredLanguage(creatorDefaults?.preferred_language)
+      || "en";
 
     const id = nanoid(16);
     const displayName = stripHtml(body.displayName || username);
@@ -110,16 +163,22 @@ export function identityRoutes(db: DB): Hono {
     const tx = db.transaction(() => {
       db.prepare(
         `INSERT INTO accounts (
-          id, username, account_type, display_name, bio, website, avatar_url, discoverable, email_verified
-        ) VALUES (?, ?, 'identity', ?, ?, ?, ?, ?, 1)`
+          id, username, account_type, display_name, bio, website, avatar_url, discoverable,
+          default_event_visibility, city, city_lat, city_lng, preferred_language, email_verified
+        ) VALUES (?, ?, 'identity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
       ).run(
         id,
         username,
         displayName,
         bio,
-        body.website || null,
-        body.avatarUrl || null,
-        body.discoverable ? 1 : 0
+        normalizedWebsite,
+        normalizedAvatarUrl,
+        body.discoverable ?? true ? 1 : 0,
+        defaultVisibility,
+        city,
+        cityLat,
+        cityLng,
+        preferredLanguage,
       );
 
       db.prepare(
@@ -132,7 +191,8 @@ export function identityRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT id, username, account_type, display_name, bio, website, avatar_url, discoverable,
+        `SELECT id, username, account_type, display_name, bio, website, avatar_url, discoverable, default_event_visibility,
+                city, city_lat, city_lng, preferred_language,
                 'owner' AS role
          FROM accounts
          WHERE id = ?`
@@ -156,6 +216,11 @@ export function identityRoutes(db: DB): Hono {
       website?: string | null;
       avatarUrl?: string | null;
       discoverable?: boolean;
+      defaultVisibility?: EventVisibility;
+      city?: string;
+      cityLat?: number;
+      cityLng?: number;
+      preferredLanguage?: AppLocale;
     }>();
 
     const fields: string[] = [];
@@ -170,22 +235,53 @@ export function identityRoutes(db: DB): Hono {
       values.push(body.bio ? sanitizeHtml(body.bio) : null);
     }
     if (body.website !== undefined) {
-      if (body.website && !assertWebsite(body.website)) {
+      const normalizedWebsite = normalizeOptionalHttpUrl(body.website);
+      if (normalizedWebsite && !assertWebsite(normalizedWebsite)) {
         return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
       }
       fields.push("website = ?");
-      values.push(body.website || null);
+      values.push(normalizedWebsite);
     }
     if (body.avatarUrl !== undefined) {
-      if (body.avatarUrl && !isValidHttpUrl(body.avatarUrl)) {
+      const normalizedAvatarUrl = normalizeOptionalHttpUrl(body.avatarUrl);
+      if (normalizedAvatarUrl && !isValidHttpUrl(normalizedAvatarUrl)) {
         return c.json({ error: t(getLocale(c), "auth.avatar_url_http") }, 400);
       }
       fields.push("avatar_url = ?");
-      values.push(body.avatarUrl || null);
+      values.push(normalizedAvatarUrl);
     }
     if (body.discoverable !== undefined) {
       fields.push("discoverable = ?");
       values.push(body.discoverable ? 1 : 0);
+    }
+    if (body.defaultVisibility !== undefined) {
+      if (!isValidVisibility(body.defaultVisibility)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_visibility") }, 400);
+      }
+      fields.push("default_event_visibility = ?");
+      values.push(body.defaultVisibility);
+    }
+    if (
+      (body.city !== undefined || body.cityLat !== undefined || body.cityLng !== undefined)
+      && !(body.city !== undefined && body.cityLat != null && body.cityLng != null)
+    ) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    if (body.city !== undefined && body.cityLat != null && body.cityLng != null) {
+      fields.push("city = ?");
+      values.push(body.city);
+      fields.push("city_lat = ?");
+      values.push(body.cityLat);
+      fields.push("city_lng = ?");
+      values.push(body.cityLng);
+    }
+    if (body.preferredLanguage !== undefined) {
+      const preferredLanguage = parsePreferredLanguage(body.preferredLanguage);
+      if (!preferredLanguage) {
+        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      }
+      fields.push("preferred_language = ?");
+      values.push(preferredLanguage);
     }
 
     if (fields.length === 0) return c.json({ error: t(getLocale(c), "auth.no_fields_to_update") }, 400);
@@ -196,7 +292,8 @@ export function identityRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT a.id, a.username, a.account_type, a.display_name, a.bio, a.website, a.avatar_url, a.discoverable,
+        `SELECT a.id, a.username, a.account_type, a.display_name, a.bio, a.website, a.avatar_url, a.discoverable, a.default_event_visibility,
+                a.city, a.city_lat, a.city_lng, a.preferred_language,
                 im.role
          FROM accounts a
          JOIN identity_memberships im ON im.identity_account_id = a.id AND im.member_account_id = ?
@@ -215,7 +312,18 @@ export function identityRoutes(db: DB): Hono {
     const role = getIdentityMembershipRole(db, identity.id, user.id);
     if (role !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
-    db.prepare("DELETE FROM accounts WHERE id = ?").run(identity.id);
+    try {
+      const tx = db.transaction(() => {
+        db.prepare("DELETE FROM remote_follows WHERE account_id = ?").run(identity.id);
+        db.prepare("UPDATE events SET created_by_account_id = NULL WHERE created_by_account_id = ?").run(identity.id);
+        db.prepare("DELETE FROM events WHERE account_id = ?").run(identity.id);
+        db.prepare("DELETE FROM accounts WHERE id = ?").run(identity.id);
+      });
+      tx();
+    } catch {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 409);
+    }
+
     return c.json({ ok: true });
   });
 

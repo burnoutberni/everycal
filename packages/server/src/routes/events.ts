@@ -957,9 +957,16 @@ export function eventRoutes(db: DB): Hono {
 
     const postAsAccountId = body.postAsAccountId || user.id;
     const postingAccount = db
-      .prepare("SELECT id, username, account_type, is_bot, discoverable FROM accounts WHERE id = ?")
+      .prepare("SELECT id, username, account_type, is_bot, discoverable, default_event_visibility FROM accounts WHERE id = ?")
       .get(postAsAccountId) as
-      | { id: string; username: string; account_type: string; is_bot: number; discoverable: number }
+      | {
+          id: string;
+          username: string;
+          account_type: string;
+          is_bot: number;
+          discoverable: number;
+          default_event_visibility: EventVisibility;
+        }
       | undefined;
     if (!postingAccount) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
@@ -975,8 +982,10 @@ export function eventRoutes(db: DB): Hono {
     const id = nanoid(16);
     const slug = uniqueSlug(db, postingAccount.id, body.title);
 
-    const defaultVisibility: EventVisibility =
-      postingAccount.is_bot || postingAccount.discoverable ? "public" : "private";
+    const fallbackVisibility: EventVisibility = postingAccount.is_bot || postingAccount.discoverable ? "public" : "private";
+    const defaultVisibility = isValidVisibility(postingAccount.default_event_visibility)
+      ? postingAccount.default_event_visibility
+      : fallbackVisibility;
     const visibility = body.visibility || defaultVisibility;
 
     if (!isValidVisibility(visibility)) {

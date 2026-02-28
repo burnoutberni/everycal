@@ -60,16 +60,19 @@ export function RegisterPage() {
       <form onSubmit={handleSubmit} className="card">
         <div className="field">
           <label htmlFor="username">{t("username")}</label>
-          <input
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            autoFocus
-            required
-            pattern="[a-z0-9_-]{2,30}"
-            title={t("usernamePattern")}
-          />
+          <div className="prefixed-input">
+            <span className="prefixed-input-prefix" aria-hidden="true">@</span>
+            <input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              autoFocus
+              required
+              pattern="[a-z0-9_]{2,40}"
+              title={t("usernamePattern")}
+            />
+          </div>
         </div>
         <div className="field">
           <label htmlFor="displayName">{t("displayNameOptional")}</label>

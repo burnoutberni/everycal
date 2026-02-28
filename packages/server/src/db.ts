@@ -26,6 +26,7 @@ export function initDatabase(path: string): DB {
       public_key TEXT,
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
+      default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -247,6 +248,13 @@ export function initDatabase(path: string): DB {
   // Migration: add website to accounts if missing
   try {
     db.exec("ALTER TABLE accounts ADD COLUMN website TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add default event visibility to accounts if missing
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN default_event_visibility TEXT NOT NULL DEFAULT 'public'");
   } catch {
     // Column already exists
   }
