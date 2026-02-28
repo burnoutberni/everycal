@@ -17,6 +17,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
+      account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
       display_name TEXT,
       bio TEXT,
       avatar_url TEXT,
@@ -48,6 +49,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
+      created_by_account_id TEXT REFERENCES accounts(id),
       external_id TEXT,
       slug TEXT,
       title TEXT NOT NULL,
@@ -82,6 +84,14 @@ export function initDatabase(path: string): DB {
       PRIMARY KEY (follower_id, following_id)
     );
 
+    CREATE TABLE IF NOT EXISTS identity_memberships (
+      identity_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      member_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('owner','admin','editor')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (identity_account_id, member_account_id)
+    );
+
     CREATE TABLE IF NOT EXISTS remote_follows (
       account_id TEXT NOT NULL REFERENCES accounts(id),
       follower_actor_uri TEXT NOT NULL,
@@ -100,6 +110,8 @@ export function initDatabase(path: string): DB {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external ON events(account_id, external_id) WHERE external_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
     CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_memberships_member ON identity_memberships(member_account_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_memberships_identity_role ON identity_memberships(identity_account_id, role);
 
     -- Remote actors (cached ActivityPub actors from other servers)
     CREATE TABLE IF NOT EXISTS remote_actors (
@@ -237,6 +249,44 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE accounts ADD COLUMN website TEXT");
   } catch {
     // Column already exists
+  }
+
+  // Migration: account type and delegated publishing membership tables
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'person'");
+  } catch {
+    // Column already exists
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS identity_memberships (
+      identity_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      member_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('owner','admin','editor')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (identity_account_id, member_account_id)
+    )
+  `);
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_identity_memberships_member ON identity_memberships(member_account_id)");
+  } catch {
+    // Index already exists
+  }
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_identity_memberships_identity_role ON identity_memberships(identity_account_id, role)");
+  } catch {
+    // Index already exists
+  }
+
+  // Migration: creator attribution for delegated publishing
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN created_by_account_id TEXT REFERENCES accounts(id)");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("UPDATE events SET created_by_account_id = account_id WHERE created_by_account_id IS NULL");
+  } catch {
+    // Ignore when events table not yet initialized
   }
 
   // Migration: add followers_count, following_count to remote_actors

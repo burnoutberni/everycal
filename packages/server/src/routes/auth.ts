@@ -19,6 +19,7 @@ import {
 import { stripHtml, sanitizeHtml, isValidHttpUrl } from "../lib/security.js";
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
 
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
@@ -74,8 +75,8 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.username_required") }, 400);
     }
 
-    const username = body.username.toLowerCase().trim();
-    if (!/^[a-z0-9_]{2,40}$/.test(username)) {
+    const username = normalizeHandle(body.username);
+    if (!isValidRegistrationUsername(username)) {
       return c.json({ error: t(getLocale(c), "auth.username_format") }, 400);
     }
 
