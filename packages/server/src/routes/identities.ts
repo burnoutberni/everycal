@@ -203,9 +203,9 @@ export function identityRoutes(db: DB): Hono {
       avatarUrl?: string | null;
       discoverable?: boolean;
       defaultVisibility?: EventVisibility;
-      city?: string;
-      cityLat?: number;
-      cityLng?: number;
+      city?: string | null;
+      cityLat?: number | null;
+      cityLng?: number | null;
       preferredLanguage?: AppLocale;
     }>();
 
@@ -247,19 +247,22 @@ export function identityRoutes(db: DB): Hono {
       fields.push("default_event_visibility = ?");
       values.push(body.defaultVisibility);
     }
-    if (
-      (body.city !== undefined || body.cityLat !== undefined || body.cityLng !== undefined)
-      && !(body.city !== undefined && body.cityLat != null && body.cityLng != null)
-    ) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
-    if (body.city !== undefined && body.cityLat != null && body.cityLng != null) {
+    if (body.city === null && body.cityLat === null && body.cityLng === null) {
+      fields.push("city = ?");
+      values.push(null);
+      fields.push("city_lat = ?");
+      values.push(null);
+      fields.push("city_lng = ?");
+      values.push(null);
+    } else if (body.city !== undefined && body.cityLat != null && body.cityLng != null) {
       fields.push("city = ?");
       values.push(body.city);
       fields.push("city_lat = ?");
       values.push(body.cityLat);
       fields.push("city_lng = ?");
       values.push(body.cityLng);
+    } else if (body.city !== undefined || body.cityLat !== undefined || body.cityLng !== undefined) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     if (body.preferredLanguage !== undefined) {
       const preferredLanguage = parsePreferredLanguage(body.preferredLanguage);

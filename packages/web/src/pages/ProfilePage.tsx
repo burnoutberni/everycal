@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
-import { users as usersApi, federation, type User, type CalEvent } from "../lib/api";
+import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
+import { auth as authApi, identities as identitiesApi, users as usersApi, federation, uploads, type User, type CalEvent, type PublishingIdentity } from "../lib/api";
+import { validateAvatarUpload } from "../lib/avatarUpload";
 import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
 import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
 import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
-import { ProfileHeader } from "../components/ProfileHeader";
+import { ProfileHeader, type InlineProfileDraft } from "../components/ProfileHeader";
 import { ActAsActionModal } from "../components/ActAsActionModal";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
@@ -25,8 +27,11 @@ const PROFILE_EXPAND_AT_TOP = 18;
 const PROFILE_EXPAND_HEADER_TOP = 70;
 
 export function ProfilePage({ username }: { username: string }) {
-  const { t, i18n } = useTranslation(["profile", "events", "common"]);
-  const { user: currentUser } = useAuth();
+  const { t, i18n } = useTranslation(["profile", "events", "common", "settings", "auth"]);
+  const { user: currentUser, refreshUser } = useAuth();
+  const [, setLocation] = useLocation();
+  const allowLocalhostUrls = typeof window !== "undefined"
+    && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
   // Use SSR initial context if available
   const pageContext = useOptionalPageContext();
@@ -56,10 +61,44 @@ export function ProfilePage({ username }: { username: string }) {
     return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
   }, [selectedDate]);
 
-  const fetchProfile = useCallback(() => {
-    // If we already have SSR profile for this username, skip initial load
-    if (profile?.username === username || (profile?.source === "remote" && username.includes("@"))) return;
+  const normalizeAndValidateUrl = useCallback(
+    (value: string, errorKey: "settings:invalidWebsiteUrl" | "settings:invalidAvatarUrl") => {
+      const normalized = normalizeHttpUrlInput(value);
+      if (!normalized) return { normalized: "", error: undefined as string | undefined };
+      if (!isValidHttpUrl(normalized, { allowLocalhost: allowLocalhostUrls })) return { normalized, error: t(errorKey) };
+      return { normalized, error: undefined as string | undefined };
+    },
+    [allowLocalhostUrls, t]
+  );
 
+  const validateWebsite = useCallback(
+    (value: string) => normalizeAndValidateUrl(value, "settings:invalidWebsiteUrl"),
+    [normalizeAndValidateUrl]
+  );
+
+  const validateAvatar = useCallback(
+    (value: string) => normalizeAndValidateUrl(value, "settings:invalidAvatarUrl"),
+    [normalizeAndValidateUrl]
+  );
+
+  const normalizeAvatarForApi = useCallback((value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (typeof window !== "undefined") {
+      try {
+        const parsed = new URL(trimmed, window.location.origin);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          return parsed.toString();
+        }
+      } catch {
+        // fall back to text normalization below
+      }
+    }
+    return normalizeHttpUrlInput(trimmed);
+  }, []);
+
+  const fetchProfile = useCallback((force = false) => {
+    if (!force && profile?.username === username) return;
     setProfileLoading(true);
     usersApi
       .get(username)
@@ -68,11 +107,32 @@ export function ProfilePage({ username }: { username: string }) {
       })
       .catch(() => setProfile(null))
       .finally(() => setProfileLoading(false));
-  }, [username]);
+  }, [username, profile?.username]);
 
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  useEffect(() => {
+    if (!currentUser || !profile || profile.source === "remote" || profile.accountType !== "identity") {
+      setManagedIdentity(null);
+      return;
+    }
+    let cancelled = false;
+    identitiesApi
+      .list()
+      .then((res) => {
+        if (cancelled) return;
+        const found = res.identities.find((identity) => identity.username === profile.username) || null;
+        setManagedIdentity(found && (found.role === "editor" || found.role === "owner") ? found : null);
+      })
+      .catch(() => {
+        if (!cancelled) setManagedIdentity(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, profile?.id, profile?.username, profile?.source, profile?.accountType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,6 +208,27 @@ export function ProfilePage({ username }: { username: string }) {
   const [listModal, setListModal] = useState<"followers" | "following" | null>(null);
   const [listUsers, setListUsers] = useState<User[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [managedIdentity, setManagedIdentity] = useState<PublishingIdentity | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileEditorMode, setProfileEditorMode] = useState<"person" | "identity" | null>(null);
+  const [profileEditorBusy, setProfileEditorBusy] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarTouched, setAvatarTouched] = useState(false);
+  const [profileEditorError, setProfileEditorError] = useState<string | null>(null);
+  const [inlineDraft, setInlineDraft] = useState<InlineProfileDraft | null>(null);
+  const [initialAvatarUrl, setInitialAvatarUrl] = useState("");
+  const [profileFormErrors, setProfileFormErrors] = useState<{ website?: string; avatarUrl?: string }>({});
+
+  useEffect(() => {
+    setProfileEditing(false);
+    setProfileEditorMode(null);
+    setInlineDraft(null);
+    setInitialAvatarUrl("");
+    setAvatarUploading(false);
+    setAvatarTouched(false);
+    setProfileEditorError(null);
+    setProfileFormErrors({});
+  }, [username]);
 
   useEffect(() => {
     if (!listModal || !username) return;
@@ -166,6 +247,11 @@ export function ProfilePage({ username }: { username: string }) {
     if (!isMobile || !el) return;
     const updateProgress = () => {
       profileCollapseRafRef.current = null;
+      if (profileEditing) {
+        hasReachedCompactRef.current = false;
+        setProfileCollapseProgress(0);
+        return;
+      }
       const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
       const headerTop = el.getBoundingClientRect().top;
 
@@ -201,7 +287,7 @@ export function ProfilePage({ username }: { username: string }) {
       window.removeEventListener("scroll", handleScroll);
       if (profileCollapseRafRef.current != null) cancelAnimationFrame(profileCollapseRafRef.current);
     };
-  }, [isMobile, profile]);
+  }, [isMobile, profile, profileEditing]);
 
   const dateKeys = useMemo(() => [...grouped.keys()].sort(), [grouped]);
   useDateScrollSpy({
@@ -227,33 +313,179 @@ export function ProfilePage({ username }: { username: string }) {
     }
   }, []);
 
+  const isOwn = currentUser?.id === profile?.id;
+  const canEditProfile = !!profile && !isRemote && (isOwn || !!managedIdentity);
+  const canCreateEvents = canEditProfile;
+  const effectiveCollapseProgress = profileEditing ? 0 : profileCollapseProgress;
+
+  const openProfileEditor = useCallback(async () => {
+    if (!profile || isRemote) return;
+    setProfileEditorError(null);
+    setProfileFormErrors({});
+    try {
+      if (isOwn) {
+        const me = await authApi.me();
+        setProfileEditorMode("person");
+        setInlineDraft({
+          displayName: me.displayName || "",
+          bio: me.bio || "",
+          website: me.website || "",
+          avatarUrl: me.avatarUrl || "",
+        });
+        setInitialAvatarUrl(me.avatarUrl || "");
+      } else if (managedIdentity) {
+        const res = await identitiesApi.list();
+        const identity = res.identities.find((item) => item.username === managedIdentity.username);
+        if (!identity) {
+          setProfileEditorError(t("settings:identityActionFailed"));
+          return;
+        }
+        setManagedIdentity(identity);
+        setProfileEditorMode("identity");
+        setInlineDraft({
+          displayName: identity.displayName || "",
+          bio: identity.bio || "",
+          website: identity.website || "",
+          avatarUrl: identity.avatarUrl || "",
+        });
+        setInitialAvatarUrl(identity.avatarUrl || "");
+      } else {
+        return;
+      }
+      setAvatarTouched(false);
+      setProfileEditing(true);
+    } catch (err: unknown) {
+      setProfileEditorError((err as Error).message || t("common:requestFailed"));
+    }
+  }, [profile, isRemote, isOwn, managedIdentity, t]);
+
+  useEffect(() => {
+    if (!canEditProfile || profileEditing) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("edit") !== "1") return;
+    openProfileEditor().finally(() => {
+      params.delete("edit");
+      const next = params.toString();
+      setLocation(`${window.location.pathname}${next ? `?${next}` : ""}`, { replace: true });
+    });
+  }, [canEditProfile, profileEditing, openProfileEditor, setLocation]);
+
+  const handleSaveProfileEditor = useCallback(async () => {
+    if (!profileEditorMode || !profile || !inlineDraft) return;
+    setProfileEditorError(null);
+    const websiteResult = validateWebsite(inlineDraft.website);
+    const avatarNormalized = normalizeAvatarForApi(inlineDraft.avatarUrl);
+    const initialAvatarNormalized = normalizeAvatarForApi(initialAvatarUrl);
+    const avatarChanged = avatarTouched && avatarNormalized !== initialAvatarNormalized;
+    const avatarResult = avatarChanged
+      ? validateAvatar(avatarNormalized)
+      : { normalized: avatarNormalized, error: undefined as string | undefined };
+    const nextErrors = {
+      website: websiteResult.error,
+      avatarUrl: avatarChanged ? avatarResult.error : undefined,
+    };
+    setProfileFormErrors(nextErrors);
+    setInlineDraft((prev) => (prev
+      ? {
+          ...prev,
+          website: websiteResult.normalized,
+          avatarUrl: avatarChanged ? avatarResult.normalized : prev.avatarUrl,
+        }
+      : prev));
+    if (nextErrors.website || nextErrors.avatarUrl) return;
+
+    setProfileEditorBusy(true);
+    try {
+      if (profileEditorMode === "person") {
+        await authApi.updateProfile({
+          displayName: inlineDraft.displayName,
+          bio: inlineDraft.bio,
+          website: websiteResult.normalized,
+          ...(avatarChanged ? { avatarUrl: avatarResult.normalized || "" } : {}),
+        });
+        await refreshUser();
+      } else if (managedIdentity) {
+        const res = await identitiesApi.update(managedIdentity.username, {
+          displayName: inlineDraft.displayName || undefined,
+          bio: inlineDraft.bio || undefined,
+          website: websiteResult.normalized || null,
+          ...(avatarChanged ? { avatarUrl: avatarResult.normalized || null } : {}),
+        });
+        setManagedIdentity(res.identity);
+      }
+      await fetchProfile(true);
+      setProfileEditing(false);
+    } catch (err: unknown) {
+      setProfileEditorError((err as Error).message || t("common:requestFailed"));
+    } finally {
+      setProfileEditorBusy(false);
+    }
+  }, [profileEditorMode, profile, inlineDraft, validateWebsite, validateAvatar, normalizeAvatarForApi, initialAvatarUrl, avatarTouched, managedIdentity, fetchProfile, t, refreshUser]);
+
+  const handleInlineAvatarUpload = useCallback(async (file: File) => {
+    setProfileEditorError(null);
+    const uploadErrorKey = validateAvatarUpload(file);
+    if (uploadErrorKey) {
+      setProfileEditorError(t(uploadErrorKey, { maxMb: 5 }));
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const result = await uploads.upload(file);
+      setAvatarTouched(true);
+      setInlineDraft((prev) => (prev ? { ...prev, avatarUrl: result.url } : prev));
+    } catch (err: unknown) {
+      setProfileEditorError((err as Error).message || t("profile:avatarUploadFailed"));
+    } finally {
+      setAvatarUploading(false);
+    }
+  }, [t]);
+
   const handleFollow = async () => {
     if (!profile) return;
-    if (isRemote) {
-      if (profile.following) {
-        await federation.unfollow(profile.id);
+    setSocialActionError(null);
+    try {
+      if (isRemote) {
+        if (profile.following) {
+          await federation.unfollow(profile.id);
+        } else {
+          await federation.follow(profile.id);
+        }
       } else {
-        await federation.follow(profile.id);
+        if (profile.following) {
+          await usersApi.unfollow(username);
+        } else {
+          await usersApi.follow(username);
+        }
       }
-    } else {
-      if (profile.following) {
-        await usersApi.unfollow(username);
-      } else {
-        await usersApi.follow(username);
-      }
+      fetchProfile(true);
+    } catch {
+      setSocialActionError(t("common:requestFailed"));
     }
-    fetchProfile();
   };
 
   const handleAutoRepost = async () => {
     if (!profile || isRemote) return;
-    if (profile.autoReposting) {
-      await usersApi.removeAutoRepost(username);
-    } else {
-      await usersApi.autoRepost(username);
+    setSocialActionError(null);
+    try {
+      if (profile.autoReposting) {
+        await usersApi.removeAutoRepost(username);
+      } else {
+        await usersApi.autoRepost(username);
+      }
+      fetchProfile(true);
+    } catch {
+      setSocialActionError(t("common:requestFailed"));
     }
-    fetchProfile();
   };
+
+  const handleCancelProfileEditor = useCallback(() => {
+    setProfileEditing(false);
+    setAvatarTouched(false);
+    setProfileEditorError(null);
+    setProfileFormErrors({});
+  }, []);
 
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
 
@@ -293,8 +525,6 @@ export function ProfilePage({ username }: { username: string }) {
   if (profileLoading) return <p className="text-muted">{t("common:loading")}</p>;
   if (!profile) return <p className="error-text">{t("userNotFound")}</p>;
 
-  const isOwn = currentUser?.id === profile.id;
-
   return (
     <>
       <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
@@ -306,13 +536,13 @@ export function ProfilePage({ username }: { username: string }) {
         {/* Main content */}
         <div className="flex-1" style={{ minWidth: 0 }}>
           {isMobile ? (
-            <MobileHeaderContainer paddingTop={`${0.2 * profileCollapseProgress}rem`}>
+            <MobileHeaderContainer paddingTop={`${0.2 * effectiveCollapseProgress}rem`}>
               <ProfileHeader
                 profile={profile}
                 currentUser={currentUser}
                 isOwn={isOwn}
                 isRemote={isRemote}
-                collapseProgress={profileCollapseProgress}
+                collapseProgress={effectiveCollapseProgress}
                 isMobile={isMobile}
                 headerRef={profileHeaderRef}
                 onFollow={handleFollow}
@@ -328,55 +558,91 @@ export function ProfilePage({ username }: { username: string }) {
                 showIdentityActions={!identitiesLoading && hasAdditionalIdentities}
                 onOpenFollowers={() => setListModal("followers")}
                 onOpenFollowing={() => setListModal("following")}
+                canEditProfile={canEditProfile}
+                onEditProfile={openProfileEditor}
+                editingProfile={profileEditing}
+                inlineDraft={inlineDraft || undefined}
+                onInlineDraftChange={(next) => {
+                  setInlineDraft((prev) => {
+                    if (prev && prev.avatarUrl !== next.avatarUrl) setAvatarTouched(true);
+                    return next;
+                  });
+                }}
+                onSaveInline={handleSaveProfileEditor}
+                onCancelInline={handleCancelProfileEditor}
+                inlineBusy={profileEditorBusy}
+                inlineError={profileEditorError || profileFormErrors.website || profileFormErrors.avatarUrl || null}
+                onInlineAvatarUpload={handleInlineAvatarUpload}
+                avatarUploading={avatarUploading}
               />
-              <div className="profile-mobile-calendar-wrap">
-                <MobileCalendarFold
-                  ref={calendarFoldRef}
-                  selectedDate={selectedDate}
-                  onDateSelect={handleDateSelectMobile}
-                  eventDates={eventDatesFromList}
-                  collapseOnSelect
-                  layout="sticky"
-                  onMonthNavigate={(date) => {
-                    ignoreScrollSpyUntilRef.current = Date.now() + 600;
-                    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-                    setSelectedDate(date);
-                    setScrollToDate(dateToLocalYMD(date));
-                  }}
-                  onMonthClick={() => {
-                    ignoreScrollSpyUntilRef.current = Date.now() + 600;
-                    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-                    const today = new Date();
-                    setSelectedDate(today);
-                    setScrollToDate(dateToLocalYMD(today));
-                  }}
-                  ignoreScrollSpyUntilRef={ignoreScrollSpyUntilRef}
-                  ignoreScrollCollapseUntilRef={ignoreScrollCollapseUntilRef}
-                  onExpandedChange={handleCalendarExpandedChange}
-                />
-              </div>
+              {!profileEditing && (
+                <div className="profile-mobile-calendar-wrap">
+                  <MobileCalendarFold
+                    ref={calendarFoldRef}
+                    selectedDate={selectedDate}
+                    onDateSelect={handleDateSelectMobile}
+                    eventDates={eventDatesFromList}
+                    collapseOnSelect
+                    layout="sticky"
+                    onMonthNavigate={(date) => {
+                      ignoreScrollSpyUntilRef.current = Date.now() + 600;
+                      ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+                      setSelectedDate(date);
+                      setScrollToDate(dateToLocalYMD(date));
+                    }}
+                    onMonthClick={() => {
+                      ignoreScrollSpyUntilRef.current = Date.now() + 600;
+                      ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+                      const today = new Date();
+                      setSelectedDate(today);
+                      setScrollToDate(dateToLocalYMD(today));
+                    }}
+                    ignoreScrollSpyUntilRef={ignoreScrollSpyUntilRef}
+                    ignoreScrollCollapseUntilRef={ignoreScrollCollapseUntilRef}
+                    onExpandedChange={handleCalendarExpandedChange}
+                  />
+                </div>
+              )}
             </MobileHeaderContainer>
           ) : (
-            <ProfileHeader
-              profile={profile}
-              currentUser={currentUser}
-              isOwn={isOwn}
-              isRemote={isRemote}
-              isMobile={false}
-              onFollow={handleFollow}
-              onAutoRepost={handleAutoRepost}
-              onFollowAs={() => {
-                setSocialActionError(null);
-                setSocialModal("follow");
-              }}
-              onAutoRepostAs={() => {
-                setSocialActionError(null);
-                setSocialModal("autoRepost");
-              }}
-              showIdentityActions={!identitiesLoading && hasAdditionalIdentities}
-              onOpenFollowers={() => setListModal("followers")}
-              onOpenFollowing={() => setListModal("following")}
-            />
+            <div style={{ marginBottom: "0.8rem" }}>
+              <ProfileHeader
+                profile={profile}
+                currentUser={currentUser}
+                isOwn={isOwn}
+                isRemote={isRemote}
+                isMobile={false}
+                onFollow={handleFollow}
+                onAutoRepost={handleAutoRepost}
+                onFollowAs={() => {
+                  setSocialActionError(null);
+                  setSocialModal("follow");
+                }}
+                onAutoRepostAs={() => {
+                  setSocialActionError(null);
+                  setSocialModal("autoRepost");
+                }}
+                showIdentityActions={!identitiesLoading && hasAdditionalIdentities}
+                onOpenFollowers={() => setListModal("followers")}
+                onOpenFollowing={() => setListModal("following")}
+                canEditProfile={canEditProfile}
+                onEditProfile={openProfileEditor}
+                editingProfile={profileEditing}
+                inlineDraft={inlineDraft || undefined}
+                onInlineDraftChange={(next) => {
+                  setInlineDraft((prev) => {
+                    if (prev && prev.avatarUrl !== next.avatarUrl) setAvatarTouched(true);
+                    return next;
+                  });
+                }}
+                onSaveInline={handleSaveProfileEditor}
+                onCancelInline={handleCancelProfileEditor}
+                inlineBusy={profileEditorBusy}
+                inlineError={profileEditorError || profileFormErrors.website || profileFormErrors.avatarUrl || null}
+                onInlineAvatarUpload={handleInlineAvatarUpload}
+                avatarUploading={avatarUploading}
+              />
+            </div>
           )}
 
           {/* Event list */}
@@ -390,6 +656,13 @@ export function ProfilePage({ username }: { username: string }) {
                 <p className="text-sm text-dim mt-1">
                   {t("noUpcomingFromAccount")}
                 </p>
+                {canCreateEvents && (
+                  <div className="mt-2">
+                    <Link href="/create" className="btn-primary btn-sm">
+                      {t("common:createNewEvent")}
+                    </Link>
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -424,11 +697,16 @@ export function ProfilePage({ username }: { username: string }) {
                 ))}
               </>
             )}
-            {isMobile && calendarExpanded && (
+            {isMobile && !profileEditing && calendarExpanded && (
               <div
                 className="profile-mobile-events-overlay"
                 onClick={() => calendarFoldRef.current?.collapse()}
-                onKeyDown={(e) => e.key === "Enter" && calendarFoldRef.current?.collapse()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    calendarFoldRef.current?.collapse();
+                  }
+                }}
                 role="button"
                 tabIndex={0}
                 aria-label={t("common:close")}
@@ -505,7 +783,7 @@ export function ProfilePage({ username }: { username: string }) {
                               await usersApi.unfollow(u.username);
                             }
                             setListUsers((prev) => prev.filter((x) => x.id !== u.id));
-                            fetchProfile();
+                            fetchProfile(true);
                           } catch {
                             // ignore
                           }

@@ -18,5 +18,14 @@
   "autoRepostAll": "Alle Events von diesem Konto automatisch in deinen Feed reposten",
   "noUpcomingFromAccount": "Keine bevorstehenden Events von diesem Konto.",
   "followersTitle": "Follower",
-  "followingTitle": "Folge ich"
+  "followingTitle": "Folge ich",
+  "editProfile": "Profil bearbeiten",
+  "showMoreBio": "Mehr anzeigen",
+  "showLessBio": "Weniger anzeigen",
+  "changeAvatar": "Profilbild ändern",
+  "avatarUploadHint": "Klicke auf das Profilbild, um ein neues Bild hochzuladen.",
+  "uploadingAvatar": "Profilbild wird hochgeladen…",
+  "avatarUploadFailed": "Profilbild konnte nicht hochgeladen werden",
+  "avatarUploadInvalidType": "Bitte wähle eine Bilddatei aus.",
+  "avatarUploadTooLarge": "Profilbild muss {{maxMb}} MB oder kleiner sein"
 }

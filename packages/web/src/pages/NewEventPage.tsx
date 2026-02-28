@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
+import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
 import {
   events as eventsApi,
   locations as locationsApi,
@@ -334,6 +335,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const isEdit = !!initialEvent;
 
   const isMobile = useIsMobile();
+  const allowLocalhostUrls = typeof window !== "undefined"
+    && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   const [createStep, setCreateStep] = useState<"form" | "review">("form");
 
   const defaultVis = user?.discoverable ? "public" : "private";
@@ -950,17 +953,25 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     }
 
     // Validate and normalize event URL if provided
-    let resolvedUrl = url.trim() || undefined;
+    let resolvedUrl = normalizeHttpUrlInput(url) || undefined;
     if (resolvedUrl) {
-      if (!/^https?:\/\//i.test(resolvedUrl) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(resolvedUrl)) {
-        resolvedUrl = `https://${resolvedUrl}`;
-        setUrl(resolvedUrl);
-      }
-      if (!/^https?:\/\/.+/i.test(resolvedUrl)) {
+      if (!isValidHttpUrl(resolvedUrl, { allowLocalhost: allowLocalhostUrls })) {
         setUrlError(t("invalidUrl"));
         return;
       }
+      setUrl(resolvedUrl);
     }
+
+    let resolvedLocationUrl = locationUrl.trim() || undefined;
+    if (locationMode === "online" && resolvedLocationUrl) {
+      resolvedLocationUrl = normalizeHttpUrlInput(locationUrl);
+      setLocationUrl(resolvedLocationUrl);
+      if (!isValidHttpUrl(resolvedLocationUrl, { allowLocalhost: allowLocalhostUrls })) {
+        setLocationUrlError(t("invalidUrl"));
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       let locLat = locationLat;
@@ -1025,7 +1036,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       } else if (locationMode === "online") {
         data.location = {
           name: t("online"),
-          url: locationUrl || undefined,
+          url: resolvedLocationUrl,
         };
       }
       if (imageUrl) {
@@ -1915,19 +1926,22 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               {locationMode === "online" && (
                 <div>
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={locationUrl}
                     onChange={(e) => { setLocationUrl(e.target.value); setLocationUrlError(""); }}
                     onBlur={() => {
                       if (!locationUrl) return;
-                      let url = locationUrl.trim();
-                      if (!/^https?:\/\//i.test(url) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(url)) {
-                        url = `https://${url}`;
-                        setLocationUrl(url);
-                      }
-                      if (!/^https?:\/\/.+/i.test(url)) {
+                      const normalized = normalizeHttpUrlInput(locationUrl);
+                      setLocationUrl(normalized);
+                      if (!isValidHttpUrl(normalized, { allowLocalhost: allowLocalhostUrls })) {
                         setLocationUrlError(t("invalidUrl"));
+                        return;
                       }
+                      setLocationUrlError("");
                     }}
                     placeholder={t("urlPlaceholder")}
                     style={locationUrlError ? { borderColor: "var(--danger)" } : undefined}
@@ -1943,19 +1957,22 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
               <label htmlFor="ce-url">{t("eventUrlLabel")}</label>
               <input
                 id="ce-url"
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={url}
                 onChange={(e) => { setUrl(e.target.value); setUrlError(""); }}
                 onBlur={() => {
                   if (!url) return;
-                  let urlVal = url.trim();
-                  if (!/^https?:\/\//i.test(urlVal) && /^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}/i.test(urlVal)) {
-                    urlVal = `https://${urlVal}`;
-                    setUrl(urlVal);
-                  }
-                  if (!/^https?:\/\/.+/i.test(urlVal)) {
+                  const normalized = normalizeHttpUrlInput(url);
+                  setUrl(normalized);
+                  if (!isValidHttpUrl(normalized, { allowLocalhost: allowLocalhostUrls })) {
                     setUrlError(t("invalidUrl"));
+                    return;
                   }
+                  setUrlError("");
                 }}
                 placeholder={t("urlPlaceholder")}
                 style={urlError ? { borderColor: "var(--danger)" } : undefined}

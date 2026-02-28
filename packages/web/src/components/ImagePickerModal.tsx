@@ -12,6 +12,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
 import { images as imagesApi, uploads, type ImageSearchResult, type ImageAttribution } from "../lib/api";
 import { SearchIcon, LinkIcon, UploadIcon, ChevronUpIcon } from "./icons";
 
@@ -50,6 +51,8 @@ export function ImagePickerModal({
   const [urlInput, setUrlInput] = useState("");
   const [urlError, setUrlError] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const allowLocalhostUrls = typeof window !== "undefined"
+    && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,17 +178,16 @@ export function ImagePickerModal({
   }, [isOpen, tab, hasMore, loadingMore, searchResults.length]);
 
   const handleUrlSubmit = () => {
-    const u = urlInput.trim();
+    const u = normalizeHttpUrlInput(urlInput);
     if (!u) return;
-    try {
-      new URL(u);
-      if (!/^https?:/i.test(u)) throw new Error("Must be http or https");
-      setUrlError("");
-      onSelect({ url: u });
-      onClose();
-    } catch {
+    if (!isValidHttpUrl(u, { allowLocalhost: allowLocalhostUrls })) {
       setUrlError(t("invalidImageUrl"));
+      return;
     }
+    setUrlInput(u);
+    setUrlError("");
+    onSelect({ url: u });
+    onClose();
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,7 +336,11 @@ export function ImagePickerModal({
                 <label htmlFor="image-picker-url">{t("imageUrl")}</label>
                 <input
                   id="image-picker-url"
-                  type="url"
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={urlInput}
                   onChange={(e) => { setUrlInput(e.target.value); setUrlError(""); }}
                   onKeyDown={(e) => e.key === "Enter" && handleUrlSubmit()}

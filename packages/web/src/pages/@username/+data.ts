@@ -1,6 +1,7 @@
 import type { PageContextServer } from "vike/types";
 import type { SsrInitialData } from "@everycal/core";
 import { users as usersApi, auth as authApi, createApiRequestContext } from "../../lib/api";
+import { stripHtmlToText } from "../../lib/text";
 
 type ProfilePageContext = PageContextServer & { initialData?: SsrInitialData };
 
@@ -26,7 +27,7 @@ export async function data(pageContext: PageContextServer) {
                 ? `${profile.displayName || profile.username} (@${profile.username}) on EveryCal`
                 : "Profile not found",
             description: profile
-                ? profile.bio || `View ${profile.displayName || profile.username}'s profile and events on EveryCal.`
+                ? stripHtmlToText(profile.bio || "") || `View ${profile.displayName || profile.username}'s profile and events on EveryCal.`
                 : "This profile could not be found on EveryCal.",
             ogImageUrl: profile?.avatarUrl || null,
         };
@@ -60,7 +61,7 @@ export async function data(pageContext: PageContextServer) {
         profile,
         events: eventsData ? eventsData.events : [],
         title: `${profile.displayName || profile.username} (@${profile.username}) on EveryCal`,
-        description: profile.bio || `View ${profile.displayName || profile.username}'s profile and events on EveryCal.`,
+        description: stripHtmlToText(profile.bio || "") || `View ${profile.displayName || profile.username}'s profile and events on EveryCal.`,
         ogImageUrl: profile.avatarUrl || null,
     };
 }

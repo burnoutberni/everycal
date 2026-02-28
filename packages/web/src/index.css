@@ -201,6 +201,8 @@ label {
 
 .prefixed-input:focus-within {
   border-color: var(--border-focus);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .prefixed-input-prefix {
@@ -218,6 +220,10 @@ label {
 .prefixed-input input:focus {
   border: none;
   box-shadow: none;
+}
+
+.prefixed-input input:focus-visible {
+  outline: none;
 }
 
 /* Buttons */
@@ -1763,6 +1769,44 @@ button.tag {
   line-height: 1.7;
   color: var(--text);
 }
+.profile-bio-plain {
+  white-space: pre-line;
+}
+.profile-bio-collapsed {
+  max-height: 6.8em;
+  overflow: hidden;
+  position: relative;
+}
+.profile-bio-collapsed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.4em;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0), var(--bg-raised));
+  pointer-events: none;
+}
+.profile-bio-toggle {
+  margin-top: 0.15rem;
+  padding: 0.35rem 0.25rem;
+  min-height: 44px;
+  min-width: 44px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.profile-bio-toggle:hover {
+  color: var(--accent-hover);
+}
+.profile-bio-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .event-description a,
 .profile-bio a {
   color: var(--accent);
@@ -2874,9 +2918,11 @@ button.tag {
   overflow-y: auto;
   font-size: 0.92rem;
   line-height: 1.55;
+  cursor: text;
 }
 .rte-content .tiptap {
   outline: none;
+  min-height: 100%;
 }
 .rte-content .tiptap p {
   margin: 0 0 0.5em;

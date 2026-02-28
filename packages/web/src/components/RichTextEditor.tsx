@@ -265,7 +265,16 @@ export function RichTextEditor({
   return (
     <div className="rte-wrapper">
       <Toolbar editor={editor} />
-      <EditorContent editor={editor} className="rte-content" />
+      <EditorContent
+        editor={editor}
+        className="rte-content"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            e.preventDefault();
+            editor.chain().focus("end").run();
+          }
+        }}
+      />
     </div>
   );
 }
