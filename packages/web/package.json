@@ -26,13 +26,17 @@
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
+    "cross-env": "^10.1.0",
     "dompurify": "^3.3.1",
     "i18next": "^24.2.0",
+    "isomorphic-dompurify": "^3.0.0",
     "leaflet": "^1.9.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^15.1.0",
     "react-router-dom": "^7.0.0",
+    "vike": "^0.4.255",
+    "vike-react": "^0.6.20",
     "wouter": "^3.0.0"
   },
   "devDependencies": {

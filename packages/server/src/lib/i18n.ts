@@ -3,8 +3,10 @@
  */
 
 import type { Context } from "hono";
+import { isAppLocale } from "@everycal/core";
 import en from "../i18n/en.json" with { type: "json" };
 import de from "../i18n/de.json" with { type: "json" };
+import { parseAcceptLanguage } from "./locale.js";
 
 const SUPPORTED_LOCALES = ["en", "de"] as const;
 type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -15,32 +17,19 @@ function isSupported(locale: string): locale is SupportedLocale {
   return SUPPORTED_LOCALES.includes(locale as SupportedLocale);
 }
 
-/** Parse Accept-Language header and return first supported locale, or "en". */
-function parseAcceptLanguage(header: string | undefined): SupportedLocale {
-  if (!header) return "en";
-  const parts = header.split(",").map((p) => {
-    const [lang, q = "1"] = p.trim().split(";q=");
-    return { lang: lang.trim().toLowerCase().split("-")[0], q: parseFloat(q) || 1 };
-  });
-  parts.sort((a, b) => b.q - a.q);
-  for (const { lang } of parts) {
-    if (isSupported(lang)) return lang;
-  }
-  return "en";
-}
-
 /** Get locale for the request: user preference > Accept-Language > en */
 export function getLocale(c: Context): SupportedLocale {
   try {
     const user = c.get("user") as { preferredLanguage?: string } | null | undefined;
-    if (user?.preferredLanguage && isSupported(user.preferredLanguage)) {
+    if (isAppLocale(user?.preferredLanguage) && isSupported(user.preferredLanguage)) {
       return user.preferredLanguage as SupportedLocale;
     }
   } catch {
     // user not set (e.g. before auth middleware runs)
   }
   const acceptLang = c.req.header("Accept-Language");
-  return parseAcceptLanguage(acceptLang);
+  const locale = parseAcceptLanguage(acceptLang);
+  return isSupported(locale) ? locale : "en";
 }
 
 function getNested(obj: Record<string, unknown>, key: string): string | undefined {

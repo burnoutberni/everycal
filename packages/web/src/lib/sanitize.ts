@@ -8,7 +8,7 @@
  * - stripHtmlToText: remove all HTML for plain-text display (tooltips, truncation)
  */
 
-import DOMPurify from "dompurify";
+import DOMPurify from "isomorphic-dompurify";
 import { SAFE_HTML_TAGS, SAFE_HTML_ATTR_LIST } from "@everycal/core";
 
 export function sanitizeHtml(html: string): string {

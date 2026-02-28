@@ -12,18 +12,54 @@ import { ProfileCard, getProfileKey, type ProfileItem } from "../components/Prof
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
+import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
 
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
-  const [, navigate] = useLocation();
-  const [event, setEvent] = useState<CalEvent | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [location, navigate] = useLocation();
+
+  const routeMatch = useMemo((): { id?: string; username?: string; slug?: string } => {
+    const eventBySlugMatch = location.match(/^\/@([^/]+)\/([^/]+)\/?$/);
+    if (eventBySlugMatch) {
+      return {
+        username: decodeURIComponent(eventBySlugMatch[1]),
+        slug: decodeURIComponent(eventBySlugMatch[2]),
+      };
+    }
+
+    const legacyMatch = location.match(/^\/events\/([^/]+)\/?$/);
+    if (legacyMatch) {
+      return {
+        id: decodeURIComponent(legacyMatch[1]),
+      };
+    }
+
+    return {};
+  }, [location]);
+
+  const effectiveId = id ?? routeMatch.id;
+  const effectiveUsername = username ?? routeMatch.username;
+  const effectiveSlug = slug ?? routeMatch.slug;
+
+  // SSR initial state detection
+  const pageContext = useOptionalPageContext();
+  const initialEvent = useMemo(() => {
+    const ev = (pageContext?.data as any)?.event;
+    if (!ev) return null;
+    if (effectiveId === undefined && effectiveUsername === ev.account?.username && effectiveSlug === ev.slug) {
+      return ev as CalEvent;
+    }
+    return null;
+  }, [pageContext, effectiveId, effectiveUsername, effectiveSlug]);
+
+  const [event, setEvent] = useState<CalEvent | null>(initialEvent);
+  const [loading, setLoading] = useState(initialEvent === null);
   const [error, setError] = useState("");
-  const [rsvp, setRsvp] = useState<RsvpStatus>(null);
-  const [reposted, setReposted] = useState(false);
+  const [rsvp, setRsvp] = useState<RsvpStatus>(initialEvent ? ((initialEvent.rsvpStatus ?? null) as RsvpStatus) : null);
+  const [reposted, setReposted] = useState(initialEvent ? (initialEvent.reposted ?? false) : false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
@@ -41,28 +77,36 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   );
 
   useEffect(() => {
+    if (event && (event.id === effectiveId || (event.slug === effectiveSlug && event.account?.username === effectiveUsername))) return; // Already SSR'd or fetched
     setLoading(true);
     setError("");
 
     let promise: Promise<CalEvent>;
-    if (username && slug) {
-      if (username.includes("@")) {
+    if (effectiveUsername && effectiveSlug) {
+      if (effectiveUsername.includes("@")) {
         try {
-          const eventUri = decodeRemoteEventId(slug);
+          const eventUri = decodeRemoteEventId(effectiveSlug);
           promise = eventsApi.get(eventUri);
         } catch {
           promise = Promise.reject(new Error("Invalid event"));
         }
       } else {
-        promise = eventsApi.getBySlug(username, slug);
+        promise = eventsApi.getBySlug(effectiveUsername, effectiveSlug);
       }
-    } else if (id) {
-      promise = eventsApi.get(id);
+    } else if (effectiveId) {
+      promise = eventsApi.get(effectiveId);
     } else {
       promise = Promise.reject(new Error("No event identifier"));
     }
 
-    promise
+    const withTimeout = Promise.race<CalEvent>([
+      promise,
+      new Promise<CalEvent>((_, reject) =>
+        setTimeout(() => reject(new Error("Event request timed out")), 10000)
+      ),
+    ]);
+
+    withTimeout
       .then((ev) => {
         setEvent(ev);
         setRsvp((ev.rsvpStatus ?? null) as RsvpStatus);
@@ -73,10 +117,11 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         const msg = e.message;
         if (msg === "Invalid event") setError(t("eventNotFound"));
         else if (msg === "No event identifier") setError(t("noEventIdentifier"));
+        else if (msg === "Event request timed out") setError(t("common:requestFailed"));
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [id, username, slug, user?.id, t]);
+  }, [effectiveId, effectiveUsername, effectiveSlug, user?.id, t]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
@@ -152,12 +197,12 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       usersApi
         .following(user.username)
         .then((res) => setFollowedLocalIds(new Set(res.users.map((u) => u.id))))
-        .catch(() => {});
+        .catch(() => { });
     } else {
       federation
         .followedActors()
         .then((res) => setFollowedActorUris(new Set(res.actors.map((a) => a.uri))))
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [user, profileItem]);
 
@@ -296,178 +341,178 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
       {/* Main content */}
       <article style={{ flex: 1, minWidth: 0 }}>
-      {isCanceled && (
-        <div
-          className="canceled-badge mb-2"
-          style={{
-            display: "inline-block",
-            padding: "0.5rem 0.75rem",
-            fontSize: "0.9rem",
-          }}
-        >
-          {t("canceledByOrganizer")}
-        </div>
-      )}
-      {event.image && (
-        <div style={{ marginBottom: "1.5rem", position: "relative" }}>
-          <img
-            src={event.image.url}
-            alt={event.image.alt || event.title}
+        {isCanceled && (
+          <div
+            className="canceled-badge mb-2"
             style={{
-              width: "100%",
-              maxHeight: "350px",
-              objectFit: "cover",
-              borderRadius: "var(--radius)",
+              display: "inline-block",
+              padding: "0.5rem 0.75rem",
+              fontSize: "0.9rem",
             }}
-          />
-          {event.image.attribution && (
-            <ImageAttributionBadge attribution={event.image.attribution} />
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex flex-col gap-1">
-          <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-            {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })}
-          </span>
-          {event.visibility !== "public" && (
-            <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>
-              {event.visibility === "followers_only" ? t("followersOnly") : event.visibility === "private" ? t("onlyMe") : event.visibility === "unlisted" ? t("unlisted") : event.visibility}
-            </span>
-          )}
-        </div>
-
-        {isOwner && (
-          <div className="flex gap-1">
-            <Link href={editHref}>
-              <button className="btn-ghost btn-sm">{t("common:edit")}</button>
-            </Link>
-            <button className="btn-danger btn-sm" onClick={handleDelete}>
-              {t("common:delete")}
-            </button>
+          >
+            {t("canceledByOrganizer")}
           </div>
         )}
-      </div>
+        {event.image && (
+          <div style={{ marginBottom: "1.5rem", position: "relative" }}>
+            <img
+              src={event.image.url}
+              alt={event.image.alt || event.title}
+              style={{
+                width: "100%",
+                maxHeight: "350px",
+                objectFit: "cover",
+                borderRadius: "var(--radius)",
+              }}
+            />
+            {event.image.attribution && (
+              <ImageAttributionBadge attribution={event.image.attribution} />
+            )}
+          </div>
+        )}
 
-      <h1
-        style={{
-          fontSize: "1.8rem",
-          fontWeight: 700,
-          lineHeight: 1.2,
-          marginBottom: "0.5rem",
-          ...(isCanceled && { textDecoration: "line-through", color: "var(--text-dim)" }),
-        }}
-      >
-        {event.title}
-      </h1>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-col gap-1">
+            <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+              {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })}
+            </span>
+            {event.visibility !== "public" && (
+              <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>
+                {event.visibility === "followers_only" ? t("followersOnly") : event.visibility === "private" ? t("onlyMe") : event.visibility === "unlisted" ? t("unlisted") : event.visibility}
+              </span>
+            )}
+          </div>
 
-      {event.account && (
-        <p className="text-muted mb-2">
-          {t("by")}{" "}
-          <Link href={accountProfilePath(event.account, event.source)}>
-            {event.account.displayName || event.account.username}
-          </Link>
-          {event.source === "remote" && event.account.domain && (
-            <>
-              {" · "}
-              <a
-                href={`https://${event.account.domain}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ opacity: 0.8 }}
-              >
-                {event.account.domain}
-              </a>
-            </>
-          )}
-        </p>
-      )}
-
-      {event.location && (
-        <p className="mb-2" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-          <LocationPinIcon />
-          {event.location.name}
-          {event.location.address && ` — ${event.location.address}`}
-        </p>
-      )}
-
-      {user && !isCanceled && (
-        <div
-          className="flex gap-1 mb-4"
-          style={{ flexWrap: "wrap", alignItems: "center" }}
-        >
-          {rsvpOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => handleRsvp(opt.value)}
-              disabled={saving}
-              className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
-              title={opt.label}
-            >
-              {opt.icon} {opt.label}
-            </button>
-          ))}
-          {event.source !== "remote" && event.accountId !== user.id && (
-            <>
-              <span
-                style={{
-                  width: 1,
-                  height: "1rem",
-                  background: "var(--border)",
-                  margin: "0 0.15rem",
-                }}
-              />
-              <button
-                onClick={handleRepost}
-                disabled={repostSaving}
-                className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
-                title={reposted ? t("removeRepost") : t("repostToFeed")}
-              >
-                <RepostIcon />
-                {reposted ? t("reposted") : t("repost")}
+          {isOwner && (
+            <div className="flex gap-1">
+              <Link href={editHref}>
+                <button className="btn-ghost btn-sm">{t("common:edit")}</button>
+              </Link>
+              <button className="btn-danger btn-sm" onClick={handleDelete}>
+                {t("common:delete")}
               </button>
-            </>
+            </div>
           )}
         </div>
-      )}
 
-      {event.description && (
-        <div
-          className="event-description"
-          dangerouslySetInnerHTML={{
-            __html: sanitizeHtmlWithNewlines(event.description),
+        <h1
+          style={{
+            fontSize: "1.8rem",
+            fontWeight: 700,
+            lineHeight: 1.2,
+            marginBottom: "0.5rem",
+            ...(isCanceled && { textDecoration: "line-through", color: "var(--text-dim)" }),
           }}
-        />
-      )}
+        >
+          {event.title}
+        </h1>
 
-      {event.url && (
-        <p className="mt-2" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-          <a
-            href={event.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-          >
-            <ExternalLinkIcon />
-            {event.source === "remote" ? t("viewOnOriginalSite") : event.url}
-          </a>
-        </p>
-      )}
-
-      {event.tags.length > 0 && (
-        <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap", alignItems: "center", minWidth: 0, width: "100%" }}>
-          {event.tags.map((tag) => (
-            <Link
-              key={tag}
-              href={eventsPathWithTags([tag])}
-              className="tag tag-clickable"
-            >
-              {tag}
+        {event.account && (
+          <p className="text-muted mb-2">
+            {t("by")}{" "}
+            <Link href={accountProfilePath(event.account, event.source)}>
+              {event.account.displayName || event.account.username}
             </Link>
-          ))}
-        </div>
-      )}
+            {event.source === "remote" && event.account.domain && (
+              <>
+                {" · "}
+                <a
+                  href={`https://${event.account.domain}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ opacity: 0.8 }}
+                >
+                  {event.account.domain}
+                </a>
+              </>
+            )}
+          </p>
+        )}
+
+        {event.location && (
+          <p className="mb-2" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <LocationPinIcon />
+            {event.location.name}
+            {event.location.address && ` — ${event.location.address}`}
+          </p>
+        )}
+
+        {user && !isCanceled && (
+          <div
+            className="flex gap-1 mb-4"
+            style={{ flexWrap: "wrap", alignItems: "center" }}
+          >
+            {rsvpOptions.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => handleRsvp(opt.value)}
+                disabled={saving}
+                className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
+                title={opt.label}
+              >
+                {opt.icon} {opt.label}
+              </button>
+            ))}
+            {event.source !== "remote" && event.accountId !== user.id && (
+              <>
+                <span
+                  style={{
+                    width: 1,
+                    height: "1rem",
+                    background: "var(--border)",
+                    margin: "0 0.15rem",
+                  }}
+                />
+                <button
+                  onClick={handleRepost}
+                  disabled={repostSaving}
+                  className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
+                  title={reposted ? t("removeRepost") : t("repostToFeed")}
+                >
+                  <RepostIcon />
+                  {reposted ? t("reposted") : t("repost")}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {event.description && (
+          <div
+            className="event-description"
+            dangerouslySetInnerHTML={{
+              __html: sanitizeHtmlWithNewlines(event.description),
+            }}
+          />
+        )}
+
+        {event.url && (
+          <p className="mt-2" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <a
+              href={event.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <ExternalLinkIcon />
+              {event.source === "remote" ? t("viewOnOriginalSite") : event.url}
+            </a>
+          </p>
+        )}
+
+        {event.tags.length > 0 && (
+          <div className="flex gap-1 mt-2" style={{ flexWrap: "wrap", alignItems: "center", minWidth: 0, width: "100%" }}>
+            {event.tags.map((tag) => (
+              <Link
+                key={tag}
+                href={eventsPathWithTags([tag])}
+                className="tag tag-clickable"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        )}
       </article>
 
       {/* Sidebar */}

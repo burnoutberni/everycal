@@ -318,6 +318,36 @@ button,
   object-fit: cover;
 }
 
+.header-auth-skeleton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 8rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+
+.header-auth-skeleton-avatar {
+  background: var(--bg-hover);
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+}
+
+.header-auth-skeleton-line {
+  height: 0.55rem;
+  width: 4.5rem;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+}
+
+.header-auth-skeleton-mobile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+}
+
 .header-dropdown {
   position: absolute;
   top: calc(100% + 0.25rem);

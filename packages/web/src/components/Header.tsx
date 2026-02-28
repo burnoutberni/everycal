@@ -8,13 +8,16 @@ import { Logo } from "./Logo";
 
 export function Header() {
   const { t } = useTranslation("common");
-  const { user, logout } = useAuth();
+  const { user, logout, authStatus } = useAuth();
   const [location] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const myProfilePath = user ? profilePath(user.username) : "";
+  const showAuthenticated = authStatus === "authenticated" && !!user;
+  const showAnonymous = authStatus === "anonymous";
+  const showAuthSkeleton = authStatus === "unknown";
+  const myProfilePath = showAuthenticated && user ? profilePath(user.username) : "";
   const onCalendar = location.startsWith("/calendar");
 
   useEffect(() => {
@@ -91,7 +94,7 @@ export function Header() {
 
         {/* Desktop + Mobile right side */}
         <div className="flex items-center gap-1">
-          {user ? (
+          {showAuthenticated && user ? (
             <>
               {/* Desktop: calendar, plus, user menu */}
               <div className="header-nav-desktop flex items-center gap-1">
@@ -192,7 +195,7 @@ export function Header() {
                 </button>
               </div>
             </>
-          ) : (
+          ) : showAnonymous ? (
             <>
               <div className="header-nav-desktop">
                 <Link href="/login">
@@ -212,6 +215,23 @@ export function Header() {
                 >
                   <HamburgerIcon />
                 </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="header-nav-desktop flex items-center gap-1">
+                <div className="header-auth-skeleton" aria-hidden="true">
+                  <span className="header-user-avatar header-auth-skeleton-avatar" />
+                  <span className="header-auth-skeleton-line" />
+                </div>
+                <button type="button" className="header-icon-btn" disabled aria-label={t("account")}>
+                  <UserIcon />
+                </button>
+              </div>
+              <div className="header-nav-mobile">
+                <div className="header-auth-skeleton-mobile" aria-hidden="true">
+                  <span className="header-user-avatar header-auth-skeleton-avatar" />
+                </div>
               </div>
             </>
           )}
@@ -236,7 +256,7 @@ export function Header() {
         aria-label={t("menu")}
       >
         <div className="header-drawer-header">
-          <span className="header-drawer-title">{user?.displayName || user?.username || t("menu")}</span>
+          <span className="header-drawer-title">{showAuthenticated && user ? (user.displayName || user.username) : t("menu")}</span>
           <button
             type="button"
             className="header-drawer-close"
@@ -247,7 +267,7 @@ export function Header() {
           </button>
         </div>
         <nav className="header-drawer-nav">
-          {user && (
+          {showAuthenticated && user && (
             <Link
               href="/calendar"
               className={`header-drawer-item ${onCalendar ? "header-drawer-item-active" : ""}`}
@@ -277,7 +297,7 @@ export function Header() {
           >
             <PlusIcon /> {t("createNewEvent")}
           </Link>
-          {user && (
+          {showAuthenticated && user && (
             <>
               <Link
                 href={myProfilePath}
@@ -305,7 +325,7 @@ export function Header() {
               </button>
             </>
           )}
-          {!user && (
+          {showAnonymous && (
             <div className="header-drawer-auth" style={{ marginTop: "auto", padding: "1rem 1.25rem", borderTop: "1px solid var(--border)" }}>
               <Link href="/login" className="header-drawer-item" onClick={() => setDrawerOpen(false)} style={{ width: "100%", justifyContent: "center", marginBottom: "0.5rem" }}>
                 <KeyIcon /> {t("logIn")}
@@ -313,6 +333,17 @@ export function Header() {
               <Link href="/register" className="header-drawer-item" onClick={() => setDrawerOpen(false)} style={{ width: "100%", justifyContent: "center", background: "var(--accent)", color: "#000" }}>
                 <UserIcon /> {t("signUp")}
               </Link>
+            </div>
+          )}
+          {showAuthSkeleton && (
+            <div className="header-drawer-auth" style={{ marginTop: "auto", padding: "1rem 1.25rem", borderTop: "1px solid var(--border)" }}>
+              <div className="header-auth-skeleton" aria-hidden="true" style={{ width: "100%" }}>
+                <span className="header-user-avatar header-auth-skeleton-avatar" />
+                <span className="header-auth-skeleton-line" style={{ flex: 1 }} />
+              </div>
+              <button type="button" className="header-drawer-item" disabled style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}>
+                <UserIcon /> {t("account")}
+              </button>
             </div>
           )}
         </nav>

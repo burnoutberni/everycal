@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
+    "dev": "pnpm --filter @everycal/server dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "job": "node packages/jobs/dist/index.js",

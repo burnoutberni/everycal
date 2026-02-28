@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
@@ -25,6 +25,7 @@ export function EventCard({
   selectedTags?: string[];
 }) {
   const { t, i18n } = useTranslation("events");
+  const [, navigate] = useLocation();
   const { user } = useAuth();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
   const [reposted, setReposted] = useState(event.reposted ?? false);
@@ -85,9 +86,29 @@ export function EventCard({
     }
   };
 
+  const targetPath = eventPath(event);
+
+  const handleCardClick = (e: React.MouseEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("a,button,input,select,textarea,label,[role='button']")) return;
+    navigate(targetPath);
+  };
+
+  const handleCardKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const target = e.target as HTMLElement;
+    if (target.closest("a,button,input,select,textarea,label,[role='button']")) return;
+    e.preventDefault();
+    navigate(targetPath);
+  };
+
   const cardContent = (
     <article
       className={`card ${isCanceled ? "event-canceled" : ""}`}
+      role="link"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
       style={{
         position: "relative",
         cursor: "pointer",
@@ -95,11 +116,6 @@ export function EventCard({
         ...(isCanceled && { opacity: 0.85 }),
       }}
     >
-      <Link
-        href={eventPath(event)}
-        className="card-link-overlay"
-        aria-label={t("viewEvent", { title: event.title })}
-      />
       {event.repostedBy && (
         <p
           className="card-actions text-dim"

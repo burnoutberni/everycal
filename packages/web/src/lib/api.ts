@@ -9,14 +9,69 @@ import i18n from "i18next";
 
 const API_PATH = "/api/v1";
 
+export interface ApiRequestContext {
+  cookie?: string;
+  apiOrigin?: string;
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+function normalizeOrigin(input: string): string | null {
+  try {
+    const url = new URL(input);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function getInternalApiOrigin(): string {
+  const explicit = process.env.API_INTERNAL_URL;
+  if (explicit) {
+    const normalized = normalizeOrigin(explicit);
+    if (normalized) return normalized;
+  }
+  const port = process.env.PORT || "3000";
+  return `http://127.0.0.1:${port}`;
+}
+
+function shouldForwardCookie(targetOrigin: string): boolean {
+  return isLoopbackOrigin(targetOrigin);
+}
+
 /**
  * Build API URL without embedded credentials.
  * Relative URLs are resolved against document URL, which can inherit credentials
  * (e.g. from proxy or user@host) and cause fetch to throw.
  */
-function apiUrl(path: string): string {
+function apiUrl(path: string, context?: ApiRequestContext): string {
+  if (typeof window === "undefined") {
+    const origin = context?.apiOrigin || getInternalApiOrigin();
+    return `${origin}${API_PATH}${path}`;
+  }
   const origin = `${window.location.protocol}//${window.location.host}`;
   return `${origin}${API_PATH}${path}`;
+}
+
+export function createApiRequestContext(input?: {
+  headersOriginal?: Record<string, string | string[] | undefined>;
+}): ApiRequestContext {
+  const cookieHeader = input?.headersOriginal?.cookie;
+  const cookie = typeof cookieHeader === "string" ? cookieHeader : undefined;
+  return {
+    cookie,
+    apiOrigin: getInternalApiOrigin(),
+  };
 }
 
 /**
@@ -31,15 +86,23 @@ export function setApiKey(key: string | null) {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  context?: ApiRequestContext
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
 
-  // Only set Authorization header for API key usage (scripts/scrapers)
   if (apiKey) {
     headers["Authorization"] = `ApiKey ${apiKey}`;
+  }
+
+  const targetOrigin = typeof window === "undefined"
+    ? context?.apiOrigin || getInternalApiOrigin()
+    : "";
+
+  if (typeof window === "undefined" && context?.cookie && shouldForwardCookie(targetOrigin)) {
+    headers["Cookie"] = context.cookie;
   }
 
   // Don't set Content-Type for FormData (browser sets multipart boundary)
@@ -47,7 +110,7 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(apiUrl(path), {
+  const res = await fetch(apiUrl(path, context), {
     ...options,
     headers,
     // Include cookies for session-based auth (HttpOnly cookie set by server)
@@ -182,8 +245,8 @@ export const auth = {
     return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
   },
 
-  me() {
-    return request<User>("/auth/me");
+  me(context?: ApiRequestContext) {
+    return request<User>("/auth/me", {}, context);
   },
 
   updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string; cityLat?: number; cityLng?: number; preferredLanguage?: string }) {
@@ -309,12 +372,12 @@ export const events = {
     return request<{ tags: string[] }>(`/events/tags?${qs}`);
   },
 
-  get(id: string) {
-    return request<CalEvent>(`/events/${encodeURIComponent(id)}`);
+  get(id: string, context?: ApiRequestContext) {
+    return request<CalEvent>(`/events/${encodeURIComponent(id)}`, {}, context);
   },
 
-  getBySlug(username: string, slug: string) {
-    return request<CalEvent>(`/events/by-slug/${username}/${slug}`);
+  getBySlug(username: string, slug: string, context?: ApiRequestContext) {
+    return request<CalEvent>(`/events/by-slug/${username}/${slug}`, {}, context);
   },
 
   create(data: EventInput) {
@@ -373,18 +436,22 @@ export const users = {
     return request<{ users: User[] }>(`/users?${qs}`);
   },
 
-  get(username: string) {
-    return request<User>(`/users/${username}`);
+  get(username: string, context?: ApiRequestContext) {
+    return request<User>(`/users/${username}`, {}, context);
   },
 
-  events(username: string, params?: { from?: string; to?: string; limit?: number; sort?: "asc" | "desc" }) {
+  events(
+    username: string,
+    params?: { from?: string; to?: string; limit?: number; sort?: "asc" | "desc" },
+    context?: ApiRequestContext
+  ) {
     const qs = new URLSearchParams();
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         if (v !== undefined) qs.set(k, String(v));
       }
     }
-    return request<{ events: CalEvent[] }>(`/users/${username}/events?${qs}`);
+    return request<{ events: CalEvent[] }>(`/users/${username}/events?${qs}`, {}, context);
   },
 
   follow(username: string) {
