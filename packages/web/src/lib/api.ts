@@ -274,7 +274,7 @@ export const auth = {
     return request<User>("/auth/me", {}, context);
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string; cityLat?: number; cityLng?: number; preferredLanguage?: string }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string | null; cityLat?: number | null; cityLng?: number | null; preferredLanguage?: string }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -491,9 +491,9 @@ export const identities = {
     avatarUrl?: string;
     discoverable?: boolean;
     defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
-    city?: string;
-    cityLat?: number;
-    cityLng?: number;
+    city?: string | null;
+    cityLat?: number | null;
+    cityLng?: number | null;
     preferredLanguage?: "en" | "de";
   }) {
     return request<{ identity: PublishingIdentity }>("/identities", {
@@ -509,9 +509,9 @@ export const identities = {
     avatarUrl?: string | null;
     discoverable?: boolean;
     defaultVisibility?: "public" | "unlisted" | "followers_only" | "private";
-    city?: string;
-    cityLat?: number;
-    cityLng?: number;
+    city?: string | null;
+    cityLat?: number | null;
+    cityLng?: number | null;
     preferredLanguage?: "en" | "de";
   }) {
     return request<{ identity: PublishingIdentity }>(`/identities/${encodeURIComponent(username)}`, {

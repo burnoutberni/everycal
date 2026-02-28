@@ -10,6 +10,7 @@
 
 import DOMPurify from "isomorphic-dompurify";
 import { SAFE_HTML_TAGS, SAFE_HTML_ATTR_LIST } from "@everycal/core";
+import { stripHtmlToText } from "./text";
 
 export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
@@ -30,7 +31,4 @@ export function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
-/** Strip all HTML tags to produce plain text. Safe for tooltips, truncation, search. */
-export function stripHtmlToText(html: string): string {
-  return html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
+export { stripHtmlToText };

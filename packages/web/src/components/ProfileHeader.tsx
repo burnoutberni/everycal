@@ -1,8 +1,16 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { User } from "../lib/api";
-import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
-import { MenuIcon, RepostIcon } from "./icons";
+import { sanitizeHtml, stripHtmlToText } from "../lib/sanitize";
+import { LinkIcon, MenuIcon, RepostIcon } from "./icons";
+import { RichTextEditor } from "./RichTextEditor";
+
+export type InlineProfileDraft = {
+  displayName: string;
+  bio: string;
+  website: string;
+  avatarUrl: string;
+};
 
 export interface ProfileHeaderProps {
   profile: User;
@@ -20,6 +28,18 @@ export interface ProfileHeaderProps {
   showIdentityActions?: boolean;
   onOpenFollowers?: () => void;
   onOpenFollowing?: () => void;
+  canEditProfile?: boolean;
+  onEditProfile?: () => void;
+  editingProfile?: boolean;
+  inlineDraft?: InlineProfileDraft;
+  onInlineDraftChange?: (next: InlineProfileDraft) => void;
+  onSaveInline?: () => void;
+  onCancelInline?: () => void;
+  inlineBusy?: boolean;
+  inlineError?: string | null;
+  hideInlineActions?: boolean;
+  onInlineAvatarUpload?: (file: File) => void;
+  avatarUploading?: boolean;
 }
 
 export function ProfileHeader({
@@ -37,12 +57,43 @@ export function ProfileHeader({
   showIdentityActions = false,
   onOpenFollowers,
   onOpenFollowing,
+  canEditProfile = false,
+  onEditProfile,
+  editingProfile = false,
+  inlineDraft,
+  onInlineDraftChange,
+  onSaveInline,
+  onCancelInline,
+  inlineBusy = false,
+  inlineError = null,
+  hideInlineActions = false,
+  onInlineAvatarUpload,
+  avatarUploading = false,
 }: ProfileHeaderProps) {
-  const { t } = useTranslation(["profile", "common"]);
+  const { t } = useTranslation(["profile", "common", "settings", "auth"]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [bioExpanded, setBioExpanded] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bioId = useId();
   const menuId = useId();
+
+  useEffect(() => {
+    setBioExpanded(false);
+  }, [profile.id, profile.bio]);
+
+  const bioText = stripHtmlToText(profile.bio || "");
+  const hasLongBio = bioText.length > 220;
+  const rawBio = profile.bio || "";
+  const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(rawBio);
+  const sanitizedBio = sanitizeHtml(rawBio);
+  const updateDraft = (patch: Partial<InlineProfileDraft>) => {
+    if (!inlineDraft || !onInlineDraftChange) return;
+    onInlineDraftChange({ ...inlineDraft, ...patch });
+  };
+
+  const effectiveAvatarUrl = editingProfile && inlineDraft?.avatarUrl ? inlineDraft.avatarUrl : profile.avatarUrl;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -78,31 +129,80 @@ export function ProfileHeader({
       }
     >
       <div className="flex items-center gap-2 profile-header-inner">
-        <div
-          className="profile-header-avatar"
-          style={{
-            width: isMobile ? 64 - 28 * collapseProgress : 64,
-            height: isMobile ? 64 - 28 * collapseProgress : 64,
-            borderRadius: "50%",
-            background: "var(--bg-hover)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: isMobile ? `${1.8 - 0.8 * collapseProgress}rem` : "1.8rem",
-            flexShrink: 0,
-            overflow: "hidden",
-          }}
-        >
-          {profile.avatarUrl ? (
-            <img
-              src={profile.avatarUrl}
-              alt=""
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        {editingProfile ? (
+          <>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onInlineAvatarUpload?.(file);
+                e.currentTarget.value = "";
+              }}
+              style={{ display: "none" }}
             />
-          ) : (
-            profile.username[0].toUpperCase()
-          )}
-        </div>
+            <button
+              type="button"
+              className="profile-header-avatar"
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={avatarUploading}
+              aria-label={t("profile:changeAvatar")}
+              title={t("profile:changeAvatar")}
+              style={{
+                width: isMobile ? 64 - 28 * collapseProgress : 64,
+                height: isMobile ? 64 - 28 * collapseProgress : 64,
+                borderRadius: "50%",
+                background: "var(--bg-hover)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: isMobile ? `${1.8 - 0.8 * collapseProgress}rem` : "1.8rem",
+                flexShrink: 0,
+                overflow: "hidden",
+                border: "1px dashed var(--border)",
+                cursor: avatarUploading ? "wait" : "pointer",
+                padding: 0,
+              }}
+            >
+              {effectiveAvatarUrl ? (
+                <img
+                  src={effectiveAvatarUrl}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                profile.username[0].toUpperCase()
+              )}
+            </button>
+          </>
+        ) : (
+          <div
+            className="profile-header-avatar"
+            style={{
+              width: isMobile ? 64 - 28 * collapseProgress : 64,
+              height: isMobile ? 64 - 28 * collapseProgress : 64,
+              borderRadius: "50%",
+              background: "var(--bg-hover)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: isMobile ? `${1.8 - 0.8 * collapseProgress}rem` : "1.8rem",
+              flexShrink: 0,
+              overflow: "hidden",
+            }}
+          >
+            {effectiveAvatarUrl ? (
+              <img
+                src={effectiveAvatarUrl}
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              profile.username[0].toUpperCase()
+            )}
+          </div>
+        )}
         <div className="flex-1">
           <div
             className="flex items-center gap-1"
@@ -111,14 +211,28 @@ export function ProfileHeader({
               gap: isMobile ? `${0.5 + 0.5 * (1 - collapseProgress)}rem` : undefined,
             }}
           >
-            <h1
-              style={{
-                fontSize: isMobile ? `${1.3 - 0.3 * collapseProgress}rem` : "1.3rem",
-                fontWeight: 700,
-              }}
-            >
-              {profile.displayName || profile.username}
-            </h1>
+            {editingProfile && inlineDraft ? (
+              <input
+                value={inlineDraft.displayName}
+                onChange={(e) => updateDraft({ displayName: e.target.value })}
+                placeholder={t("settings:displayNamePlaceholder")}
+                aria-label={t("settings:displayName")}
+                style={{
+                  fontSize: isMobile ? `${1.1 - 0.2 * collapseProgress}rem` : "1.05rem",
+                  fontWeight: 700,
+                  minWidth: 170,
+                }}
+              />
+            ) : (
+              <h1
+                style={{
+                  fontSize: isMobile ? `${1.3 - 0.3 * collapseProgress}rem` : "1.3rem",
+                  fontWeight: 700,
+                }}
+              >
+                {profile.displayName || profile.username}
+              </h1>
+            )}
             {currentUser && !isOwn && (!isRemote || showIdentityActions) && (
               <div ref={menuRef} style={{ position: "relative" }}>
                 <button
@@ -209,13 +323,75 @@ export function ProfileHeader({
                 : undefined
             }
           >
-            {profile.bio && (
-              <div
-                className="profile-bio mt-1"
-                dangerouslySetInnerHTML={{
-                  __html: sanitizeHtmlWithNewlines(profile.bio),
-                }}
-              />
+            {editingProfile && inlineDraft ? (
+              <>
+                <div className="field" style={{ marginTop: "0.5rem" }}>
+                  <label>{t("settings:bio")}</label>
+                  <RichTextEditor
+                    value={inlineDraft.bio}
+                    onChange={(next) => updateDraft({ bio: next })}
+                    placeholder={t("settings:bioPlaceholder")}
+                  />
+                </div>
+                <div className="field">
+                  <label>{t("settings:website")}</label>
+                  <input
+                    type="text"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={inlineDraft.website}
+                    onChange={(e) => updateDraft({ website: e.target.value })}
+                    placeholder={t("settings:websitePlaceholder")}
+                  />
+                </div>
+                <p className="text-sm text-dim" style={{ marginTop: "0.35rem" }}>
+                  {avatarUploading ? t("profile:uploadingAvatar") : t("profile:avatarUploadHint")}
+                </p>
+                <div className="flex gap-1 items-center" style={{ marginTop: "0.35rem" }}>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => updateDraft({ avatarUrl: "" })}
+                    disabled={inlineBusy || avatarUploading}
+                  >
+                    {t("common:remove")}
+                  </button>
+                </div>
+                {!hideInlineActions && (
+                  <div className="flex gap-1 items-center" style={{ marginTop: "0.5rem" }}>
+                    <button type="button" className="btn-primary btn-sm" onClick={onSaveInline} disabled={inlineBusy}>
+                      {inlineBusy ? t("common:saving") : t("common:save")}
+                    </button>
+                    <button type="button" className="btn-ghost btn-sm" onClick={onCancelInline} disabled={inlineBusy}>
+                      {t("common:cancel")}
+                    </button>
+                  </div>
+                )}
+                {inlineError && <p className="error-text mt-1" role="alert">{inlineError}</p>}
+              </>
+            ) : profile.bio && (
+              <>
+                <div
+                  id={bioId}
+                  className={`profile-bio mt-1${!bioExpanded && hasLongBio ? " profile-bio-collapsed" : ""}${!hasHtmlTags ? " profile-bio-plain" : ""}`}
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizedBio,
+                  }}
+                />
+                {hasLongBio && (
+                  <button
+                    type="button"
+                    className="profile-bio-toggle"
+                    onClick={() => setBioExpanded((expanded) => !expanded)}
+                    aria-expanded={bioExpanded}
+                    aria-controls={bioId}
+                  >
+                    {bioExpanded ? t("showLessBio") : t("showMoreBio")}
+                  </button>
+                )}
+              </>
             )}
             {profile.website && /^https?:\/\/.+/.test(profile.website) && (
               <p className="mt-1">
@@ -223,9 +399,10 @@ export function ProfileHeader({
                   href={profile.website}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: "var(--accent)" }}
+                  style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: "0.35rem", overflowWrap: "anywhere" }}
                 >
-                  🔗 {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                  <LinkIcon />
+                  {profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}
                 </a>
               </p>
             )}
@@ -262,13 +439,24 @@ export function ProfileHeader({
             </div>
           </div>
         </div>
-        {currentUser && !isOwn && (
+        {currentUser && !isOwn && !canEditProfile && !editingProfile && (
           <div style={{ flexShrink: 0 }}>
             <button
               className={profile.following ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
               onClick={onFollow}
             >
               {profile.following ? t("unfollow") : t("follow")}
+            </button>
+          </div>
+        )}
+        {canEditProfile && !editingProfile && (
+          <div style={{ flexShrink: 0 }}>
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              onClick={onEditProfile}
+            >
+              {t("editProfile")}
             </button>
           </div>
         )}

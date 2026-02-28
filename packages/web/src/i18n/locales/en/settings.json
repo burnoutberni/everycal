@@ -14,8 +14,6 @@
   "usernamePlaceholder": "your_handle",
   "displayNamePlaceholder": "Your display name",
   "bioPlaceholder": "Tell people a little about this profile",
-  "avatarUrlPlaceholder": "https://example.com/avatar.jpg",
-  "editIdentity": "Edit profile",
   "manageMembers": "Manage members",
   "addMember": "Add member",
   "memberRole": "Role",
@@ -23,7 +21,6 @@
   "identityDiscoverableYes": "Profile visible in Discover",
   "identityDiscoverableNo": "Profile hidden from Discover",
   "discoverableIdentity": "Show in discover",
-  "identityProfile": "Identity profile",
   "identityMembers": "Members",
   "memberUsernamePlaceholder": "Username to add",
   "inviteMember": "Invite",
@@ -101,5 +98,14 @@
   "language": "Language",
   "english": "English",
   "german": "German",
-  "settingsSections": "Settings sections"
+  "settingsSections": "Settings sections",
+  "identitySettings": "Identity settings",
+  "identityPreviewHelp": "Edit profile details for your new identity.",
+  "identityHandleImmutableHelp": "Your handle is permanent and cannot be changed later.",
+  "createIdentityStepProgress": "Step {{current}} of {{total}}",
+  "createIdentityStepHandle": "Pick handle",
+  "createIdentityStepProfile": "Edit profile",
+  "createIdentityStepSettings": "Set defaults",
+  "createIdentityNextStep": "Continue",
+  "createAndEditIdentity": "Create and edit profile"
 }
