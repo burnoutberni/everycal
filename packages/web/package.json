@@ -8,6 +8,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:headed": "playwright test --headed",
     "generate:logos": "node scripts/generate-logos.mjs",
     "preview": "vite preview",
     "lint": "eslint src/",
@@ -41,6 +45,7 @@
     "wouter": "^3.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/leaflet": "^1.9.21",
@@ -49,6 +54,7 @@
     "@vitejs/plugin-react": "^4.4.0",
     "i18next-scanner": "^4.6.0",
     "jsdom": "^26.1.0",
+    "nanoid": "^5.1.0",
     "sharp": "^0.34.5",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",

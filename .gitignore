@@ -19,3 +19,8 @@ packages/wordpress/build/
 scraper-api-keys.json
 orgs.txt
 package-lock.json
+
+# Playwright
+packages/web/playwright-report/
+packages/web/test-results/
+packages/web/playwright/.cache/
