@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AppBootstrap } from "@everycal/core";
 import { bootstrapViewerToUser } from "@everycal/core";
 import { auth as authApi, type User, type AuthResponse } from "../lib/api";
 import { syncLanguageFromUser } from "../i18n";
+import { invalidateAdditionalIdentitiesCache } from "./additionalIdentitiesCache";
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous";
 
@@ -71,6 +72,15 @@ export function AuthProvider({
       setAuthState({ status: "anonymous", user: null });
     }
   };
+
+  const previousUserIdRef = useRef<string | null>(authState.user?.id ?? null);
+  useEffect(() => {
+    const currentUserId = authState.user?.id ?? null;
+    if (previousUserIdRef.current !== currentUserId) {
+      invalidateAdditionalIdentitiesCache();
+      previousUserIdRef.current = currentUserId;
+    }
+  }, [authState.user?.id]);
 
   // If bootstrap provided auth certainty, keep first paint stable and refresh in background.
   useEffect(() => {

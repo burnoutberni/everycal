@@ -64,4 +64,117 @@ describe("identity deletion", () => {
       .get("identity1") as { count: number };
     expect(remoteFollowsCount.count).toBe(0);
   });
+
+  it("allows editor to edit identity profile", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("owner", "owner");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("editor", "editor");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'identity')").run("identity1", "collective");
+
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'owner')"
+    ).run("identity1", "owner");
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'editor')"
+    ).run("identity1", "editor");
+
+    const app = makeApp(db, "editor");
+    const res = await app.request("http://localhost/api/v1/identities/collective", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Edited Collective" }),
+    });
+
+    expect(res.status).toBe(200);
+    const identity = db
+      .prepare("SELECT display_name FROM accounts WHERE id = ?")
+      .get("identity1") as { display_name: string } | undefined;
+    expect(identity?.display_name).toBe("Edited Collective");
+  });
+
+  it("prevents editor from managing members", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("owner", "owner");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("editor", "editor");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("member", "member");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'identity')").run("identity1", "collective");
+
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'owner')"
+    ).run("identity1", "owner");
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'editor')"
+    ).run("identity1", "editor");
+
+    const app = makeApp(db, "editor");
+
+    const addRes = await app.request("http://localhost/api/v1/identities/collective/members", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memberUsername: "member", role: "editor" }),
+    });
+    expect(addRes.status).toBe(403);
+
+    const updateRes = await app.request("http://localhost/api/v1/identities/collective/members/owner", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: "editor" }),
+    });
+    expect(updateRes.status).toBe(403);
+
+    const removeRes = await app.request("http://localhost/api/v1/identities/collective/members/owner", {
+      method: "DELETE",
+    });
+    expect(removeRes.status).toBe(403);
+  });
+
+  it("allows owner to manage members", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("owner", "owner");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("member", "member");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'identity')").run("identity1", "collective");
+
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'owner')"
+    ).run("identity1", "owner");
+
+    const app = makeApp(db, "owner");
+
+    const addRes = await app.request("http://localhost/api/v1/identities/collective/members", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memberUsername: "member", role: "editor" }),
+    });
+    expect(addRes.status).toBe(201);
+
+    const promoteRes = await app.request("http://localhost/api/v1/identities/collective/members/member", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: "owner" }),
+    });
+    expect(promoteRes.status).toBe(200);
+
+    const removeRes = await app.request("http://localhost/api/v1/identities/collective/members/member", {
+      method: "DELETE",
+    });
+    expect(removeRes.status).toBe(200);
+  });
+
+  it("rejects legacy admin role in membership updates", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("owner", "owner");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("member", "member");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'identity')").run("identity1", "collective");
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'owner')"
+    ).run("identity1", "owner");
+    db.prepare(
+      "INSERT INTO identity_memberships (identity_account_id, member_account_id, role) VALUES (?, ?, 'editor')"
+    ).run("identity1", "member");
+
+    const app = makeApp(db, "owner");
+    const res = await app.request("http://localhost/api/v1/identities/collective/members/member", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: "admin" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
 });

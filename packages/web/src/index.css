@@ -56,6 +56,11 @@ a:hover {
   color: var(--accent-hover);
 }
 
+:where(a, button, input, textarea, select, [role="button"], [role="menuitem"], [role="option"], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Layout */
 .container {
   max-width: var(--max-width);
@@ -413,6 +418,9 @@ button,
 .header-dropdown-item:hover {
   background: var(--bg-hover);
 }
+.header-dropdown-item:focus-visible {
+  background: var(--bg-hover);
+}
 .header-dropdown-item-muted {
   color: var(--text-muted);
 }
@@ -597,6 +605,10 @@ button,
 }
 .profile-menu-btn:hover {
   color: var(--text-muted);
+  background: var(--bg-hover);
+}
+.profile-menu-btn:focus-visible {
+  color: var(--text);
   background: var(--bg-hover);
 }
 
@@ -1962,6 +1974,141 @@ button.tag {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.act-as-modal-card {
+  max-width: 720px !important;
+  max-height: min(88vh, calc(100dvh - 2rem)) !important;
+  overflow: hidden !important;
+}
+
+.act-as-modal-body {
+  padding: 0.85rem 1rem !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.act-as-field-wrap {
+  position: relative;
+  margin-top: 0.55rem;
+}
+
+.act-as-chip-input {
+  min-height: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem;
+}
+
+.act-as-chip-input:focus-within {
+  border-color: var(--accent);
+}
+
+.act-as-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.82rem;
+}
+
+.act-as-chip button {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.act-as-chip button:focus-visible {
+  color: var(--text);
+}
+
+.act-as-chip-input-control {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0.25rem 0.2rem;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.act-as-dropdown {
+  position: relative;
+  margin-top: 0.35rem;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.act-as-dropdown-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0.5rem 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.act-as-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+
+.act-as-dropdown-item[aria-selected="true"],
+.act-as-dropdown-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.act-as-result-list {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.act-as-result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.act-as-result-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .act-as-modal-card {
+    max-height: min(92vh, calc(100dvh - 1rem)) !important;
+  }
+
+  .act-as-modal-body {
+    padding: 0.75rem 0.85rem !important;
+  }
+
+  .act-as-chip-input {
+    padding: 0.3rem;
+  }
 }
 
 .profile-stat-clickable {

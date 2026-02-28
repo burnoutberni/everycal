@@ -7,7 +7,7 @@
  */
 
 const FOLLOW_LIST = `(SELECT following_id FROM follows WHERE follower_id = ?)`;
-const MANAGED_IDENTITY_LIST = `(SELECT identity_account_id FROM identity_memberships WHERE member_account_id = ? AND role IN ('editor','admin','owner'))`;
+const MANAGED_IDENTITY_LIST = `(SELECT identity_account_id FROM identity_memberships WHERE member_account_id = ? AND role IN ('editor','owner'))`;
 
 function remoteFollowLocal(baseUrl: string): string {
   return `(SELECT a2.id FROM accounts a2 WHERE ? || '/users/' || a2.username IN (SELECT actor_uri FROM remote_following WHERE account_id = ?))`;
@@ -59,7 +59,7 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   if (dateFrom) push(dateFrom);
   push(userId);
 
-  // Branch 2: Direct follows
+  // Branch 2: Managed identities
   const b2Where = `${datePrefix}e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private')`;
   if (dateFrom) push(dateFrom);
   push(userId);

@@ -13,7 +13,7 @@ import {
   resolveIdentityByUsername,
 } from "../lib/identities.js";
 
-const VALID_ROLES: IdentityRole[] = ["editor", "admin", "owner"];
+const VALID_ROLES: IdentityRole[] = ["editor", "owner"];
 const VALID_LOCALES = ["en", "de"] as const;
 type AppLocale = (typeof VALID_LOCALES)[number];
 
@@ -21,10 +21,6 @@ function parseRole(value: unknown): IdentityRole | null {
   if (typeof value !== "string") return null;
   if (!VALID_ROLES.includes(value as IdentityRole)) return null;
   return value as IdentityRole;
-}
-
-function assertWebsite(value: string): boolean {
-  return isValidHttpUrl(value);
 }
 
 function normalizeOptionalHttpUrl(value: string | null | undefined): string | null {
@@ -70,16 +66,6 @@ export function identityRoutes(db: DB): Hono {
   router.get("/", requireAuth(), (c) => {
     const user = c.get("user")!;
 
-    const personal = db
-      .prepare(
-        `SELECT id, username, account_type, display_name, bio, website, avatar_url, discoverable, default_event_visibility,
-                city, city_lat, city_lng, preferred_language,
-                'owner' AS role
-         FROM accounts
-         WHERE id = ?`
-      )
-      .get(user.id) as Record<string, unknown> | undefined;
-
     const identityRows = db
       .prepare(
         `SELECT a.id, a.username, a.account_type, a.display_name, a.bio, a.website, a.avatar_url, a.discoverable, a.default_event_visibility,
@@ -93,7 +79,7 @@ export function identityRoutes(db: DB): Hono {
       )
       .all(user.id) as Record<string, unknown>[];
 
-    const identities = [personal, ...identityRows].filter(Boolean).map((row) => formatIdentity(row!));
+    const identities = identityRows.map((row) => formatIdentity(row));
     return c.json({ identities });
   });
 
@@ -125,7 +111,7 @@ export function identityRoutes(db: DB): Hono {
     const normalizedWebsite = normalizeOptionalHttpUrl(body.website);
     const normalizedAvatarUrl = normalizeOptionalHttpUrl(body.avatarUrl);
 
-    if (normalizedWebsite && !assertWebsite(normalizedWebsite)) {
+    if (normalizedWebsite && !isValidHttpUrl(normalizedWebsite)) {
       return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
     }
     if (normalizedAvatarUrl && !isValidHttpUrl(normalizedAvatarUrl)) {
@@ -208,7 +194,7 @@ export function identityRoutes(db: DB): Hono {
     if (!identity) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const role = getIdentityMembershipRole(db, identity.id, user.id);
-    if (!hasRequiredRole(role, "admin")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (!hasRequiredRole(role, "editor")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const body = await c.req.json<{
       displayName?: string;
@@ -236,7 +222,7 @@ export function identityRoutes(db: DB): Hono {
     }
     if (body.website !== undefined) {
       const normalizedWebsite = normalizeOptionalHttpUrl(body.website);
-      if (normalizedWebsite && !assertWebsite(normalizedWebsite)) {
+      if (normalizedWebsite && !isValidHttpUrl(normalizedWebsite)) {
         return c.json({ error: t(getLocale(c), "auth.invalid_website_url") }, 400);
       }
       fields.push("website = ?");
@@ -334,7 +320,7 @@ export function identityRoutes(db: DB): Hono {
     if (!identity) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const role = getIdentityMembershipRole(db, identity.id, user.id);
-    if (!hasRequiredRole(role, "admin")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (role !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const rows = db
       .prepare(
@@ -342,7 +328,7 @@ export function identityRoutes(db: DB): Hono {
          FROM identity_memberships im
          JOIN accounts a ON a.id = im.member_account_id
          WHERE im.identity_account_id = ?
-         ORDER BY CASE im.role WHEN 'owner' THEN 3 WHEN 'admin' THEN 2 ELSE 1 END DESC, a.username ASC`
+         ORDER BY CASE im.role WHEN 'owner' THEN 2 ELSE 1 END DESC, a.username ASC`
       )
       .all(identity.id) as {
       member_account_id: string;
@@ -370,7 +356,7 @@ export function identityRoutes(db: DB): Hono {
     if (!identity) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const myRole = getIdentityMembershipRole(db, identity.id, user.id);
-    if (!hasRequiredRole(myRole, "admin")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (myRole !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const body = await c.req.json<{ memberUsername?: string; role?: IdentityRole }>();
     const memberUsername = normalizeHandle(body.memberUsername || "");
@@ -379,7 +365,6 @@ export function identityRoutes(db: DB): Hono {
     if (!memberUsername || !nextRole) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-
     const member = db
       .prepare("SELECT id, username, display_name FROM accounts WHERE username = ? AND account_type = 'person'")
       .get(memberUsername) as { id: string; username: string; display_name: string | null } | undefined;
@@ -413,7 +398,7 @@ export function identityRoutes(db: DB): Hono {
     if (!identity) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const myRole = getIdentityMembershipRole(db, identity.id, user.id);
-    if (!hasRequiredRole(myRole, "admin")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (myRole !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const existing = db
       .prepare(
@@ -424,10 +409,6 @@ export function identityRoutes(db: DB): Hono {
       )
       .get(identity.id, memberId) as { role: IdentityRole; username: string; display_name: string | null } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
-
-    if (myRole !== "owner" && existing.role === "owner") {
-      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
-    }
 
     const body = await c.req.json<{ role?: IdentityRole }>();
     const nextRole = parseRole(body.role);
@@ -461,16 +442,13 @@ export function identityRoutes(db: DB): Hono {
     if (!identity) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const myRole = getIdentityMembershipRole(db, identity.id, user.id);
-    if (!hasRequiredRole(myRole, "admin")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    if (myRole !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const existing = db
       .prepare("SELECT role FROM identity_memberships WHERE identity_account_id = ? AND member_account_id = ?")
       .get(identity.id, memberId) as { role: IdentityRole } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
-    if (myRole !== "owner" && existing.role === "owner") {
-      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
-    }
     if (existing.role === "owner" && countOwners(db, identity.id) <= 1) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }

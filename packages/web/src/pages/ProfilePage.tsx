@@ -9,7 +9,9 @@ import { MiniCalendar } from "../components/MiniCalendar";
 import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
 import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
 import { ProfileHeader } from "../components/ProfileHeader";
+import { ActAsActionModal } from "../components/ActAsActionModal";
 import { useAuth } from "../hooks/useAuth";
+import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useOptionalPageContext } from "../renderer/PageContext";
@@ -37,6 +39,9 @@ export function ProfilePage({ username }: { username: string }) {
   const [eventsLoading, setEventsLoading] = useState(!initialEvents.length);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
+  const [socialModal, setSocialModal] = useState<null | "follow" | "autoRepost">(null);
+  const [socialActionError, setSocialActionError] = useState<string | null>(null);
+  const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
 
   // Fetch event dates for the minicalendar (visible grid)
   const calendarMonthRange = useMemo(() => {
@@ -312,6 +317,15 @@ export function ProfilePage({ username }: { username: string }) {
                 headerRef={profileHeaderRef}
                 onFollow={handleFollow}
                 onAutoRepost={handleAutoRepost}
+                onFollowAs={() => {
+                  setSocialActionError(null);
+                  setSocialModal("follow");
+                }}
+                onAutoRepostAs={() => {
+                  setSocialActionError(null);
+                  setSocialModal("autoRepost");
+                }}
+                showIdentityActions={!identitiesLoading && hasAdditionalIdentities}
                 onOpenFollowers={() => setListModal("followers")}
                 onOpenFollowing={() => setListModal("following")}
               />
@@ -351,6 +365,15 @@ export function ProfilePage({ username }: { username: string }) {
               isMobile={false}
               onFollow={handleFollow}
               onAutoRepost={handleAutoRepost}
+              onFollowAs={() => {
+                setSocialActionError(null);
+                setSocialModal("follow");
+              }}
+              onAutoRepostAs={() => {
+                setSocialActionError(null);
+                setSocialModal("autoRepost");
+              }}
+              showIdentityActions={!identitiesLoading && hasAdditionalIdentities}
               onOpenFollowers={() => setListModal("followers")}
               onOpenFollowing={() => setListModal("following")}
             />
@@ -358,6 +381,7 @@ export function ProfilePage({ username }: { username: string }) {
 
           {/* Event list */}
           <div className="profile-mobile-events-wrap">
+            {socialActionError && <p className="error-text mb-2" role="alert">{socialActionError}</p>}
             {eventsLoading ? (
               <p className="text-muted">{t("common:loading")}</p>
             ) : events.length === 0 ? (
@@ -496,6 +520,38 @@ export function ProfilePage({ username }: { username: string }) {
             </div>
           </div>
         </div>
+      )}
+
+      {socialModal === "follow" && profile && currentUser && !isOwn && (
+        <ActAsActionModal
+          open
+          onClose={() => setSocialModal(null)}
+          onComplete={(errorMessage) => setSocialActionError(errorMessage)}
+          excludedAccountIds={isRemote ? undefined : [profile.id]}
+          actionKind="follow"
+          loadState={() => (
+            isRemote
+              ? federation.followActors(profile.id)
+              : usersApi.followActors(username)
+          )}
+          apply={(desiredAccountIds) => (
+            isRemote
+              ? federation.setFollowActors(profile.id, desiredAccountIds)
+              : usersApi.setFollowActors(username, desiredAccountIds)
+          )}
+        />
+      )}
+
+      {socialModal === "autoRepost" && profile && currentUser && !isOwn && !isRemote && (
+        <ActAsActionModal
+          open
+          onClose={() => setSocialModal(null)}
+          onComplete={(errorMessage) => setSocialActionError(errorMessage)}
+          excludedAccountIds={[profile.id]}
+          actionKind="autoRepost"
+          loadState={() => usersApi.autoRepostActors(username)}
+          apply={(desiredAccountIds) => usersApi.setAutoRepostActors(username, desiredAccountIds)}
+        />
       )}
     </>
   );

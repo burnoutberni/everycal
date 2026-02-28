@@ -136,6 +136,30 @@ export class ApiError extends Error {
   }
 }
 
+export interface ActorSelectionStateResponse {
+  activeAccountIds: string[];
+  actorIds: string[];
+}
+
+export interface ActorSelectionApplyResult {
+  accountId: string;
+  before: boolean;
+  after: boolean;
+  status: "added" | "removed" | "unchanged" | "error";
+  message?: string;
+  remoteStatus?: "none" | "pending" | "delivered" | "failed";
+}
+
+export interface ActorSelectionApplyResponse {
+  ok: boolean;
+  operationId?: string;
+  added: number;
+  removed: number;
+  unchanged: number;
+  failed: number;
+  results: ActorSelectionApplyResult[];
+}
+
 // ---- Auth ----
 
 export interface NotificationPrefs {
@@ -348,7 +372,7 @@ export interface EventInput {
   postAsAccountId?: string;
 }
 
-export type IdentityRole = "editor" | "admin" | "owner";
+export type IdentityRole = "editor" | "owner";
 
 export interface PublishingIdentity {
   id: string;
@@ -429,6 +453,17 @@ export const events = {
 
   repost(id: string) {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "POST" });
+  },
+
+  repostActors(id: string) {
+    return request<ActorSelectionStateResponse>(`/events/${id}/repost-actors`);
+  },
+
+  setRepostActors(id: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/events/${id}/repost`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
   },
 
   unrepost(id: string) {
@@ -563,12 +598,34 @@ export const users = {
     return request<{ ok: boolean; following: boolean }>(`/users/${username}/follow`, { method: "POST" });
   },
 
+  followActors(username: string) {
+    return request<ActorSelectionStateResponse>(`/users/${username}/follow-actors`);
+  },
+
+  setFollowActors(username: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/users/${username}/follow`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
+  },
+
   unfollow(username: string) {
     return request<{ ok: boolean; following: boolean }>(`/users/${username}/unfollow`, { method: "POST" });
   },
 
   autoRepost(username: string) {
     return request<{ ok: boolean; autoReposting: boolean }>(`/users/${username}/auto-repost`, { method: "POST" });
+  },
+
+  autoRepostActors(username: string) {
+    return request<ActorSelectionStateResponse>(`/users/${username}/auto-repost-actors`);
+  },
+
+  setAutoRepostActors(username: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>(`/users/${username}/auto-repost`, {
+      method: "POST",
+      body: JSON.stringify({ desiredAccountIds }),
+    });
   },
 
   removeAutoRepost(username: string) {
@@ -712,8 +769,19 @@ export const federation = {
     });
   },
 
+  followActors(actorUri: string) {
+    return request<ActorSelectionStateResponse>(`/federation/follow-actors?actorUri=${encodeURIComponent(actorUri)}`);
+  },
+
+  setFollowActors(actorUri: string, desiredAccountIds: string[]) {
+    return request<ActorSelectionApplyResponse>("/federation/follow", {
+      method: "POST",
+      body: JSON.stringify({ actorUri, desiredAccountIds }),
+    });
+  },
+
   unfollow(actorUri: string) {
-    return request<{ ok: boolean }>("/federation/unfollow", {
+    return request<{ ok: boolean; delivered?: boolean }>("/federation/unfollow", {
       method: "POST",
       body: JSON.stringify({ actorUri }),
     });

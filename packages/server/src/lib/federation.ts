@@ -37,7 +37,7 @@ export async function fetchAP(url: string): Promise<unknown> {
  * Rejects private/internal IPs, non-HTTPS, and non-standard ports.
  * Also resolves DNS to prevent DNS rebinding attacks.
  */
-async function validateFederationUrl(url: string): Promise<void> {
+export async function validateFederationUrl(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);

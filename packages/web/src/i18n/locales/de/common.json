@@ -56,5 +56,19 @@
   "closeMenu": "Menü schließen",
   "unfoldTags": "Alle Tags anzeigen",
   "unfoldCalendar": "Kalender anzeigen",
-  "tagsDescription": "Events nach Thema filtern. Tippe auf einen Tag, um nur Events mit diesem Tag anzuzeigen."
+  "tagsDescription": "Events nach Thema filtern. Tippe auf einen Tag, um nur Events mit diesem Tag anzuzeigen.",
+  "followAs": "Folgen als...",
+  "autoRepostAs": "Auto-Repost als...",
+  "repostAs": "Reposten als...",
+  "actAsHint": "Wähle die Konten aus, für die diese Aktion nach dem Bestätigen aktiv sein soll.",
+  "addAccountPlaceholder": "Konto hinzufügen...",
+  "actAsYou": "du",
+  "confirmChanges": "Bestätigen",
+  "actAsResultSummary": "Hinzugefügt: {{added}} · Entfernt: {{removed}} · Unverändert: {{unchanged}} · Fehlgeschlagen: {{failed}}",
+  "actAsStatus": {
+    "added": "hinzugefügt",
+    "removed": "entfernt",
+    "unchanged": "unverändert",
+    "error": "fehlgeschlagen"
+  }
 }

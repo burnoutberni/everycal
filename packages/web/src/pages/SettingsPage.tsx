@@ -1,6 +1,13 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  isValidHttpUrl,
+  normalizeHttpUrlInput,
+  isValidIdentityHandle,
+  normalizeHandle,
+} from "@everycal/core";
 import { useAuth } from "../hooks/useAuth";
+import { invalidateAdditionalIdentitiesCache } from "../hooks/additionalIdentitiesCache";
 import {
   auth as authApi,
   identities as identitiesApi,
@@ -21,27 +28,6 @@ type IdentityFormErrors = {
   website?: string;
   avatarUrl?: string;
 };
-
-const IDENTITY_HANDLE_PATTERN = /^[a-z0-9_]{2,40}$/;
-
-function isValidHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const host = url.hostname;
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-    return host.includes(".") && !host.startsWith(".") && !host.endsWith(".");
-  } catch {
-    return false;
-  }
-}
-
-function normalizeHttpUrlInput(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
-}
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation(["settings", "common", "auth"]);
@@ -119,6 +105,12 @@ export function SettingsPage() {
   const [editIdentityErrors, setEditIdentityErrors] = useState<Omit<IdentityFormErrors, "username">>({});
   const memberResultsRef = useRef<HTMLDivElement | null>(null);
   const skipNextMemberLookupRef = useRef(false);
+  const identityModalRef = useRef<HTMLDivElement | null>(null);
+  const membersModalRef = useRef<HTMLDivElement | null>(null);
+  const identityModalTriggerRef = useRef<HTMLElement | null>(null);
+  const membersModalTriggerRef = useRef<HTMLElement | null>(null);
+  const identityModalTitleId = useId();
+  const membersModalTitleId = useId();
 
   useEffect(() => {
     if (!user) return;
@@ -141,17 +133,16 @@ export function SettingsPage() {
     });
     authApi.listApiKeys().then((r) => setKeys(r.keys));
     identitiesApi.list().then((res) => {
-      const scoped = res.identities.filter((identity) => identity.accountType === "identity");
-      setIdentities(scoped);
-      if (!selectedIdentityUsername && scoped.length > 0) {
-        setSelectedIdentityUsername(scoped[0].username);
+      setIdentities(res.identities);
+      if (!selectedIdentityUsername && res.identities.length > 0) {
+        setSelectedIdentityUsername(res.identities[0].username);
       }
     }).catch(() => {
       setIdentities([]);
     });
   }, [user]);
 
-  const roleRank: Record<IdentityRole, number> = { editor: 1, admin: 2, owner: 3 };
+  const roleRank: Record<IdentityRole, number> = { editor: 1, owner: 2 };
   const visibilityOptions: Array<{ value: "public" | "unlisted" | "followers_only" | "private"; label: string }> = [
     { value: "public", label: t("visibility.public") },
     { value: "unlisted", label: t("visibility.unlisted") },
@@ -177,9 +168,9 @@ export function SettingsPage() {
     normalizeAndValidateUrl(value, "invalidAvatarUrl");
 
   const validateIdentityHandle = (value: string): string | undefined => {
-    const normalized = value.toLowerCase().trim();
+    const normalized = normalizeHandle(value);
     if (!normalized) return t("identityHandleRequired");
-    if (normalized.includes("@") || /\s/.test(normalized) || !IDENTITY_HANDLE_PATTERN.test(normalized)) {
+    if (!isValidIdentityHandle(normalized)) {
       return t("invalidIdentityHandle");
     }
     return undefined;
@@ -206,7 +197,8 @@ export function SettingsPage() {
 
   const selectedIdentity = identities.find((identity) => identity.username === selectedIdentityUsername) || null;
   const selectedRole = selectedIdentity?.role;
-  const canAdminMembers = !!selectedRole && roleRank[selectedRole] >= roleRank.admin;
+  const canEditIdentity = !!selectedRole && roleRank[selectedRole] >= roleRank.editor;
+  const canManageMembers = selectedRole === "owner";
   const isOwner = selectedRole === "owner";
 
   useEffect(() => {
@@ -269,6 +261,84 @@ export function SettingsPage() {
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
+  }, [membersModalOpen]);
+
+  useEffect(() => {
+    if (!identityEditorOpen) return;
+    const root = identityModalRef.current;
+    if (!root) return;
+    const focusableSelector =
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector));
+    const first = focusable[0] || null;
+    first?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeIdentityEditorModal();
+        return;
+      }
+      if (event.key !== "Tab" || focusable.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+      if (event.shiftKey) {
+        if (!active || active === firstEl) {
+          event.preventDefault();
+          lastEl.focus();
+        }
+        return;
+      }
+      if (active === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [identityEditorOpen]);
+
+  useEffect(() => {
+    if (!membersModalOpen) return;
+    const root = membersModalRef.current;
+    if (!root) return;
+    const focusableSelector =
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector));
+    const first = focusable[0] || null;
+    first?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMembersModal();
+        return;
+      }
+      if (event.key !== "Tab" || focusable.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+      if (event.shiftKey) {
+        if (!active || active === firstEl) {
+          event.preventDefault();
+          lastEl.focus();
+        }
+        return;
+      }
+      if (active === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [membersModalOpen]);
 
   useEffect(() => {
@@ -359,7 +429,7 @@ export function SettingsPage() {
   const handleCreateIdentity = async (e: React.FormEvent) => {
     e.preventDefault();
     setIdentityError("");
-    const normalizedUsername = createIdentityUsername.toLowerCase().trim();
+    const normalizedUsername = normalizeHandle(createIdentityUsername);
     const websiteResult = validateWebsite(createIdentityWebsite);
     const avatarResult = validateAvatarUrl(createIdentityAvatarUrl);
     const normalizedWebsite = websiteResult.normalized;
@@ -391,10 +461,10 @@ export function SettingsPage() {
         } : {}),
         preferredLanguage: createIdentityPreferredLanguage,
       });
+      if (user?.id) invalidateAdditionalIdentitiesCache(user.id);
       const res = await identitiesApi.list();
-      const scoped = res.identities.filter((identity) => identity.accountType === "identity");
-      setIdentities(scoped);
-      const created = scoped.find((identity) => identity.username === createIdentityUsername.toLowerCase().trim());
+      setIdentities(res.identities);
+      const created = res.identities.find((identity) => identity.username === normalizeHandle(createIdentityUsername));
       if (created) setSelectedIdentityUsername(created.username);
       closeIdentityEditorModal();
       setCreateIdentityUsername("");
@@ -463,10 +533,10 @@ export function SettingsPage() {
     setIdentityError("");
     try {
       await identitiesApi.delete(username);
+      if (user?.id) invalidateAdditionalIdentitiesCache(user.id);
       const res = await identitiesApi.list();
-      const scoped = res.identities.filter((identity) => identity.accountType === "identity");
-      setIdentities(scoped);
-      setSelectedIdentityUsername((current) => (current === username ? (scoped[0]?.username || "") : current));
+      setIdentities(res.identities);
+      setSelectedIdentityUsername((current) => (current === username ? (res.identities[0]?.username || "") : current));
       closeIdentityEditorModal();
     } catch (err: unknown) {
       setIdentityError((err as Error).message || t("identityActionFailed"));
@@ -577,9 +647,17 @@ export function SettingsPage() {
     setCreateIdentityErrors({});
     setEditIdentityErrors({});
     setIdentityError("");
+    identityModalTriggerRef.current?.focus();
+  };
+
+  const closeMembersModal = () => {
+    setMembersModalOpen(false);
+    membersModalTriggerRef.current?.focus();
   };
 
   const openCreateIdentityModal = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) identityModalTriggerRef.current = active;
     setIdentityError("");
     setCreateIdentityErrors({});
     setEditIdentityErrors({});
@@ -599,6 +677,8 @@ export function SettingsPage() {
   const openEditIdentityModal = (username: string) => {
     const identity = identities.find((candidate) => candidate.username === username);
     if (!identity) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) identityModalTriggerRef.current = active;
     setIdentityError("");
     setEditIdentityErrors({});
     setCreateIdentityErrors({});
@@ -608,6 +688,8 @@ export function SettingsPage() {
   };
 
   const openMembersModal = (username: string) => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) membersModalTriggerRef.current = active;
     setIdentityError("");
     setInviteUsername("");
     setInviteRole("editor");
@@ -769,7 +851,7 @@ export function SettingsPage() {
                         type="button"
                         className="btn-ghost btn-sm"
                         onClick={() => openEditIdentityModal(identity.username)}
-                        disabled={roleRank[identity.role] < roleRank.admin}
+                        disabled={roleRank[identity.role] < roleRank.editor}
                       >
                         {t("editIdentity")}
                       </button>
@@ -777,7 +859,7 @@ export function SettingsPage() {
                         type="button"
                         className="btn-ghost btn-sm"
                         onClick={() => openMembersModal(identity.username)}
-                        disabled={roleRank[identity.role] < roleRank.admin}
+                        disabled={identity.role !== "owner"}
                       >
                         {t("manageMembers")}
                       </button>
@@ -1090,11 +1172,12 @@ export function SettingsPage() {
           className="modal-overlay"
           role="dialog"
           aria-modal="true"
+          aria-labelledby={identityModalTitleId}
           onClick={(e) => e.target === e.currentTarget && closeIdentityEditorModal()}
         >
-          <div className="modal-card settings-identity-modal-card">
+          <div className="modal-card settings-identity-modal-card" ref={identityModalRef}>
             <div className="modal-header">
-              <h3 className="settings-section-title" style={{ margin: 0 }}>
+              <h3 id={identityModalTitleId} className="settings-section-title" style={{ margin: 0 }}>
                 {identityEditorOpen === "create"
                   ? t("createPublishingIdentity")
                   : `${t("identityProfile")}: @${editIdentityDraft?.username || selectedIdentity?.username || ""}`}
@@ -1117,7 +1200,7 @@ export function SettingsPage() {
                           setCreateIdentityErrors((prev) => ({ ...prev, username: undefined }));
                         }}
                         onBlur={() => {
-                          const normalized = createIdentityUsername.toLowerCase().trim();
+                          const normalized = normalizeHandle(createIdentityUsername);
                           setCreateIdentityUsername(normalized);
                           setCreateIdentityErrors((prev) => ({ ...prev, username: validateIdentityHandle(normalized) }));
                         }}
@@ -1333,7 +1416,7 @@ export function SettingsPage() {
                     </label>
                   </div>
                   <div className="flex items-center gap-1" style={{ justifyContent: "space-between" }}>
-                    <button type="submit" className="btn-primary btn-sm" disabled={identityBusy || !canAdminMembers}>
+                    <button type="submit" className="btn-primary btn-sm" disabled={identityBusy || !canEditIdentity}>
                       {identityBusy ? t("common:saving") : t("common:save")}
                     </button>
                     {isOwner && (
@@ -1359,19 +1442,20 @@ export function SettingsPage() {
           className="modal-overlay"
           role="dialog"
           aria-modal="true"
-          onClick={(e) => e.target === e.currentTarget && setMembersModalOpen(false)}
+          aria-labelledby={membersModalTitleId}
+          onClick={(e) => e.target === e.currentTarget && closeMembersModal()}
         >
-          <div className="modal-card settings-members-modal-card">
+          <div className="modal-card settings-members-modal-card" ref={membersModalRef}>
             <div className="modal-header">
-              <h3 className="settings-section-title" style={{ margin: 0 }}>
+              <h3 id={membersModalTitleId} className="settings-section-title" style={{ margin: 0 }}>
                 {t("identityMembers")}: @{selectedIdentity.username}
               </h3>
-              <button type="button" className="btn-ghost btn-sm" onClick={() => setMembersModalOpen(false)}>
+              <button type="button" className="btn-ghost btn-sm" onClick={closeMembersModal}>
                 {t("common:close")}
               </button>
             </div>
             <div className="modal-body settings-identity-modal-body">
-              {canAdminMembers && (
+              {canManageMembers && (
                 <form onSubmit={handleInviteMember} className="settings-members-invite-form">
                   <div className="field" ref={memberResultsRef}>
                     <label>{t("addMember")}</label>
@@ -1430,7 +1514,6 @@ export function SettingsPage() {
                     <label>{t("memberRole")}</label>
                     <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as IdentityRole)}>
                       <option value="editor">{t("role.editor")}</option>
-                      <option value="admin">{t("role.admin")}</option>
                       <option value="owner">{t("role.owner")}</option>
                     </select>
                   </div>
@@ -1451,17 +1534,16 @@ export function SettingsPage() {
                     <div className="flex gap-1 items-center">
                       <select
                         value={member.role}
-                        disabled={!canAdminMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                        disabled={!canManageMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
                         onChange={(e) => handleUpdateMemberRole(member.memberId, e.target.value as IdentityRole)}
                       >
                         <option value="editor">{t("role.editor")}</option>
-                        <option value="admin">{t("role.admin")}</option>
                         <option value="owner">{t("role.owner")}</option>
                       </select>
                       <button
                         type="button"
                         className="btn-danger btn-sm"
-                        disabled={!canAdminMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
+                        disabled={!canManageMembers || memberBusyId === member.memberId || (!isOwner && member.role === "owner")}
                         onClick={() => handleRemoveMember(member.memberId)}
                       >
                         {t("common:remove")}

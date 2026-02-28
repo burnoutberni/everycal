@@ -1,11 +1,18 @@
 import type { DB } from "../db.js";
 
-export type IdentityRole = "editor" | "admin" | "owner";
+export type IdentityRole = "editor" | "owner";
+
+export type ActingAccount = {
+  id: string;
+  username: string;
+  displayName: string | null;
+  accountType: "person" | "identity";
+  role: IdentityRole;
+};
 
 const ROLE_RANK: Record<IdentityRole, number> = {
   editor: 1,
-  admin: 2,
-  owner: 3,
+  owner: 2,
 };
 
 export function hasRequiredRole(role: IdentityRole | null, minRole: IdentityRole): boolean {
@@ -64,4 +71,59 @@ export function canManageIdentityEvents(db: DB, accountId: string, userId: strin
   if (accountId === userId) return true;
   const role = getIdentityMembershipRole(db, accountId, userId);
   return hasRequiredRole(role, minRole);
+}
+
+export function listActingAccounts(db: DB, userId: string, minRole: IdentityRole = "editor"): ActingAccount[] {
+  const self = db
+    .prepare(
+      `SELECT id, username, display_name, account_type
+       FROM accounts
+       WHERE id = ?`
+    )
+    .get(userId) as
+      | {
+          id: string;
+          username: string;
+          display_name: string | null;
+          account_type: "person" | "identity";
+        }
+      | undefined;
+
+  const identities = db
+    .prepare(
+      `SELECT a.id, a.username, a.display_name, a.account_type, im.role
+       FROM identity_memberships im
+       JOIN accounts a ON a.id = im.identity_account_id
+       WHERE im.member_account_id = ?
+         AND a.account_type = 'identity'`
+    )
+    .all(userId) as Array<{
+    id: string;
+    username: string;
+    display_name: string | null;
+    account_type: "identity";
+    role: IdentityRole;
+  }>;
+
+  const result: ActingAccount[] = [];
+  if (self) {
+    result.push({
+      id: self.id,
+      username: self.username,
+      displayName: self.display_name,
+      accountType: self.account_type,
+      role: "owner",
+    });
+  }
+  for (const row of identities) {
+    if (!hasRequiredRole(row.role, minRole)) continue;
+    result.push({
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      accountType: row.account_type,
+      role: row.role,
+    });
+  }
+  return result;
 }

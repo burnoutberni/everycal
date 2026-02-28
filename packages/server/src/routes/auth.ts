@@ -729,7 +729,41 @@ export function authRoutes(db: DB): Hono {
   router.delete("/me", requireAuth(), (c) => {
     const user = c.get("user")!;
 
+    const lastOwnedIdentities = db
+      .prepare(
+        `SELECT a.username
+         FROM identity_memberships im
+         JOIN accounts a ON a.id = im.identity_account_id
+         WHERE im.member_account_id = ?
+           AND im.role = 'owner'
+           AND a.account_type = 'identity'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM identity_memberships im2
+             WHERE im2.identity_account_id = im.identity_account_id
+               AND im2.role = 'owner'
+               AND im2.member_account_id != ?
+           )
+         ORDER BY a.username ASC`
+      )
+      .all(user.id, user.id) as Array<{ username: string }>;
+
+    if (lastOwnedIdentities.length > 0) {
+      return c.json(
+        {
+          error: "Cannot delete account while you are the last owner of one or more identities",
+          code: "last_identity_owner",
+          identities: lastOwnedIdentities.map((row) => row.username),
+        },
+        409
+      );
+    }
+
     const deleteAccount = db.transaction(() => {
+      // Preserve identity-owned events authored by this user.
+      // They remain with the identity and only lose direct creator link.
+      db.prepare("UPDATE events SET created_by_account_id = NULL WHERE created_by_account_id = ?").run(user.id);
+
       // Delete events + their tags (events table lacks ON DELETE CASCADE)
       const eventIds = db
         .prepare("SELECT id FROM events WHERE account_id = ?")

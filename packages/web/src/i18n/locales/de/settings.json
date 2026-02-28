@@ -11,7 +11,7 @@
   "invalidIdentityHandle": "Verwende 2-40 Kleinbuchstaben, Zahlen oder Unterstriche",
   "invalidWebsiteUrl": "Bitte gib eine gueltige Website-URL mit http:// oder https:// ein",
   "invalidAvatarUrl": "Bitte gib eine gueltige Avatar-URL mit http:// oder https:// ein",
-  "usernamePlaceholder": "dein-handle",
+  "usernamePlaceholder": "dein_handle",
   "displayNamePlaceholder": "Dein Anzeigename",
   "bioPlaceholder": "Erzähl kurz etwas über dieses Profil",
   "avatarUrlPlaceholder": "https://example.com/avatar.jpg",
@@ -41,7 +41,6 @@
   },
   "role": {
     "owner": "Owner",
-    "admin": "Admin",
     "editor": "Editor"
   },
   "account": "Konto",

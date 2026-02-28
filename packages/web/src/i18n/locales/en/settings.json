@@ -11,7 +11,7 @@
   "invalidIdentityHandle": "Use 2-40 lowercase letters, numbers, or underscores",
   "invalidWebsiteUrl": "Please enter a valid website URL starting with http:// or https://",
   "invalidAvatarUrl": "Please enter a valid avatar URL starting with http:// or https://",
-  "usernamePlaceholder": "your-handle",
+  "usernamePlaceholder": "your_handle",
   "displayNamePlaceholder": "Your display name",
   "bioPlaceholder": "Tell people a little about this profile",
   "avatarUrlPlaceholder": "https://example.com/avatar.jpg",
@@ -41,7 +41,6 @@
   },
   "role": {
     "owner": "Owner",
-    "admin": "Admin",
     "editor": "Editor"
   },
   "account": "Account",

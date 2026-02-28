@@ -6,6 +6,10 @@ import net from "node:net";
 import dns from "node:dns/promises";
 import sanitize from "sanitize-html";
 import { SAFE_HTML_TAGS, SAFE_HTML_ATTRS, SAFE_HTML_SCHEMES } from "@everycal/core";
+import {
+  isValidHttpUrl as sharedIsValidHttpUrl,
+  normalizeHttpUrlInput as sharedNormalizeHttpUrlInput,
+} from "@everycal/core";
 
 /**
  * Check if a hostname/IP belongs to a private, reserved, or internal network.
@@ -110,15 +114,7 @@ export function sanitizeHtml(input: string): string {
  * Returns true if valid, false otherwise.
  */
 export function isValidHttpUrl(input: string): boolean {
-  try {
-    const url = new URL(input);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-    const host = url.hostname;
-    if (net.isIP(host)) return true;
-    return host.includes(".") && !host.startsWith(".") && !host.endsWith(".");
-  } catch {
-    return false;
-  }
+  return sharedIsValidHttpUrl(input);
 }
 
 /**
@@ -126,10 +122,7 @@ export function isValidHttpUrl(input: string): boolean {
  * Adds https:// when no scheme is provided.
  */
 export function normalizeHttpUrlInput(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return "";
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  return sharedNormalizeHttpUrlInput(input);
 }
 
 /**

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
 import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
-import { LocationPinIcon, RepostIcon } from "./icons";
+import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
+import { ActAsActionModal } from "./ActAsActionModal";
+import { LocationPinIcon, MenuIcon, RepostIcon } from "./icons";
 
 type RsvpStatus = "going" | "maybe" | null;
 
@@ -24,13 +26,40 @@ export function EventCard({
   /** Tags currently used as filter; matching tags will be highlighted */
   selectedTags?: string[];
 }) {
-  const { t, i18n } = useTranslation("events");
+  const { t, i18n } = useTranslation(["events", "common"]);
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
   const [reposted, setReposted] = useState(event.reposted ?? false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
+  const [actAsOpen, setActAsOpen] = useState(false);
+  const [actAsError, setActAsError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButtonRef.current?.focus();
+    };
+    document.addEventListener("click", onClickOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("click", onClickOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [menuOpen]);
 
   const dateTimeStr = formatEventDateTime(event, false, {
     locale: i18n.language,
@@ -268,14 +297,83 @@ export function EventCard({
                     <RepostIcon />
                     {reposted ? t("reposted") : t("repost")}
                   </button>
+                  {!identitiesLoading && hasAdditionalIdentities && (
+                    <div ref={menuRef} style={{ position: "relative" }}>
+                      <button
+                        ref={menuButtonRef}
+                        type="button"
+                        className="profile-menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpen((open) => !open);
+                        }}
+                        aria-expanded={menuOpen}
+                        aria-haspopup="menu"
+                        aria-controls={menuOpen ? menuId : undefined}
+                        aria-label={t("common:menu")}
+                        title={t("common:menu")}
+                      >
+                        <MenuIcon />
+                      </button>
+                      {menuOpen && (
+                        <div
+                          id={menuId}
+                          className="header-dropdown"
+                          role="menu"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className="header-dropdown-item"
+                            role="menuitem"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpen(false);
+                              setActAsError(null);
+                              setActAsOpen(true);
+                            }}
+                          >
+                            {t("common:repostAs")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
+          )}
+          {actAsError && (
+            <p className="error-text mt-1" role="alert" onClick={(e) => e.stopPropagation()}>{actAsError}</p>
           )}
         </div>
       </div>
     </article>
   );
 
-  return cardContent;
+  return (
+    <>
+      {cardContent}
+      {actAsOpen && user && event.source !== "remote" && event.accountId !== user.id && (
+        <ActAsActionModal
+          open
+          onClose={() => setActAsOpen(false)}
+          onComplete={(errorMessage) => setActAsError(errorMessage)}
+          excludedAccountIds={event.accountId ? [event.accountId] : undefined}
+          actionKind="repost"
+          loadState={() => eventsApi.repostActors(event.id)}
+          apply={async (desiredAccountIds) => {
+            const res = await eventsApi.setRepostActors(event.id, desiredAccountIds);
+            const me = res.results.find((row) => row.accountId === user.id);
+            if (me && me.status !== "error") {
+              const nowReposted = !!me.after;
+              setReposted(nowReposted);
+              onRepostChange?.(event.id, nowReposted);
+            }
+            return res;
+          }}
+        />
+      )}
+    </>
+  );
 }

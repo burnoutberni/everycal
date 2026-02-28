@@ -9,6 +9,8 @@
  */
 
 import { Hono } from "hono";
+import { nanoid } from "nanoid";
+import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -17,10 +19,48 @@ import {
   fetchRemoteOutbox,
   deliverActivity,
   discoverDomainActors,
+  validateFederationUrl,
 } from "../lib/federation.js";
 import { generateKeyPair } from "../lib/crypto.js";
-import { stripHtml, sanitizeHtml, isPrivateIP } from "../lib/security.js";
+import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { listActingAccounts } from "../lib/identities.js";
+import {
+  ActorSelectionPayloadError,
+  buildActorSelectionPlan,
+  isDesiredAccountIdsAllowed,
+  readActorSelectionPayload,
+  summarizeActorSelection,
+  type ActorSelectionResult,
+} from "../lib/actor-selection.js";
+
+function createFollowActivityId(actorUrl: string): string {
+  return `${actorUrl}#follows/${Date.now()}-${nanoid(10)}`;
+}
+
+function buildFollowActivity(actorUrl: string, actorUri: string): { id: string; type: string; actor: string; object: string; "@context": string } {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: createFollowActivityId(actorUrl),
+    type: "Follow",
+    actor: actorUrl,
+    object: actorUri,
+  };
+}
+
+function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActivityId?: string | null): Record<string, unknown> {
+  return {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `${actorUrl}#undo-follow-${Date.now()}`,
+    type: "Undo",
+    actor: actorUrl,
+    object: followActivityId || {
+      type: "Follow",
+      actor: actorUrl,
+      object: actorUri,
+    },
+  };
+}
 
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
@@ -44,14 +84,11 @@ export function federationRoutes(db: DB): Hono {
 
       // WebFinger lookup
       try {
-        // SSRF protection: validate domain is not a private/internal address
-        if (isPrivateIP(domain)) {
-          return c.json({ error: t(getLocale(c), "federation.private_address_not_allowed") }, 400);
-        }
-
         const wfUrl = `https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`;
+        await validateFederationUrl(wfUrl);
         const res = await fetch(wfUrl, {
           headers: { Accept: "application/jrd+json" },
+          redirect: "error",
         });
         if (!res.ok) {
           return c.json({ error: t(getLocale(c), "federation.webfinger_lookup_failed_status", { status: String(res.status) }) }, 404);
@@ -65,9 +102,19 @@ export function federationRoutes(db: DB): Hono {
         if (!self?.href) {
           return c.json({ error: t(getLocale(c), "federation.no_actor_found") }, 404);
         }
+        await validateFederationUrl(self.href);
         actorUri = self.href;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const msgLower = msg.toLowerCase();
+        if (
+          msgLower.includes("private/internal") ||
+          msgLower.includes("resolves to private") ||
+          msgLower.includes("invalid protocol") ||
+          msgLower.includes("only https")
+        ) {
+          return c.json({ error: t(getLocale(c), "federation.private_address_not_allowed") }, 400);
+        }
         return c.json({ error: t(getLocale(c), "federation.webfinger_lookup_failed_error", { error: msg }) }, 502);
       }
     }
@@ -180,56 +227,192 @@ export function federationRoutes(db: DB): Hono {
   // Follow a remote actor
   router.post("/follow", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const { actorUri } = await c.req.json<{ actorUri: string }>();
+    let actorUri: string | undefined;
+    let desiredAccountIds: string[] | undefined;
+    try {
+      ({ actorUri, desiredAccountIds } = await readActorSelectionPayload(c));
+    } catch (err) {
+      if (err instanceof ActorSelectionPayloadError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
     if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri);
     if (!actor) return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor") }, 404);
 
-    // Ensure our account has keys
-    const account = db
-      .prepare("SELECT id, username, private_key, public_key FROM accounts WHERE id = ?")
-      .get(user.id) as Record<string, unknown>;
+    if (!desiredAccountIds) {
+      // Ensure our account has keys
+      const account = db
+        .prepare("SELECT id, username, private_key, public_key FROM accounts WHERE id = ?")
+        .get(user.id) as Record<string, unknown>;
 
-    let privateKey = account.private_key as string;
-    if (!privateKey) {
-      const keys = generateKeyPair();
-      db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
-        keys.publicKey,
-        keys.privateKey,
-        user.id
+      let privateKey = account.private_key as string;
+      if (!privateKey) {
+        const keys = generateKeyPair();
+        db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
+          keys.publicKey,
+          keys.privateKey,
+          user.id
+        );
+        privateKey = keys.privateKey;
+      }
+
+      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const ourActorUrl = `${baseUrl}/users/${user.username}`;
+
+      const followActivity = buildFollowActivity(ourActorUrl, actorUri);
+
+      const delivered = await deliverActivity(
+        actor.inbox,
+        followActivity,
+        privateKey,
+        `${ourActorUrl}#main-key`
       );
-      privateKey = keys.privateKey;
+
+      if (delivered) {
+        db.prepare(
+          `INSERT OR REPLACE INTO remote_following (account_id, actor_uri, actor_inbox, follow_activity_id, follow_object_uri)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(user.id, actorUri, actor.inbox, followActivity.id, followActivity.id);
+      }
+
+      return c.json({ ok: true, delivered });
     }
 
+    const acting = listActingAccounts(db, user.id, "editor");
+    const actingIds = acting.map((a) => a.id);
+    if (!isDesiredAccountIdsAllowed(desiredAccountIds, actingIds)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const activeRows = db
+      .prepare("SELECT account_id, follow_activity_id FROM remote_following WHERE actor_uri = ?")
+      .all(actorUri) as Array<{ account_id: string; follow_activity_id: string | null }>;
+    const plan = buildActorSelectionPlan({
+      actingAccountIds: actingIds,
+      desiredAccountIds,
+      activeAccountIds: activeRows.map((r) => r.account_id),
+    });
+    const followRefs = new Map(activeRows.map((row) => [row.account_id, row.follow_activity_id]));
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const ourActorUrl = `${baseUrl}/users/${user.username}`;
+    const operationId = createHash("sha256")
+      .update(`${Date.now()}-${user.id}-${actorUri}-${Math.random()}`)
+      .digest("hex")
+      .slice(0, 16);
 
-    // Send Follow activity
-    const followActivity = {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${ourActorUrl}#follow-${Date.now()}`,
-      type: "Follow",
-      actor: ourActorUrl,
-      object: actorUri,
-    };
+    db.prepare(
+      `INSERT INTO actor_selection_operations
+       (id, action_kind, target_type, target_id, initiated_by_account_id, status)
+       VALUES (?, 'remote_follow', 'remote_actor', ?, ?, 'pending')`
+    ).run(operationId, actorUri, user.id);
 
-    const delivered = await deliverActivity(
-      actor.inbox,
-      followActivity,
-      privateKey,
-      `${ourActorUrl}#main-key`
-    );
+    const results: ActorSelectionResult[] = [];
+    for (const entry of plan.entries) {
+      const accountId = entry.accountId;
+      const before = entry.before;
+      const after = entry.after;
+      if (before === after) {
+        results.push({ accountId, before, after, status: "unchanged", remoteStatus: "none" });
+        continue;
+      }
 
-    // Only store as followed if the remote server accepted the Follow
-    if (delivered) {
-      db.prepare(
-        `INSERT OR REPLACE INTO remote_following (account_id, actor_uri, actor_inbox)
-         VALUES (?, ?, ?)`
-      ).run(user.id, actorUri, actor.inbox);
+      const accountKeys = db
+        .prepare("SELECT username, private_key, public_key FROM accounts WHERE id = ?")
+        .get(accountId) as { username: string; private_key: string | null; public_key: string | null };
+
+      let privateKey = accountKeys.private_key;
+      if (!privateKey) {
+        const keys = generateKeyPair();
+        db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
+          keys.publicKey,
+          keys.privateKey,
+          accountId
+        );
+        privateKey = keys.privateKey;
+      }
+
+      const actorUrl = `${baseUrl}/users/${accountKeys.username}`;
+
+      try {
+        if (after) {
+          const followActivity = buildFollowActivity(actorUrl, actorUri);
+          const delivered = await deliverActivity(actor.inbox, followActivity, privateKey, `${actorUrl}#main-key`);
+          if (delivered) {
+            db.prepare(
+              `INSERT OR REPLACE INTO remote_following (account_id, actor_uri, actor_inbox, follow_activity_id, follow_object_uri)
+               VALUES (?, ?, ?, ?, ?)`
+            ).run(accountId, actorUri, actor.inbox, followActivity.id, followActivity.id);
+            results.push({ accountId, before, after: true, status: "added", remoteStatus: "delivered" });
+          } else {
+            results.push({ accountId, before, after: before, status: "error", message: t(getLocale(c), "common.requestFailed"), remoteStatus: "failed" });
+          }
+        } else {
+          const followActivityId = followRefs.get(accountId) || null;
+          const undoActivity = buildUndoFollowActivity(actorUrl, actorUri, followActivityId);
+          const delivered = await deliverActivity(actor.inbox, undoActivity, privateKey, `${actorUrl}#main-key`);
+          db.prepare("DELETE FROM remote_following WHERE account_id = ? AND actor_uri = ?").run(accountId, actorUri);
+          results.push({
+            accountId,
+            before,
+            after: false,
+            status: "removed",
+            remoteStatus: delivered ? "delivered" : "failed",
+            ...(delivered ? {} : { message: "Undo delivery failed remotely; removed locally" }),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t(getLocale(c), "common.requestFailed");
+        results.push({ accountId, before, after: before, status: "error", message, remoteStatus: "failed" });
+      }
     }
 
-    return c.json({ ok: true, delivered });
+    db.transaction(() => {
+      const insertItem = db.prepare(
+        `INSERT INTO actor_selection_operation_items
+         (operation_id, account_id, before_state, after_state, status, remote_status, message)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const row of results) {
+        insertItem.run(
+          operationId,
+          row.accountId,
+          row.before ? 1 : 0,
+          row.after ? 1 : 0,
+          row.status,
+          row.remoteStatus || "none",
+          row.message || null
+        );
+      }
+      db.prepare("UPDATE actor_selection_operations SET status = 'completed', completed_at = datetime('now') WHERE id = ?").run(operationId);
+    })();
+
+    const summary = summarizeActorSelection(results);
+
+    return c.json({
+      ok: true,
+      operationId,
+      added: summary.added,
+      removed: summary.removed,
+      unchanged: summary.unchanged,
+      failed: summary.failed,
+      results,
+    });
+  });
+
+  router.get("/follow-actors", requireAuth(), (c) => {
+    const user = c.get("user")!;
+    const actorUri = c.req.query("actorUri") || "";
+    if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
+
+    const acting = listActingAccounts(db, user.id, "editor");
+    const allowed = new Set(acting.map((a) => a.id));
+    const activeRows = db
+      .prepare("SELECT account_id FROM remote_following WHERE actor_uri = ?")
+      .all(actorUri) as Array<{ account_id: string }>;
+    const activeAccountIds = activeRows.map((r) => r.account_id).filter((id) => allowed.has(id));
+    return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });
 
   // Unfollow a remote actor
@@ -244,24 +427,18 @@ export function federationRoutes(db: DB): Hono {
     const account = db
       .prepare("SELECT username, private_key FROM accounts WHERE id = ?")
       .get(user.id) as { username: string; private_key: string | null };
+    const followRow = db
+      .prepare("SELECT follow_activity_id FROM remote_following WHERE account_id = ? AND actor_uri = ?")
+      .get(user.id, actorUri) as { follow_activity_id: string | null } | undefined;
 
+    let delivered = false;
     if (account.private_key) {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const ourActorUrl = `${baseUrl}/users/${account.username}`;
 
-      const undoActivity = {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${ourActorUrl}#undo-follow-${Date.now()}`,
-        type: "Undo",
-        actor: ourActorUrl,
-        object: {
-          type: "Follow",
-          actor: ourActorUrl,
-          object: actorUri,
-        },
-      };
+      const undoActivity = buildUndoFollowActivity(ourActorUrl, actorUri, followRow?.follow_activity_id);
 
-      await deliverActivity(
+      delivered = await deliverActivity(
         actor.inbox,
         undoActivity,
         account.private_key,
@@ -274,7 +451,7 @@ export function federationRoutes(db: DB): Hono {
       actorUri
     );
 
-    return c.json({ ok: true });
+    return c.json({ ok: true, delivered });
   });
 
   // List remote events

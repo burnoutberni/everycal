@@ -24,7 +24,15 @@ import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { generateAndSaveOgImage } from "./og-images.js";
-import { canManageIdentityEvents } from "../lib/identities.js";
+import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
+import {
+  ActorSelectionPayloadError,
+  applyLocalActorSelection,
+  buildActorSelectionPlan,
+  isDesiredAccountIdsAllowed,
+  readActorSelectionPayload,
+  summarizeActorSelection,
+} from "../lib/actor-selection.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -112,7 +120,7 @@ function canViewEvent(
        WHERE im.identity_account_id = ?
          AND a.account_type = 'identity'
          AND im.member_account_id = ?
-         AND im.role IN ('editor','admin','owner')`
+         AND im.role IN ('editor','owner')`
     )
     .get(ownerId, currentUser.id);
   if (membership) return true;
@@ -854,7 +862,7 @@ export function eventRoutes(db: DB): Hono {
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────
 
-  router.post("/:id/repost", requireAuth(), (c) => {
+  router.post("/:id/repost", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
 
@@ -862,13 +870,71 @@ export function eventRoutes(db: DB): Hono {
       | { id: string; account_id: string; visibility: string }
       | undefined;
     if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
-    if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
     if (event.visibility !== "public" && event.visibility !== "unlisted") {
       return c.json({ error: t(getLocale(c), "events.repost_public_unlisted_only") }, 403);
     }
 
-    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
-    return c.json({ ok: true, reposted: true });
+    let body: { desiredAccountIds?: string[] };
+    try {
+      body = await readActorSelectionPayload(c);
+    } catch (err) {
+      if (err instanceof ActorSelectionPayloadError) {
+        return c.json({ error: err.message }, 400);
+      }
+      throw err;
+    }
+    if (!body.desiredAccountIds) {
+      if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
+      db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
+      return c.json({ ok: true, reposted: true });
+    }
+
+    const acting = listActingAccounts(db, user.id, "editor");
+    const actingIds = acting.map((a) => a.id);
+    if (!isDesiredAccountIdsAllowed(body.desiredAccountIds, actingIds)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const activeRows = db
+      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
+      .all(id) as Array<{ account_id: string }>;
+    const plan = buildActorSelectionPlan({
+      actingAccountIds: actingIds,
+      desiredAccountIds: body.desiredAccountIds,
+      activeAccountIds: activeRows.map((r) => r.account_id),
+      validateTransition: ({ accountId, after }) => {
+        if (accountId === event.account_id && after) return t(getLocale(c), "events.cannot_repost_own");
+        return null;
+      },
+    });
+
+    const { operationId, results } = applyLocalActorSelection({
+      db,
+      operation: {
+        actionKind: "event_repost",
+        targetType: "event",
+        targetId: id,
+        initiatedByAccountId: user.id,
+      },
+      plan,
+      applyAdd: (accountId) => {
+        db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(accountId, id);
+      },
+      applyRemove: (accountId) => {
+        db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(accountId, id);
+      },
+    });
+    const summary = summarizeActorSelection(results);
+
+    return c.json({
+      ok: true,
+      operationId,
+      added: summary.added,
+      removed: summary.removed,
+      unchanged: summary.unchanged,
+      failed: summary.failed,
+      results,
+    });
   });
 
   // ─── DELETE /:id/repost ─────────────────────────────────────────────────
@@ -878,6 +944,21 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
     db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(user.id, id);
     return c.json({ ok: true, reposted: false });
+  });
+
+  router.get("/:id/repost-actors", requireAuth(), (c) => {
+    const user = c.get("user")!;
+    const id = c.req.param("id");
+    const event = db.prepare("SELECT id FROM events WHERE id = ?").get(id) as { id: string } | undefined;
+    if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+
+    const acting = listActingAccounts(db, user.id, "editor");
+    const allowed = new Set(acting.map((a) => a.id));
+    const activeRows = db
+      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
+      .all(id) as Array<{ account_id: string }>;
+    const activeAccountIds = activeRows.map((r) => r.account_id).filter((accountId) => allowed.has(accountId));
+    return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });
 
   // ─── GET /by-slug/:username/:slug ───────────────────────────────────────

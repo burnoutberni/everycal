@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { User } from "../lib/api";
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
@@ -15,6 +15,9 @@ export interface ProfileHeaderProps {
   headerRef?: React.RefObject<HTMLDivElement | null>;
   onFollow?: () => void;
   onAutoRepost?: () => void;
+  onFollowAs?: () => void;
+  onAutoRepostAs?: () => void;
+  showIdentityActions?: boolean;
   onOpenFollowers?: () => void;
   onOpenFollowing?: () => void;
 }
@@ -29,12 +32,17 @@ export function ProfileHeader({
   headerRef,
   onFollow,
   onAutoRepost,
+  onFollowAs,
+  onAutoRepostAs,
+  showIdentityActions = false,
   onOpenFollowers,
   onOpenFollowing,
 }: ProfileHeaderProps) {
   const { t } = useTranslation(["profile", "common"]);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -43,8 +51,17 @@ export function ProfileHeader({
         setMenuOpen(false);
       }
     };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButtonRef.current?.focus();
+    };
     document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener("keydown", onEscape);
+    };
   }, [menuOpen]);
 
   return (
@@ -102,33 +119,65 @@ export function ProfileHeader({
             >
               {profile.displayName || profile.username}
             </h1>
-            {currentUser && !isOwn && !isRemote && (
+            {currentUser && !isOwn && (!isRemote || showIdentityActions) && (
               <div ref={menuRef} style={{ position: "relative" }}>
                 <button
+                  ref={menuButtonRef}
                   type="button"
                   className="profile-menu-btn"
                   onClick={() => setMenuOpen((o) => !o)}
                   aria-expanded={menuOpen}
-                  aria-haspopup="true"
+                  aria-haspopup="menu"
+                  aria-controls={menuOpen ? menuId : undefined}
+                  aria-label={t("moreOptions")}
                   title={t("moreOptions")}
                 >
                   <MenuIcon />
                 </button>
                 {menuOpen && (
-                  <div className="header-dropdown">
-                    <button
-                      type="button"
-                      className="header-dropdown-item"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onAutoRepost?.();
-                      }}
-                      title={profile.autoReposting ? t("stopAutoRepost") : t("autoRepostAll")}
-                      style={profile.autoReposting ? { color: "var(--accent)" } : undefined}
-                    >
-                      <RepostIcon />
-                      {profile.autoReposting ? t("autoReposting") : t("autoRepost")}
-                    </button>
+                  <div id={menuId} className="header-dropdown" role="menu">
+                    {showIdentityActions && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onFollowAs?.();
+                        }}
+                      >
+                        {t("common:followAs")}
+                      </button>
+                    )}
+                    {!isRemote && showIdentityActions && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onAutoRepostAs?.();
+                        }}
+                      >
+                        {t("common:autoRepostAs")}
+                      </button>
+                    )}
+                    {!isRemote && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onAutoRepost?.();
+                        }}
+                        title={profile.autoReposting ? t("stopAutoRepost") : t("autoRepostAll")}
+                        style={profile.autoReposting ? { color: "var(--accent)" } : undefined}
+                      >
+                        <RepostIcon />
+                        {profile.autoReposting ? t("autoReposting") : t("autoRepost")}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
