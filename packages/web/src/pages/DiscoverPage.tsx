@@ -659,7 +659,7 @@ export function DiscoverPage() {
                 <div className="flex flex-col gap-1 mt-1">
                   <div className="card flex items-center gap-2">
                     <Link href={getProfileHref(searchResultItem, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
-                      <ProfileCardContent item={searchResultItem} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                      <ProfileCardContent item={searchResultItem} />
                     </Link>
                     {user && (
                       <FollowButton
@@ -697,7 +697,7 @@ export function DiscoverPage() {
               {visibleItems.map((item) => (
                 <div key={getProfileKey(item)} className="card flex items-center gap-2">
                   <Link href={getProfileHref(item, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
-                    <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                    <ProfileCardContent item={item} />
                   </Link>
                   {user && !isOwn(item) && (
                     <FollowButton
@@ -735,7 +735,7 @@ export function DiscoverPage() {
                     {hiddenItems.map((item) => (
                       <div key={getProfileKey(item)} className="card flex items-center gap-2">
                         <Link href={getProfileHref(item, profilePath, remoteProfilePath)} style={{ flex: 1, minWidth: 0, textDecoration: "none", color: "inherit" }}>
-                          <ProfileCardContent item={item} profilePath={profilePath} remoteProfilePath={remoteProfilePath} />
+                          <ProfileCardContent item={item} />
                         </Link>
                         {user && !isOwn(item) && (
                           <FollowButton

@@ -9,7 +9,7 @@
 const FOLLOW_LIST = `(SELECT following_id FROM follows WHERE follower_id = ?)`;
 const MANAGED_IDENTITY_LIST = `(SELECT identity_account_id FROM identity_memberships WHERE member_account_id = ? AND role IN ('editor','owner'))`;
 
-function remoteFollowLocal(baseUrl: string): string {
+function remoteFollowLocal(): string {
   return `(SELECT a2.id FROM accounts a2 WHERE ? || '/users/' || a2.username IN (SELECT actor_uri FROM remote_following WHERE account_id = ?))`;
 }
 
@@ -45,7 +45,7 @@ export interface FeedQueryResult {
  */
 export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   const { userId, baseUrl, dateFrom } = opts;
-  const rfl = remoteFollowLocal(baseUrl);
+  const rfl = remoteFollowLocal();
   const datePrefix = dateFrom ? "e.start_date >= ? AND " : "";
 
   const params: unknown[] = [];

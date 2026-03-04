@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc",
     "job": "node dist/index.js",
-    "lint": "eslint src/"
+    "lint": "tsc -b --pretty false"
   },
   "dependencies": {
     "node-cron": "^3.0.3"

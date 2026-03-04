@@ -12,8 +12,6 @@ import {
 
 /** Run the reminder job: find events in window, send emails, record sent. */
 export async function runSendReminders(db: DB): Promise<void> {
-  const now = new Date().toISOString();
-
   // Local events: account has RSVP, reminder enabled, event in window, not yet sent
   const localRows = db
     .prepare(

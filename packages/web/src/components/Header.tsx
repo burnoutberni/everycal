@@ -50,6 +50,8 @@ export function Header() {
     } else {
       document.body.style.overflow = "";
     }
+
+    return undefined;
   }, [drawerOpen]);
 
   return (

@@ -58,6 +58,7 @@ export function authMiddleware(db: DB) {
 
     c.set("user", user);
     await next();
+    return undefined;
   });
 }
 
@@ -69,6 +70,7 @@ export function requireAuth() {
       return c.json({ error: t(getLocale(c), "common.authentication_required") }, 401);
     }
     await next();
+    return undefined;
   });
 }
 

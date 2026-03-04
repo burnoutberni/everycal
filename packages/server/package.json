@@ -10,7 +10,7 @@
     "dev": "cross-env NODE_ENV=development node --watch-path=src --import tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "eslint src/"
+    "lint": "tsc -b --pretty false"
   },
   "dependencies": {
     "@everycal/core": "workspace:*",

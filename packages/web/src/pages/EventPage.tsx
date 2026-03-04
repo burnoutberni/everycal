@@ -6,7 +6,7 @@ import { events as eventsApi, users as usersApi, federation, identities as ident
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
-import { eventPath, accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
+import { accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
