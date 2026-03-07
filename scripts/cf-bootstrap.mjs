@@ -4,6 +4,8 @@ import { mkdir, readFile, writeFile, access, copyFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { lookup } from "node:dns/promises";
+import net from "node:net";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
 const COMPATIBILITY_DATE = "2026-03-01";
@@ -62,6 +64,68 @@ async function resolveOrCreateSecretMaterial(path, createValue, rotate) {
   const value = createValue();
   await writeFile(path, `${value}\n`);
   return { value, reused: false };
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function normalizeSmtpConfig(args) {
+  const config = {
+    host: (args["smtp-host"] ? String(args["smtp-host"]) : (process.env.SMTP_HOST || "")).trim(),
+    port: (args["smtp-port"] ? String(args["smtp-port"]) : (process.env.SMTP_PORT || "")).trim(),
+    from: (args["smtp-from"] ? String(args["smtp-from"]) : (process.env.SMTP_FROM || "")).trim(),
+    secure: (args["smtp-secure"] ? String(args["smtp-secure"]) : (process.env.SMTP_SECURE || "false")).trim(),
+    user: (args["smtp-user"] ? String(args["smtp-user"]) : (process.env.SMTP_USER || "")).trim(),
+    pass: (args["smtp-pass"] ? String(args["smtp-pass"]) : (process.env.SMTP_PASS || "")).trim(),
+  };
+  return config;
+}
+
+async function verifySmtpReachability(host, port, timeoutMs = 4000) {
+  await lookup(host);
+  await new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port, timeout: timeoutMs }, () => {
+      socket.end();
+      resolve(undefined);
+    });
+    socket.on("error", reject);
+    socket.on("timeout", () => {
+      socket.destroy();
+      reject(new Error("smtp_timeout"));
+    });
+  });
+}
+
+async function validateSmtpConfig(config, options) {
+  const messages = [];
+  const configured = Boolean(config.host && config.port && config.from);
+  if (!configured) {
+    if (options.allowNoSmtp) {
+      return { configured: false, valid: true, messages: ["SMTP optional mode enabled; skipping SMTP validation."] };
+    }
+    throw new Error("SMTP is required for production bootstrap. Provide --smtp-host, --smtp-port, --smtp-from (and optional auth). Use --allow-no-smtp only for non-production/testing.");
+  }
+
+  const port = Number.parseInt(config.port, 10);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+    throw new Error(`Invalid SMTP port: ${config.port}`);
+  }
+  if (!isValidEmail(config.from)) {
+    throw new Error(`Invalid SMTP from address: ${config.from}`);
+  }
+  if (!["true", "false"].includes(config.secure.toLowerCase())) {
+    throw new Error("SMTP secure flag must be true or false.");
+  }
+
+  if (!options.skipSmtpConnectionCheck) {
+    await verifySmtpReachability(config.host, port);
+    messages.push("SMTP DNS + TCP reachability check passed.");
+  } else {
+    messages.push("SMTP connection check skipped by flag.");
+  }
+
+  return { configured: true, valid: true, messages };
 }
 
 async function cfFetch(path, init, token) {
@@ -330,6 +394,9 @@ async function main() {
   const shouldWriteTrackedConfigs = Boolean(args["write-tracked-configs"]);
   const remindersWebhookUrl = args["reminders-webhook-url"] ? String(args["reminders-webhook-url"]) : "";
   const scrapersWebhookUrl = args["scrapers-webhook-url"] ? String(args["scrapers-webhook-url"]) : "";
+  const allowNoSmtp = Boolean(args["allow-no-smtp"]);
+  const skipSmtpConnectionCheck = Boolean(args["skip-smtp-connection-check"]);
+  const smtpConfig = normalizeSmtpConfig(args);
 
   const d1Name = `${projectSlug}-${env}`;
   const kvTitle = `${projectSlug}-${env}-rate-limits`;
@@ -338,9 +405,13 @@ async function main() {
   const remindersService = `${projectSlug}-reminders-${env}`;
   const scrapersService = `${projectSlug}-scrapers-${env}`;
 
+  const smtpValidation = dryRun
+    ? { configured: Boolean(smtpConfig.host && smtpConfig.port && smtpConfig.from), valid: true, messages: ["Plan mode: SMTP validation deferred to apply mode."] }
+    : await validateSmtpConfig(smtpConfig, { allowNoSmtp, skipSmtpConnectionCheck });
+
   const summary = {
     mode: dryRun ? "plan" : "apply",
-    input: { domain, apiHost, env, projectSlug, pagesProject, remindersWebhookUrl, scrapersWebhookUrl },
+    input: { domain, apiHost, env, projectSlug, pagesProject, remindersWebhookUrl, scrapersWebhookUrl, smtp: { host: smtpConfig.host, port: smtpConfig.port, from: smtpConfig.from, secure: smtpConfig.secure, hasAuth: Boolean(smtpConfig.user && smtpConfig.pass) } },
     derived: {
       webOrigin,
       apiOrigin,
@@ -362,6 +433,8 @@ async function main() {
       shouldWriteTrackedConfigs,
       remindersWebhookConfigured: Boolean(remindersWebhookUrl),
       scrapersWebhookConfigured: Boolean(scrapersWebhookUrl),
+      smtpConfigured: smtpValidation.configured,
+      smtpValidationMessages: smtpValidation.messages,
     },
   };
 
@@ -369,6 +442,10 @@ async function main() {
     console.log(JSON.stringify(summary, null, 2));
     console.log("\nPlan mode only. Re-run with --apply to provision resources and write generated config files.");
     return;
+  }
+
+  if (smtpValidation.configured) {
+    console.log(`[bootstrap] SMTP validated for ${smtpConfig.host}:${smtpConfig.port} (${smtpConfig.from}).`);
   }
 
   const token = must(process.env.CLOUDFLARE_API_TOKEN, "Missing CLOUDFLARE_API_TOKEN for --apply mode.");
@@ -435,6 +512,14 @@ async function main() {
       federationKeyReused: privateKey.reused,
       jobsWebhookTokenReused: jobsToken.reused,
     },
+    smtp: {
+      ...smtpValidation,
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      from: smtpConfig.from,
+      secure: smtpConfig.secure,
+      hasAuth: Boolean(smtpConfig.user && smtpConfig.pass),
+    },
   };
 
   const receiptPath = `.generated/cf-bootstrap-receipt.${env}.json`;
@@ -454,6 +539,16 @@ async function main() {
     console.log("\nSetting Worker secrets...");
     await putWranglerSecret("ACTIVITYPUB_PRIVATE_KEY_PEM", privateKey.value, workerConfigPath);
     await putWranglerSecret("JOBS_WEBHOOK_TOKEN", jobsToken.value, workerConfigPath);
+    if (smtpValidation.configured) {
+      await putWranglerSecret("SMTP_HOST", smtpConfig.host, workerConfigPath);
+      await putWranglerSecret("SMTP_PORT", smtpConfig.port, workerConfigPath);
+      await putWranglerSecret("SMTP_FROM", smtpConfig.from, workerConfigPath);
+      await putWranglerSecret("SMTP_SECURE", smtpConfig.secure, workerConfigPath);
+      if (smtpConfig.user && smtpConfig.pass) {
+        await putWranglerSecret("SMTP_USER", smtpConfig.user, workerConfigPath);
+        await putWranglerSecret("SMTP_PASS", smtpConfig.pass, workerConfigPath);
+      }
+    }
   }
 
   if (shouldProvisionCompanionWorkers && (!remindersWebhookUrl || !scrapersWebhookUrl)) {
@@ -470,6 +565,22 @@ async function main() {
       if (shouldSetSecrets) {
         await putWorkerNamedSecret(remindersService, "JOBS_WEBHOOK_TOKEN", jobsToken.value);
         await putWorkerNamedSecret(scrapersService, "JOBS_WEBHOOK_TOKEN", jobsToken.value);
+        if (smtpValidation.configured) {
+          await putWorkerNamedSecret(remindersService, "SMTP_HOST", smtpConfig.host);
+          await putWorkerNamedSecret(remindersService, "SMTP_PORT", smtpConfig.port);
+          await putWorkerNamedSecret(remindersService, "SMTP_FROM", smtpConfig.from);
+          await putWorkerNamedSecret(remindersService, "SMTP_SECURE", smtpConfig.secure);
+          await putWorkerNamedSecret(scrapersService, "SMTP_HOST", smtpConfig.host);
+          await putWorkerNamedSecret(scrapersService, "SMTP_PORT", smtpConfig.port);
+          await putWorkerNamedSecret(scrapersService, "SMTP_FROM", smtpConfig.from);
+          await putWorkerNamedSecret(scrapersService, "SMTP_SECURE", smtpConfig.secure);
+          if (smtpConfig.user && smtpConfig.pass) {
+            await putWorkerNamedSecret(remindersService, "SMTP_USER", smtpConfig.user);
+            await putWorkerNamedSecret(remindersService, "SMTP_PASS", smtpConfig.pass);
+            await putWorkerNamedSecret(scrapersService, "SMTP_USER", smtpConfig.user);
+            await putWorkerNamedSecret(scrapersService, "SMTP_PASS", smtpConfig.pass);
+          }
+        }
       }
     }
 

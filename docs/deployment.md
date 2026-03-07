@@ -99,6 +99,21 @@ Cloudflare deployment is additive only. Existing Node/Docker commands and runtim
 
 ## Live test walkthrough for one-click-ish flow
 
+## Ops hardening playbook (production)
+
+Before every production cutover:
+- run `pnpm cf:go-live-gate -- --api-origin <origin>` and require pass.
+- verify queues are draining and no DLQ growth after bootstrap/deploy window.
+- verify cron trigger execution and reminder/scraper companion `/healthz` checks.
+- verify federation delivery success rate and signature error rate for newly deployed key material.
+- verify alerting channels + rollback command runbook are ready.
+
+Rollback minimum:
+- redeploy previous known-good worker artifact/config,
+- restore previous companion worker targets if changed,
+- if `--rotate-keys` was used unintentionally, restore prior federation private key secret.
+
+
 1. **Plan the derived config from a single domain input**
 
 ```bash
@@ -127,7 +142,7 @@ Key behavior:
 3. **Deploy + verify readiness (single command)**
 
 ```bash
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy --reminders-webhook-url https://jobs.example/reminders --scrapers-webhook-url https://jobs.example/scrapers
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy --reminders-webhook-url https://jobs.example/reminders --scrapers-webhook-url https://jobs.example/scrapers --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com --smtp-secure false --smtp-user smtp-user --smtp-pass smtp-pass
 ```
 
 This runs companion worker deploys, migrations, EveryCal Worker deploy, Pages build/deploy, and then verifies:
@@ -143,6 +158,25 @@ For production parity, configure companion executor targets using:
 - `--scrapers-webhook-url <url>`
 
 Without these, service bindings still deploy, but behavioral readiness checks for companion execution can fail by design.
+
+
+4. **Run strict go-live gate (required for production cutover)**
+
+```bash
+pnpm cf:go-live-gate -- --api-origin https://api.calendar.example.com
+```
+
+This enforces generated-config strictness, SMTP validation status from bootstrap receipt, behavioral readiness checks, and smoke checks (`/healthz`, `/api/v1/bootstrap`).
+
+5. **Use generated config as production source of truth**
+
+```bash
+pnpm cf:migrate:prod
+pnpm cf:deploy:prod
+pnpm cf:pages:deploy:prod
+```
+
+Repo-tracked wrangler files remain templates; production deploy should come from `.generated/` outputs.
 
 ## Current migration chunk status
 

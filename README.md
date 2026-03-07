@@ -174,8 +174,37 @@ Common flags:
 - `--account-id <id>` to pin a specific Cloudflare account.
 - `--rotate-keys` to force regeneration of federation/job secrets.
 - `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
+- `--smtp-host`, `--smtp-port`, `--smtp-from` (plus optional `--smtp-secure`, `--smtp-user`, `--smtp-pass`) to supply and validate production SMTP during bootstrap.
+- `--allow-no-smtp` only for non-production/testing; production bootstrap enforces SMTP by default.
 - `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
 - `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
+
+### Production source of truth: generated config
+
+For production, generated config under `.generated/` is the default source of truth.
+Use:
+
+```bash
+pnpm cf:migrate:prod
+pnpm cf:deploy:prod
+pnpm cf:pages:deploy:prod
+```
+
+This avoids placeholder drift in repo-tracked template wrangler files.
+
+### Strict go-live gates
+
+Run a strict gate before cutover:
+
+```bash
+pnpm cf:go-live-gate -- --api-origin https://api.calendar.example.com
+```
+
+This enforces:
+- generated config strict validation,
+- SMTP validated in bootstrap receipt,
+- runtime readiness success (including behavioral executor checks), and
+- smoke checks (`/healthz`, `/api/v1/bootstrap`).
 
 ### Deploy readiness validation
 
