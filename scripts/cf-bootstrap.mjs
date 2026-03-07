@@ -147,6 +147,9 @@ async function runCommandCapture(cmd, args, options = {}) {
       if (code === 0) resolve({ stdout, stderr });
       else reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}\n${stderr || stdout}`));
     });
+    child.on("error", (error) => {
+      reject(new Error(`${cmd} ${args.join(" ")} failed to start: ${error.message}`));
+    });
   });
 }
 
@@ -161,8 +164,16 @@ function parseMaybeJsonOutput(stdout) {
   return JSON.parse(jsonCandidate);
 }
 
-async function runWranglerJson(args) {
-  const { stdout } = await runCommandCapture("wrangler", [...args, "--json"]);
+function wranglerEnv(accountId) {
+  if (!accountId) return process.env;
+  return {
+    ...process.env,
+    CLOUDFLARE_ACCOUNT_ID: accountId,
+  };
+}
+
+async function runWranglerJson(args, options = {}) {
+  const { stdout } = await runCommandCapture("wrangler", [...args, "--json"], { env: wranglerEnv(options.accountId) });
   const parsed = parseMaybeJsonOutput(stdout);
   if (parsed === null) throw new Error(`Expected JSON output from wrangler ${args.join(" ")}`);
   return parsed;
@@ -195,11 +206,18 @@ async function resolveAccountId(token, preferredAccountId) {
 }
 
 async function resolveAccountIdFromWrangler(preferredAccountId) {
-  if (preferredAccountId) return preferredAccountId;
   const whoami = await runWranglerJson(["whoami"]);
-  const account = Array.isArray(whoami?.accounts) ? whoami.accounts[0] : null;
-  if (!account?.id) throw new Error("Unable to resolve account id from Wrangler OAuth session. Run `wrangler login` or provide --account-id.");
-  return account.id;
+  const accounts = Array.isArray(whoami?.accounts) ? whoami.accounts : [];
+  if (preferredAccountId) {
+    const matched = accounts.find((account) => account?.id === preferredAccountId);
+    if (!matched) {
+      throw new Error(`Account id ${preferredAccountId} not found in Wrangler OAuth session. Run 'wrangler whoami' and choose a listed account id.`);
+    }
+    return preferredAccountId;
+  }
+  const first = accounts[0];
+  if (!first?.id) throw new Error("Unable to resolve account id from Wrangler OAuth session. Run `wrangler login` or provide --account-id.");
+  return first.id;
 }
 
 async function ensureD1Database(accountId, name, token) {
@@ -246,45 +264,41 @@ async function ensureQueue(accountId, queueName, token) {
   return { id: created.queue_id, created: true };
 }
 
-function buildAccountArgs(accountId) {
-  return accountId ? ["--account-id", accountId] : [];
-}
-
 async function ensureD1DatabaseWithWrangler(accountId, name) {
-  const list = await runWranglerJson(["d1", "list", ...buildAccountArgs(accountId)]);
+  const list = await runWranglerJson(["d1", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
   if (existing?.uuid) return { id: existing.uuid, created: false };
-  const created = await runWranglerJson(["d1", "create", name, ...buildAccountArgs(accountId)]);
+  const created = await runWranglerJson(["d1", "create", name], { accountId });
   const createdId = created?.uuid || created?.database_id;
   if (!createdId) throw new Error("Unable to parse D1 id from wrangler d1 create output.");
   return { id: createdId, created: true };
 }
 
 async function ensureKvNamespaceWithWrangler(accountId, title) {
-  const list = await runWranglerJson(["kv", "namespace", "list", ...buildAccountArgs(accountId)]);
+  const list = await runWranglerJson(["kv", "namespace", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.title === title) : null;
   if (existing?.id) return { id: existing.id, created: false };
 
   const placeholderBinding = "RATE_LIMITS_KV";
-  const created = await runWranglerJson(["kv", "namespace", "create", placeholderBinding, ...buildAccountArgs(accountId), "--title", title]);
+  const created = await runWranglerJson(["kv", "namespace", "create", placeholderBinding, "--title", title], { accountId });
   const createdId = created?.id;
   if (!createdId) throw new Error("Unable to parse KV namespace id from wrangler kv namespace create output.");
   return { id: createdId, created: true };
 }
 
 async function ensureR2BucketWithWrangler(accountId, name) {
-  const list = await runWranglerJson(["r2", "bucket", "list", ...buildAccountArgs(accountId)]);
+  const list = await runWranglerJson(["r2", "bucket", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
   if (existing?.name) return { name: existing.name, created: false };
-  await runWranglerJson(["r2", "bucket", "create", name, ...buildAccountArgs(accountId)]);
+  await runWranglerJson(["r2", "bucket", "create", name], { accountId });
   return { name, created: true };
 }
 
 async function ensureQueueWithWrangler(accountId, queueName) {
-  const list = await runWranglerJson(["queues", "list", ...buildAccountArgs(accountId)]);
+  const list = await runWranglerJson(["queues", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
   if (existing?.queue_id || existing?.queueId) return { id: existing.queue_id || existing.queueId, created: false };
-  const created = await runWranglerJson(["queues", "create", queueName, ...buildAccountArgs(accountId)]);
+  const created = await runWranglerJson(["queues", "create", queueName], { accountId });
   return { id: created?.queue_id || created?.queueId || "", created: true };
 }
 
@@ -298,6 +312,9 @@ async function runCommand(cmd, args, options = {}) {
     child.on("exit", (code) => {
       if (code === 0) resolve();
       else reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
+    });
+    child.on("error", (error) => {
+      reject(new Error(`${cmd} ${args.join(" ")} failed to start: ${error.message}`));
     });
   });
 }
