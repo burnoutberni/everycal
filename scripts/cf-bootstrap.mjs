@@ -125,8 +125,12 @@ async function runCommand(cmd, args, options = {}) {
   });
 }
 
+async function putWranglerSecret(name, value, workerConfigPath) {
+  await runCommand("wrangler", ["secret", "put", name, "--config", workerConfigPath], { stdinText: `${value}\n` });
+}
+
 function renderWorkerConfig(input) {
-  return `name = "everycal"
+  return `name = "${input.workerName}"
 main = "packages/cloudflare-worker/src/index.ts"
 compatibility_date = "2026-03-01"
 workers_dev = true
@@ -199,15 +203,38 @@ VITE_API_ORIGIN = "${apiOrigin}"
 `;
 }
 
+async function verifyGeneratedConfig(workerConfigPath, pagesConfigPath) {
+  await runCommand("node", [
+    "scripts/cf-deploy-readiness.mjs",
+    "--worker-config", workerConfigPath,
+    "--pages-config", pagesConfigPath,
+  ]);
+}
+
+async function verifyRemoteReadiness(apiOrigin) {
+  const url = `${apiOrigin}/api/v1/system/deploy-readiness`;
+  const res = await fetch(url);
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || payload?.ok !== true) {
+    throw new Error(`Remote readiness check failed at ${url}: ${JSON.stringify(payload)}`);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const domain = must(args.domain, "Missing required --domain (example: --domain calendar.example.com)");
   const env = String(args.env || "prod");
   const projectSlug = slugify(String(args.project || "everycal"));
+  const workerName = `${projectSlug}-${env}`;
+  const pagesProject = String(args["pages-project"] || "everycal-web");
   const apiHost = String(args["api-host"] || `api.${domain}`);
   const webOrigin = `https://${domain}`;
   const apiOrigin = `https://${apiHost}`;
   const dryRun = !args.apply;
+  const shouldDeploy = Boolean(args.deploy);
+  const shouldSetSecrets = !args["skip-secrets"];
+  const shouldVerifyGenerated = !args["skip-config-check"];
+  const shouldVerifyRemote = shouldDeploy && !args["skip-remote-verify"];
 
   const d1Name = `${projectSlug}-${env}`;
   const kvTitle = `${projectSlug}-${env}-rate-limits`;
@@ -218,8 +245,8 @@ async function main() {
 
   const summary = {
     mode: dryRun ? "plan" : "apply",
-    input: { domain, apiHost, env, projectSlug },
-    derived: { webOrigin, apiOrigin, d1Name, kvTitle, r2Bucket, queueName, remindersService, scrapersService },
+    input: { domain, apiHost, env, projectSlug, pagesProject },
+    derived: { webOrigin, apiOrigin, workerName, d1Name, kvTitle, r2Bucket, queueName, remindersService, scrapersService },
   };
 
   if (dryRun) {
@@ -244,6 +271,7 @@ async function main() {
   const workerConfigPath = `.generated/wrangler.${env}.toml`;
   const pagesConfigPath = `.generated/packages.web.wrangler.${env}.toml`;
   await writeFile(workerConfigPath, renderWorkerConfig({
+    workerName,
     d1Name,
     d1Id: d1.id,
     r2Bucket: r2.name,
@@ -255,6 +283,11 @@ async function main() {
     apiOrigin,
   }));
   await writeFile(pagesConfigPath, renderPagesConfig(apiOrigin));
+
+  const privateKeyPath = `.generated/activitypub-private-key.${env}.pem`;
+  const jobsTokenPath = `.generated/jobs-webhook-token.${env}.txt`;
+  await writeFile(privateKeyPath, activityPubPrivateKeyPem);
+  await writeFile(jobsTokenPath, `${jobsWebhookToken}\n`);
 
   const receipt = {
     ...summary,
@@ -268,32 +301,68 @@ async function main() {
     generated: {
       workerConfigPath,
       pagesConfigPath,
-      activityPubPrivateKeyPemPath: `.generated/activitypub-private-key.${env}.pem`,
-      jobsWebhookTokenPath: `.generated/jobs-webhook-token.${env}.txt`,
+      activityPubPrivateKeyPemPath: privateKeyPath,
+      jobsWebhookTokenPath: jobsTokenPath,
+    },
+    execution: {
+      shouldSetSecrets,
+      shouldDeploy,
+      shouldVerifyGenerated,
+      shouldVerifyRemote,
     },
   };
 
-  await writeFile(`.generated/activitypub-private-key.${env}.pem`, activityPubPrivateKeyPem);
-  await writeFile(`.generated/jobs-webhook-token.${env}.txt`, `${jobsWebhookToken}\n`);
-  await writeFile(`.generated/cf-bootstrap-receipt.${env}.json`, JSON.stringify(receipt, null, 2));
+  const receiptPath = `.generated/cf-bootstrap-receipt.${env}.json`;
+  await writeFile(receiptPath, JSON.stringify(receipt, null, 2));
 
   console.log("Created resources and generated config files:");
   console.log(`- ${workerConfigPath}`);
   console.log(`- ${pagesConfigPath}`);
-  console.log(`- .generated/cf-bootstrap-receipt.${env}.json`);
+  console.log(`- ${receiptPath}`);
 
-  if (args.deploy) {
+  if (shouldVerifyGenerated) {
+    console.log("\nRunning strict generated-config readiness checks...");
+    await verifyGeneratedConfig(workerConfigPath, pagesConfigPath);
+  }
+
+  if (shouldSetSecrets) {
+    console.log("\nSetting Worker secrets...");
+    await putWranglerSecret("ACTIVITYPUB_PRIVATE_KEY_PEM", activityPubPrivateKeyPem, workerConfigPath);
+    await putWranglerSecret("JOBS_WEBHOOK_TOKEN", jobsWebhookToken, workerConfigPath);
+  }
+
+  if (shouldDeploy) {
+    console.log("\nDeploying Worker + Pages...");
     await runCommand("wrangler", ["d1", "migrations", "apply", d1Name, "--config", workerConfigPath]);
     await runCommand("wrangler", ["deploy", "--config", workerConfigPath]);
     await runCommand("pnpm", ["cf:pages:build"]);
-    await runCommand("wrangler", ["pages", "deploy", "packages/web/dist/client", "--project-name", "everycal-web", "--config", pagesConfigPath]);
+    await runCommand("wrangler", ["pages", "deploy", "packages/web/dist/client", "--project-name", pagesProject, "--config", pagesConfigPath]);
+
+    if (shouldVerifyRemote) {
+      console.log("\nVerifying remote runtime readiness endpoint...");
+      await verifyRemoteReadiness(apiOrigin);
+      console.log("Remote readiness check passed.");
+    }
   }
 
   console.log("\nNext steps:");
-  console.log(`1) wrangler secret put ACTIVITYPUB_PRIVATE_KEY_PEM --config ${workerConfigPath} < .generated/activitypub-private-key.${env}.pem`);
-  console.log(`2) wrangler secret put JOBS_WEBHOOK_TOKEN --config ${workerConfigPath} < .generated/jobs-webhook-token.${env}.txt`);
-  console.log(`3) pnpm cf:check:strict (after copying generated config into tracked wrangler files or using equivalent check script wiring)`);
-  console.log(`4) GET ${apiOrigin}/api/v1/system/deploy-readiness should return { ok: true }`);
+  console.log(`- Review ${receiptPath} for created resource IDs and generated artifacts.`);
+  if (!shouldSetSecrets) {
+    console.log(`- Set secrets manually:`);
+    console.log(`  wrangler secret put ACTIVITYPUB_PRIVATE_KEY_PEM --config ${workerConfigPath} < ${privateKeyPath}`);
+    console.log(`  wrangler secret put JOBS_WEBHOOK_TOKEN --config ${workerConfigPath} < ${jobsTokenPath}`);
+  }
+  if (!shouldDeploy) {
+    console.log(`- Deploy manually:`);
+    console.log(`  wrangler d1 migrations apply ${d1Name} --config ${workerConfigPath}`);
+    console.log(`  wrangler deploy --config ${workerConfigPath}`);
+    console.log(`  pnpm cf:pages:build`);
+    console.log(`  wrangler pages deploy packages/web/dist/client --project-name ${pagesProject} --config ${pagesConfigPath}`);
+  }
+  if (!shouldVerifyRemote) {
+    console.log(`- Verify runtime readiness:`);
+    console.log(`  curl -fsS ${apiOrigin}/api/v1/system/deploy-readiness`);
+  }
 }
 
 main().catch((err) => {

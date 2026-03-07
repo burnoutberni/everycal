@@ -155,18 +155,23 @@ A new bootstrap orchestrator is available to minimize required input to essentia
 # plan only (no API calls)
 pnpm cf:bootstrap -- --domain calendar.example.com
 
-# apply: provision resources + generate env-specific wrangler files/receipts
+# apply: provision resources + generate config + set secrets
 export CLOUDFLARE_API_TOKEN=...
 pnpm cf:bootstrap -- --domain calendar.example.com --apply
 
-# optional: run deployment in same command
+# one-command deploy (provision + secrets + deploy + remote readiness verify)
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
 ```
 
 What it does:
 - **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Cloudflare API calls and writes generated configs under `.generated/`.
 - **Phase B (convention defaults):** derives `BASE_URL`, `CORS_ORIGIN`, `API_ORIGIN`, and resource names from the domain + env convention.
-- **Phase C (first-run bootstrap artifacts):** generates federation private key + job webhook token and writes a deployment receipt JSON for reproducibility.
+- **Phase C (first-run bootstrap artifacts):** generates federation private key + job webhook token, sets Worker secrets by default, and writes a deployment receipt JSON for reproducibility.
+
+Common flags:
+- `--pages-project <name>` to customize Pages project name (default `everycal-web`).
+- `--account-id <id>` to pin a specific Cloudflare account.
+- `--skip-secrets`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
 
 ### Deploy readiness validation
 

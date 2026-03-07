@@ -112,30 +112,20 @@ export CLOUDFLARE_API_TOKEN=...
 pnpm cf:bootstrap -- --domain calendar.example.com --apply
 ```
 
-This writes:
+This now performs provisioning + generated-config strict validation + Worker secret setup by default, and writes:
 - `.generated/wrangler.prod.toml`
 - `.generated/packages.web.wrangler.prod.toml`
 - `.generated/activitypub-private-key.prod.pem`
 - `.generated/jobs-webhook-token.prod.txt`
 - `.generated/cf-bootstrap-receipt.prod.json`
 
-3. **Set generated secrets on Worker**
+3. **Deploy + verify readiness (single command)**
 
 ```bash
-wrangler secret put ACTIVITYPUB_PRIVATE_KEY_PEM --config .generated/wrangler.prod.toml < .generated/activitypub-private-key.prod.pem
-wrangler secret put JOBS_WEBHOOK_TOKEN --config .generated/wrangler.prod.toml < .generated/jobs-webhook-token.prod.txt
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
 ```
 
-4. **Deploy + verify readiness**
-
-```bash
-wrangler d1 migrations apply everycal-prod --config .generated/wrangler.prod.toml
-wrangler deploy --config .generated/wrangler.prod.toml
-pnpm cf:pages:build
-wrangler pages deploy packages/web/dist/client --project-name everycal-web --config .generated/packages.web.wrangler.prod.toml
-```
-
-Then verify:
+This runs migrations, Worker deploy, Pages build/deploy, and then verifies:
 
 ```bash
 curl -fsS https://api.calendar.example.com/api/v1/system/deploy-readiness

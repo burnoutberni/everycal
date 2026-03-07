@@ -48,6 +48,7 @@
     "cf:pages:dev": "wrangler pages dev packages/web/dist/client --config packages/web/wrangler.toml",
     "test:parity": "pnpm --filter @everycal/runtime-core test && pnpm --filter @everycal/cloudflare-worker test",
     "cf:bootstrap": "node scripts/cf-bootstrap.mjs",
-    "cf:bootstrap:apply": "node scripts/cf-bootstrap.mjs --apply"
+    "cf:bootstrap:apply": "node scripts/cf-bootstrap.mjs --apply",
+    "cf:bootstrap:deploy": "node scripts/cf-bootstrap.mjs --apply --deploy"
   }
 }
