@@ -181,6 +181,7 @@ Common flags:
 - `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
 - `--smtp-host`, `--smtp-port`, `--smtp-from` (plus optional `--smtp-secure`, `--smtp-user`, `--smtp-pass`) to supply and validate production SMTP during bootstrap.
 - `--allow-no-smtp` only for non-production/testing; production bootstrap enforces SMTP by default.
+- `--allow-no-r2` to continue provisioning when R2 is not enabled on the Cloudflare account (uploads will be unavailable until R2 is enabled and bootstrap re-run).
 - `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
 - `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
 

@@ -273,6 +273,11 @@ async function ensureR2Bucket(accountId, name, token) {
   return { name, created: true };
 }
 
+function isR2NotEnabledError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("code: 10042") || message.includes("enable R2");
+}
+
 async function ensureQueue(accountId, queueName, token) {
   const list = await cfFetch(`/accounts/${accountId}/queues`, { method: "GET" }, token);
   const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName) : null;
@@ -403,6 +408,12 @@ function renderCompanionWorkerSource(jobType) {
 }
 
 function renderWorkerConfig(input) {
+  const r2Section = input.r2Bucket ? `
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "${input.r2Bucket}"
+` : "";
+
   return `name = "${input.workerName}"
 main = "packages/cloudflare-worker/src/index.ts"
 compatibility_date = "${COMPATIBILITY_DATE}"
@@ -413,10 +424,7 @@ binding = "DB"
 database_name = "${input.d1Name}"
 database_id = "${input.d1Id}"
 migrations_dir = "packages/cloudflare-worker/migrations"
-
-[[r2_buckets]]
-binding = "UPLOADS"
-bucket_name = "${input.r2Bucket}"
+${r2Section}
 
 [[queues.producers]]
 binding = "JOBS_QUEUE"
@@ -527,6 +535,7 @@ async function main() {
   const remindersWebhookUrl = args["reminders-webhook-url"] ? String(args["reminders-webhook-url"]) : "";
   const scrapersWebhookUrl = args["scrapers-webhook-url"] ? String(args["scrapers-webhook-url"]) : "";
   const allowNoSmtp = Boolean(args["allow-no-smtp"]);
+  const allowNoR2 = Boolean(args["allow-no-r2"]);
   const skipSmtpConnectionCheck = Boolean(args["skip-smtp-connection-check"]);
   const smtpConfig = normalizeSmtpConfig(args);
 
@@ -567,6 +576,7 @@ async function main() {
       scrapersWebhookConfigured: Boolean(scrapersWebhookUrl),
       smtpConfigured: smtpValidation.configured,
       smtpValidationMessages: smtpValidation.messages,
+      allowNoR2,
     },
   };
 
@@ -593,13 +603,25 @@ async function main() {
     accountId = await resolveAccountId(token, preferredAccountId);
     d1 = await ensureD1Database(accountId, d1Name, token);
     kv = await ensureKvNamespace(accountId, kvTitle, token);
-    r2 = await ensureR2Bucket(accountId, r2Bucket, token);
+    try {
+      r2 = await ensureR2Bucket(accountId, r2Bucket, token);
+    } catch (error) {
+      if (!allowNoR2 || !isR2NotEnabledError(error)) throw error;
+      r2 = { name: "", created: false, skipped: true, reason: "r2_not_enabled" };
+      console.warn("[bootstrap] R2 is not enabled on this account; continuing without UPLOADS binding due to --allow-no-r2.");
+    }
     queue = await ensureQueue(accountId, queueName, token);
   } else {
     accountId = await resolveAccountIdFromWrangler(preferredAccountId);
     d1 = await ensureD1DatabaseWithWrangler(accountId, d1Name);
     kv = await ensureKvNamespaceWithWrangler(accountId, kvTitle);
-    r2 = await ensureR2BucketWithWrangler(accountId, r2Bucket);
+    try {
+      r2 = await ensureR2BucketWithWrangler(accountId, r2Bucket);
+    } catch (error) {
+      if (!allowNoR2 || !isR2NotEnabledError(error)) throw error;
+      r2 = { name: "", created: false, skipped: true, reason: "r2_not_enabled" };
+      console.warn("[bootstrap] R2 is not enabled on this account; continuing without UPLOADS binding due to --allow-no-r2.");
+    }
     queue = await ensureQueueWithWrangler(accountId, queueName);
   }
 
@@ -616,7 +638,7 @@ async function main() {
     workerName,
     d1Name,
     d1Id: d1.id,
-    r2Bucket: r2.name,
+    r2Bucket: r2?.name || "",
     queueName,
     kvId: kv.id,
     remindersService,
@@ -642,7 +664,7 @@ async function main() {
     resources: {
       d1: { ...d1, name: d1Name },
       kv: { ...kv, title: kvTitle },
-      r2: { ...r2 },
+      r2: { ...(r2 || {}) },
       queue: { ...queue, name: queueName },
       companionServices: {
         reminders: { name: remindersService, scriptPath: remindersCompanionPath },

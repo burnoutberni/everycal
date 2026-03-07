@@ -134,6 +134,14 @@ export CLOUDFLARE_API_TOKEN=...
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 ```
 
+If your Cloudflare account has not enabled R2 yet, you can continue bootstrap with:
+
+```bash
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --allow-no-r2 --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
+```
+
+This skips the `UPLOADS` binding temporarily; upload features remain unavailable until R2 is enabled and bootstrap is re-run without `--allow-no-r2`.
+
 This now performs provisioning + generated-config strict validation + Worker secret setup by default, and writes:
 - `.generated/wrangler.prod.toml`
 - `.generated/packages.web.wrangler.prod.toml`
