@@ -15,6 +15,7 @@ type DeployReadinessCheck = {
   id: string;
   ok: boolean;
   detail: string;
+  level?: "required" | "behavior";
 };
 
 const DEFAULT_SECURITY_HEADERS: Record<string, string> = {
@@ -54,8 +55,37 @@ function isPlaceholderLike(value: string | undefined): boolean {
     || normalized.includes("example.pages.dev");
 }
 
-function evaluateDeployReadiness(env: CloudflareBindings): DeployReadinessCheck[] {
-  return [
+async function checkExecutorBehavior(service: Fetcher | undefined, id: string): Promise<DeployReadinessCheck | null> {
+  if (!service) return null;
+  try {
+    const res = await service.fetch("https://internal.everycal/healthz", { method: "GET" });
+    if (!res.ok) {
+      return {
+        id,
+        ok: false,
+        level: "behavior",
+        detail: `Service binding healthcheck returned ${res.status}.`,
+      };
+    }
+    const payload = await res.json<{ ok?: boolean }>();
+    return {
+      id,
+      ok: Boolean(payload?.ok),
+      level: "behavior",
+      detail: "Service binding healthcheck must report ok=true.",
+    };
+  } catch {
+    return {
+      id,
+      ok: false,
+      level: "behavior",
+      detail: "Service binding healthcheck failed to execute.",
+    };
+  }
+}
+
+async function evaluateDeployReadiness(env: CloudflareBindings): Promise<DeployReadinessCheck[]> {
+  const checks: DeployReadinessCheck[] = [
     {
       id: "base_url",
       ok: !isPlaceholderLike(env.BASE_URL),
@@ -87,13 +117,20 @@ function evaluateDeployReadiness(env: CloudflareBindings): DeployReadinessCheck[
       detail: "Configure SCRAPERS_SERVICE or SCRAPERS_WEBHOOK_URL.",
     },
   ];
+
+  const remindersBehavior = await checkExecutorBehavior(env.REMINDERS_SERVICE, "reminders_executor_behavior");
+  const scrapersBehavior = await checkExecutorBehavior(env.SCRAPERS_SERVICE, "scrapers_executor_behavior");
+  if (remindersBehavior) checks.push(remindersBehavior);
+  if (scrapersBehavior) checks.push(scrapersBehavior);
+
+  return checks;
 }
 
-function maybeHandleDeployReadiness(request: Request, env: CloudflareBindings): Response | null {
+async function maybeHandleDeployReadiness(request: Request, env: CloudflareBindings): Promise<Response | null> {
   const url = new URL(request.url);
   if (request.method !== "GET" || url.pathname !== "/api/v1/system/deploy-readiness") return null;
 
-  const checks = evaluateDeployReadiness(env);
+  const checks = await evaluateDeployReadiness(env);
   const requiredFailures = checks.filter((check) => !check.ok);
 
   return withSecurityHeaders(new Response(JSON.stringify({
@@ -492,7 +529,7 @@ export class RateLimitCoordinator {
 
 export default {
   async fetch(request: Request, env: CloudflareBindings, ctx: ExecutionContext): Promise<Response> {
-    const readiness = maybeHandleDeployReadiness(request, env);
+    const readiness = await maybeHandleDeployReadiness(request, env);
     if (readiness) {
       const headers = new Headers(readiness.headers);
       applyCorsHeaders(headers, request, env);

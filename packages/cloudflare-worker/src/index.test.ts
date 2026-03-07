@@ -104,6 +104,27 @@ describe("cloudflare worker entry", () => {
     expect(createUnifiedApp).not.toHaveBeenCalled();
   });
 
+
+  it("deploy-readiness fails when configured service binding healthcheck fails", async () => {
+    const request = new Request("https://calendar.example/api/v1/system/deploy-readiness");
+    const env = {
+      BASE_URL: "https://calendar.example",
+      CORS_ORIGIN: "https://app.example",
+      ACTIVITYPUB_PRIVATE_KEY_PEM: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      DB: { prepare: vi.fn() },
+      UPLOADS: { put: vi.fn(), get: vi.fn() },
+      JOBS_QUEUE: { send: vi.fn() },
+      REMINDERS_SERVICE: { fetch: vi.fn(async () => new Response(JSON.stringify({ ok: false }), { status: 200, headers: { "content-type": "application/json" } })) },
+      SCRAPERS_WEBHOOK_URL: "https://jobs.example/scrapers",
+    } as unknown as Parameters<typeof worker.fetch>[1];
+
+    const response = await worker.fetch(request, env, {} as ExecutionContext);
+    const payload = await response.json() as { ok: boolean; checks: Array<{ id: string; ok: boolean }> };
+
+    expect(response.status).toBe(503);
+    expect(payload.ok).toBe(false);
+    expect(payload.checks.find((check) => check.id === "reminders_executor_behavior")?.ok).toBe(false);
+  });
   it("returns deploy-readiness failure when required wiring is missing", async () => {
     const request = new Request("https://calendar.example/api/v1/system/deploy-readiness");
     const env = {

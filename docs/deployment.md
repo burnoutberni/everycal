@@ -122,12 +122,12 @@ This now performs provisioning + generated-config strict validation + Worker sec
 Key behavior:
 - federation/job secrets are **generate-once + reuse** by default across reruns
 - pass `--rotate-keys` to explicitly regenerate key/token material
-- companion reminder/scraper service workers are generated for Cloudflare-native service bindings
+- companion reminder/scraper service workers are generated for Cloudflare-native service bindings and expose `/healthz` for behavioral readiness checks
 
 3. **Deploy + verify readiness (single command)**
 
 ```bash
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy --reminders-webhook-url https://jobs.example/reminders --scrapers-webhook-url https://jobs.example/scrapers
 ```
 
 This runs companion worker deploys, migrations, EveryCal Worker deploy, Pages build/deploy, and then verifies:
@@ -137,6 +137,12 @@ curl -fsS https://api.calendar.example.com/api/v1/system/deploy-readiness
 ```
 
 You should see `{ "ok": true, ... }` when all required wiring is present.
+
+For production parity, configure companion executor targets using:
+- `--reminders-webhook-url <url>`
+- `--scrapers-webhook-url <url>`
+
+Without these, service bindings still deploy, but behavioral readiness checks for companion execution can fail by design.
 
 ## Current migration chunk status
 

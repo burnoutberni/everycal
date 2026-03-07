@@ -152,13 +152,52 @@ async function putWranglerSecret(name, value, workerConfigPath) {
   await runCommand("wrangler", ["secret", "put", name, "--config", workerConfigPath], { stdinText: `${value}\n` });
 }
 
+async function putWorkerNamedSecret(workerName, secretName, value) {
+  await runCommand("wrangler", ["secret", "put", secretName, "--name", workerName], { stdinText: `${value}\n` });
+}
+
 function renderCompanionWorkerSource(jobType) {
   return `export default {
-  async fetch(request) {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      const ok = Boolean(env.TARGET_WEBHOOK_URL && String(env.TARGET_WEBHOOK_URL).trim());
+      return new Response(JSON.stringify({ ok, mode: "webhook-forward" }), {
+        status: ok ? 200 : 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
-    const payload = await request.text();
-    console.log("[${jobType}] received job payload", payload.slice(0, 1000));
-    return new Response(JSON.stringify({ ok: true, worker: "${jobType}" }), {
+    if (url.pathname !== "/jobs/${jobType}") return new Response("Not Found", { status: 404 });
+
+    const target = env.TARGET_WEBHOOK_URL ? String(env.TARGET_WEBHOOK_URL).trim() : "";
+    if (!target) {
+      return new Response(JSON.stringify({ error: "missing_target_webhook_url" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const raw = await request.text();
+    const headers = { "content-type": "application/json" };
+    if (env.JOBS_WEBHOOK_TOKEN) headers.authorization = "Bearer " + env.JOBS_WEBHOOK_TOKEN;
+
+    const parsed = raw ? JSON.parse(raw) : {};
+    const res = await fetch(target, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...parsed, source: "cloudflare-companion-${jobType}" }),
+    });
+
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: "executor_failed", status: res.status }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true, worker: jobType }), {
       status: 202,
       headers: { "content-type": "application/json" },
     });
@@ -258,15 +297,17 @@ async function verifyRemoteReadiness(apiOrigin) {
   }
 }
 
-async function deployCompanionWorker(name, scriptPath) {
-  await runCommand("wrangler", [
+async function deployCompanionWorker(name, scriptPath, webhookUrl) {
+  const args = [
     "deploy",
     scriptPath,
     "--name",
     name,
     "--compatibility-date",
     COMPATIBILITY_DATE,
-  ]);
+  ];
+  if (webhookUrl) args.push("--var", `TARGET_WEBHOOK_URL:${webhookUrl}`);
+  await runCommand("wrangler", args);
 }
 
 async function main() {
@@ -287,6 +328,8 @@ async function main() {
   const shouldProvisionCompanionWorkers = !args["skip-companion-workers"];
   const shouldRotateKeys = Boolean(args["rotate-keys"]);
   const shouldWriteTrackedConfigs = Boolean(args["write-tracked-configs"]);
+  const remindersWebhookUrl = args["reminders-webhook-url"] ? String(args["reminders-webhook-url"]) : "";
+  const scrapersWebhookUrl = args["scrapers-webhook-url"] ? String(args["scrapers-webhook-url"]) : "";
 
   const d1Name = `${projectSlug}-${env}`;
   const kvTitle = `${projectSlug}-${env}-rate-limits`;
@@ -297,7 +340,7 @@ async function main() {
 
   const summary = {
     mode: dryRun ? "plan" : "apply",
-    input: { domain, apiHost, env, projectSlug, pagesProject },
+    input: { domain, apiHost, env, projectSlug, pagesProject, remindersWebhookUrl, scrapersWebhookUrl },
     derived: {
       webOrigin,
       apiOrigin,
@@ -317,6 +360,8 @@ async function main() {
       shouldProvisionCompanionWorkers,
       shouldRotateKeys,
       shouldWriteTrackedConfigs,
+      remindersWebhookConfigured: Boolean(remindersWebhookUrl),
+      scrapersWebhookConfigured: Boolean(scrapersWebhookUrl),
     },
   };
 
@@ -411,11 +456,21 @@ async function main() {
     await putWranglerSecret("JOBS_WEBHOOK_TOKEN", jobsToken.value, workerConfigPath);
   }
 
+  if (shouldProvisionCompanionWorkers && (!remindersWebhookUrl || !scrapersWebhookUrl)) {
+    console.warn("\n[bootstrap] Companion workers are deployed without one or more TARGET_WEBHOOK_URL values.");
+    console.warn("[bootstrap] Set --reminders-webhook-url/--scrapers-webhook-url for behavioral executor readiness.");
+  }
+
   if (shouldDeploy) {
     if (shouldProvisionCompanionWorkers) {
       console.log("\nDeploying companion service workers (reminders/scrapers)...");
-      await deployCompanionWorker(remindersService, remindersCompanionPath);
-      await deployCompanionWorker(scrapersService, scrapersCompanionPath);
+      await deployCompanionWorker(remindersService, remindersCompanionPath, remindersWebhookUrl);
+      await deployCompanionWorker(scrapersService, scrapersCompanionPath, scrapersWebhookUrl);
+
+      if (shouldSetSecrets) {
+        await putWorkerNamedSecret(remindersService, "JOBS_WEBHOOK_TOKEN", jobsToken.value);
+        await putWorkerNamedSecret(scrapersService, "JOBS_WEBHOOK_TOKEN", jobsToken.value);
+      }
     }
 
     console.log("\nDeploying EveryCal Worker + Pages...");
@@ -441,8 +496,8 @@ async function main() {
   if (!shouldDeploy) {
     console.log("- Deploy manually:");
     if (shouldProvisionCompanionWorkers) {
-      console.log(`  wrangler deploy ${remindersCompanionPath} --name ${remindersService} --compatibility-date ${COMPATIBILITY_DATE}`);
-      console.log(`  wrangler deploy ${scrapersCompanionPath} --name ${scrapersService} --compatibility-date ${COMPATIBILITY_DATE}`);
+      console.log(`  wrangler deploy ${remindersCompanionPath} --name ${remindersService} --compatibility-date ${COMPATIBILITY_DATE} --var TARGET_WEBHOOK_URL:${remindersWebhookUrl || "<set reminders webhook url>"}`);
+      console.log(`  wrangler deploy ${scrapersCompanionPath} --name ${scrapersService} --compatibility-date ${COMPATIBILITY_DATE} --var TARGET_WEBHOOK_URL:${scrapersWebhookUrl || "<set scrapers webhook url>"}`);
     }
     console.log(`  wrangler d1 migrations apply ${d1Name} --config ${workerConfigPath}`);
     console.log(`  wrangler deploy --config ${workerConfigPath}`);

@@ -167,12 +167,13 @@ What it does:
 - **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Cloudflare API calls and writes generated configs under `.generated/`.
 - **Phase B (convention defaults):** derives `BASE_URL`, `CORS_ORIGIN`, `API_ORIGIN`, and resource names from the domain + env convention.
 - **Phase C (first-run bootstrap artifacts):** reuses existing generated federation key/job token by default (generate-once behavior), rotates only when explicitly requested via `--rotate-keys`, and sets Worker secrets.
-- **Service-binding mode (Cloudflare-native):** generates and deploys companion reminder/scraper workers (`everycal-reminders-*`, `everycal-scrapers-*`) and binds them automatically.
+- **Service-binding mode (Cloudflare-native):** generates and deploys companion reminder/scraper workers (`everycal-reminders-*`, `everycal-scrapers-*`) and binds them automatically. Companions forward to configured executor webhook targets and expose `/healthz` for behavioral readiness checks.
 
 Common flags:
 - `--pages-project <name>` to customize Pages project name (default `everycal-web`).
 - `--account-id <id>` to pin a specific Cloudflare account.
 - `--rotate-keys` to force regeneration of federation/job secrets.
+- `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
 - `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
 - `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
 
