@@ -1,0 +1,23 @@
+{
+  "name": "@everycal/cloudflare-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply everycal",
+    "test": "vitest run",
+    "lint": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@everycal/core": "workspace:*",
+    "hono": "^4.12.2",
+    "@everycal/runtime-core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
