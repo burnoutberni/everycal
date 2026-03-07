@@ -189,8 +189,8 @@ async function runWranglerJson(args, options = {}) {
     if (parsed !== null) return parsed;
 
     throw new Error(
-      `Wrangler command '${args.join(" ")}' does not support --json and did not emit machine-readable output. ` +
-      "Upgrade Wrangler (recommended) or run bootstrap with --auth api-token."
+      `Wrangler command '${args.join(" ")}' does not support --json and did not emit machine-readable output in this environment. ` +
+      "Use --auth api-token, or run a Wrangler command variant that returns parseable output for this operation."
     );
   }
 }
@@ -328,13 +328,16 @@ async function ensureR2BucketWithWrangler(accountId, name) {
 }
 
 async function ensureQueueWithWrangler(accountId, queueName) {
-  const list = await runWranglerJson(["queues", "list"], { accountId });
-  const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
-  if (existing?.queue_id || existing?.queueId) return { id: existing.queue_id || existing.queueId, created: false };
-  await runWrangler(["queues", "create", queueName], { accountId });
-  const refreshed = await runWranglerJson(["queues", "list"], { accountId });
-  const created = Array.isArray(refreshed) ? refreshed.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
-  return { id: created?.queue_id || created?.queueId || "", created: true };
+  try {
+    await runWrangler(["queues", "create", queueName], { accountId });
+    return { id: "", created: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("already exists")) {
+      return { id: "", created: false };
+    }
+    throw error;
+  }
 }
 
 async function runCommand(cmd, args, options = {}) {
