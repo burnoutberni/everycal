@@ -36,6 +36,16 @@
     "job:scrapers": "node packages/jobs/dist/index.js scrapers",
     "job:reminders": "node packages/jobs/dist/index.js reminders",
     "job:scrapers:once": "node packages/jobs/dist/index.js scrapers --once",
-    "job:reminders:once": "node packages/jobs/dist/index.js reminders --once"
+    "job:reminders:once": "node packages/jobs/dist/index.js reminders --once",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:migrate": "wrangler d1 migrations apply everycal",
+    "cf:check": "node scripts/cf-deploy-readiness.mjs --warn",
+    "cf:check:strict": "node scripts/cf-deploy-readiness.mjs",
+    "cf:pages:build": "pnpm --filter @everycal/web build",
+    "cf:pages:deploy": "wrangler pages deploy packages/web/dist/client --project-name everycal-web --config packages/web/wrangler.toml",
+    "dev:unified": "pnpm --filter @everycal/server dev:unified",
+    "cf:pages:dev": "wrangler pages dev packages/web/dist/client --config packages/web/wrangler.toml",
+    "test:parity": "pnpm --filter @everycal/runtime-core test && pnpm --filter @everycal/cloudflare-worker test"
   }
 }
