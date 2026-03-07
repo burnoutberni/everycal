@@ -120,11 +120,18 @@ Rollback minimum:
 pnpm cf:bootstrap -- --domain calendar.example.com
 ```
 
-2. **Apply bootstrap provisioning (Cloudflare APIs)**
+2. **Apply bootstrap provisioning (Wrangler OAuth by default)**
+
+```bash
+wrangler login
+pnpm cf:bootstrap -- --domain calendar.example.com --apply
+```
+
+Optional fallback when OAuth is not viable in your environment:
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
-pnpm cf:bootstrap -- --domain calendar.example.com --apply
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token
 ```
 
 This now performs provisioning + generated-config strict validation + Worker secret setup by default, and writes:

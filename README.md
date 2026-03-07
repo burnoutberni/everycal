@@ -155,16 +155,20 @@ A new bootstrap orchestrator is available to minimize required input to essentia
 # plan only (no API calls)
 pnpm cf:bootstrap -- --domain calendar.example.com
 
-# apply: provision resources + generate config + set secrets
-export CLOUDFLARE_API_TOKEN=...
+# apply: provision resources + generate config + set secrets (OAuth via wrangler)
+wrangler login
 pnpm cf:bootstrap -- --domain calendar.example.com --apply
+
+# optional fallback: API token mode
+export CLOUDFLARE_API_TOKEN=...
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token
 
 # one-command deploy (provision + secrets + deploy + remote readiness verify)
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
 ```
 
 What it does:
-- **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Cloudflare API calls and writes generated configs under `.generated/`.
+- **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Wrangler OAuth by default (or API token fallback) and writes generated configs under `.generated/`.
 - **Phase B (convention defaults):** derives `BASE_URL`, `CORS_ORIGIN`, `API_ORIGIN`, and resource names from the domain + env convention.
 - **Phase C (first-run bootstrap artifacts):** reuses existing generated federation key/job token by default (generate-once behavior), rotates only when explicitly requested via `--rotate-keys`, and sets Worker secrets.
 - **Service-binding mode (Cloudflare-native):** generates and deploys companion reminder/scraper workers (`everycal-reminders-*`, `everycal-scrapers-*`) and binds them automatically. Companions forward to configured executor webhook targets and expose `/healthz` for behavioral readiness checks.
@@ -172,6 +176,7 @@ What it does:
 Common flags:
 - `--pages-project <name>` to customize Pages project name (default `everycal-web`).
 - `--account-id <id>` to pin a specific Cloudflare account.
+- `--auth oauth|api-token` authentication mode (default `oauth` via `wrangler login`).
 - `--rotate-keys` to force regeneration of federation/job secrets.
 - `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
 - `--smtp-host`, `--smtp-port`, `--smtp-from` (plus optional `--smtp-secure`, `--smtp-user`, `--smtp-pass`) to supply and validate production SMTP during bootstrap.

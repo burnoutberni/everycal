@@ -128,6 +128,46 @@ async function validateSmtpConfig(config, options) {
   return { configured: true, valid: true, messages };
 }
 
+async function runCommandCapture(cmd, args, options = {}) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], ...options });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    if (options.stdinText) {
+      child.stdin.write(options.stdinText);
+      child.stdin.end();
+    }
+    child.on("exit", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}\n${stderr || stdout}`));
+    });
+  });
+}
+
+function parseMaybeJsonOutput(stdout) {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  const firstArray = trimmed.indexOf("[");
+  const firstObject = trimmed.indexOf("{");
+  const start = firstArray === -1 ? firstObject : (firstObject === -1 ? firstArray : Math.min(firstArray, firstObject));
+  if (start === -1) return null;
+  const jsonCandidate = trimmed.slice(start);
+  return JSON.parse(jsonCandidate);
+}
+
+async function runWranglerJson(args) {
+  const { stdout } = await runCommandCapture("wrangler", [...args, "--json"]);
+  const parsed = parseMaybeJsonOutput(stdout);
+  if (parsed === null) throw new Error(`Expected JSON output from wrangler ${args.join(" ")}`);
+  return parsed;
+}
+
 async function cfFetch(path, init, token) {
   const res = await fetch(`${CF_API_BASE}${path}`, {
     ...init,
@@ -152,6 +192,14 @@ async function resolveAccountId(token, preferredAccountId) {
   const first = Array.isArray(memberships) ? memberships[0] : null;
   if (!first?.account?.id) throw new Error("Unable to resolve account id from token. Provide --account-id.");
   return first.account.id;
+}
+
+async function resolveAccountIdFromWrangler(preferredAccountId) {
+  if (preferredAccountId) return preferredAccountId;
+  const whoami = await runWranglerJson(["whoami"]);
+  const account = Array.isArray(whoami?.accounts) ? whoami.accounts[0] : null;
+  if (!account?.id) throw new Error("Unable to resolve account id from Wrangler OAuth session. Run `wrangler login` or provide --account-id.");
+  return account.id;
 }
 
 async function ensureD1Database(accountId, name, token) {
@@ -196,6 +244,48 @@ async function ensureQueue(accountId, queueName, token) {
     body: JSON.stringify({ queue_name: queueName }),
   }, token);
   return { id: created.queue_id, created: true };
+}
+
+function buildAccountArgs(accountId) {
+  return accountId ? ["--account-id", accountId] : [];
+}
+
+async function ensureD1DatabaseWithWrangler(accountId, name) {
+  const list = await runWranglerJson(["d1", "list", ...buildAccountArgs(accountId)]);
+  const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
+  if (existing?.uuid) return { id: existing.uuid, created: false };
+  const created = await runWranglerJson(["d1", "create", name, ...buildAccountArgs(accountId)]);
+  const createdId = created?.uuid || created?.database_id;
+  if (!createdId) throw new Error("Unable to parse D1 id from wrangler d1 create output.");
+  return { id: createdId, created: true };
+}
+
+async function ensureKvNamespaceWithWrangler(accountId, title) {
+  const list = await runWranglerJson(["kv", "namespace", "list", ...buildAccountArgs(accountId)]);
+  const existing = Array.isArray(list) ? list.find((item) => item.title === title) : null;
+  if (existing?.id) return { id: existing.id, created: false };
+
+  const placeholderBinding = "RATE_LIMITS_KV";
+  const created = await runWranglerJson(["kv", "namespace", "create", placeholderBinding, ...buildAccountArgs(accountId), "--title", title]);
+  const createdId = created?.id;
+  if (!createdId) throw new Error("Unable to parse KV namespace id from wrangler kv namespace create output.");
+  return { id: createdId, created: true };
+}
+
+async function ensureR2BucketWithWrangler(accountId, name) {
+  const list = await runWranglerJson(["r2", "bucket", "list", ...buildAccountArgs(accountId)]);
+  const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
+  if (existing?.name) return { name: existing.name, created: false };
+  await runWranglerJson(["r2", "bucket", "create", name, ...buildAccountArgs(accountId)]);
+  return { name, created: true };
+}
+
+async function ensureQueueWithWrangler(accountId, queueName) {
+  const list = await runWranglerJson(["queues", "list", ...buildAccountArgs(accountId)]);
+  const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
+  if (existing?.queue_id || existing?.queueId) return { id: existing.queue_id || existing.queueId, created: false };
+  const created = await runWranglerJson(["queues", "create", queueName, ...buildAccountArgs(accountId)]);
+  return { id: created?.queue_id || created?.queueId || "", created: true };
 }
 
 async function runCommand(cmd, args, options = {}) {
@@ -411,7 +501,7 @@ async function main() {
 
   const summary = {
     mode: dryRun ? "plan" : "apply",
-    input: { domain, apiHost, env, projectSlug, pagesProject, remindersWebhookUrl, scrapersWebhookUrl, smtp: { host: smtpConfig.host, port: smtpConfig.port, from: smtpConfig.from, secure: smtpConfig.secure, hasAuth: Boolean(smtpConfig.user && smtpConfig.pass) } },
+    input: { domain, apiHost, env, projectSlug, pagesProject, authMode: String(args.auth || process.env.CF_BOOTSTRAP_AUTH || "oauth").toLowerCase(), remindersWebhookUrl, scrapersWebhookUrl, smtp: { host: smtpConfig.host, port: smtpConfig.port, from: smtpConfig.from, secure: smtpConfig.secure, hasAuth: Boolean(smtpConfig.user && smtpConfig.pass) } },
     derived: {
       webOrigin,
       apiOrigin,
@@ -448,13 +538,28 @@ async function main() {
     console.log(`[bootstrap] SMTP validated for ${smtpConfig.host}:${smtpConfig.port} (${smtpConfig.from}).`);
   }
 
-  const token = must(process.env.CLOUDFLARE_API_TOKEN, "Missing CLOUDFLARE_API_TOKEN for --apply mode.");
-  const accountId = await resolveAccountId(token, args["account-id"] ? String(args["account-id"]) : undefined);
+  const preferredAccountId = args["account-id"] ? String(args["account-id"]) : undefined;
+  const authMode = String(args.auth || process.env.CF_BOOTSTRAP_AUTH || "oauth").toLowerCase();
+  let accountId;
+  let d1;
+  let kv;
+  let r2;
+  let queue;
 
-  const d1 = await ensureD1Database(accountId, d1Name, token);
-  const kv = await ensureKvNamespace(accountId, kvTitle, token);
-  const r2 = await ensureR2Bucket(accountId, r2Bucket, token);
-  await ensureQueue(accountId, queueName, token);
+  if (authMode === "api-token") {
+    const token = must(process.env.CLOUDFLARE_API_TOKEN, "Missing CLOUDFLARE_API_TOKEN for --auth api-token mode.");
+    accountId = await resolveAccountId(token, preferredAccountId);
+    d1 = await ensureD1Database(accountId, d1Name, token);
+    kv = await ensureKvNamespace(accountId, kvTitle, token);
+    r2 = await ensureR2Bucket(accountId, r2Bucket, token);
+    queue = await ensureQueue(accountId, queueName, token);
+  } else {
+    accountId = await resolveAccountIdFromWrangler(preferredAccountId);
+    d1 = await ensureD1DatabaseWithWrangler(accountId, d1Name);
+    kv = await ensureKvNamespaceWithWrangler(accountId, kvTitle);
+    r2 = await ensureR2BucketWithWrangler(accountId, r2Bucket);
+    queue = await ensureQueueWithWrangler(accountId, queueName);
+  }
 
   await mkdir(".generated", { recursive: true });
 
@@ -496,7 +601,7 @@ async function main() {
       d1: { ...d1, name: d1Name },
       kv: { ...kv, title: kvTitle },
       r2: { ...r2 },
-      queue: { name: queueName },
+      queue: { ...queue, name: queueName },
       companionServices: {
         reminders: { name: remindersService, scriptPath: remindersCompanionPath },
         scrapers: { name: scrapersService, scriptPath: scrapersCompanionPath },
