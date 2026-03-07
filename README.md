@@ -166,12 +166,15 @@ pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
 What it does:
 - **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Cloudflare API calls and writes generated configs under `.generated/`.
 - **Phase B (convention defaults):** derives `BASE_URL`, `CORS_ORIGIN`, `API_ORIGIN`, and resource names from the domain + env convention.
-- **Phase C (first-run bootstrap artifacts):** generates federation private key + job webhook token, sets Worker secrets by default, and writes a deployment receipt JSON for reproducibility.
+- **Phase C (first-run bootstrap artifacts):** reuses existing generated federation key/job token by default (generate-once behavior), rotates only when explicitly requested via `--rotate-keys`, and sets Worker secrets.
+- **Service-binding mode (Cloudflare-native):** generates and deploys companion reminder/scraper workers (`everycal-reminders-*`, `everycal-scrapers-*`) and binds them automatically.
 
 Common flags:
 - `--pages-project <name>` to customize Pages project name (default `everycal-web`).
 - `--account-id <id>` to pin a specific Cloudflare account.
-- `--skip-secrets`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
+- `--rotate-keys` to force regeneration of federation/job secrets.
+- `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
+- `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
 
 ### Deploy readiness validation
 

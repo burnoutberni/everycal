@@ -119,13 +119,18 @@ This now performs provisioning + generated-config strict validation + Worker sec
 - `.generated/jobs-webhook-token.prod.txt`
 - `.generated/cf-bootstrap-receipt.prod.json`
 
+Key behavior:
+- federation/job secrets are **generate-once + reuse** by default across reruns
+- pass `--rotate-keys` to explicitly regenerate key/token material
+- companion reminder/scraper service workers are generated for Cloudflare-native service bindings
+
 3. **Deploy + verify readiness (single command)**
 
 ```bash
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
 ```
 
-This runs migrations, Worker deploy, Pages build/deploy, and then verifies:
+This runs companion worker deploys, migrations, EveryCal Worker deploy, Pages build/deploy, and then verifies:
 
 ```bash
 curl -fsS https://api.calendar.example.com/api/v1/system/deploy-readiness

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, copyFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
+const COMPATIBILITY_DATE = "2026-03-01";
 
 function parseArgs(argv) {
   const args = {};
@@ -39,6 +41,27 @@ function generateFederationPrivateKeyPem() {
     publicKeyEncoding: { type: "spki", format: "pem" },
   });
   return privateKey;
+}
+
+async function fileExists(path) {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveOrCreateSecretMaterial(path, createValue, rotate) {
+  if (!rotate && await fileExists(path)) {
+    const existing = await readFile(path, "utf8");
+    const normalized = existing.trim();
+    if (normalized) return { value: normalized, reused: true };
+  }
+
+  const value = createValue();
+  await writeFile(path, `${value}\n`);
+  return { value, reused: false };
 }
 
 async function cfFetch(path, init, token) {
@@ -129,10 +152,25 @@ async function putWranglerSecret(name, value, workerConfigPath) {
   await runCommand("wrangler", ["secret", "put", name, "--config", workerConfigPath], { stdinText: `${value}\n` });
 }
 
+function renderCompanionWorkerSource(jobType) {
+  return `export default {
+  async fetch(request) {
+    if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+    const payload = await request.text();
+    console.log("[${jobType}] received job payload", payload.slice(0, 1000));
+    return new Response(JSON.stringify({ ok: true, worker: "${jobType}" }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    });
+  },
+};
+`;
+}
+
 function renderWorkerConfig(input) {
   return `name = "${input.workerName}"
 main = "packages/cloudflare-worker/src/index.ts"
-compatibility_date = "2026-03-01"
+compatibility_date = "${COMPATIBILITY_DATE}"
 workers_dev = true
 
 [[d1_databases]]
@@ -194,7 +232,7 @@ enabled = true
 
 function renderPagesConfig(apiOrigin) {
   return `name = "everycal-web"
-compatibility_date = "2026-03-01"
+compatibility_date = "${COMPATIBILITY_DATE}"
 pages_build_output_dir = "dist/client"
 
 [vars]
@@ -220,6 +258,17 @@ async function verifyRemoteReadiness(apiOrigin) {
   }
 }
 
+async function deployCompanionWorker(name, scriptPath) {
+  await runCommand("wrangler", [
+    "deploy",
+    scriptPath,
+    "--name",
+    name,
+    "--compatibility-date",
+    COMPATIBILITY_DATE,
+  ]);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const domain = must(args.domain, "Missing required --domain (example: --domain calendar.example.com)");
@@ -235,6 +284,9 @@ async function main() {
   const shouldSetSecrets = !args["skip-secrets"];
   const shouldVerifyGenerated = !args["skip-config-check"];
   const shouldVerifyRemote = shouldDeploy && !args["skip-remote-verify"];
+  const shouldProvisionCompanionWorkers = !args["skip-companion-workers"];
+  const shouldRotateKeys = Boolean(args["rotate-keys"]);
+  const shouldWriteTrackedConfigs = Boolean(args["write-tracked-configs"]);
 
   const d1Name = `${projectSlug}-${env}`;
   const kvTitle = `${projectSlug}-${env}-rate-limits`;
@@ -246,7 +298,26 @@ async function main() {
   const summary = {
     mode: dryRun ? "plan" : "apply",
     input: { domain, apiHost, env, projectSlug, pagesProject },
-    derived: { webOrigin, apiOrigin, workerName, d1Name, kvTitle, r2Bucket, queueName, remindersService, scrapersService },
+    derived: {
+      webOrigin,
+      apiOrigin,
+      workerName,
+      d1Name,
+      kvTitle,
+      r2Bucket,
+      queueName,
+      remindersService,
+      scrapersService,
+    },
+    execution: {
+      shouldSetSecrets,
+      shouldDeploy,
+      shouldVerifyGenerated,
+      shouldVerifyRemote,
+      shouldProvisionCompanionWorkers,
+      shouldRotateKeys,
+      shouldWriteTrackedConfigs,
+    },
   };
 
   if (dryRun) {
@@ -263,10 +334,12 @@ async function main() {
   const r2 = await ensureR2Bucket(accountId, r2Bucket, token);
   await ensureQueue(accountId, queueName, token);
 
-  const activityPubPrivateKeyPem = generateFederationPrivateKeyPem();
-  const jobsWebhookToken = randomBytes(24).toString("hex");
-
   await mkdir(".generated", { recursive: true });
+
+  const privateKeyPath = `.generated/activitypub-private-key.${env}.pem`;
+  const jobsTokenPath = `.generated/jobs-webhook-token.${env}.txt`;
+  const privateKey = await resolveOrCreateSecretMaterial(privateKeyPath, generateFederationPrivateKeyPem, shouldRotateKeys);
+  const jobsToken = await resolveOrCreateSecretMaterial(jobsTokenPath, () => randomBytes(24).toString("hex"), shouldRotateKeys);
 
   const workerConfigPath = `.generated/wrangler.${env}.toml`;
   const pagesConfigPath = `.generated/packages.web.wrangler.${env}.toml`;
@@ -284,10 +357,15 @@ async function main() {
   }));
   await writeFile(pagesConfigPath, renderPagesConfig(apiOrigin));
 
-  const privateKeyPath = `.generated/activitypub-private-key.${env}.pem`;
-  const jobsTokenPath = `.generated/jobs-webhook-token.${env}.txt`;
-  await writeFile(privateKeyPath, activityPubPrivateKeyPem);
-  await writeFile(jobsTokenPath, `${jobsWebhookToken}\n`);
+  if (shouldWriteTrackedConfigs) {
+    await copyFile(workerConfigPath, "wrangler.toml");
+    await copyFile(pagesConfigPath, "packages/web/wrangler.toml");
+  }
+
+  const remindersCompanionPath = `.generated/companion-${remindersService}.mjs`;
+  const scrapersCompanionPath = `.generated/companion-${scrapersService}.mjs`;
+  await writeFile(remindersCompanionPath, renderCompanionWorkerSource("reminders"));
+  await writeFile(scrapersCompanionPath, renderCompanionWorkerSource("scrapers"));
 
   const receipt = {
     ...summary,
@@ -297,6 +375,10 @@ async function main() {
       kv: { ...kv, title: kvTitle },
       r2: { ...r2 },
       queue: { name: queueName },
+      companionServices: {
+        reminders: { name: remindersService, scriptPath: remindersCompanionPath },
+        scrapers: { name: scrapersService, scriptPath: scrapersCompanionPath },
+      },
     },
     generated: {
       workerConfigPath,
@@ -304,11 +386,9 @@ async function main() {
       activityPubPrivateKeyPemPath: privateKeyPath,
       jobsWebhookTokenPath: jobsTokenPath,
     },
-    execution: {
-      shouldSetSecrets,
-      shouldDeploy,
-      shouldVerifyGenerated,
-      shouldVerifyRemote,
+    secretReuse: {
+      federationKeyReused: privateKey.reused,
+      jobsWebhookTokenReused: jobsToken.reused,
     },
   };
 
@@ -327,12 +407,18 @@ async function main() {
 
   if (shouldSetSecrets) {
     console.log("\nSetting Worker secrets...");
-    await putWranglerSecret("ACTIVITYPUB_PRIVATE_KEY_PEM", activityPubPrivateKeyPem, workerConfigPath);
-    await putWranglerSecret("JOBS_WEBHOOK_TOKEN", jobsWebhookToken, workerConfigPath);
+    await putWranglerSecret("ACTIVITYPUB_PRIVATE_KEY_PEM", privateKey.value, workerConfigPath);
+    await putWranglerSecret("JOBS_WEBHOOK_TOKEN", jobsToken.value, workerConfigPath);
   }
 
   if (shouldDeploy) {
-    console.log("\nDeploying Worker + Pages...");
+    if (shouldProvisionCompanionWorkers) {
+      console.log("\nDeploying companion service workers (reminders/scrapers)...");
+      await deployCompanionWorker(remindersService, remindersCompanionPath);
+      await deployCompanionWorker(scrapersService, scrapersCompanionPath);
+    }
+
+    console.log("\nDeploying EveryCal Worker + Pages...");
     await runCommand("wrangler", ["d1", "migrations", "apply", d1Name, "--config", workerConfigPath]);
     await runCommand("wrangler", ["deploy", "--config", workerConfigPath]);
     await runCommand("pnpm", ["cf:pages:build"]);
@@ -348,19 +434,23 @@ async function main() {
   console.log("\nNext steps:");
   console.log(`- Review ${receiptPath} for created resource IDs and generated artifacts.`);
   if (!shouldSetSecrets) {
-    console.log(`- Set secrets manually:`);
+    console.log("- Set secrets manually:");
     console.log(`  wrangler secret put ACTIVITYPUB_PRIVATE_KEY_PEM --config ${workerConfigPath} < ${privateKeyPath}`);
     console.log(`  wrangler secret put JOBS_WEBHOOK_TOKEN --config ${workerConfigPath} < ${jobsTokenPath}`);
   }
   if (!shouldDeploy) {
-    console.log(`- Deploy manually:`);
+    console.log("- Deploy manually:");
+    if (shouldProvisionCompanionWorkers) {
+      console.log(`  wrangler deploy ${remindersCompanionPath} --name ${remindersService} --compatibility-date ${COMPATIBILITY_DATE}`);
+      console.log(`  wrangler deploy ${scrapersCompanionPath} --name ${scrapersService} --compatibility-date ${COMPATIBILITY_DATE}`);
+    }
     console.log(`  wrangler d1 migrations apply ${d1Name} --config ${workerConfigPath}`);
     console.log(`  wrangler deploy --config ${workerConfigPath}`);
-    console.log(`  pnpm cf:pages:build`);
+    console.log("  pnpm cf:pages:build");
     console.log(`  wrangler pages deploy packages/web/dist/client --project-name ${pagesProject} --config ${pagesConfigPath}`);
   }
   if (!shouldVerifyRemote) {
-    console.log(`- Verify runtime readiness:`);
+    console.log("- Verify runtime readiness:");
     console.log(`  curl -fsS ${apiOrigin}/api/v1/system/deploy-readiness`);
   }
 }
