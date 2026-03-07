@@ -12,11 +12,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "noUnusedParameters": true,
+    "composite": true
   },
   "include": [
     "src"
@@ -27,7 +26,6 @@
     }
   ],
   "exclude": [
-    "src/unified-index.ts",
-    "src/storage/node-storage.ts"
+    "src/**/*.test.ts"
   ]
 }
