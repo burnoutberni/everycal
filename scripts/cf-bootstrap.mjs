@@ -173,10 +173,26 @@ function wranglerEnv(accountId) {
 }
 
 async function runWranglerJson(args, options = {}) {
-  const { stdout } = await runCommandCapture("wrangler", [...args, "--json"], { env: wranglerEnv(options.accountId) });
-  const parsed = parseMaybeJsonOutput(stdout);
-  if (parsed === null) throw new Error(`Expected JSON output from wrangler ${args.join(" ")}`);
-  return parsed;
+  try {
+    const { stdout } = await runCommandCapture("wrangler", [...args, "--json"], { env: wranglerEnv(options.accountId) });
+    const parsed = parseMaybeJsonOutput(stdout);
+    if (parsed === null) throw new Error(`Expected JSON output from wrangler ${args.join(" ")}`);
+    return parsed;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("Unknown argument: json") && !message.includes("Unknown arguments: json")) {
+      throw error;
+    }
+
+    const fallback = await runCommandCapture("wrangler", args, { env: wranglerEnv(options.accountId) });
+    const parsed = parseMaybeJsonOutput(fallback.stdout) ?? parseMaybeJsonOutput(fallback.stderr);
+    if (parsed !== null) return parsed;
+
+    throw new Error(
+      `Wrangler command '${args.join(" ")}' does not support --json and did not emit machine-readable output. ` +
+      "Upgrade Wrangler (recommended) or run bootstrap with --auth api-token."
+    );
+  }
 }
 
 async function runWrangler(args, options = {}) {
