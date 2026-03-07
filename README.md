@@ -157,11 +157,11 @@ pnpm cf:bootstrap -- --domain calendar.example.com
 
 # apply: provision resources + generate config + set secrets (OAuth via wrangler)
 wrangler login
-pnpm cf:bootstrap -- --domain calendar.example.com --apply
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 
 # optional fallback: API token mode
 export CLOUDFLARE_API_TOKEN=...
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 
 # one-command deploy (provision + secrets + deploy + remote readiness verify)
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy

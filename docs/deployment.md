@@ -124,14 +124,14 @@ pnpm cf:bootstrap -- --domain calendar.example.com
 
 ```bash
 wrangler login
-pnpm cf:bootstrap -- --domain calendar.example.com --apply
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 ```
 
 Optional fallback when OAuth is not viable in your environment:
 
 ```bash
 export CLOUDFLARE_API_TOKEN=...
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 ```
 
 This now performs provisioning + generated-config strict validation + Worker secret setup by default, and writes:
