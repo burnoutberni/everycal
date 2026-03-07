@@ -179,6 +179,10 @@ async function runWranglerJson(args, options = {}) {
   return parsed;
 }
 
+async function runWrangler(args, options = {}) {
+  return await runCommandCapture("wrangler", args, { env: wranglerEnv(options.accountId) });
+}
+
 async function cfFetch(path, init, token) {
   const res = await fetch(`${CF_API_BASE}${path}`, {
     ...init,
@@ -268,7 +272,9 @@ async function ensureD1DatabaseWithWrangler(accountId, name) {
   const list = await runWranglerJson(["d1", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
   if (existing?.uuid) return { id: existing.uuid, created: false };
-  const created = await runWranglerJson(["d1", "create", name], { accountId });
+  await runWrangler(["d1", "create", name], { accountId });
+  const refreshed = await runWranglerJson(["d1", "list"], { accountId });
+  const created = Array.isArray(refreshed) ? refreshed.find((item) => item.name === name) : null;
   const createdId = created?.uuid || created?.database_id;
   if (!createdId) throw new Error("Unable to parse D1 id from wrangler d1 create output.");
   return { id: createdId, created: true };
@@ -280,7 +286,9 @@ async function ensureKvNamespaceWithWrangler(accountId, title) {
   if (existing?.id) return { id: existing.id, created: false };
 
   const placeholderBinding = "RATE_LIMITS_KV";
-  const created = await runWranglerJson(["kv", "namespace", "create", placeholderBinding, "--title", title], { accountId });
+  await runWrangler(["kv", "namespace", "create", placeholderBinding, "--title", title], { accountId });
+  const refreshed = await runWranglerJson(["kv", "namespace", "list"], { accountId });
+  const created = Array.isArray(refreshed) ? refreshed.find((item) => item.title === title) : null;
   const createdId = created?.id;
   if (!createdId) throw new Error("Unable to parse KV namespace id from wrangler kv namespace create output.");
   return { id: createdId, created: true };
@@ -290,7 +298,7 @@ async function ensureR2BucketWithWrangler(accountId, name) {
   const list = await runWranglerJson(["r2", "bucket", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
   if (existing?.name) return { name: existing.name, created: false };
-  await runWranglerJson(["r2", "bucket", "create", name], { accountId });
+  await runWrangler(["r2", "bucket", "create", name], { accountId });
   return { name, created: true };
 }
 
@@ -298,7 +306,9 @@ async function ensureQueueWithWrangler(accountId, queueName) {
   const list = await runWranglerJson(["queues", "list"], { accountId });
   const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
   if (existing?.queue_id || existing?.queueId) return { id: existing.queue_id || existing.queueId, created: false };
-  const created = await runWranglerJson(["queues", "create", queueName], { accountId });
+  await runWrangler(["queues", "create", queueName], { accountId });
+  const refreshed = await runWranglerJson(["queues", "list"], { accountId });
+  const created = Array.isArray(refreshed) ? refreshed.find((item) => item.queue_name === queueName || item.queueName === queueName) : null;
   return { id: created?.queue_id || created?.queueId || "", created: true };
 }
 
