@@ -2,6 +2,23 @@
 
 import { readFile } from "node:fs/promises";
 
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (!token.startsWith("--")) continue;
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith("--")) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    i += 1;
+  }
+  return args;
+}
+
 function getTomlValue(text, key) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = text.match(new RegExp(`^\\s*${escaped}\\s*=\\s*"([^"]*)"`, "m"));
@@ -23,8 +40,11 @@ function isPlaceholderLike(value) {
 }
 
 async function main() {
-  const workerToml = await readFile(new URL("../wrangler.toml", import.meta.url), "utf8");
-  const pagesToml = await readFile(new URL("../packages/web/wrangler.toml", import.meta.url), "utf8");
+  const args = parseArgs(process.argv.slice(2));
+  const workerConfigPath = args["worker-config"] ? String(args["worker-config"]) : new URL("../wrangler.toml", import.meta.url);
+  const pagesConfigPath = args["pages-config"] ? String(args["pages-config"]) : new URL("../packages/web/wrangler.toml", import.meta.url);
+  const workerToml = await readFile(workerConfigPath, "utf8");
+  const pagesToml = await readFile(pagesConfigPath, "utf8");
 
   const checks = [
     {
@@ -75,7 +95,7 @@ async function main() {
   ];
 
   const failing = checks.filter((check) => !check.ok);
-  const warnOnly = process.argv.includes("--warn");
+  const warnOnly = Boolean(args.warn);
 
   console.log("Cloudflare deploy readiness checks");
   for (const check of checks) {

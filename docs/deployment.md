@@ -97,6 +97,52 @@ Cloudflare deployment is additive only. Existing Node/Docker commands and runtim
 
 
 
+## Live test walkthrough for one-click-ish flow
+
+1. **Plan the derived config from a single domain input**
+
+```bash
+pnpm cf:bootstrap -- --domain calendar.example.com
+```
+
+2. **Apply bootstrap provisioning (Cloudflare APIs)**
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+pnpm cf:bootstrap -- --domain calendar.example.com --apply
+```
+
+This writes:
+- `.generated/wrangler.prod.toml`
+- `.generated/packages.web.wrangler.prod.toml`
+- `.generated/activitypub-private-key.prod.pem`
+- `.generated/jobs-webhook-token.prod.txt`
+- `.generated/cf-bootstrap-receipt.prod.json`
+
+3. **Set generated secrets on Worker**
+
+```bash
+wrangler secret put ACTIVITYPUB_PRIVATE_KEY_PEM --config .generated/wrangler.prod.toml < .generated/activitypub-private-key.prod.pem
+wrangler secret put JOBS_WEBHOOK_TOKEN --config .generated/wrangler.prod.toml < .generated/jobs-webhook-token.prod.txt
+```
+
+4. **Deploy + verify readiness**
+
+```bash
+wrangler d1 migrations apply everycal-prod --config .generated/wrangler.prod.toml
+wrangler deploy --config .generated/wrangler.prod.toml
+pnpm cf:pages:build
+wrangler pages deploy packages/web/dist/client --project-name everycal-web --config .generated/packages.web.wrangler.prod.toml
+```
+
+Then verify:
+
+```bash
+curl -fsS https://api.calendar.example.com/api/v1/system/deploy-readiness
+```
+
+You should see `{ "ok": true, ... }` when all required wiring is present.
+
 ## Current migration chunk status
 
 - ✅ Unified federation cache listing APIs (`/api/v1/federation/actors`, `/api/v1/federation/remote-events`)

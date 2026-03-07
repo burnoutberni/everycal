@@ -46,6 +46,8 @@
     "cf:pages:deploy": "wrangler pages deploy packages/web/dist/client --project-name everycal-web --config packages/web/wrangler.toml",
     "dev:unified": "pnpm --filter @everycal/server dev:unified",
     "cf:pages:dev": "wrangler pages dev packages/web/dist/client --config packages/web/wrangler.toml",
-    "test:parity": "pnpm --filter @everycal/runtime-core test && pnpm --filter @everycal/cloudflare-worker test"
+    "test:parity": "pnpm --filter @everycal/runtime-core test && pnpm --filter @everycal/cloudflare-worker test",
+    "cf:bootstrap": "node scripts/cf-bootstrap.mjs",
+    "cf:bootstrap:apply": "node scripts/cf-bootstrap.mjs --apply"
   }
 }
