@@ -315,11 +315,16 @@ async function ensureKvNamespaceWithWrangler(accountId, title) {
 }
 
 async function ensureR2BucketWithWrangler(accountId, name) {
-  const list = await runWranglerJson(["r2", "bucket", "list"], { accountId });
-  const existing = Array.isArray(list) ? list.find((item) => item.name === name) : null;
-  if (existing?.name) return { name: existing.name, created: false };
-  await runWrangler(["r2", "bucket", "create", name], { accountId });
-  return { name, created: true };
+  try {
+    await runWrangler(["r2", "bucket", "create", name], { accountId });
+    return { name, created: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes("already exists")) {
+      return { name, created: false };
+    }
+    throw error;
+  }
 }
 
 async function ensureQueueWithWrangler(accountId, queueName) {
