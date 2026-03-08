@@ -10,7 +10,9 @@
     "dev": "cross-env NODE_ENV=development node --watch-path=src --import tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "tsc -b --pretty false"
+    "lint": "tsc -b --pretty false",
+    "dev:unified": "cross-env NODE_ENV=development node --watch-path=src --import tsx src/unified-index.ts",
+    "start:unified": "node dist/unified-index.js"
   },
   "dependencies": {
     "@everycal/core": "workspace:*",
@@ -25,7 +27,8 @@
     "nodemailer": "^7.0.11",
     "sanitize-html": "^2.17.0",
     "sharp": "^0.34.5",
-    "vike": "^0.4.255"
+    "vike": "^0.4.255",
+    "@everycal/runtime-core": "workspace:*"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.0",

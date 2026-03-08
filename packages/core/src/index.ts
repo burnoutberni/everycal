@@ -16,3 +16,5 @@ export {
 export { bootstrapViewerToUser, isAppBootstrap, isAppLocale } from "./bootstrap.js";
 export type { AppBootstrap, AppLocale, BootstrapUser, BootstrapViewer } from "./bootstrap.js";
 export type { SsrEventData, SsrInitialData, SsrProfileData } from "./ssr.js";
+
+export * from "./storage.js";
