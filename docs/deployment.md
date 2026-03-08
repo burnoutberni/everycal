@@ -138,6 +138,7 @@ Notes:
 - `--apply` now provisions and deploys by default (use `--no-deploy` to provision/generate only).
 - In interactive mode, if `--smtp-pass` is omitted, bootstrap prompts for it.
 - Before deploying, bootstrap shows required DNS records and pauses until you type `done`.
+- Bootstrap attempts to resolve your Workers subdomain automatically; if not available, run `wrangler whoami` and use the shown workers.dev subdomain.
 - Use `--auto-confirm-dns` for CI/automation, or `--skip-dns-checkpoint` to disable this pause.
 
 If your Cloudflare account has not enabled R2 yet, you can continue bootstrap with:

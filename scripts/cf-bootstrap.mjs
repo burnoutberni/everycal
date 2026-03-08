@@ -108,14 +108,43 @@ async function maybePromptSmtpPassword(config, dryRun) {
   if (value) config.pass = value;
 }
 
-async function runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, skipDnsCheckpoint, autoConfirmDns, dryRun }) {
+async function resolveWorkersSubdomainFromWrangler() {
+  try {
+    const whoamiJson = await runWranglerJson(["whoami"]);
+    if (typeof whoamiJson?.subdomain === "string" && whoamiJson.subdomain.trim()) return whoamiJson.subdomain.trim();
+    const accountWithSubdomain = Array.isArray(whoamiJson?.accounts)
+      ? whoamiJson.accounts.find((account) => typeof account?.subdomain === "string" && account.subdomain.trim())
+      : null;
+    if (accountWithSubdomain?.subdomain) return String(accountWithSubdomain.subdomain).trim();
+  } catch {
+    // best-effort only
+  }
+
+  try {
+    const { stdout } = await runCommandCapture("wrangler", ["whoami"]);
+    const match = stdout.match(/workers\.dev subdomain\s*:\s*([^\s]+)/i);
+    if (match?.[1]) return match[1].trim();
+  } catch {
+    // best-effort only
+  }
+
+  return "";
+}
+
+async function runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, workersSubdomain, skipDnsCheckpoint, autoConfirmDns, dryRun }) {
   if (dryRun || skipDnsCheckpoint) return;
+  const workerTarget = workersSubdomain
+    ? `${workerName}.${workersSubdomain}.workers.dev`
+    : `${workerName}.<your-workers-subdomain>.workers.dev`;
   const records = [
     `CNAME ${domain} -> ${pagesProject}.pages.dev`,
-    `CNAME ${apiHost} -> ${workerName}.<your-workers-subdomain>.workers.dev`,
+    `CNAME ${apiHost} -> ${workerTarget}`,
   ];
   console.log("\nDNS checkpoint (required before cutover):");
   for (const line of records) console.log(`- ${line}`);
+  if (!workersSubdomain) {
+    console.log("- Find your workers subdomain via: wrangler whoami");
+  }
   console.log("- Ensure proxy mode/SSL is configured per your Cloudflare zone policy.");
 
   if (autoConfirmDns) {
@@ -666,6 +695,7 @@ async function main() {
   const preferredAccountId = args["account-id"] ? String(args["account-id"]) : undefined;
   const authMode = String(args.auth || process.env.CF_BOOTSTRAP_AUTH || "oauth").toLowerCase();
   let accountId;
+  let workersSubdomain = "";
   let d1;
   let kv;
   let r2;
@@ -686,6 +716,7 @@ async function main() {
     queue = await ensureQueue(accountId, queueName, token);
   } else {
     accountId = await resolveAccountIdFromWrangler(preferredAccountId);
+    workersSubdomain = await resolveWorkersSubdomainFromWrangler();
     d1 = await ensureD1DatabaseWithWrangler(accountId, d1Name);
     kv = await ensureKvNamespaceWithWrangler(accountId, kvTitle);
     try {
@@ -799,7 +830,7 @@ async function main() {
   }
 
   if (shouldDeploy) {
-    await runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, skipDnsCheckpoint, autoConfirmDns, dryRun });
+    await runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, workersSubdomain, skipDnsCheckpoint, autoConfirmDns, dryRun });
 
     if (shouldProvisionCompanionWorkers) {
       console.log("\nDeploying companion service workers (reminders/scrapers)...");

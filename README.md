@@ -185,6 +185,7 @@ Common flags:
 - `--allow-no-smtp` only for non-production/testing; production bootstrap enforces SMTP by default.
 - `--allow-no-r2` to continue provisioning when R2 is not enabled on the Cloudflare account (uploads will be unavailable until R2 is enabled and bootstrap re-run).
 - DNS checkpoint: apply+deploy pauses and prints required DNS records, then resumes after you type `done`.
+  - bootstrap attempts to detect your Workers subdomain automatically; if unavailable, run `wrangler whoami`.
 - `--auto-confirm-dns` to skip the DNS confirmation pause in automation; `--skip-dns-checkpoint` to disable DNS checkpoint entirely.
 - `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
 - `--no-deploy`, `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
