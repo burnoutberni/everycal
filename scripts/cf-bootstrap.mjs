@@ -594,8 +594,9 @@ VITE_API_ORIGIN = "${apiOrigin}"
 }
 
 function renderCompanionConfig(name, scriptPath) {
+  const normalizedMain = scriptPath.startsWith(".generated/") ? scriptPath.slice(".generated/".length) : scriptPath;
   return `name = "${name}"
-main = "${scriptPath}"
+main = "${normalizedMain}"
 compatibility_date = "${COMPATIBILITY_DATE}"
 workers_dev = true
 
