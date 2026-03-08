@@ -6,6 +6,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
 import net from "node:net";
+import readline from "node:readline";
 
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
 const COMPATIBILITY_DATE = "2026-03-01";
@@ -80,6 +81,71 @@ function normalizeSmtpConfig(args) {
     pass: (args["smtp-pass"] ? String(args["smtp-pass"]) : (process.env.SMTP_PASS || "")).trim(),
   };
   return config;
+}
+
+function isInteractiveTty() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+async function promptLine(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((resolve) => rl.question(question, resolve));
+  rl.close();
+  return String(answer || "").trim();
+}
+
+async function promptSecret(question) {
+  if (!process.stdin.isTTY) return "";
+  return await new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    const stdin = process.stdin;
+    const onData = (char) => {
+      const key = String(char);
+      if (["\n", "\r", "\u0004"].includes(key)) return;
+      readline.cursorTo(process.stdout, 0);
+      process.stdout.write(question + "*".repeat(rl.line.length));
+    };
+    process.stdout.write(question);
+    stdin.on("data", onData);
+    rl.question("", (value) => {
+      stdin.removeListener("data", onData);
+      rl.close();
+      process.stdout.write("\n");
+      resolve(String(value || "").trim());
+    });
+  });
+}
+
+async function maybePromptSmtpPassword(config, dryRun) {
+  if (dryRun) return;
+  if (config.pass) return;
+  if (!isInteractiveTty()) return;
+  const value = await promptSecret("SMTP password (leave empty for unauthenticated SMTP): ");
+  if (value) config.pass = value;
+}
+
+async function runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, skipDnsCheckpoint, autoConfirmDns, dryRun }) {
+  if (dryRun || skipDnsCheckpoint) return;
+  const records = [
+    `CNAME ${domain} -> ${pagesProject}.pages.dev`,
+    `CNAME ${apiHost} -> ${workerName}.<your-workers-subdomain>.workers.dev`,
+  ];
+  console.log("\nDNS checkpoint (required before cutover):");
+  for (const line of records) console.log(`- ${line}`);
+  console.log("- Ensure proxy mode/SSL is configured per your Cloudflare zone policy.");
+
+  if (autoConfirmDns) {
+    console.log("[bootstrap] --auto-confirm-dns set; continuing without pause.");
+    return;
+  }
+  if (!isInteractiveTty()) {
+    throw new Error("DNS checkpoint requires confirmation. Re-run with --auto-confirm-dns in non-interactive environments.");
+  }
+  while (true) {
+    const answer = (await promptLine("Type 'done' after DNS records are created (or 'abort' to stop): ")).toLowerCase();
+    if (answer === "done") return;
+    if (answer === "abort") throw new Error("Aborted by user during DNS checkpoint.");
+  }
 }
 
 async function verifySmtpReachability(host, port, timeoutMs = 4000) {
@@ -533,7 +599,7 @@ async function main() {
   const webOrigin = `https://${domain}`;
   const apiOrigin = `https://${apiHost}`;
   const dryRun = !args.apply;
-  const shouldDeploy = Boolean(args.deploy);
+  const shouldDeploy = args["no-deploy"] ? false : (dryRun ? Boolean(args.deploy) : true);
   const shouldSetSecrets = !args["skip-secrets"];
   const shouldVerifyGenerated = !args["skip-config-check"];
   const shouldVerifyRemote = shouldDeploy && !args["skip-remote-verify"];
@@ -544,8 +610,11 @@ async function main() {
   const scrapersWebhookUrl = args["scrapers-webhook-url"] ? String(args["scrapers-webhook-url"]) : "";
   const allowNoSmtp = Boolean(args["allow-no-smtp"]);
   const allowNoR2 = Boolean(args["allow-no-r2"]);
+  const skipDnsCheckpoint = Boolean(args["skip-dns-checkpoint"]);
+  const autoConfirmDns = Boolean(args["auto-confirm-dns"]);
   const skipSmtpConnectionCheck = Boolean(args["skip-smtp-connection-check"]);
   const smtpConfig = normalizeSmtpConfig(args);
+  await maybePromptSmtpPassword(smtpConfig, dryRun);
 
   const d1Name = `${projectSlug}-${env}`;
   const kvTitle = `${projectSlug}-${env}-rate-limits`;
@@ -585,6 +654,8 @@ async function main() {
       smtpConfigured: smtpValidation.configured,
       smtpValidationMessages: smtpValidation.messages,
       allowNoR2,
+      skipDnsCheckpoint,
+      autoConfirmDns,
     },
   };
 
@@ -734,6 +805,8 @@ async function main() {
   }
 
   if (shouldDeploy) {
+    await runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, skipDnsCheckpoint, autoConfirmDns, dryRun });
+
     if (shouldProvisionCompanionWorkers) {
       console.log("\nDeploying companion service workers (reminders/scrapers)...");
       await deployCompanionWorker(remindersService, remindersCompanionPath, remindersWebhookUrl);

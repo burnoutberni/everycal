@@ -120,7 +120,7 @@ Rollback minimum:
 pnpm cf:bootstrap -- --domain calendar.example.com
 ```
 
-2. **Apply bootstrap provisioning (Wrangler OAuth by default)**
+2. **Apply bootstrap provisioning (Wrangler OAuth by default; deploys automatically)**
 
 ```bash
 wrangler login
@@ -133,6 +133,12 @@ Optional fallback when OAuth is not viable in your environment:
 export CLOUDFLARE_API_TOKEN=...
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 ```
+
+Notes:
+- `--apply` now provisions and deploys by default (use `--no-deploy` to provision/generate only).
+- In interactive mode, if `--smtp-pass` is omitted, bootstrap prompts for it securely.
+- Before deploying, bootstrap shows required DNS records and pauses until you type `done`.
+- Use `--auto-confirm-dns` for CI/automation, or `--skip-dns-checkpoint` to disable this pause.
 
 If your Cloudflare account has not enabled R2 yet, you can continue bootstrap with:
 
@@ -154,10 +160,10 @@ Key behavior:
 - pass `--rotate-keys` to explicitly regenerate key/token material
 - companion reminder/scraper service workers are generated for Cloudflare-native service bindings and expose `/healthz` for behavioral readiness checks
 
-3. **Deploy + verify readiness (single command)**
+3. **Deploy + verify readiness (single command with explicit executor + SMTP auth inputs)**
 
 ```bash
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy --reminders-webhook-url https://jobs.example/reminders --scrapers-webhook-url https://jobs.example/scrapers --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com --smtp-secure false --smtp-user smtp-user --smtp-pass smtp-pass
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --reminders-webhook-url https://jobs.example/reminders --scrapers-webhook-url https://jobs.example/scrapers --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com --smtp-secure false --smtp-user smtp-user --smtp-pass smtp-pass
 ```
 
 This runs companion worker deploys, migrations, EveryCal Worker deploy, Pages build/deploy, and then verifies:

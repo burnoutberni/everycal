@@ -155,7 +155,7 @@ A new bootstrap orchestrator is available to minimize required input to essentia
 # plan only (no API calls)
 pnpm cf:bootstrap -- --domain calendar.example.com
 
-# apply: provision resources + generate config + set secrets (OAuth via wrangler)
+# apply: provision resources + generate config + set secrets + deploy (OAuth via wrangler)
 wrangler login
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 
@@ -163,8 +163,8 @@ pnpm cf:bootstrap -- --domain calendar.example.com --apply --smtp-host smtp.exam
 export CLOUDFLARE_API_TOKEN=...
 pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --smtp-host smtp.example.com --smtp-port 587 --smtp-from no-reply@example.com
 
-# one-command deploy (provision + secrets + deploy + remote readiness verify)
-pnpm cf:bootstrap -- --domain calendar.example.com --apply --deploy
+# apply mode now deploys by default; use --no-deploy to generate/provision only
+pnpm cf:bootstrap -- --domain calendar.example.com --apply --no-deploy
 ```
 
 What it does:
@@ -180,10 +180,13 @@ Common flags:
 - `--rotate-keys` to force regeneration of federation/job secrets.
 - `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
 - `--smtp-host`, `--smtp-port`, `--smtp-from` (plus optional `--smtp-secure`, `--smtp-user`, `--smtp-pass`) to supply and validate production SMTP during bootstrap.
+- when `--smtp-pass` is omitted in interactive TTY mode, bootstrap prompts securely for SMTP password.
 - `--allow-no-smtp` only for non-production/testing; production bootstrap enforces SMTP by default.
 - `--allow-no-r2` to continue provisioning when R2 is not enabled on the Cloudflare account (uploads will be unavailable until R2 is enabled and bootstrap re-run).
+- DNS checkpoint: apply+deploy pauses and prints required DNS records, then resumes after you type `done`.
+- `--auto-confirm-dns` to skip the DNS confirmation pause in automation; `--skip-dns-checkpoint` to disable DNS checkpoint entirely.
 - `--write-tracked-configs` to overwrite repo-tracked `wrangler.toml` and `packages/web/wrangler.toml` from generated production configs.
-- `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
+- `--no-deploy`, `--skip-secrets`, `--skip-companion-workers`, `--skip-config-check`, `--skip-remote-verify` for advanced flows.
 
 ### Production source of truth: generated config
 
