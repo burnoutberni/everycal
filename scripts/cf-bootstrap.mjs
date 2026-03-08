@@ -131,6 +131,17 @@ async function resolveWorkersSubdomainFromWrangler() {
   return "";
 }
 
+async function resolveWorkersSubdomainFromApi(accountId, token) {
+  if (!accountId || !token) return "";
+  try {
+    const payload = await cfFetch(`/accounts/${accountId}/workers/subdomain`, { method: "GET" }, token);
+    if (typeof payload?.subdomain === "string" && payload.subdomain.trim()) return payload.subdomain.trim();
+  } catch {
+    // best-effort only
+  }
+  return "";
+}
+
 async function runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, workersSubdomain, skipDnsCheckpoint, autoConfirmDns, dryRun }) {
   if (dryRun || skipDnsCheckpoint) return;
   const workerTarget = workersSubdomain
@@ -695,6 +706,7 @@ async function main() {
 
   const preferredAccountId = args["account-id"] ? String(args["account-id"]) : undefined;
   const authMode = String(args.auth || process.env.CF_BOOTSTRAP_AUTH || "oauth").toLowerCase();
+  const token = process.env.CLOUDFLARE_API_TOKEN ? String(process.env.CLOUDFLARE_API_TOKEN) : "";
   let accountId;
   let workersSubdomain = "";
   let d1;
@@ -703,21 +715,25 @@ async function main() {
   let queue;
 
   if (authMode === "api-token") {
-    const token = must(process.env.CLOUDFLARE_API_TOKEN, "Missing CLOUDFLARE_API_TOKEN for --auth api-token mode.");
-    accountId = await resolveAccountId(token, preferredAccountId);
-    d1 = await ensureD1Database(accountId, d1Name, token);
-    kv = await ensureKvNamespace(accountId, kvTitle, token);
+    const requiredToken = must(token, "Missing CLOUDFLARE_API_TOKEN for --auth api-token mode.");
+    accountId = await resolveAccountId(requiredToken, preferredAccountId);
+    workersSubdomain = await resolveWorkersSubdomainFromApi(accountId, requiredToken);
+    d1 = await ensureD1Database(accountId, d1Name, requiredToken);
+    kv = await ensureKvNamespace(accountId, kvTitle, requiredToken);
     try {
-      r2 = await ensureR2Bucket(accountId, r2Bucket, token);
+      r2 = await ensureR2Bucket(accountId, r2Bucket, requiredToken);
     } catch (error) {
       if (!allowNoR2 || !isR2NotEnabledError(error)) throw error;
       r2 = { name: "", created: false, skipped: true, reason: "r2_not_enabled" };
       console.warn("[bootstrap] R2 is not enabled on this account; continuing without UPLOADS binding due to --allow-no-r2.");
     }
-    queue = await ensureQueue(accountId, queueName, token);
+    queue = await ensureQueue(accountId, queueName, requiredToken);
   } else {
     accountId = await resolveAccountIdFromWrangler(preferredAccountId);
-    workersSubdomain = await resolveWorkersSubdomainFromWrangler();
+    workersSubdomain = await resolveWorkersSubdomainFromApi(accountId, token);
+    if (!workersSubdomain) {
+      workersSubdomain = await resolveWorkersSubdomainFromWrangler();
+    }
     d1 = await ensureD1DatabaseWithWrangler(accountId, d1Name);
     kv = await ensureKvNamespaceWithWrangler(accountId, kvTitle);
     try {
