@@ -139,6 +139,7 @@ Notes:
 - In interactive mode, if `--smtp-pass` is omitted, bootstrap prompts for it.
 - Before deploying, bootstrap shows required DNS records and pauses until you type `done`.
 - Bootstrap attempts to resolve your Workers subdomain automatically; if not available, run `wrangler whoami` and use the shown workers.dev subdomain.
+- If `wrangler whoami` does not show a workers.dev subdomain, create one in Cloudflare Dashboard → Workers & Pages → Overview.
 - Use `--auto-confirm-dns` for CI/automation, or `--skip-dns-checkpoint` to disable this pause.
 
 If your Cloudflare account has not enabled R2 yet, you can continue bootstrap with:

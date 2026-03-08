@@ -144,6 +144,7 @@ async function runDnsCheckpoint({ domain, apiHost, pagesProject, workerName, wor
   for (const line of records) console.log(`- ${line}`);
   if (!workersSubdomain) {
     console.log("- Find your workers subdomain via: wrangler whoami");
+    console.log("- If wrangler whoami does not show it, set one in Cloudflare Dashboard → Workers & Pages → Overview → workers.dev subdomain.");
   }
   console.log("- Ensure proxy mode/SSL is configured per your Cloudflare zone policy.");
 
