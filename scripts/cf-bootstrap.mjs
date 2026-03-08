@@ -593,6 +593,17 @@ VITE_API_ORIGIN = "${apiOrigin}"
 `;
 }
 
+function renderCompanionConfig(name, scriptPath) {
+  return `name = "${name}"
+main = "${scriptPath}"
+compatibility_date = "${COMPATIBILITY_DATE}"
+workers_dev = true
+
+[observability]
+enabled = true
+`;
+}
+
 async function verifyGeneratedConfig(workerConfigPath, pagesConfigPath) {
   await runCommand("node", [
     "scripts/cf-deploy-readiness.mjs",
@@ -610,14 +621,11 @@ async function verifyRemoteReadiness(apiOrigin) {
   }
 }
 
-async function deployCompanionWorker(name, scriptPath, webhookUrl) {
+async function deployCompanionWorker(name, configPath, webhookUrl) {
   const args = [
     "deploy",
-    scriptPath,
-    "--name",
-    name,
-    "--compatibility-date",
-    COMPATIBILITY_DATE,
+    "--config",
+    configPath,
   ];
   if (webhookUrl) args.push("--var", `TARGET_WEBHOOK_URL:${webhookUrl}`);
   await runCommand("wrangler", args);
@@ -776,8 +784,12 @@ async function main() {
 
   const remindersCompanionPath = `.generated/companion-${remindersService}.mjs`;
   const scrapersCompanionPath = `.generated/companion-${scrapersService}.mjs`;
+  const remindersCompanionConfigPath = `.generated/wrangler.companion-${remindersService}.toml`;
+  const scrapersCompanionConfigPath = `.generated/wrangler.companion-${scrapersService}.toml`;
   await writeFile(remindersCompanionPath, renderCompanionWorkerSource("reminders"));
   await writeFile(scrapersCompanionPath, renderCompanionWorkerSource("scrapers"));
+  await writeFile(remindersCompanionConfigPath, renderCompanionConfig(remindersService, remindersCompanionPath));
+  await writeFile(scrapersCompanionConfigPath, renderCompanionConfig(scrapersService, scrapersCompanionPath));
 
   const receipt = {
     ...summary,
@@ -788,8 +800,8 @@ async function main() {
       r2: { ...(r2 || {}) },
       queue: { ...queue, name: queueName },
       companionServices: {
-        reminders: { name: remindersService, scriptPath: remindersCompanionPath },
-        scrapers: { name: scrapersService, scriptPath: scrapersCompanionPath },
+        reminders: { name: remindersService, scriptPath: remindersCompanionPath, configPath: remindersCompanionConfigPath },
+        scrapers: { name: scrapersService, scriptPath: scrapersCompanionPath, configPath: scrapersCompanionConfigPath },
       },
     },
     generated: {
@@ -851,8 +863,8 @@ async function main() {
 
     if (shouldProvisionCompanionWorkers) {
       console.log("\nDeploying companion service workers (reminders/scrapers)...");
-      await deployCompanionWorker(remindersService, remindersCompanionPath, remindersWebhookUrl);
-      await deployCompanionWorker(scrapersService, scrapersCompanionPath, scrapersWebhookUrl);
+      await deployCompanionWorker(remindersService, remindersCompanionConfigPath, remindersWebhookUrl);
+      await deployCompanionWorker(scrapersService, scrapersCompanionConfigPath, scrapersWebhookUrl);
 
       if (shouldSetSecrets) {
         await putWorkerNamedSecret(remindersService, "JOBS_WEBHOOK_TOKEN", jobsToken.value);
@@ -899,8 +911,8 @@ async function main() {
   if (!shouldDeploy) {
     console.log("- Deploy manually:");
     if (shouldProvisionCompanionWorkers) {
-      console.log(`  wrangler deploy ${remindersCompanionPath} --name ${remindersService} --compatibility-date ${COMPATIBILITY_DATE} --var TARGET_WEBHOOK_URL:${remindersWebhookUrl || "<set reminders webhook url>"}`);
-      console.log(`  wrangler deploy ${scrapersCompanionPath} --name ${scrapersService} --compatibility-date ${COMPATIBILITY_DATE} --var TARGET_WEBHOOK_URL:${scrapersWebhookUrl || "<set scrapers webhook url>"}`);
+      console.log(`  wrangler deploy --config ${remindersCompanionConfigPath} --var TARGET_WEBHOOK_URL:${remindersWebhookUrl || "<set reminders webhook url>"}`);
+      console.log(`  wrangler deploy --config ${scrapersCompanionConfigPath} --var TARGET_WEBHOOK_URL:${scrapersWebhookUrl || "<set scrapers webhook url>"}`);
     }
     console.log(`  wrangler d1 migrations apply ${d1Name} --config ${workerConfigPath}`);
     console.log(`  wrangler deploy --config ${workerConfigPath}`);
