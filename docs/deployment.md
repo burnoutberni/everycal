@@ -136,7 +136,7 @@ pnpm cf:bootstrap -- --domain calendar.example.com --apply --auth api-token --sm
 
 Notes:
 - `--apply` now provisions and deploys by default (use `--no-deploy` to provision/generate only).
-- In interactive mode, if `--smtp-pass` is omitted, bootstrap prompts for it securely.
+- In interactive mode, if `--smtp-pass` is omitted, bootstrap prompts for it.
 - Before deploying, bootstrap shows required DNS records and pauses until you type `done`.
 - Use `--auto-confirm-dns` for CI/automation, or `--skip-dns-checkpoint` to disable this pause.
 

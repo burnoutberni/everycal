@@ -96,24 +96,8 @@ async function promptLine(question) {
 
 async function promptSecret(question) {
   if (!process.stdin.isTTY) return "";
-  return await new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    const stdin = process.stdin;
-    const onData = (char) => {
-      const key = String(char);
-      if (["\n", "\r", "\u0004"].includes(key)) return;
-      readline.cursorTo(process.stdout, 0);
-      process.stdout.write(question + "*".repeat(rl.line.length));
-    };
-    process.stdout.write(question);
-    stdin.on("data", onData);
-    rl.question("", (value) => {
-      stdin.removeListener("data", onData);
-      rl.close();
-      process.stdout.write("\n");
-      resolve(String(value || "").trim());
-    });
-  });
+  const value = await promptLine(question);
+  return value;
 }
 
 async function maybePromptSmtpPassword(config, dryRun) {

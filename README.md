@@ -180,7 +180,7 @@ Common flags:
 - `--rotate-keys` to force regeneration of federation/job secrets.
 - `--reminders-webhook-url` / `--scrapers-webhook-url` to configure companion worker executor targets (recommended for behavioral parity checks).
 - `--smtp-host`, `--smtp-port`, `--smtp-from` (plus optional `--smtp-secure`, `--smtp-user`, `--smtp-pass`) to supply and validate production SMTP during bootstrap.
-- when `--smtp-pass` is omitted in interactive TTY mode, bootstrap prompts securely for SMTP password.
+- when `--smtp-pass` is omitted in interactive TTY mode, bootstrap prompts for SMTP password.
 - `--allow-no-smtp` only for non-production/testing; production bootstrap enforces SMTP by default.
 - `--allow-no-r2` to continue provisioning when R2 is not enabled on the Cloudflare account (uploads will be unavailable until R2 is enabled and bootstrap re-run).
 - DNS checkpoint: apply+deploy pauses and prints required DNS records, then resumes after you type `done`.
