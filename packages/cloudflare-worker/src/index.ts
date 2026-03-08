@@ -1,4 +1,4 @@
-import { createUnifiedApp } from "@everycal/runtime-core";
+import { createUnifiedApp } from "../../runtime-core/src/index";
 import { CloudflareStorage, type CloudflareBindings } from "./storage";
 import { hashPassword, verifyPassword } from "./security";
 import { renderWorkerHtml } from "./ssr";

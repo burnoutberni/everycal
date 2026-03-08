@@ -8,7 +8,7 @@ const deliverActivity = vi.fn(async () => ({ ok: true }));
 const syncRemoteActorAndEvents = vi.fn(async () => ({ actor: null, eventsSynced: 0 }));
 const fetchMock = vi.fn();
 
-vi.mock("@everycal/runtime-core", () => ({
+vi.mock("../../runtime-core/src/index", () => ({
   createUnifiedApp,
 }));
 

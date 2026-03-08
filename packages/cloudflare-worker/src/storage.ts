@@ -1,4 +1,4 @@
-import type { UnifiedStorage, UnifiedAccount, UnifiedEvent, UnifiedIdentity, UploadObject, SavedLocation, RemoteActorSummary, RemoteEventSummary } from "@everycal/runtime-core";
+import type { UnifiedStorage, UnifiedAccount, UnifiedEvent, UnifiedIdentity, UploadObject, SavedLocation, RemoteActorSummary, RemoteEventSummary } from "../../runtime-core/src/index";
 
 export interface CloudflareBindings {
   DB: D1Database;

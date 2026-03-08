@@ -1,4 +1,4 @@
-import type { DeliveryResult, InboxVerificationResult, RemoteEventSummary, SyncResult } from "@everycal/runtime-core";
+import type { DeliveryResult, InboxVerificationResult, RemoteEventSummary, SyncResult } from "../../runtime-core/src/index";
 import type { CloudflareBindings } from "./storage";
 import { CloudflareStorage } from "./storage";
 
