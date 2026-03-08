@@ -169,6 +169,7 @@ pnpm cf:bootstrap -- --domain calendar.example.com --apply --no-deploy
 
 What it does:
 - **Phase A (provisioning orchestration):** creates/ensures D1, KV, R2, and Queue resources via Wrangler OAuth by default (or API token fallback) and writes generated configs under `.generated/`.
+  - Queue provisioning is idempotent across reruns; if queue name already exists from a prior partial run, bootstrap reuses it.
 - **Phase B (convention defaults):** derives `BASE_URL`, `CORS_ORIGIN`, `API_ORIGIN`, and resource names from the domain + env convention.
 - **Phase C (first-run bootstrap artifacts):** reuses existing generated federation key/job token by default (generate-once behavior), rotates only when explicitly requested via `--rotate-keys`, and sets Worker secrets.
 - **Service-binding mode (Cloudflare-native):** generates and deploys companion reminder/scraper workers (`everycal-reminders-*`, `everycal-scrapers-*`) and binds them automatically. Companions forward to configured executor webhook targets and expose `/healthz` for behavioral readiness checks.

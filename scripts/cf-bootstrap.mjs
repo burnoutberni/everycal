@@ -332,11 +332,21 @@ async function ensureQueue(accountId, queueName, token) {
   const list = await cfFetch(`/accounts/${accountId}/queues`, { method: "GET" }, token);
   const existing = Array.isArray(list) ? list.find((item) => item.queue_name === queueName) : null;
   if (existing?.queue_id) return { id: existing.queue_id, created: false };
-  const created = await cfFetch(`/accounts/${accountId}/queues`, {
-    method: "POST",
-    body: JSON.stringify({ queue_name: queueName }),
-  }, token);
-  return { id: created.queue_id, created: true };
+  try {
+    const created = await cfFetch(`/accounts/${accountId}/queues`, {
+      method: "POST",
+      body: JSON.stringify({ queue_name: queueName }),
+    }, token);
+    return { id: created.queue_id, created: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("code: 11009") || message.toLowerCase().includes("already taken")) {
+      const refreshed = await cfFetch(`/accounts/${accountId}/queues`, { method: "GET" }, token);
+      const reused = Array.isArray(refreshed) ? refreshed.find((item) => item.queue_name === queueName) : null;
+      return { id: reused?.queue_id || "", created: false, reused: true };
+    }
+    throw error;
+  }
 }
 
 async function ensureD1DatabaseWithWrangler(accountId, name) {
@@ -383,8 +393,8 @@ async function ensureQueueWithWrangler(accountId, queueName) {
     return { id: "", created: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.toLowerCase().includes("already exists")) {
-      return { id: "", created: false };
+    if (message.toLowerCase().includes("already exists") || message.toLowerCase().includes("already taken") || message.includes("code: 11009")) {
+      return { id: "", created: false, reused: true };
     }
     throw error;
   }
