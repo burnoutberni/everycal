@@ -517,6 +517,8 @@ function renderCompanionWorkerSource(jobType) {
 }
 
 function renderWorkerConfig(input) {
+  const workerMainPath = "../packages/cloudflare-worker/src/index.ts";
+  const migrationsDir = "../packages/cloudflare-worker/migrations";
   const r2Section = input.r2Bucket ? `
 [[r2_buckets]]
 binding = "UPLOADS"
@@ -524,7 +526,7 @@ bucket_name = "${input.r2Bucket}"
 ` : "";
 
   return `name = "${input.workerName}"
-main = "packages/cloudflare-worker/src/index.ts"
+main = "${workerMainPath}"
 compatibility_date = "${COMPATIBILITY_DATE}"
 workers_dev = true
 
@@ -532,7 +534,7 @@ workers_dev = true
 binding = "DB"
 database_name = "${input.d1Name}"
 database_id = "${input.d1Id}"
-migrations_dir = "packages/cloudflare-worker/migrations"
+migrations_dir = "${migrationsDir}"
 ${r2Section}
 
 [[queues.producers]]
@@ -890,7 +892,7 @@ async function main() {
     }
 
     console.log("\nDeploying EveryCal Worker + Pages...");
-    await runCommand("wrangler", ["d1", "migrations", "apply", d1Name, "--config", workerConfigPath]);
+    await runCommand("wrangler", ["d1", "migrations", "apply", d1Name, "--remote", "--config", workerConfigPath]);
     await runCommand("wrangler", ["deploy", "--config", workerConfigPath]);
     await runCommand("pnpm", ["cf:pages:build"]);
     await runCommand("wrangler", ["pages", "deploy", "packages/web/dist/client", "--project-name", pagesProject, "--config", pagesConfigPath]);
@@ -915,7 +917,7 @@ async function main() {
       console.log(`  wrangler deploy --config ${remindersCompanionConfigPath} --var TARGET_WEBHOOK_URL:${remindersWebhookUrl || "<set reminders webhook url>"}`);
       console.log(`  wrangler deploy --config ${scrapersCompanionConfigPath} --var TARGET_WEBHOOK_URL:${scrapersWebhookUrl || "<set scrapers webhook url>"}`);
     }
-    console.log(`  wrangler d1 migrations apply ${d1Name} --config ${workerConfigPath}`);
+    console.log(`  wrangler d1 migrations apply ${d1Name} --remote --config ${workerConfigPath}`);
     console.log(`  wrangler deploy --config ${workerConfigPath}`);
     console.log("  pnpm cf:pages:build");
     console.log(`  wrangler pages deploy packages/web/dist/client --project-name ${pagesProject} --config ${pagesConfigPath}`);
