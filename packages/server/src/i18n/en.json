@@ -50,7 +50,13 @@
     "title_startdate_required": "Title and startDate are required",
     "invalid_visibility": "Invalid visibility. Must be: public, unlisted, followers_only, or private",
     "event_not_found_after_create": "Event not found after create",
-    "event_not_found_after_update": "Event not found after update"
+    "event_not_found_after_update": "Event not found after update",
+    "resolve_uri_required": "uri query parameter is required",
+    "resolve_invalid_uri": "Invalid event URI",
+    "resolve_not_event": "Resolved object is not an Event",
+    "resolve_missing_required_fields": "Event is missing required fields",
+    "resolve_missing_actor": "Event is missing attributedTo actor",
+    "resolve_fetch_failed": "Failed to resolve remote event: {{error}}"
   },
   "feeds": {
     "token_required": "token query parameter required",

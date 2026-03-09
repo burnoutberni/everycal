@@ -1,6 +1,6 @@
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
-import { slugify, uniqueRemoteEventSlug } from "./slugs.js";
+import { uniqueRemoteEventSlug } from "./slugs.js";
 
 function extractLocationAddress(location?: Record<string, unknown>): string | null {
   if (!location?.address) return null;
@@ -46,14 +46,17 @@ export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actor
   const uri = object.id as string;
   const existing = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null } | undefined;
   if (existing) {
+    const resolvedSlug = existing.slug || uniqueRemoteEventSlug(db, actorUri, title || "event");
     db.prepare(
       `UPDATE remote_events SET
+        slug = ?,
         title = ?, description = ?, start_date = ?, end_date = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
         url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, fetched_at = datetime('now'), canceled = 0
        WHERE uri = ?`
     ).run(
+      resolvedSlug,
       title,
       description,
       startDate,
@@ -73,7 +76,7 @@ export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actor
       (object.updated as string) || null,
       uri,
     );
-    return { uri, slug: existing.slug || slugify(title) || "event" };
+    return { uri, slug: resolvedSlug };
   }
 
   const slug = uniqueRemoteEventSlug(db, actorUri, title);

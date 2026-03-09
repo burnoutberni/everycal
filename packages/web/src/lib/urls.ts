@@ -15,8 +15,7 @@ export function eventPath(event: {
     return `/@${event.account.username}/${event.slug}`;
   }
   if (event.source === "remote") {
-    if (event.account?.username) return `/@${event.account.username}`;
-    return "/";
+    return remoteEventResolvePath(event.id);
   }
   return `/events/${event.id}`;
 }

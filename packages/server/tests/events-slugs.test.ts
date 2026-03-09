@@ -79,6 +79,26 @@ describe("event slug canonical behavior", () => {
     expect(second.slug).toBe("same-event");
   });
 
+  it("persists missing slug on remote update with actor-scoped uniqueness", () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/other", "https://remote.example/users/alice", "same-event", "Same Event", "2026-01-02T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/events/target", "https://remote.example/users/alice", "Same Event", "2026-01-02T10:00:00Z");
+
+    const updated = upsertRemoteEvent(db, {
+      id: "https://remote.example/events/target",
+      type: "Event",
+      name: "Same Event",
+      startTime: "2026-01-03T10:00:00Z",
+    }, "https://remote.example/users/alice");
+
+    expect(updated.slug).toBe("same-event-2");
+    const row = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get("https://remote.example/events/target") as { slug: string };
+    expect(row.slug).toBe("same-event-2");
+  });
+
   it("handles remote slug collisions per actor", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
@@ -136,6 +156,41 @@ describe("event slug canonical behavior", () => {
 
     expect(res.status).toBe(200);
     expect(body.path).toBe("/@alice@remote.example/resolver-event");
+  });
+
+  it("resolver redirects to canonical path for browser navigations", async () => {
+    vi.mocked(fetchAP).mockResolvedValue({
+      id: "https://remote.example/events/100",
+      type: "Event",
+      name: "Resolver Redirect Event",
+      startTime: "2026-01-01T10:00:00Z",
+      attributedTo: "https://remote.example/users/alice",
+    });
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: "https://remote.example/users/alice",
+      preferred_username: "alice",
+      display_name: "Alice",
+      inbox: "https://remote.example/inbox",
+      domain: "remote.example",
+    } as any);
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F100", {
+      headers: { accept: "text/html" },
+    });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/@alice@remote.example/resolver-redirect-event");
+  });
+
+  it("resolver returns controlled 502 on remote fetch failures", async () => {
+    vi.mocked(fetchAP).mockRejectedValue(new Error("upstream timeout"));
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F100");
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(502);
+    expect(body.error).toContain("Failed to resolve remote event");
   });
 
   it("resolver assigns slug for existing cached remote event without slug", async () => {

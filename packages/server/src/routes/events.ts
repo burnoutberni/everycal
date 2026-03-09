@@ -963,8 +963,11 @@ export function eventRoutes(db: DB): Hono {
   });
 
   router.get("/resolve", async (c) => {
+    const locale = getLocale(c);
     const uri = c.req.query("uri")?.trim();
-    if (!uri) return c.json({ error: "uri is required" }, 400);
+    if (!uri) return c.json({ error: t(locale, "events.resolve_uri_required") }, 400);
+
+    const wantsHtml = (c.req.header("accept") || "").includes("text/html");
 
     let normalizedUri: string;
     try {
@@ -972,7 +975,7 @@ export function eventRoutes(db: DB): Hono {
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("invalid protocol");
       normalizedUri = parsed.toString();
     } catch {
-      return c.json({ error: "invalid uri" }, 400);
+      return c.json({ error: t(locale, "events.resolve_invalid_uri") }, 400);
     }
 
     const existing = db
@@ -993,36 +996,52 @@ export function eventRoutes(db: DB): Hono {
         db.prepare("UPDATE remote_events SET slug = ? WHERE uri = ?").run(resolvedSlug, existing.uri as string);
       }
       const path = `/@${existing.preferred_username}@${existing.domain}/${resolvedSlug}`;
+      if (wantsHtml) return c.redirect(path, 302);
       return c.json({ path, event: formatRemoteEvent({ ...existing, slug: resolvedSlug }) });
     }
 
-    const object = await fetchAP(normalizedUri) as Record<string, unknown>;
-    const objectType = object.type;
-    if (objectType !== "Event") return c.json({ error: "object is not an Event" }, 400);
-    const title = object.name ?? object.title;
-    const startDate = object.startTime ?? object.startDate;
-    if (!title || !startDate || !object.id) {
-      return c.json({ error: "event missing required fields" }, 400);
+    try {
+      const object = await fetchAP(normalizedUri) as Record<string, unknown>;
+      const objectType = object.type;
+      if (objectType !== "Event") return c.json({ error: t(locale, "events.resolve_not_event") }, 400);
+      const title = object.name ?? object.title;
+      const startDate = object.startTime ?? object.startDate;
+      if (!title || !startDate || !object.id) {
+        return c.json({ error: t(locale, "events.resolve_missing_required_fields") }, 400);
+      }
+
+      const attributedTo = object.attributedTo;
+      const actorUri = typeof attributedTo === "string"
+        ? attributedTo
+        : Array.isArray(attributedTo)
+          ? attributedTo.find((v): v is string => typeof v === "string")
+          : undefined;
+      if (!actorUri) return c.json({ error: t(locale, "events.resolve_missing_actor") }, 400);
+
+      const actor = await resolveRemoteActor(db, actorUri, true);
+      if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
+
+      const stored = upsertRemoteEvent(db, object, actor.uri);
+      const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
+      const row = db
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
+        .get(stored.uri) as Record<string, unknown> | undefined;
+
+      if (wantsHtml) return c.redirect(path, 302);
+      return c.json({ path, event: row ? formatRemoteEvent(row) : null });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const msgLower = msg.toLowerCase();
+      if (
+        msgLower.includes("private/internal") ||
+        msgLower.includes("resolves to private") ||
+        msgLower.includes("invalid protocol") ||
+        msgLower.includes("only https")
+      ) {
+        return c.json({ error: t(locale, "federation.private_address_not_allowed") }, 400);
+      }
+      return c.json({ error: t(locale, "events.resolve_fetch_failed", { error: msg }) }, 502);
     }
-
-    const attributedTo = object.attributedTo;
-    const actorUri = typeof attributedTo === "string"
-      ? attributedTo
-      : Array.isArray(attributedTo)
-        ? attributedTo.find((v): v is string => typeof v === "string")
-        : undefined;
-    if (!actorUri) return c.json({ error: "event missing attributedTo actor" }, 400);
-
-    const actor = await resolveRemoteActor(db, actorUri, true);
-    if (!actor) return c.json({ error: "could not resolve actor" }, 404);
-
-    const stored = upsertRemoteEvent(db, object, actor.uri);
-    const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
-    const row = db
-      .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
-      .get(stored.uri) as Record<string, unknown> | undefined;
-
-    return c.json({ path, event: row ? formatRemoteEvent(row) : null });
   });
 
   // ─── GET /:id ───────────────────────────────────────────────────────────
