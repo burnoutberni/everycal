@@ -29,7 +29,9 @@
   "eventUpdated": {
     "subject": "Aktualisiert: {{title}}",
     "wasUpdated": "wurde aktualisiert",
-    "viewDetails": "Details anzeigen"
+    "viewDetails": "Details anzeigen",
+    "changedFields": "Geänderte Felder",
+    "emptyValue": "(leer)"
   },
   "eventCancelled": {
     "subject": "Abgesagt: {{title}}",
