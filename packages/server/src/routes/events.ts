@@ -1186,6 +1186,14 @@ export function eventRoutes(db: DB): Hono {
     const imageAttributionJson = body.image?.attribution
       ? JSON.stringify(body.image.attribution)
       : null;
+    const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
+    if (!startAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null;
+    if (endDateInput && !endAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
 
     db.prepare(
       `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
@@ -1196,8 +1204,8 @@ export function eventRoutes(db: DB): Hono {
     ).run(
       id, postingAccount.id, user.id, slug, body.title, body.description || null,
       startDateInput, endDateInput || null, body.allDay ? 1 : 0,
-      convertLegacyNaiveToUtcIso(startDateInput, eventTimezone),
-      endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null,
+      startAtUtc,
+      endAtUtc,
       eventTimezone,
       startDateInput.slice(0, 10),
       endDateInput ? endDateInput.slice(0, 10) : null,
@@ -1218,8 +1226,6 @@ export function eventRoutes(db: DB): Hono {
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
-      const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
-      const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : undefined;
       const createActivity = {
         "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
         id: `${baseUrl}/events/${id}/activity`,
@@ -1234,7 +1240,7 @@ export function eventRoutes(db: DB): Hono {
           name: body.title,
           content: body.description || undefined,
           startTime: startAtUtc,
-          endTime: endAtUtc,
+          endTime: endAtUtc || undefined,
           eventTimezone,
           url: `${baseUrl}/@${postingAccount.username}/${slug}`,
           attributedTo: actorUrl,
@@ -1310,15 +1316,25 @@ export function eventRoutes(db: DB): Hono {
     const nextStart = body.startDateTime ?? body.startDate;
     const nextEnd = body.endDateTime ?? body.endDate;
     const nextTimezone = body.eventTimezone;
+    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
+    const nextStartAtUtc = nextStart !== undefined ? convertLegacyNaiveToUtcIso(nextStart, tzForConvert) : null;
+    if (nextStart !== undefined && !nextStartAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    const nextEndAtUtc = nextEnd !== undefined && nextEnd !== null
+      ? convertLegacyNaiveToUtcIso(nextEnd, tzForConvert)
+      : null;
+    if (nextEnd !== undefined && nextEnd !== null && !nextEndAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
     if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }
     if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
     if (nextTimezone !== undefined) {
       if (!isValidIanaTimezone(nextTimezone)) return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
       fields.push("event_timezone = ?"); values.push(nextTimezone);
     }
-    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
-    if (nextStart !== undefined) { fields.push("start_at_utc = ?"); values.push(convertLegacyNaiveToUtcIso(nextStart, tzForConvert)); fields.push("start_on = ?"); values.push(nextStart.slice(0, 10)); }
-    if (nextEnd !== undefined) { fields.push("end_at_utc = ?"); values.push(nextEnd ? convertLegacyNaiveToUtcIso(nextEnd, tzForConvert) : null); fields.push("end_on = ?"); values.push(nextEnd ? nextEnd.slice(0, 10) : null); }
+    if (nextStart !== undefined) { fields.push("start_at_utc = ?"); values.push(nextStartAtUtc); fields.push("start_on = ?"); values.push(nextStart.slice(0, 10)); }
+    if (nextEnd !== undefined) { fields.push("end_at_utc = ?"); values.push(nextEnd ? nextEndAtUtc : null); fields.push("end_on = ?"); values.push(nextEnd ? nextEnd.slice(0, 10) : null); }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {
       if (!isValidVisibility(body.visibility)) {

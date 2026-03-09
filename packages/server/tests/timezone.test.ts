@@ -51,4 +51,8 @@ describe("timezone conversion utilities", () => {
     expect(normalized.startAtUtc).toBeNull();
     expect(normalized.timezoneQuality).toBe("unknown");
   });
+
+  it("returns null for invalid legacy date strings", () => {
+    expect(convertLegacyNaiveToUtcIso("not-a-date", "Europe/Vienna")).toBeNull();
+  });
 });

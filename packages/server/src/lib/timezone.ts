@@ -39,10 +39,12 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
   return asUtc - instant.getTime();
 }
 
-function localInZoneToUtcIso(localIso: string, timeZone: string): string {
+function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {
   const m = localIso.match(LOCAL_DATE_TIME);
   if (!m) {
-    return new Date(localIso).toISOString();
+    const parsed = new Date(localIso);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
   }
 
   const [, y, mo, d, h, mi, s] = m;
@@ -57,7 +59,9 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string {
     candidateMs = next;
   }
 
-  return new Date(candidateMs).toISOString();
+  const parsed = new Date(candidateMs);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 }
 
 function hasIsoOffset(value: string | null | undefined): boolean {
@@ -135,11 +139,11 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
   };
 }
 
-export function convertLegacyNaiveToUtcIso(value: string, fallbackTimezone: string): string {
-  if (!value) return value;
+export function convertLegacyNaiveToUtcIso(value: string, fallbackTimezone: string): string | null {
+  if (!value) return null;
 
   if (ISO_HAS_OFFSET.test(value)) {
-    return new Date(value).toISOString();
+    return tryToUtcIso(value);
   }
 
   const tz = isValidIanaTimezone(fallbackTimezone) ? fallbackTimezone : "Europe/Vienna";

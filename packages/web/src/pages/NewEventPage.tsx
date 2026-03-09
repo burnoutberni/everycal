@@ -130,6 +130,15 @@ function utcMillisToLocalDateTime(ms: number, timeZone: string): string {
   return formatLocalFromParts(parts);
 }
 
+function toDatetimeLocalInput(value: string): string {
+  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
+  const m = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+  if (m) return `${m[1]}T${m[2]}:${m[3]}`;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return toDatetimeLocal(parsed);
+}
+
 function minimumEndValue(start: string, allDay: boolean, timeZone: string): string {
   if (allDay) return start.slice(0, 10);
   const startMs = localDateTimeToUtcMillis(start, timeZone);
@@ -271,7 +280,7 @@ function durationFromStartEnd(
   return {
     duration: "1h",
     showCustomEnd: true,
-    customEnd: toDatetimeLocal(new Date(end)),
+    customEnd: toDatetimeLocalInput(end),
   };
 }
 
@@ -279,21 +288,35 @@ function durationFromStartEnd(
 function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate: string } {
   const loc = event.location;
   const isOnline = !!(loc?.url);
-  const { duration, showCustomEnd, customEnd } = durationFromStartEnd(
-    event.startAtUtc || event.startDate,
-    event.endAtUtc || event.endDate,
-    event.allDay
-  );
+  const eventTimezone = event.eventTimezone || "Europe/Vienna";
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
-    : toDatetimeLocal(new Date(event.startAtUtc || event.startDate));
+    : (() => {
+      if (event.startAtUtc) {
+        const ms = new Date(event.startAtUtc).getTime();
+        if (!Number.isNaN(ms)) {
+          const zoned = utcMillisToLocalDateTime(ms, eventTimezone);
+          if (zoned) return zoned;
+        }
+      }
+      return toDatetimeLocalInput(event.startDate);
+    })();
+  const endDate = event.endDate
+    ? (event.allDay ? event.endDate.slice(0, 10) : toDatetimeLocalInput(event.endDate))
+    : null;
+  const { duration, showCustomEnd, customEnd } = durationFromStartEnd(
+    startDate,
+    endDate,
+    event.allDay
+  );
+
   return {
     title: event.title,
     description: event.description || "",
     startDate,
     duration,
     showCustomEnd,
-    customEnd: customEnd ? (event.allDay ? customEnd.slice(0, 10) : customEnd.slice(0, 16)) : "",
+    customEnd: customEnd ? (event.allDay ? customEnd.slice(0, 10) : customEnd) : "",
     imageUrl: event.image?.url || "",
     imageAttribution: event.image?.attribution,
     url: event.url || "",
@@ -717,11 +740,17 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   // Detect if material fields (title, time, location) changed — these trigger notifications to RSVPs
   const materialFieldsChanged = useMemo(() => {
     if (!isEdit || !initialEvent) return false;
+    if (eventTimezone !== (initialEvent.eventTimezone || "Europe/Vienna")) return true;
     if (title.trim() !== (initialEvent.title || "").trim()) return true;
-    const initStart = initialEvent.allDay ? initialEvent.startDate.slice(0, 10) : toDatetimeLocal(new Date(initialEvent.startDate));
-    const initEnd = initialEvent.endDate
-      ? (initialEvent.allDay ? initialEvent.endDate.slice(0, 10) : toDatetimeLocal(new Date(initialEvent.endDate)))
-      : "";
+    const initialTemporal = eventToInitialState(initialEvent);
+    const initDuration = initialTemporal.duration || "1h";
+    const initCustomEnd = initialTemporal.customEnd || "";
+    const initStart = initialTemporal.startDate;
+    const initEnd = initialTemporal.showCustomEnd
+      ? initCustomEnd
+      : initDuration === "allday"
+        ? ""
+        : addDuration(initialTemporal.startDate, initDuration);
     const currStart = allDay ? startDate.slice(0, 10) : startDate;
     const currEnd = endDate || "";
     if (currStart !== initStart || currEnd !== initEnd || allDay !== (initialEvent.allDay ?? false)) return true;
@@ -742,6 +771,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     isEdit,
     initialEvent,
     title,
+    eventTimezone,
     startDate,
     endDate,
     allDay,
