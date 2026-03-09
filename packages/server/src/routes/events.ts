@@ -28,6 +28,7 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { convertLegacyNaiveToUtcIso, isValidIanaTimezone } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -169,6 +170,9 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
+    startAtUtc: row.start_at_utc ?? row.start_date,
+    endAtUtc: row.end_at_utc ?? row.end_date,
+    eventTimezone: row.event_timezone || "Europe/Vienna",
     allDay: !!row.all_day,
     location: row.location_name
       ? {
@@ -1100,6 +1104,9 @@ export function eventRoutes(db: DB): Hono {
       description?: string;
       startDate: string;
       endDate?: string;
+      startDateTime?: string;
+      endDateTime?: string;
+      eventTimezone?: string;
       allDay?: boolean;
       location?: {
         name: string;
@@ -1115,8 +1122,14 @@ export function eventRoutes(db: DB): Hono {
       postAsAccountId?: string;
     }>();
 
-    if (!body.title || !body.startDate) {
+    const startDateInput = body.startDateTime || body.startDate;
+    const endDateInput = body.endDateTime || body.endDate;
+    const eventTimezone = body.eventTimezone || "Europe/Vienna";
+    if (!body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
+    }
+    if (!isValidIanaTimezone(eventTimezone)) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
 
     sanitizeEventFields(body as Record<string, unknown>);
@@ -1164,12 +1177,18 @@ export function eventRoutes(db: DB): Hono {
 
     db.prepare(
       `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
+        start_at_utc, end_at_utc, event_timezone, start_on, end_on,
         location_name, location_address, location_latitude, location_longitude, location_url,
         image_url, image_media_type, image_alt, image_attribution, url, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, postingAccount.id, user.id, slug, body.title, body.description || null,
-      body.startDate, body.endDate || null, body.allDay ? 1 : 0,
+      startDateInput, endDateInput || null, body.allDay ? 1 : 0,
+      convertLegacyNaiveToUtcIso(startDateInput, eventTimezone),
+      endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null,
+      eventTimezone,
+      startDateInput.slice(0, 10),
+      endDateInput ? endDateInput.slice(0, 10) : null,
       body.location?.name || null, body.location?.address || null,
       body.location?.latitude ?? null, body.location?.longitude ?? null,
       body.location?.url || null,
@@ -1200,8 +1219,8 @@ export function eventRoutes(db: DB): Hono {
           type: "Event",
           name: body.title,
           content: body.description || undefined,
-          startTime: body.startDate,
-          endTime: body.endDate || undefined,
+          startTime: startDateInput,
+          endTime: endDateInput || undefined,
             url: `${baseUrl}/@${postingAccount.username}/${slug}`,
             attributedTo: actorUrl,
           to: ["https://www.w3.org/ns/activitystreams#Public"],
@@ -1251,7 +1270,10 @@ export function eventRoutes(db: DB): Hono {
       title?: string;
       description?: string;
       startDate?: string;
+      startDateTime?: string;
       endDate?: string | null;
+      endDateTime?: string | null;
+      eventTimezone?: string;
       allDay?: boolean;
       location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
       image?: { url: string; mediaType?: string; alt?: string; attribution?: Record<string, unknown> } | null;
@@ -1269,8 +1291,18 @@ export function eventRoutes(db: DB): Hono {
       fields.push("title = ?"); values.push(body.title);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
-    if (body.startDate !== undefined) { fields.push("start_date = ?"); values.push(body.startDate); }
-    if (body.endDate !== undefined) { fields.push("end_date = ?"); values.push(body.endDate); }
+    const nextStart = body.startDateTime ?? body.startDate;
+    const nextEnd = body.endDateTime ?? body.endDate;
+    const nextTimezone = body.eventTimezone;
+    if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }
+    if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
+    if (nextTimezone !== undefined) {
+      if (!isValidIanaTimezone(nextTimezone)) return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      fields.push("event_timezone = ?"); values.push(nextTimezone);
+    }
+    const tzForConvert = nextTimezone || "Europe/Vienna";
+    if (nextStart !== undefined) { fields.push("start_at_utc = ?"); values.push(convertLegacyNaiveToUtcIso(nextStart, tzForConvert)); fields.push("start_on = ?"); values.push(nextStart.slice(0, 10)); }
+    if (nextEnd !== undefined) { fields.push("end_at_utc = ?"); values.push(nextEnd ? convertLegacyNaiveToUtcIso(nextEnd, tzForConvert) : null); fields.push("end_on = ?"); values.push(nextEnd ? nextEnd.slice(0, 10) : null); }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {
       if (!isValidVisibility(body.visibility)) {

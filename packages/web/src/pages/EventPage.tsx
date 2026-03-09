@@ -338,8 +338,8 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
     const title = event.title;
     const description = event.location?.name
-      ? `${formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })} • ${event.location.name}`
-      : formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") });
+      ? `${formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay"), timeFormat: user?.timeFormat, viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })} • ${event.location.name}`
+      : formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay"), timeFormat: user?.timeFormat, viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 
     document.title = title;
     document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
@@ -408,7 +408,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col gap-1">
             <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-              {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })}
+              {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay"), timeFormat: user?.timeFormat, viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}
             </span>
             {event.visibility !== "public" && (
               <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>

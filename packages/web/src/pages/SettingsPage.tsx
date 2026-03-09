@@ -74,6 +74,8 @@ export function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState("");
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
+  const [timezone, setTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
+  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("24h");
   const [discoverable, setDiscoverable] = useState(false);
   const [city, setCity] = useState<CitySelection | null>(null);
   const [savingProfileSettings, setSavingProfileSettings] = useState(false);
@@ -129,6 +131,8 @@ export function SettingsPage() {
     if (!user) return;
     authApi.me().then((u) => {
       setPreferredLanguage(u.preferredLanguage || "en");
+      setTimezone(u.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
+      setTimeFormat(u.timeFormat === "12h" ? "12h" : "24h");
       setDiscoverable(!!u.discoverable);
       setCity(u.city && u.cityLat != null && u.cityLng != null ? { city: u.city, lat: u.cityLat, lng: u.cityLng } : null);
       const p = u.notificationPrefs;
@@ -157,6 +161,7 @@ export function SettingsPage() {
     { value: "en", label: t("english") },
     { value: "de", label: t("german") },
   ];
+  const timezoneOptions = ["Europe/Vienna", "Europe/Berlin", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Tokyo"];
 
   const normalizeAndValidateUrl = (value: string, errorKey: "invalidWebsiteUrl" | "invalidAvatarUrl") => {
     const normalized = normalizeHttpUrlInput(value);
@@ -455,6 +460,8 @@ export function SettingsPage() {
       await authApi.updateProfile({
         discoverable,
         preferredLanguage,
+        timezone,
+        timeFormat,
         city: city ? city.city : null,
         cityLat: city ? city.lat : null,
         cityLng: city ? city.lng : null,
@@ -836,6 +843,21 @@ export function SettingsPage() {
                   {languageOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="settings-timezone">Timezone</label>
+                <select id="settings-timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                  {timezoneOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="settings-time-format">Time format</label>
+                <select id="settings-time-format" value={timeFormat} onChange={(e) => setTimeFormat(e.target.value as "12h" | "24h")}>
+                  <option value="24h">24h</option>
+                  <option value="12h">12h</option>
                 </select>
               </div>
               <div className="field">

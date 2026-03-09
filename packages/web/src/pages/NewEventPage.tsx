@@ -360,6 +360,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [availableIdentities, setAvailableIdentities] = useState<PublishingIdentity[]>([]);
   const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
   const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
+  const [eventTimezone, setEventTimezone] = useState(initialEvent?.eventTimezone ?? user?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Vienna");
   const [postAsNotice, setPostAsNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -383,6 +384,10 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [, setSearchingImage] = useState(false);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (!initialEvent && user?.timezone) setEventTimezone(user.timezone);
+  }, [initialEvent, user?.timezone]);
   const imageSearchQueryRef = useRef<string>("");
   const imageUrlRef = useRef(imageUrl);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -1014,10 +1019,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       const data: EventInput = {
         title,
         description: description || undefined,
-        startDate: allDay ? startDate.slice(0, 10) : new Date(startDate).toISOString(),
+        startDate: allDay ? startDate.slice(0, 10) : startDate,
         endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : new Date(endDate).toISOString()
+          ? allDay ? endDate.slice(0, 10) : endDate
           : undefined,
+        startDateTime: allDay ? undefined : startDate,
+        endDateTime: endDate && !allDay ? endDate : undefined,
+        eventTimezone,
         allDay,
         visibility,
         url: resolvedUrl,
@@ -1086,14 +1094,15 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const previewDateStr = startDate
     ? formatEventDateTime(
       {
-        startDate: allDay ? startDate.slice(0, 10) : new Date(startDate).toISOString(),
+        startDate: allDay ? startDate.slice(0, 10) : startDate,
         endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : new Date(endDate).toISOString()
+          ? allDay ? endDate.slice(0, 10) : endDate
           : null,
         allDay,
+        eventTimezone,
       },
       true,
-      { locale: i18n.language, allDayLabel: t("events:allDay") },
+      { locale: i18n.language, allDayLabel: t("events:allDay"), timeFormat: user?.timeFormat, viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     )
     : null;
 

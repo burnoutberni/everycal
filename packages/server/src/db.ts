@@ -27,6 +27,8 @@ export function initDatabase(path: string): DB {
       public_key TEXT,
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
+      timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
+      time_format TEXT NOT NULL DEFAULT '24h' CHECK(time_format IN ('12h','24h')),
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -58,6 +60,11 @@ export function initDatabase(path: string): DB {
       description TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT,
+      start_at_utc TEXT,
+      end_at_utc TEXT,
+      event_timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
+      start_on TEXT,
+      end_on TEXT,
       all_day INTEGER NOT NULL DEFAULT 0,
       location_name TEXT,
       location_address TEXT,
@@ -655,6 +662,55 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE events ADD COLUMN og_image_url TEXT");
   } catch {
     // Column already exists
+  }
+
+
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Vienna'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN time_format TEXT NOT NULL DEFAULT '24h'");
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN end_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN event_timezone TEXT NOT NULL DEFAULT 'Europe/Vienna'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN start_on TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN end_on TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Backfill legacy naive values assuming Europe/Vienna
+  try {
+    db.exec("UPDATE events SET event_timezone = COALESCE(NULLIF(event_timezone,''), 'Europe/Vienna')");
+    db.exec("UPDATE events SET start_on = substr(start_date,1,10) WHERE start_on IS NULL AND start_date IS NOT NULL");
+    db.exec("UPDATE events SET end_on = substr(end_date,1,10) WHERE end_on IS NULL AND end_date IS NOT NULL");
+    db.exec("UPDATE events SET start_at_utc = start_date WHERE start_at_utc IS NULL AND start_date LIKE '%Z'");
+    db.exec("UPDATE events SET end_at_utc = end_date WHERE end_at_utc IS NULL AND end_date LIKE '%Z'");
+  } catch {
+    // Ignore during partial initialization
   }
 
   return db;

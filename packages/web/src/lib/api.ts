@@ -186,6 +186,8 @@ export interface User {
   email?: string | null;
   emailVerified?: boolean;
   preferredLanguage?: string;
+  timezone?: string;
+  timeFormat?: "12h" | "24h";
   notificationPrefs?: NotificationPrefs;
   followersCount?: number;
   followingCount?: number;
@@ -274,7 +276,7 @@ export const auth = {
     return request<User>("/auth/me", {}, context);
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string | null; cityLat?: number | null; cityLng?: number | null; preferredLanguage?: string }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string | null; cityLat?: number | null; cityLng?: number | null; preferredLanguage?: string; timezone?: string; timeFormat?: "12h" | "24h" }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -342,6 +344,9 @@ export interface CalEvent {
   description: string | null;
   startDate: string;
   endDate: string | null;
+  startAtUtc?: string;
+  endAtUtc?: string | null;
+  eventTimezone?: string;
   allDay: boolean;
   location: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
   image: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution } | null;
@@ -363,6 +368,9 @@ export interface EventInput {
   description?: string;
   startDate: string;
   endDate?: string;
+  startDateTime?: string;
+  endDateTime?: string;
+  eventTimezone?: string;
   allDay?: boolean;
   location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
   image?: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution };

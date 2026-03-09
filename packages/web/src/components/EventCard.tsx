@@ -64,6 +64,8 @@ export function EventCard({
   const dateTimeStr = formatEventDateTime(event, false, {
     locale: i18n.language,
     allDayLabel: t("allDay"),
+    timeFormat: user?.timeFormat,
+    viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
   const rsvpOptions: { value: RsvpStatus; label: string; icon: string }[] = [
     { value: "going", label: t("going"), icon: "✓" },
