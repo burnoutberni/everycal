@@ -20,6 +20,7 @@ import {
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 
@@ -554,10 +555,6 @@ async function handleUndo(
   console.log(`  ✅ ${actorUri} unfollowed ${account.username}`);
 }
 
-function fallbackSlugFromUri(uri: string): string {
-  const trimmed = uri.replace(/\/$/, "");
-  return trimmed.split("/").pop() || "event";
-}
 
 function actorHandleFromUri(actorUri: string): { username: string; domain?: string } {
   try {
@@ -566,7 +563,7 @@ function actorHandleFromUri(actorUri: string): { username: string; domain?: stri
     const username = raw.startsWith("@") ? raw.slice(1) : raw;
     return { username, domain: u.host };
   } catch {
-    return { username: actorUri };
+    return { username: "unknown" };
   }
 }
 
@@ -629,7 +626,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
       }
       const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
       const newLoc = [locationName || "", locationAddr || ""].filter(Boolean).join(", ");
-      if (oldLoc !== newLoc) changes.push({ field: "location", before: oldLoc || "(none)", after: newLoc || "(none)" });
+      if (oldLoc !== newLoc) changes.push({ field: "location", before: oldLoc, after: newLoc });
     }
   }
 

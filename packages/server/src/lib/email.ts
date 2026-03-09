@@ -37,6 +37,16 @@ function baseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+
 /** Check if email sending is configured. */
 export function isEmailConfigured(): boolean {
   return getTransporter() !== null;
@@ -201,7 +211,9 @@ export async function sendEventReminder(
   const viewDetails = emailT(locale, "reminder.viewDetails");
   const starts = emailT(locale, "reminder.starts");
   const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
-  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
+  const detailsHtml = eventUrl
+    ? `<p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`
+    : "";
 
   const subject =
     hoursAhead === 1
@@ -213,7 +225,7 @@ export async function sendEventReminder(
     to,
     subject,
     text: `${event.title} ${starts} ${timeStr}${locationStr}.${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> ${starts} ${timeStr}${locationStr}.</p>${detailsHtml}`,
+    html: `<p><strong>${escapeHtml(event.title)}</strong> ${escapeHtml(starts)} ${escapeHtml(timeStr + locationStr)}.</p>${detailsHtml}`,
   });
 }
 
@@ -231,30 +243,34 @@ export async function sendEventUpdated(
   const translatedChanges = changes
     .map((c) => {
       const field = emailT(locale, `eventFields.${c.field}`);
-      const before = c.before?.trim();
-      const after = c.after?.trim();
-      if (before && after) return `${field}: \"${before}\" → \"${after}\"`;
+      const before = c.before?.trim() || "";
+      const after = c.after?.trim() || "";
+      if (before && after) return `${field}: "${before}" → "${after}"`;
       if (after) return `${field}: ${after}`;
+      if (before) return `${field}: ${before}`;
       return field;
     })
     .join("\n- ");
   const viewDetails = emailT(locale, "eventUpdated.viewDetails");
   const wasUpdated = emailT(locale, "eventUpdated.changes");
   const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
-  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
+  const detailsHtml = eventUrl
+    ? `<p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`
+    : "";
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
     subject: emailT(locale, "eventUpdated.subject", { title: event.title }),
     text: `${event.title}\n\n${wasUpdated}:\n- ${translatedChanges}${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong></p><p>${wasUpdated}:</p><ul>${changes
+    html: `<p><strong>${escapeHtml(event.title)}</strong></p><p>${escapeHtml(wasUpdated)}:</p><ul>${changes
       .map((c) => {
-        const field = emailT(locale, `eventFields.${c.field}`);
-        const before = c.before?.trim();
-        const after = c.after?.trim();
+        const field = escapeHtml(emailT(locale, `eventFields.${c.field}`));
+        const before = escapeHtml((c.before || "").trim());
+        const after = escapeHtml((c.after || "").trim());
         if (before && after) return `<li><strong>${field}</strong>: &quot;${before}&quot; → &quot;${after}&quot;</li>`;
         if (after) return `<li><strong>${field}</strong>: ${after}</li>`;
+        if (before) return `<li><strong>${field}</strong>: ${before}</li>`;
         return `<li><strong>${field}</strong></li>`;
       })
       .join("")}</ul>${detailsHtml}`,
@@ -271,12 +287,16 @@ export async function sendEventCancelled(
   if (!transport) return;
 
   const hasBeenCancelled = emailT(locale, "eventCancelled.hasBeenCancelled");
+  const viewDetails = emailT(locale, "eventUpdated.viewDetails");
+  const eventUrl = getEventLink(event);
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
     subject: emailT(locale, "eventCancelled.subject", { title: event.title }),
-    text: `${event.title} ${hasBeenCancelled}`,
-    html: `<p><strong>${event.title}</strong> ${hasBeenCancelled}</p>`,
+    text: `${event.title} ${hasBeenCancelled}
+
+${viewDetails}: ${eventUrl}`,
+    html: `<p><strong>${escapeHtml(event.title)}</strong> ${escapeHtml(hasBeenCancelled)}</p><p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`,
   });
 }

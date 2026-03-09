@@ -10,12 +10,7 @@ import {
   type EventInfo,
   type EventChange,
 } from "./email.js";
-
-function fallbackSlugFromUri(uri: string): string {
-  const trimmed = uri.replace(/\/$/, "");
-  const last = trimmed.split("/").pop() || trimmed;
-  return last || "event";
-}
+import { fallbackSlugFromUri } from "./event-links.js";
 
 /** Run the reminder job: find events in window, send emails, record sent. */
 export async function runSendReminders(db: DB): Promise<void> {

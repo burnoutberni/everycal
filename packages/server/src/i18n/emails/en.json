@@ -29,7 +29,7 @@
   "eventUpdated": {
     "subject": "Updated: {{title}}",
     "viewDetails": "View details",
-    "changes": "The following changed"
+    "changes": "The following has changed"
   },
   "eventCancelled": {
     "subject": "Cancelled: {{title}}",

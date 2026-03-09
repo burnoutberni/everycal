@@ -783,7 +783,7 @@ export function eventRoutes(db: DB): Hono {
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
             const newLoc = [ev.location?.name || "", ev.location?.address || ""].filter(Boolean).join(", ");
             if (oldLoc !== newLoc) {
-              changes.push({ field: "location", before: oldLoc || "(none)", after: newLoc || "(none)" });
+              changes.push({ field: "location", before: oldLoc, after: newLoc });
             }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
@@ -1307,7 +1307,7 @@ export function eventRoutes(db: DB): Hono {
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
       const changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
-      if (body.title !== undefined) {
+      if (body.title !== undefined && existing.title !== body.title) {
         changes.push({ field: "title", before: existing.title, after: body.title });
       }
       if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined) {
@@ -1315,14 +1315,18 @@ export function eventRoutes(db: DB): Hono {
         const newStart = body.startDate ?? existing.start_date;
         const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
         const newTime = [newStart, newEnd].filter(Boolean).join(" – ");
-        changes.push({ field: "time", before: oldTime, after: newTime });
+        if (oldTime !== newTime) {
+          changes.push({ field: "time", before: oldTime, after: newTime });
+        }
       }
       if (body.location !== undefined) {
         const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
         const newLoc = body.location === null
           ? ""
           : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
-        changes.push({ field: "location", before: oldLoc || "(none)", after: newLoc || "(none)" });
+        if (oldLoc !== newLoc) {
+          changes.push({ field: "location", before: oldLoc, after: newLoc });
+        }
       }
       if (changes.length > 0) {
         const ev = readLocalEventById(id);
