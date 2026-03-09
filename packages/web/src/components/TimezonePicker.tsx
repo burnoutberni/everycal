@@ -39,7 +39,7 @@ function parseOffset(offsetPart: string): { label: string; minutes: number } {
 }
 
 function timezoneShortName(tz: string, date: Date): string {
-  return new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "short" })
+  return new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" })
     .formatToParts(date)
     .find((p) => p.type === "timeZoneName")
     ?.value || "";
@@ -65,7 +65,7 @@ function collectNames(tz: string): string[] {
   for (const d of dates) {
     for (const style of styles) {
       try {
-        const val = new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: style })
+        const val = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: style })
           .formatToParts(d)
           .find((p) => p.type === "timeZoneName")?.value;
         if (val) out.add(val);
@@ -109,7 +109,7 @@ function toOption(tz: string, now: Date): TimezoneOption {
   const continent = parts[0] || "";
   const city = (parts[parts.length - 1] || tz).replace(/_/g, " ");
 
-  const shortOffset = new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "shortOffset" })
+  const shortOffset = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "shortOffset" })
     .formatToParts(now)
     .find((p) => p.type === "timeZoneName")
     ?.value || "GMT+0";
@@ -138,13 +138,6 @@ function toOption(tz: string, now: Date): TimezoneOption {
     displayLabel: `${offsetLabel} ${city} · ${continent}`,
     searchText,
   };
-}
-
-function pinSelectedFirst<T extends { tz: string }>(list: T[], selectedTz?: string): T[] {
-  if (!selectedTz) return list;
-  const idx = list.findIndex((x) => x.tz === selectedTz);
-  if (idx <= 0) return list;
-  return [list[idx], ...list.slice(0, idx), ...list.slice(idx + 1)];
 }
 
 export function TimezonePicker({
@@ -178,17 +171,11 @@ export function TimezonePicker({
     setQuery(selected?.displayLabel || value || "");
   }, [selected?.displayLabel, value]);
 
-  const ordered = useMemo(() => pinSelectedFirst(options, value), [options, value]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return ordered.slice(0, 60);
-    const matches = ordered.filter((o) => o.searchText.includes(q));
-    if (selected && !matches.some((m) => m.tz === selected.tz)) {
-      return [selected, ...matches].slice(0, 60);
-    }
-    return matches.slice(0, 60);
-  }, [ordered, query, selected]);
+    if (!q) return options.slice(0, 60);
+    return options.filter((o) => o.searchText.includes(q)).slice(0, 60);
+  }, [options, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -222,7 +209,8 @@ export function TimezonePicker({
         onFocus={() => {
           setQuery("");
           setOpen(true);
-          setHighlight(0);
+          const idx = options.findIndex((o) => o.tz === value);
+          setHighlight(idx >= 0 ? idx : 0);
         }}
         onBlur={() => {
           setTimeout(() => {
