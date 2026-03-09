@@ -8,6 +8,7 @@ import {
   sendEventUpdated,
   sendEventCancelled,
   type EventInfo,
+  type EventChangeDetail,
 } from "./email.js";
 
 /** Run the reminder job: find events in window, send emails, record sent. */
@@ -16,7 +17,7 @@ export async function runSendReminders(db: DB): Promise<void> {
   const localRows = db
     .prepare(
       `SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
-              e.id AS event_uri, e.title, e.start_date, e.end_date, e.all_day,
+              e.id AS event_uri, e.slug, a.username AS account_username, e.title, e.start_date, e.end_date, e.all_day,
               e.location_name, e.url
        FROM accounts a
        JOIN account_notification_prefs anp ON anp.account_id = a.id
@@ -37,6 +38,8 @@ export async function runSendReminders(db: DB): Promise<void> {
     preferred_language: string;
     reminder_hours_before: number;
     event_uri: string;
+    slug?: string;
+    account_username?: string;
     title: string;
     start_date: string;
     end_date: string | null;
@@ -70,6 +73,8 @@ export async function runSendReminders(db: DB): Promise<void> {
     preferred_language: string;
     reminder_hours_before: number;
     event_uri: string;
+    slug?: string;
+    account_username?: string;
     title: string;
     start_date: string;
     end_date: string | null;
@@ -88,6 +93,8 @@ export async function runSendReminders(db: DB): Promise<void> {
         row.email,
         {
           id: row.event_uri,
+          slug: row.slug ?? null,
+          accountUsername: row.account_username ?? null,
           title: row.title,
           startDate: row.start_date,
           endDate: row.end_date,
@@ -134,11 +141,12 @@ export function notifyEventUpdated(
   db: DB,
   eventUri: string,
   event: EventInfo,
-  changes: string[]
+  changes: string[],
+  changeDetails: EventChangeDetail[] = []
 ): void {
   const accounts = getAccountsToNotifyForEvent(db, eventUri, "event_updated_enabled");
   for (const { email, preferredLanguage } of accounts) {
-    sendEventUpdated(email, event, changes, preferredLanguage).catch((err) =>
+    sendEventUpdated(email, event, changes, changeDetails, preferredLanguage).catch((err) =>
       console.error(`Failed to send event-updated to ${email}:`, err)
     );
   }

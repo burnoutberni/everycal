@@ -619,8 +619,9 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   // For Update: fetch existing to detect material changes and notify RSVP'd users.
   // Only title, time, and location trigger notifications (not description, image, url, tags).
   let changes: string[] = [];
+  let existing: { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
   if (activityType === "Update") {
-    const existing = db.prepare(
+    existing = db.prepare(
       "SELECT title, start_date, end_date, location_name, location_address FROM remote_events WHERE uri = ?"
     ).get(uri) as { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
     if (existing) {
@@ -670,6 +671,22 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   );
 
   if (activityType === "Update" && changes.length > 0) {
+    const changeDetails = [];
+    if (existing) {
+      if (changes.includes("title")) {
+        changeDetails.push({ field: "title", before: existing.title, after: title });
+      }
+      if (changes.includes("time")) {
+        const beforeTime = existing.end_date ? `${existing.start_date} → ${existing.end_date}` : existing.start_date;
+        const afterTime = endDate ? `${startDate} → ${endDate}` : startDate;
+        changeDetails.push({ field: "time", before: beforeTime, after: afterTime });
+      }
+      if (changes.includes("location")) {
+        const beforeLocation = [existing.location_name, existing.location_address].filter(Boolean).join(", ") || null;
+        const afterLocation = [locationName, locationAddr].filter(Boolean).join(", ") || null;
+        changeDetails.push({ field: "location", before: beforeLocation, after: afterLocation });
+      }
+    }
     notifyEventUpdated(db, uri, {
       id: uri,
       title,
@@ -678,7 +695,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
       allDay: false,
       location: locationName ? { name: locationName } : null,
       url: (object.url as string) || null,
-    }, changes);
+    }, changes, changeDetails);
   }
 
   console.log(`  ✅ Stored remote event: ${object.name}`);

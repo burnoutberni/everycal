@@ -691,10 +691,11 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
+      slug: string;
       external_id: string;
       content_hash: string | null;
       title: string;
@@ -752,6 +753,8 @@ export function eventRoutes(db: DB): Hono {
       for (const row of toDelete) {
         notifyEventCancelled(db, row.id, {
           id: row.id,
+          slug: row.slug,
+          accountUsername: (user as { username?: string }).username || null,
           title: row.title,
           startDate: row.start_date,
           endDate: row.end_date,
@@ -817,15 +820,33 @@ export function eventRoutes(db: DB): Hono {
               for (const tag of ev.tags) insertTagStmt.run(existingRow.id, tag.trim());
             }
             if (changes.length > 0) {
+              const changeDetails = [];
+              if (changes.includes("title")) {
+                changeDetails.push({ field: "title", before: existingRow.title, after: ev.title });
+              }
+              if (changes.includes("time")) {
+                const beforeTime = existingRow.end_date
+                  ? `${existingRow.start_date} → ${existingRow.end_date}`
+                  : existingRow.start_date;
+                const afterTime = ev.endDate ? `${ev.startDate} → ${ev.endDate}` : ev.startDate;
+                changeDetails.push({ field: "time", before: beforeTime, after: afterTime });
+              }
+              if (changes.includes("location")) {
+                const beforeLocation = [existingRow.location_name, existingRow.location_address].filter(Boolean).join(", ") || null;
+                const afterLocation = [ev.location?.name || null, ev.location?.address || null].filter(Boolean).join(", ") || null;
+                changeDetails.push({ field: "location", before: beforeLocation, after: afterLocation });
+              }
               notifyEventUpdated(db, existingRow.id, {
                 id: existingRow.id,
+                slug: evSlug,
+                accountUsername: (user as { username?: string }).username || null,
                 title: ev.title,
                 startDate: ev.startDate,
                 endDate: ev.endDate || null,
                 allDay: ev.allDay ?? false,
                 location: ev.location ? { name: ev.location.name } : null,
                 url: ev.url || null,
-              }, changes);
+              }, changes, changeDetails);
             }
             updated++;
           } else {
@@ -1168,6 +1189,12 @@ export function eventRoutes(db: DB): Hono {
 
     sanitizeEventFields(body as Record<string, unknown>);
 
+    const oldEventSnapshot = db
+      .prepare("SELECT title, start_date, end_date, location_name, location_address FROM events WHERE id = ?")
+      .get(id) as
+      | { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null }
+      | undefined;
+
     const fields: string[] = [];
     const values: unknown[] = [];
 
@@ -1230,15 +1257,36 @@ export function eventRoutes(db: DB): Hono {
       if (changes.length > 0) {
         const ev = readLocalEventById(id);
         if (ev) {
+          const changeDetails = [];
+          if (oldEventSnapshot) {
+            if (changes.includes("title")) {
+              changeDetails.push({ field: "title", before: oldEventSnapshot.title, after: ev.title as string });
+            }
+            if (changes.includes("time")) {
+              const beforeTime = oldEventSnapshot.end_date ? `${oldEventSnapshot.start_date} → ${oldEventSnapshot.end_date}` : oldEventSnapshot.start_date;
+              const afterTime = (ev.endDate as string | null)
+                ? `${ev.startDate as string} → ${ev.endDate as string}`
+                : (ev.startDate as string);
+              changeDetails.push({ field: "time", before: beforeTime, after: afterTime });
+            }
+            if (changes.includes("location")) {
+              const oldLoc = [oldEventSnapshot.location_name, oldEventSnapshot.location_address].filter(Boolean).join(", ") || null;
+              const evLoc = ev.location as { name?: string; address?: string } | null;
+              const newLoc = [evLoc?.name || null, evLoc?.address || null].filter(Boolean).join(", ") || null;
+              changeDetails.push({ field: "location", before: oldLoc, after: newLoc });
+            }
+          }
           notifyEventUpdated(db, id, {
             id,
+            slug: ev.slug as string,
+            accountUsername: (ev.account as { username?: string } | undefined)?.username || null,
             title: ev.title as string,
             startDate: ev.startDate as string,
             endDate: ev.endDate as string | null,
             allDay: ev.allDay as boolean,
             location: ev.location as { name?: string } | null,
             url: ev.url as string | null,
-          }, changes);
+          }, changes, changeDetails);
         }
       }
     }
@@ -1316,6 +1364,8 @@ export function eventRoutes(db: DB): Hono {
     if (ev) {
       notifyEventCancelled(db, id, {
         id,
+        slug: ev.slug as string,
+        accountUsername: (ev.account as { username?: string } | undefined)?.username || null,
         title: ev.title as string,
         startDate: ev.startDate as string,
         endDate: ev.endDate as string | null,
