@@ -730,7 +730,7 @@ export function eventRoutes(db: DB): Hono {
         notifyEventCancelled(db, row.id, {
           id: row.id,
           title: row.title,
-          slug: row.slug,
+          slug: row.slug || row.id,
           account: { username: user.username },
           startDate: row.start_date,
           endDate: row.end_date,
@@ -1330,7 +1330,7 @@ export function eventRoutes(db: DB): Hono {
           notifyEventUpdated(db, id, {
             id,
             title: ev.title as string,
-            slug: ev.slug as string | null,
+            slug: (ev.slug as string | null) || id,
             account: { username: user.username },
             startDate: ev.startDate as string,
             endDate: ev.endDate as string | null,
@@ -1411,11 +1411,17 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     }
 
+    const actorAccount = db
+      .prepare("SELECT username FROM accounts WHERE id = ?")
+      .get(existing.account_id) as { username: string } | undefined;
+
     const ev = readLocalEventById(id);
-    if (ev) {
+    if (ev && actorAccount) {
       notifyEventCancelled(db, id, {
         id,
         title: ev.title as string,
+        slug: (ev.slug as string) || id,
+        account: { username: actorAccount.username },
         startDate: ev.startDate as string,
         endDate: ev.endDate as string | null,
         allDay: ev.allDay as boolean,
@@ -1427,9 +1433,6 @@ export function eventRoutes(db: DB): Hono {
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const actorAccount = db
-      .prepare("SELECT username FROM accounts WHERE id = ?")
-      .get(existing.account_id) as { username: string } | undefined;
     if (!actorAccount) return c.json({ ok: true });
     const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
     const deleteActivity = {

@@ -554,6 +554,22 @@ async function handleUndo(
   console.log(`  ✅ ${actorUri} unfollowed ${account.username}`);
 }
 
+function fallbackSlugFromUri(uri: string): string {
+  const trimmed = uri.replace(/\/$/, "");
+  return trimmed.split("/").pop() || "event";
+}
+
+function actorHandleFromUri(actorUri: string): { username: string; domain?: string } {
+  try {
+    const u = new URL(actorUri);
+    const raw = u.pathname.split("/").filter(Boolean).pop() || "unknown";
+    const username = raw.startsWith("@") ? raw.slice(1) : raw;
+    return { username, domain: u.host };
+  } catch {
+    return { username: actorUri };
+  }
+}
+
 function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string) {
   const object = activity.object as Record<string, unknown>;
   if (!object || object.type !== "Event") return;
@@ -626,12 +642,15 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
        JOIN remote_actors ra ON ra.uri = re.actor_uri
        WHERE re.uri = ?`
     ).get(uri) as { slug: string | null; preferred_username: string; domain: string } | undefined;
+    const fallbackAccount = actorHandleFromUri(effectiveActor);
 
     notifyEventUpdated(db, uri, {
       id: uri,
       title,
-      slug: stored?.slug ?? null,
-      account: stored ? { username: stored.preferred_username, domain: stored.domain } : null,
+      slug: stored?.slug || fallbackSlugFromUri(uri),
+      account: stored
+        ? { username: stored.preferred_username, domain: stored.domain }
+        : { username: fallbackAccount.username, domain: fallbackAccount.domain },
       startDate,
       endDate,
       allDay: false,
@@ -663,11 +682,14 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
       const actor = db
         .prepare("SELECT preferred_username, domain FROM remote_actors WHERE uri = ?")
         .get(existing.actor_uri) as { preferred_username: string; domain: string } | undefined;
+      const fallbackAccount = actorHandleFromUri(existing.actor_uri);
       notifyEventCancelled(db, objectUri, {
         id: objectUri,
         title: existing.title,
-        slug: existing.slug,
-        account: actor ? { username: actor.preferred_username, domain: actor.domain } : null,
+        slug: existing.slug || fallbackSlugFromUri(objectUri),
+        account: actor
+          ? { username: actor.preferred_username, domain: actor.domain }
+          : { username: fallbackAccount.username, domain: fallbackAccount.domain },
         startDate: existing.start_date,
         endDate: existing.end_date,
         allDay: false,

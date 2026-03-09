@@ -11,6 +11,12 @@ import {
   type EventChange,
 } from "./email.js";
 
+function fallbackSlugFromUri(uri: string): string {
+  const trimmed = uri.replace(/\/$/, "");
+  const last = trimmed.split("/").pop() || trimmed;
+  return last || "event";
+}
+
 /** Run the reminder job: find events in window, send emails, record sent. */
 export async function runSendReminders(db: DB): Promise<void> {
   // Local events: account has RSVP, reminder enabled, event in window, not yet sent
@@ -98,7 +104,7 @@ export async function runSendReminders(db: DB): Promise<void> {
         {
           id: row.event_uri,
           title: row.title,
-          slug: row.slug,
+          slug: row.slug || fallbackSlugFromUri(row.event_uri),
           account: { username: row.owner_username, domain: row.owner_domain ?? null },
           startDate: row.start_date,
           endDate: row.end_date,

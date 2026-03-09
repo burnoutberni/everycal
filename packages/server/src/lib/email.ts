@@ -156,8 +156,8 @@ export async function sendPasswordResetEmail(
 export interface EventInfo {
   id: string;
   title: string;
-  slug?: string | null;
-  account?: { username: string; domain?: string | null } | null;
+  slug: string;
+  account: { username: string; domain?: string | null };
   startDate: string;
   endDate?: string | null;
   allDay?: boolean;
@@ -172,12 +172,13 @@ export interface EventChange {
 }
 
 /** Build event link for emails. Prefer canonical page path /@user/event-slug for both local and remote events. */
-function getEventLink(event: EventInfo): string | null {
-  if (event.slug && event.account?.username) {
-    const domainPart = event.account.domain ? `@${event.account.domain}` : "";
-    return `${baseUrl()}/@${event.account.username}${domainPart}/${event.slug}`;
-  }
-  return event.url || null;
+function getEventLink(event: EventInfo): string {
+  const hasExplicitDomain = !!event.account.domain;
+  const username = hasExplicitDomain && event.account.username.includes("@")
+    ? event.account.username.split("@")[0]
+    : event.account.username;
+  const domainPart = hasExplicitDomain ? `@${event.account.domain}` : "";
+  return `${baseUrl()}/@${username}${domainPart}/${event.slug}`;
 }
 
 /** Send event reminder. */
