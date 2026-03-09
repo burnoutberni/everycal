@@ -78,6 +78,11 @@ function resolveEventUri(id: string): string {
   return id;
 }
 
+function formatTimeChangeValue(start: string, end: string | null | undefined, allDay: boolean): string {
+  const range = [start, end || ""].filter(Boolean).join(" – ");
+  return `${range} [allDay=${allDay ? 1 : 0}]`;
+}
+
 /** Check whether a user is allowed to view an event based on its visibility. */
 function canViewEvent(
   db: DB,
@@ -667,7 +672,7 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, all_day, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
@@ -677,6 +682,7 @@ export function eventRoutes(db: DB): Hono {
       title: string;
       start_date: string;
       end_date: string | null;
+      all_day: number;
       location_name: string | null;
       location_address: string | null;
       url: string | null;
@@ -775,9 +781,11 @@ export function eventRoutes(db: DB): Hono {
             if (existingRow.title !== ev.title) {
               changes.push({ field: "title", before: existingRow.title, after: ev.title });
             }
-            const oldTime = [existingRow.start_date, existingRow.end_date || ""].filter(Boolean).join(" – ");
-            const newTime = [ev.startDate, ev.endDate || ""].filter(Boolean).join(" – ");
-            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "")) {
+            const oldAllDay = !!existingRow.all_day;
+            const newAllDay = !!ev.allDay;
+            const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date, oldAllDay);
+            const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "", newAllDay);
+            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "") || oldAllDay !== newAllDay) {
               changes.push({ field: "time", before: oldTime, after: newTime });
             }
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
@@ -1224,13 +1232,14 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
 
     const existing = db
-      .prepare("SELECT account_id, visibility, title, start_date, end_date, location_name, location_address FROM events WHERE id = ?")
+      .prepare("SELECT account_id, visibility, title, start_date, end_date, all_day, location_name, location_address FROM events WHERE id = ?")
       .get(id) as {
       account_id: string;
       visibility: string;
       title: string;
       start_date: string;
       end_date: string | null;
+      all_day: number;
       location_name: string | null;
       location_address: string | null;
     } | undefined;
@@ -1311,10 +1320,12 @@ export function eventRoutes(db: DB): Hono {
         changes.push({ field: "title", before: existing.title, after: body.title });
       }
       if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined) {
-        const oldTime = [existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ");
         const newStart = body.startDate ?? existing.start_date;
         const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
-        const newTime = [newStart, newEnd].filter(Boolean).join(" – ");
+        const oldAllDay = !!existing.all_day;
+        const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
+        const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date, oldAllDay);
+        const newTime = formatTimeChangeValue(newStart, newEnd, newAllDay);
         if (oldTime !== newTime) {
           changes.push({ field: "time", before: oldTime, after: newTime });
         }
