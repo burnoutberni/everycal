@@ -18,8 +18,9 @@ import {
   resolveRemoteActor,
   deliverActivity,
 } from "../lib/federation.js";
-import { stripHtml, sanitizeHtml } from "../lib/security.js";
+import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 
 const AP_CONTENT_TYPES = [
@@ -574,13 +575,8 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const effectiveActor = attributedTo || actorUri;
-  const tags = (object.tag as Array<{ name: string }>) || [];
-  const tagString = tags.map((t) => stripHtml(t.name?.replace(/^#/, "") || "")).filter(Boolean).join(",");
-
   // Sanitize content from remote servers
   const title = typeof object.name === "string" ? stripHtml(object.name) : "";
-  const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
-
   // Extract location
   const loc = object.location as Record<string, unknown> | undefined;
   let locationAddress: string | null = null;
@@ -594,21 +590,6 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
         .join(", ");
     }
   }
-
-  // Extract first image from attachments
-  const attachments = (object.attachment as Array<Record<string, unknown>>) || [];
-  const image = attachments.find(
-    (a) => a.type === "Image" || a.type === "Document"
-  );
-
-  const imageAttribution = image?.attribution
-    ? (typeof image.attribution === "string"
-        ? (() => { try { return JSON.parse(image.attribution as string); } catch { return null; } })()
-        : image.attribution)
-    : null;
-  const imageAttributionJson = imageAttribution && typeof imageAttribution === "object"
-    ? JSON.stringify(imageAttribution)
-    : null;
 
   const uri = object.id as string;
   const startDate = object.startTime as string;
@@ -631,43 +612,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  db.prepare(
-    `INSERT INTO remote_events (uri, actor_uri, title, description, start_date, end_date,
-      location_name, location_address, location_latitude, location_longitude,
-      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-     ON CONFLICT(uri) DO UPDATE SET
-      title=excluded.title, description=excluded.description,
-      start_date=excluded.start_date, end_date=excluded.end_date,
-      location_name=excluded.location_name, location_address=excluded.location_address,
-      location_latitude=excluded.location_latitude, location_longitude=excluded.location_longitude,
-      image_url=excluded.image_url, image_media_type=excluded.image_media_type,
-      image_alt=excluded.image_alt, image_attribution=excluded.image_attribution,
-      url=excluded.url, tags=excluded.tags,
-      raw_json=excluded.raw_json, updated=excluded.updated, fetched_at=datetime('now'),
-      canceled=excluded.canceled`
-  ).run(
-    uri,
-    effectiveActor,
-    title,
-    description,
-    startDate,
-    endDate,
-    locationName,
-    locationAddr,
-    (loc?.latitude as number) ?? null,
-    (loc?.longitude as number) ?? null,
-    (image?.url as string) || null,
-    (image?.mediaType as string) || null,
-    (image?.name as string) || null,
-    imageAttributionJson,
-    (object.url as string) || null,
-    tagString || null,
-    // Limit raw_json to 100KB to prevent storage abuse
-    JSON.stringify(object).slice(0, 100_000),
-    (object.published as string) || null,
-    (object.updated as string) || null
-  );
+  upsertRemoteEvent(db, object, effectiveActor);
 
   if (activityType === "Update" && changes.length > 0) {
     notifyEventUpdated(db, uri, {

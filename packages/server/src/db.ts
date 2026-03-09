@@ -142,6 +142,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS remote_events (
       uri TEXT PRIMARY KEY,
       actor_uri TEXT NOT NULL,
+      slug TEXT,
       title TEXT NOT NULL,
       description TEXT,
       start_date TEXT NOT NULL,
@@ -162,6 +163,7 @@ export function initDatabase(path: string): DB {
     );
 
     CREATE INDEX IF NOT EXISTS idx_remote_events_actor ON remote_events(actor_uri);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_date);
 
     -- Track which remote actors local users follow
@@ -496,6 +498,18 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE remote_events ADD COLUMN canceled INTEGER NOT NULL DEFAULT 0");
   } catch {
     // Column already exists
+  }
+
+  // Migration: immutable slug for remote event canonical URLs
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN slug TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL");
+  } catch {
+    // Index already exists
   }
 
   db.exec(`

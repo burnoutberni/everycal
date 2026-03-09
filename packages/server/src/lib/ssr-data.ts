@@ -293,22 +293,23 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
 
 function getEventByProfileSlug(db: DB, username: string, slug: string, currentUser: AuthUser | null): Record<string, unknown> | null {
   if (username.includes("@")) {
-    const eventUri = decodeRemoteEventId(slug);
+    const [preferredUsername, domain] = username.split("@");
+    if (!preferredUsername || !domain) return null;
     const remoteRow = db
       .prepare(
         `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
                 ra.domain, ra.icon_url AS actor_icon_url
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
-         WHERE re.uri = ?`
+         WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`
       )
-      .get(eventUri) as Record<string, unknown> | undefined;
+      .get(preferredUsername, domain, slug) as Record<string, unknown> | undefined;
     if (!remoteRow) return null;
     const event = formatRemoteEvent(remoteRow);
     if (currentUser) {
       const rsvpRow = db
         .prepare("SELECT status FROM event_rsvps WHERE account_id = ? AND event_uri = ?")
-        .get(currentUser.id, eventUri) as { status: string } | undefined;
+        .get(currentUser.id, remoteRow.uri) as { status: string } | undefined;
       event.rsvpStatus = rsvpRow?.status || null;
     }
     return event;
@@ -406,6 +407,7 @@ function formatLocalEvent(row: Record<string, unknown>): Record<string, unknown>
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
   return {
     id: row.uri,
+    slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
     account: row.preferred_username
@@ -452,15 +454,4 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     createdAt: row.published,
     updatedAt: row.updated,
   };
-}
-
-function decodeRemoteEventId(eventId: string): string {
-  try {
-    const base64 = eventId.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = base64.length % 4;
-    const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
-    return Buffer.from(padded, "base64").toString("utf-8");
-  } catch {
-    return eventId;
-  }
 }

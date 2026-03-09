@@ -25,6 +25,9 @@ import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { generateAndSaveOgImage } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
+import { fetchAP, resolveRemoteActor } from "../lib/federation.js";
+import { uniqueLocalEventSlug } from "../lib/slugs.js";
+import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -51,30 +54,6 @@ const REMOTE_EVENT_SELECT = `
 
 // ─── Pure utility functions ─────────────────────────────────────────────────
 
-function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
-    .replace(/[^a-z0-9]+/g, "-")    // non-alphanum → hyphen
-    .replace(/^-+|-+$/g, "")        // trim hyphens
-    .slice(0, 80);
-}
-
-function uniqueSlug(db: DB, accountId: string, title: string, excludeEventId?: string): string {
-  const base = slugify(title) || "event";
-  let slug = base;
-  let n = 1;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const existing = db.prepare(
-      `SELECT id FROM events WHERE account_id = ? AND slug = ?${excludeEventId ? " AND id != ?" : ""}`
-    ).get(accountId, slug, ...(excludeEventId ? [excludeEventId] : [])) as { id: string } | undefined;
-    if (!existing) return slug;
-    n++;
-    slug = `${base}-${n}`;
-  }
-}
 
 function sanitizeEventFields(body: Record<string, unknown>): void {
   if (typeof body.title === "string") body.title = stripHtml(body.title);
@@ -89,17 +68,13 @@ function sanitizeEventFields(body: Record<string, unknown>): void {
   }
 }
 
-/** Decode an event ID that may be URL-encoded or base64url-encoded into a URI. */
+/** Decode an event ID that may be URL-encoded into a URI. */
 function resolveEventUri(id: string): string {
   if (id.startsWith("http")) return id;
   try {
     const decoded = decodeURIComponent(id);
     if (decoded.startsWith("http")) return decoded;
   } catch { /* not URL-encoded */ }
-  try {
-    const decoded = Buffer.from(id.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
-    if (decoded.startsWith("http")) return decoded;
-  } catch { /* not base64url */ }
   return id;
 }
 
@@ -225,6 +200,7 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
   return {
     id: row.uri,
+    slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
     account: row.preferred_username
@@ -801,7 +777,7 @@ export function eventRoutes(db: DB): Hono {
             if ((existingRow.location_name || "") !== locName || (existingRow.location_address || "") !== locAddr)
               changes.push("location");
 
-            const evSlug = uniqueSlug(db, user.id, ev.title, existingRow.id);
+            const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
@@ -830,7 +806,7 @@ export function eventRoutes(db: DB): Hono {
             updated++;
           } else {
             const id = nanoid(16);
-            const evSlug = uniqueSlug(db, user.id, ev.title);
+            const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
@@ -968,10 +944,77 @@ export function eventRoutes(db: DB): Hono {
     const slug = c.req.param("slug");
     const currentUser = c.get("user");
 
+    if (username.includes("@")) {
+      const [preferredUsername, domain] = username.split("@");
+      if (!preferredUsername || !domain) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+      const remoteRow = db
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`)
+        .get(preferredUsername, domain, slug) as Record<string, unknown> | undefined;
+      if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+      const event = formatRemoteEvent(remoteRow);
+      if (currentUser) attachSingleEventContext(event, remoteRow.uri as string, currentUser.id);
+      return c.json(event);
+    }
+
     const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser);
     if (!event) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     return c.json(event);
+  });
+
+  router.get("/resolve", async (c) => {
+    const uri = c.req.query("uri")?.trim();
+    if (!uri) return c.json({ error: "uri is required" }, 400);
+
+    let normalizedUri: string;
+    try {
+      const parsed = new URL(uri);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("invalid protocol");
+      normalizedUri = parsed.toString();
+    } catch {
+      return c.json({ error: "invalid uri" }, 400);
+    }
+
+    const existing = db
+      .prepare(
+        `SELECT re.*, ra.preferred_username, ra.domain
+         FROM remote_events re
+         JOIN remote_actors ra ON ra.uri = re.actor_uri
+         WHERE re.uri = ?`
+      )
+      .get(normalizedUri) as Record<string, unknown> | undefined;
+    if (existing?.slug && existing.preferred_username && existing.domain) {
+      const path = `/@${existing.preferred_username}@${existing.domain}/${existing.slug}`;
+      return c.json({ path, event: formatRemoteEvent(existing) });
+    }
+
+    const object = await fetchAP(normalizedUri) as Record<string, unknown>;
+    const objectType = object.type;
+    if (objectType !== "Event") return c.json({ error: "object is not an Event" }, 400);
+    const title = object.name ?? object.title;
+    const startDate = object.startTime ?? object.startDate;
+    if (!title || !startDate || !object.id) {
+      return c.json({ error: "event missing required fields" }, 400);
+    }
+
+    const attributedTo = object.attributedTo;
+    const actorUri = typeof attributedTo === "string"
+      ? attributedTo
+      : Array.isArray(attributedTo)
+        ? attributedTo.find((v): v is string => typeof v === "string")
+        : undefined;
+    if (!actorUri) return c.json({ error: "event missing attributedTo actor" }, 400);
+
+    const actor = await resolveRemoteActor(db, actorUri, true);
+    if (!actor) return c.json({ error: "could not resolve actor" }, 404);
+
+    const stored = upsertRemoteEvent(db, object, actor.uri);
+    const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
+    const row = db
+      .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
+      .get(stored.uri) as Record<string, unknown> | undefined;
+
+    return c.json({ path, event: row ? formatRemoteEvent(row) : null });
   });
 
   // ─── GET /:id ───────────────────────────────────────────────────────────
@@ -1061,7 +1104,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const id = nanoid(16);
-    const slug = uniqueSlug(db, postingAccount.id, body.title);
+    const slug = uniqueLocalEventSlug(db, postingAccount.id, body.title);
 
     const fallbackVisibility: EventVisibility = postingAccount.is_bot || postingAccount.discoverable ? "public" : "private";
     const defaultVisibility = isValidVisibility(postingAccount.default_event_visibility)
@@ -1173,8 +1216,6 @@ export function eventRoutes(db: DB): Hono {
 
     if (body.title !== undefined) {
       fields.push("title = ?"); values.push(body.title);
-      const newSlug = uniqueSlug(db, existing.account_id, body.title, id);
-      fields.push("slug = ?"); values.push(newSlug);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
     if (body.startDate !== undefined) { fields.push("start_date = ?"); values.push(body.startDate); }

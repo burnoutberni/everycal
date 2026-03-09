@@ -430,7 +430,11 @@ export const events = {
   },
 
   getBySlug(username: string, slug: string, context?: ApiRequestContext) {
-    return request<CalEvent>(`/events/by-slug/${username}/${slug}`, {}, context);
+    return request<CalEvent>(`/events/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`, {}, context);
+  },
+
+  resolve(uri: string, context?: ApiRequestContext) {
+    return request<{ path: string; event: CalEvent | null }>(`/events/resolve?uri=${encodeURIComponent(uri)}`, {}, context);
   },
 
   create(data: EventInput) {
