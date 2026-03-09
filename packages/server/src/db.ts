@@ -156,6 +156,10 @@ export function initDatabase(path: string): DB {
       description TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT,
+      start_at_utc TEXT,
+      end_at_utc TEXT,
+      event_timezone TEXT,
+      timezone_quality TEXT NOT NULL DEFAULT 'unknown' CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown')),
       location_name TEXT,
       location_address TEXT,
       location_latitude REAL,
@@ -518,6 +522,76 @@ export function initDatabase(path: string): DB {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL");
   } catch {
     // Index already exists
+  }
+
+  // Migration: remote event timezone interoperability columns
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN start_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN end_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN event_timezone TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN timezone_quality TEXT NOT NULL DEFAULT 'unknown' CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown'))");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: best-effort backfill for remote event UTC fields and quality
+  try {
+    const rows = db
+      .prepare(
+        `SELECT uri, start_date, end_date, start_at_utc, end_at_utc, event_timezone, timezone_quality
+         FROM remote_events`
+      )
+      .all() as Array<{
+        uri: string;
+        start_date: string;
+        end_date: string | null;
+        start_at_utc: string | null;
+        end_at_utc: string | null;
+        event_timezone: string | null;
+        timezone_quality: string | null;
+      }>;
+
+    const hasOffset = (value: string | null | undefined): boolean => !!value && /(Z|[+-]\d{2}:\d{2})$/i.test(value);
+    const toUtcIso = (value: string | null | undefined): string | null => {
+      if (!value || !hasOffset(value)) return null;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return parsed.toISOString();
+    };
+
+    const update = db.prepare(
+      `UPDATE remote_events
+       SET start_at_utc = ?, end_at_utc = ?, timezone_quality = ?
+       WHERE uri = ?`
+    );
+
+    for (const row of rows) {
+      const nextStartUtc = row.start_at_utc ?? toUtcIso(row.start_date);
+      const nextEndUtc = row.end_at_utc ?? toUtcIso(row.end_date);
+
+      let nextQuality = row.timezone_quality || "unknown";
+      if (!row.event_timezone && nextQuality === "unknown" && (hasOffset(row.start_date) || hasOffset(row.end_date))) {
+        nextQuality = "offset_only";
+      }
+
+      if (nextStartUtc !== row.start_at_utc || nextEndUtc !== row.end_at_utc || nextQuality !== row.timezone_quality) {
+        update.run(nextStartUtc, nextEndUtc, nextQuality, row.uri);
+      }
+    }
+  } catch {
+    // Ignore during partial initialization
   }
 
   // Migration: backfill missing remote slugs for already-cached events

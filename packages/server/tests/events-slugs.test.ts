@@ -300,7 +300,11 @@ describe("event slug canonical behavior", () => {
     const migrated = initDatabase(dbPath);
     const cols = migrated.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
     const hasSlug = cols.some((c) => c.name === "slug");
+    const hasStartAtUtc = cols.some((c) => c.name === "start_at_utc");
+    const hasTimezoneQuality = cols.some((c) => c.name === "timezone_quality");
     expect(hasSlug).toBe(true);
+    expect(hasStartAtUtc).toBe(true);
+    expect(hasTimezoneQuality).toBe(true);
     migrated.close();
     rmSync(dir, { recursive: true, force: true });
   });

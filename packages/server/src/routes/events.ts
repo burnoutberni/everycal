@@ -28,7 +28,7 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
-import { convertLegacyNaiveToUtcIso, isValidIanaTimezone } from "../lib/timezone.js";
+import { convertLegacyNaiveToUtcIso, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -52,6 +52,11 @@ const REMOTE_EVENT_SELECT = `
          ra.domain, ra.icon_url AS actor_icon_url
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
+
+const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
+const EVERYCAL_CONTEXT = {
+  eventTimezone: "https://everycal.org/ns#eventTimezone",
+};
 
 // ─── Pure utility functions ─────────────────────────────────────────────────
 
@@ -223,6 +228,10 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
+    startAtUtc: row.start_at_utc,
+    endAtUtc: row.end_at_utc,
+    eventTimezone: row.event_timezone,
+    timezoneQuality: row.timezone_quality || "unknown",
     allDay: false,
     location: row.location_name
       ? {
@@ -1050,7 +1059,9 @@ export function eventRoutes(db: DB): Hono {
       const actor = await resolveRemoteActor(db, actorUri, true);
       if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
 
-      const stored = upsertRemoteEvent(db, object, actor.uri);
+      const stored = upsertRemoteEvent(db, object, actor.uri, {
+        temporal: normalizeApTemporal(object),
+      });
       const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
       const row = db
         .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
@@ -1207,8 +1218,10 @@ export function eventRoutes(db: DB): Hono {
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
+      const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
+      const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : undefined;
       const createActivity = {
-        "@context": "https://www.w3.org/ns/activitystreams",
+        "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
         id: `${baseUrl}/events/${id}/activity`,
         type: "Create",
         actor: actorUrl,
@@ -1220,10 +1233,11 @@ export function eventRoutes(db: DB): Hono {
           type: "Event",
           name: body.title,
           content: body.description || undefined,
-          startTime: startDateInput,
-          endTime: endDateInput || undefined,
-            url: `${baseUrl}/@${postingAccount.username}/${slug}`,
-            attributedTo: actorUrl,
+          startTime: startAtUtc,
+          endTime: endAtUtc,
+          eventTimezone,
+          url: `${baseUrl}/@${postingAccount.username}/${slug}`,
+          attributedTo: actorUrl,
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
           published: new Date().toISOString(),
@@ -1400,26 +1414,28 @@ export function eventRoutes(db: DB): Hono {
           .get(existing.account_id) as { username: string } | undefined;
         if (actorAccount) {
           const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
-        const updateActivity = {
-          "@context": "https://www.w3.org/ns/activitystreams",
-          id: `${baseUrl}/events/${id}/update`,
-          type: "Update",
-          actor: actorUrl,
-          published: new Date().toISOString(),
-          to: ["https://www.w3.org/ns/activitystreams#Public"],
-          cc: [`${actorUrl}/followers`],
-          object: {
-            id: `${baseUrl}/events/${id}`,
-            type: "Event",
-            name: updated.title,
-            content: updated.description as string | undefined,
-            startTime: updated.startDate,
-            url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
-            attributedTo: actorUrl,
+          const updateActivity = {
+            "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
+            id: `${baseUrl}/events/${id}/update`,
+            type: "Update",
+            actor: actorUrl,
+            published: new Date().toISOString(),
             to: ["https://www.w3.org/ns/activitystreams#Public"],
             cc: [`${actorUrl}/followers`],
-            updated: new Date().toISOString(),
-          },
+            object: {
+              id: `${baseUrl}/events/${id}`,
+              type: "Event",
+              name: updated.title,
+              content: updated.description as string | undefined,
+              startTime: updated.startAtUtc,
+              endTime: updated.endAtUtc,
+              eventTimezone: updated.eventTimezone,
+              url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
+              attributedTo: actorUrl,
+              to: ["https://www.w3.org/ns/activitystreams#Public"],
+              cc: [`${actorUrl}/followers`],
+              updated: new Date().toISOString(),
+            },
           };
           deliverToFollowers(db, existing.account_id, updateActivity).catch(() => {});
         }

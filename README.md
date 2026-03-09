@@ -83,6 +83,13 @@ pnpm --filter @everycal/server test
 pnpm --filter @everycal/web build
 ```
 
+## Timezone interoperability notes
+
+- **ActivityPub outbound**: EveryCal emits `Event.startTime` / `Event.endTime` as absolute UTC (`...Z`) for compatibility.
+- **ActivityPub timezone extension**: when known, EveryCal includes `eventTimezone` with an inline EveryCal JSON-LD context mapping.
+- **ActivityPub inbound fallback**: if no IANA timezone is provided, EveryCal stores UTC instants when derivable (for `Z`/offset input) and marks timezone precision as unknown or offset-only.
+- **iCalendar import/export**: feeds now support `TZID`, generated `VTIMEZONE`, UTC fallback output, and RFC5545 all-day `VALUE=DATE` with end-exclusive `DTEND`.
+
 ## License
 
 [AGPL-3.0-only](LICENSE)

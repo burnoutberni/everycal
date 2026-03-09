@@ -9,13 +9,14 @@ import { EveryCalEvent, EventVisibility } from "./event.js";
 
 /** Minimal AP object shape — we'll flesh this out as federation grows. */
 export interface APEvent {
-  "@context": string | string[];
+  "@context": string | Array<string | Record<string, string>>;
   id: string;
   type: "Event";
   name: string;
   content?: string;
   startTime: string;
   endTime?: string;
+  eventTimezone?: string;
   location?: APPlace;
   attachment?: APImage[];
   tag?: APTag[];
@@ -79,13 +80,18 @@ function addressingToVisibility(to: string[], cc: string[]): EventVisibility {
 /** Convert an EveryCal event to an ActivityPub Event object. */
 export function toActivityPubEvent(event: EveryCalEvent): APEvent {
   const { to, cc } = visibilityToAddressing(event.visibility, event.organizer);
+  const startTime = event.startAtUtc || toUtcIso(event.startDate) || event.startDate;
+  const endTime = event.endAtUtc || (event.endDate ? toUtcIso(event.endDate) || event.endDate : undefined);
+  const hasTimezoneExtension = typeof event.eventTimezone === "string" && event.eventTimezone.length > 0;
 
   const ap: APEvent = {
-    "@context": "https://www.w3.org/ns/activitystreams",
+    "@context": hasTimezoneExtension
+      ? ["https://www.w3.org/ns/activitystreams", { eventTimezone: "https://everycal.org/ns#eventTimezone" }]
+      : "https://www.w3.org/ns/activitystreams",
     id: event.id,
     type: "Event",
     name: event.title,
-    startTime: event.startDate,
+    startTime,
     to,
     cc,
     published: event.createdAt,
@@ -93,7 +99,8 @@ export function toActivityPubEvent(event: EveryCalEvent): APEvent {
   };
 
   if (event.description) ap.content = event.description;
-  if (event.endDate) ap.endTime = event.endDate;
+  if (endTime) ap.endTime = endTime;
+  if (hasTimezoneExtension) ap.eventTimezone = event.eventTimezone;
   if (event.url) ap.url = event.url;
   if (event.organizer) ap.attributedTo = event.organizer;
 
@@ -158,8 +165,11 @@ export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
     id: ap.id,
     title: ap.name,
     startDate: ap.startTime,
+    ...(toUtcIso(ap.startTime) !== null ? { startAtUtc: toUtcIso(ap.startTime)! } : {}),
     ...(ap.content !== undefined ? { description: ap.content } : {}),
     ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
+    ...(ap.endTime !== undefined && toUtcIso(ap.endTime) !== null ? { endAtUtc: toUtcIso(ap.endTime)! } : {}),
+    ...(ap.eventTimezone !== undefined ? { eventTimezone: ap.eventTimezone } : {}),
     ...(location !== undefined ? { location } : {}),
     ...(eventImage !== undefined ? { image: eventImage } : {}),
     ...(ap.url !== undefined ? { url: ap.url } : {}),
@@ -169,4 +179,11 @@ export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
     createdAt: ap.published,
     updatedAt: ap.updated,
   };
+}
+
+function toUtcIso(value: string): string | null {
+  if (!/(Z|[+-]\d{2}:\d{2})$/i.test(value)) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 }

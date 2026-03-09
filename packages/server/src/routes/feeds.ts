@@ -10,7 +10,7 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
-import { toICal, type EveryCalEvent } from "@everycal/core";
+import { toICalendar, type EveryCalEvent } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { isValidIdentityHandle } from "../lib/handles.js";
@@ -79,6 +79,7 @@ export function feedRoutes(db: DB): Hono {
     const remoteRows = db
       .prepare(
         `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
+                re.start_at_utc, re.end_at_utc, re.event_timezone, re.timezone_quality,
                 0 AS all_day, re.location_name, re.location_address, re.location_latitude,
                 re.location_longitude, re.image_url, re.image_media_type, re.image_alt,
                 re.url, re.tags, re.published AS created_at,
@@ -97,21 +98,16 @@ export function feedRoutes(db: DB): Hono {
       return aDate.localeCompare(bDate);
     });
 
-    const vevents = allRows.map((row) => {
+    const entries = allRows.map((row) => {
       const event = rowToEvent(row);
       const tentative = row.rsvp_status === "maybe";
       const canceled = !!row.canceled;
-      return toICal(event, { tentative, canceled });
+      return { event, options: { tentative, canceled } };
     });
-
-    const ical = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//EveryCal//MyCalendar//EN",
-      "X-WR-CALNAME:My Calendar",
-      ...vevents,
-      "END:VCALENDAR",
-    ].join("\r\n");
+    const ical = toICalendar(entries, {
+      prodId: "-//EveryCal//MyCalendar//EN",
+      calendarName: "My Calendar",
+    });
 
     return c.text(ical, 200, {
       "Content-Type": "text/calendar; charset=utf-8",
@@ -196,19 +192,14 @@ export function feedRoutes(db: DB): Hono {
     }
 
     // iCal format
-    const vevents = rows.map((row) => {
+    const entries = rows.map((row) => {
       const event = rowToEvent(row as Record<string, unknown>);
-      return toICal(event);
+      return { event };
     });
-
-    const ical = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      `PRODID:-//EveryCal//${username}//EN`,
-      `X-WR-CALNAME:${username}`,
-      ...vevents,
-      "END:VCALENDAR",
-    ].join("\r\n");
+    const ical = toICalendar(entries, {
+      prodId: `-//EveryCal//${username}//EN`,
+      calendarName: username,
+    });
 
     return c.text(ical, 200, { "Content-Type": "text/calendar; charset=utf-8" });
   });
@@ -223,6 +214,10 @@ function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
     description: row.description as string | undefined,
     startDate: row.start_date as string,
     endDate: row.end_date as string | undefined,
+    startAtUtc: row.start_at_utc as string | undefined,
+    endAtUtc: row.end_at_utc as string | undefined,
+    eventTimezone: row.event_timezone as string | undefined,
+    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | "unknown" | undefined,
     allDay: !!row.all_day,
     location: row.location_name
       ? {
