@@ -25,7 +25,7 @@ import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { generateAndSaveOgImage } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
-import { fetchAP, resolveRemoteActor } from "../lib/federation.js";
+import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
@@ -1001,6 +1001,12 @@ export function eventRoutes(db: DB): Hono {
     }
 
     try {
+      await validateFederationUrl(normalizedUri);
+    } catch {
+      return c.json({ error: t(locale, "federation.private_address_not_allowed") }, 400);
+    }
+
+    try {
       const object = await fetchAP(normalizedUri) as Record<string, unknown>;
       const objectType = object.type;
       if (objectType !== "Event") return c.json({ error: t(locale, "events.resolve_not_event") }, 400);
@@ -1031,15 +1037,6 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ path, event: row ? formatRemoteEvent(row) : null });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const msgLower = msg.toLowerCase();
-      if (
-        msgLower.includes("private/internal") ||
-        msgLower.includes("resolves to private") ||
-        msgLower.includes("invalid protocol") ||
-        msgLower.includes("only https")
-      ) {
-        return c.json({ error: t(locale, "federation.private_address_not_allowed") }, 400);
-      }
       return c.json({ error: t(locale, "events.resolve_fetch_failed", { error: msg }) }, 502);
     }
   });

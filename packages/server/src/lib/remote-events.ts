@@ -2,6 +2,10 @@ import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 
+interface UpsertRemoteEventOptions {
+  clearCanceled?: boolean;
+}
+
 function extractLocationAddress(location?: Record<string, unknown>): string | null {
   if (!location?.address) return null;
   if (typeof location.address === "string") return stripHtml(location.address);
@@ -12,7 +16,13 @@ function extractLocationAddress(location?: Record<string, unknown>): string | nu
     .join(", ");
 }
 
-export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actorUri: string): { uri: string; slug: string } {
+export function upsertRemoteEvent(
+  db: DB,
+  object: Record<string, unknown>,
+  actorUri: string,
+  options: UpsertRemoteEventOptions = {},
+): { uri: string; slug: string } {
+  const clearCanceled = options.clearCanceled === true;
   const tags = (object.tag as Array<{ name: string }>) || [];
   const tagString = tags
     .map((t) => stripHtml(t.name?.replace(/^#/, "") || ""))
@@ -53,7 +63,7 @@ export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actor
         title = ?, description = ?, start_date = ?, end_date = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
-        url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, fetched_at = datetime('now'), canceled = 0
+        url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, fetched_at = datetime('now')${clearCanceled ? ", canceled = 0" : ""}
        WHERE uri = ?`
     ).run(
       resolvedSlug,
@@ -84,7 +94,7 @@ export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actor
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
       location_name, location_address, location_latitude, location_longitude,
       image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -106,6 +116,7 @@ export function upsertRemoteEvent(db: DB, object: Record<string, unknown>, actor
     JSON.stringify(object).slice(0, 100_000),
     (object.published as string) || null,
     (object.updated as string) || null,
+    0,
   );
 
   return { uri, slug };

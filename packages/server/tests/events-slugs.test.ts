@@ -10,11 +10,12 @@ vi.mock("../src/lib/federation.js", () => ({
   fetchAP: vi.fn(),
   resolveRemoteActor: vi.fn(),
   deliverToFollowers: vi.fn(),
+  validateFederationUrl: vi.fn(),
 }));
 
 import { eventRoutes } from "../src/routes/events.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
-import { fetchAP, resolveRemoteActor, deliverToFollowers } from "../src/lib/federation.js";
+import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 
 function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
@@ -35,6 +36,7 @@ describe("event slug canonical behavior", () => {
     vi.mocked(fetchAP).mockReset();
     vi.mocked(resolveRemoteActor).mockReset();
     vi.mocked(deliverToFollowers).mockResolvedValue(true as any);
+    vi.mocked(validateFederationUrl).mockResolvedValue(undefined);
   });
 
   it("keeps local slug immutable on title update", async () => {
@@ -97,6 +99,33 @@ describe("event slug canonical behavior", () => {
     expect(updated.slug).toBe("same-event-2");
     const row = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get("https://remote.example/events/target") as { slug: string };
     expect(row.slug).toBe("same-event-2");
+  });
+
+  it("preserves canceled flag on generic remote refresh, but allows explicit clear", () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, canceled) VALUES (?, ?, ?, ?, ?, 1)")
+      .run("https://remote.example/events/c1", "https://remote.example/users/alice", "cancelled-event", "Cancelled Event", "2026-01-02T10:00:00Z");
+
+    upsertRemoteEvent(db, {
+      id: "https://remote.example/events/c1",
+      type: "Event",
+      name: "Cancelled Event",
+      startTime: "2026-01-02T10:00:00Z",
+    }, "https://remote.example/users/alice");
+
+    const preserved = db.prepare("SELECT canceled FROM remote_events WHERE uri = ?").get("https://remote.example/events/c1") as { canceled: number };
+    expect(preserved.canceled).toBe(1);
+
+    upsertRemoteEvent(db, {
+      id: "https://remote.example/events/c1",
+      type: "Event",
+      name: "Cancelled Event",
+      startTime: "2026-01-02T10:00:00Z",
+    }, "https://remote.example/users/alice", { clearCanceled: true });
+
+    const cleared = db.prepare("SELECT canceled FROM remote_events WHERE uri = ?").get("https://remote.example/events/c1") as { canceled: number };
+    expect(cleared.canceled).toBe(0);
   });
 
   it("handles remote slug collisions per actor", () => {
@@ -191,6 +220,16 @@ describe("event slug canonical behavior", () => {
 
     expect(res.status).toBe(502);
     expect(body.error).toContain("Failed to resolve remote event");
+  });
+
+  it("resolver returns deterministic 400 for blocked federation URLs", async () => {
+    vi.mocked(validateFederationUrl).mockRejectedValueOnce(new Error("Requests to private/internal addresses are not allowed"));
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=http%3A%2F%2F127.0.0.1%2Fevents%2F100");
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("private/internal");
   });
 
   it("resolver assigns slug for existing cached remote event without slug", async () => {

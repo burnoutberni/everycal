@@ -592,8 +592,8 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const uri = object.id as string;
-  const startDate = object.startTime as string;
-  const endDate = (object.endTime as string) || null;
+  const startDate = (object.startTime ?? object.startDate) as string;
+  const endDate = ((object.endTime ?? object.endDate) as string) || null;
   const locationName = loc?.name ? stripHtml(loc.name as string) : null;
   const locationAddr = locationAddress ? stripHtml(locationAddress) : null;
 
@@ -612,7 +612,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  upsertRemoteEvent(db, object, effectiveActor);
+  upsertRemoteEvent(db, object, effectiveActor, { clearCanceled: true });
 
   if (activityType === "Update" && changes.length > 0) {
     notifyEventUpdated(db, uri, {
