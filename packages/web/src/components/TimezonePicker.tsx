@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 type TimezonePickerProps = {
@@ -358,6 +358,7 @@ export function TimezonePicker({
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [hasTypedSearch, setHasTypedSearch] = useState(false);
+  const listboxId = useId();
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -532,6 +533,16 @@ export function TimezonePicker({
       <input
         id={id}
         value={query}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={open && filteredOptions.length > 0}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          open && filteredOptions[highlight]
+            ? `${listboxId}-option-${highlight}`
+            : undefined
+        }
         onFocus={onFocus}
         onBlur={onBlur}
         onChange={(event) => onInputChange(event.target.value)}
@@ -568,17 +579,21 @@ export function TimezonePicker({
         <div
           ref={listRef}
           className="venue-dropdown timezone-dropdown"
+          id={listboxId}
           role="listbox"
           aria-label={t("common:timezoneSuggestionsAria")}
         >
           {filteredOptions.map((option, index) => (
             <button
               key={option.tz}
+              id={`${listboxId}-option-${index}`}
               ref={(element) => {
                 itemRefs.current[index] = element;
               }}
               type="button"
               className={`venue-dropdown-item timezone-item ${option.tz === systemValue ? "dropdown-pinned-item " : ""}${index === highlight ? "timezone-item-active" : ""}`}
+              role="option"
+              aria-selected={index === highlight}
               onMouseEnter={() => setHighlight(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectTimezone(option.tz)}

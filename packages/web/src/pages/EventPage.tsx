@@ -79,6 +79,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const repostMenuRef = useRef<HTMLDivElement>(null);
   const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
   const repostMenuId = useId();
+  const viewerTimezoneTooltipId = useId();
   const viewerTimeZone = resolveUserTimezone(user);
 
   useEffect(() => {
@@ -436,9 +437,12 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
               <span
                 className={showViewerTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
                 tabIndex={showViewerTimezoneTooltip ? 0 : undefined}
+                aria-describedby={showViewerTimezoneTooltip && viewerTimezoneDateLabel ? viewerTimezoneTooltipId : undefined}
               >
                 {eventDateLabel}
-                {showViewerTimezoneTooltip && <span className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>}
+                {showViewerTimezoneTooltip && (
+                  <span id={viewerTimezoneTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>
+                )}
               </span>
             </span>
             {event.visibility !== "public" && (

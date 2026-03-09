@@ -145,6 +145,7 @@ export function SettingsPage() {
   const identityModalTitleId = useId();
   const identitySettingsModalTitleId = useId();
   const membersModalTitleId = useId();
+  const dateTimeCountryListboxId = useId();
 
   useEffect(() => {
     if (!user) return;
@@ -948,6 +949,16 @@ export function SettingsPage() {
                   <input
                     id="settings-time-format"
                     value={dateTimeCountryQuery}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-haspopup="listbox"
+                    aria-expanded={showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0}
+                    aria-controls={dateTimeCountryListboxId}
+                    aria-activedescendant={
+                      showDateTimeCountrySuggestions && visibleDateTimeCountryOptions[dateTimeCountryHighlight]
+                        ? `${dateTimeCountryListboxId}-option-${dateTimeCountryHighlight}`
+                        : undefined
+                    }
                     onFocus={() => {
                       setDateTimeCountryQuery("");
                       setShowDateTimeCountrySuggestions(true);
@@ -994,7 +1005,7 @@ export function SettingsPage() {
                   />
 
                   {showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0 && (
-                    <div className="venue-dropdown" role="listbox" aria-label={t("dateTimeLocale")}
+                    <div className="venue-dropdown" role="listbox" id={dateTimeCountryListboxId} aria-label={t("dateTimeLocale")}
                     >
                       {visibleDateTimeCountryOptions.map((option, index) => {
                         const dateSample = new Intl.DateTimeFormat(option.locale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
@@ -1002,8 +1013,11 @@ export function SettingsPage() {
                         return (
                           <button
                             key={option.regionCode}
+                            id={`${dateTimeCountryListboxId}-option-${index}`}
                             type="button"
                             className={`venue-dropdown-item locale-suggestion-item ${option.regionCode === SYSTEM_DATE_TIME_LOCALE ? "dropdown-pinned-item " : ""}${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
+                            role="option"
+                            aria-selected={index === dateTimeCountryHighlight}
                             onMouseEnter={() => setDateTimeCountryHighlight(index)}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {

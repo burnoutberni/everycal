@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
@@ -492,6 +492,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [postAsNotice, setPostAsNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const previewTimezoneTooltipId = useId();
 
   // Location
   const [locationMode, setLocationMode] = useState<LocationMode>(initialState?.locationMode ?? "inperson");
@@ -1472,10 +1473,11 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                     <span
                       className={showPreviewTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
                       tabIndex={showPreviewTimezoneTooltip ? 0 : undefined}
+                      aria-describedby={showPreviewTimezoneTooltip && previewDateInEventTimezone ? previewTimezoneTooltipId : undefined}
                     >
                       {previewDateStr}
                       {showPreviewTimezoneTooltip && previewDateInEventTimezone && (
-                        <span className="inline-time-tooltip-bubble">{previewDateInEventTimezone}</span>
+                        <span id={previewTimezoneTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{previewDateInEventTimezone}</span>
                       )}
                     </span>
                   </span>

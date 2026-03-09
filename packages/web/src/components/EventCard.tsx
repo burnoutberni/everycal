@@ -42,6 +42,7 @@ export function EventCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const eventLocalTimeTooltipId = useId();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -220,9 +221,12 @@ export function EventCard({
               <span
                 className={showEventLocalTime ? "inline-time-tooltip-anchor" : undefined}
                 tabIndex={showEventLocalTime ? 0 : undefined}
+                aria-describedby={showEventLocalTime && eventLocalTimeTooltip ? eventLocalTimeTooltipId : undefined}
               >
                 {dateTimeStr}
-                {showEventLocalTime && <span className="inline-time-tooltip-bubble">{eventLocalTimeTooltip}</span>}
+                {showEventLocalTime && (
+                  <span id={eventLocalTimeTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{eventLocalTimeTooltip}</span>
+                )}
               </span>
             </span>
             {isCanceled && (

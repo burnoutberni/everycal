@@ -48,6 +48,8 @@
     "cannot_repost_own": "Cannot repost your own event",
     "repost_public_unlisted_only": "Can only repost public or unlisted events",
     "title_startdate_required": "Title and startDate are required",
+    "invalid_timezone": "Invalid event timezone",
+    "invalid_datetime": "Invalid event date/time value",
     "invalid_visibility": "Invalid visibility. Must be: public, unlisted, followers_only, or private",
     "event_not_found_after_create": "Event not found after create",
     "event_not_found_after_update": "Event not found after update",

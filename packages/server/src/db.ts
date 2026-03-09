@@ -4,6 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
+import { convertLegacyNaiveToUtcIso } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -819,8 +820,37 @@ export function initDatabase(path: string): DB {
     db.exec("UPDATE events SET event_timezone = COALESCE(NULLIF(event_timezone,''), 'Europe/Vienna')");
     db.exec("UPDATE events SET start_on = substr(start_date,1,10) WHERE start_on IS NULL AND start_date IS NOT NULL");
     db.exec("UPDATE events SET end_on = substr(end_date,1,10) WHERE end_on IS NULL AND end_date IS NOT NULL");
-    db.exec("UPDATE events SET start_at_utc = start_date WHERE start_at_utc IS NULL AND start_date LIKE '%Z'");
-    db.exec("UPDATE events SET end_at_utc = end_date WHERE end_at_utc IS NULL AND end_date LIKE '%Z'");
+
+    const rows = db
+      .prepare(
+        `SELECT id, start_date, end_date, start_at_utc, end_at_utc, event_timezone
+         FROM events
+         WHERE start_at_utc IS NULL OR (end_date IS NOT NULL AND end_at_utc IS NULL)`
+      )
+      .all() as Array<{
+        id: string;
+        start_date: string;
+        end_date: string | null;
+        start_at_utc: string | null;
+        end_at_utc: string | null;
+        event_timezone: string | null;
+      }>;
+
+    const updateUtc = db.prepare(
+      `UPDATE events
+       SET start_at_utc = ?, end_at_utc = ?
+       WHERE id = ?`
+    );
+
+    for (const row of rows) {
+      const fallbackTimezone = row.event_timezone || "Europe/Vienna";
+      const nextStartUtc = row.start_at_utc ?? convertLegacyNaiveToUtcIso(row.start_date, fallbackTimezone);
+      const nextEndUtc = row.end_at_utc ?? (row.end_date ? convertLegacyNaiveToUtcIso(row.end_date, fallbackTimezone) : null);
+
+      if (nextStartUtc !== row.start_at_utc || nextEndUtc !== row.end_at_utc) {
+        updateUtc.run(nextStartUtc, nextEndUtc, row.id);
+      }
+    }
   } catch {
     // Ignore during partial initialization
   }

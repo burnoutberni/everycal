@@ -30,26 +30,17 @@ function zonesEquivalent(a: string, b: string, date: Date): boolean {
     && zoneOffsetToken(a, jul) === zoneOffsetToken(b, jul);
 }
 
-function localizedTimeZoneCity(timeZone: string, locale?: string): string {
-  const city = (timeZone.split("/").pop() || timeZone).replace(/_/g, " ");
-  const lang = (locale || "").toLowerCase().split("-")[0];
-  if (lang === "de") {
-    const deCity: Record<string, string> = {
-      Vienna: "Wien",
-      Cologne: "Koln",
-      Munich: "Munchen",
-    };
-    return deCity[city] || city;
-  }
-  return city;
-}
-
 function dayKey(date: Date, timeZone: string): string {
   return date.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone });
 }
 
 export function timeZoneCityLabel(timeZone: string, locale?: string): string {
-  return localizedTimeZoneCity(timeZone, locale);
+  const fallbackCity = (timeZone.split("/").pop() || timeZone).replace(/_/g, " ");
+  const translationKey = `timezones:cities.${timeZone.replace(/\//g, "_")}`;
+  return i18n.t(translationKey, {
+    ...(locale ? { lng: locale } : {}),
+    defaultValue: fallbackCity,
+  });
 }
 
 function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
@@ -143,7 +134,7 @@ export function formatViewerTimezoneTooltip(
   if (!viewerTz || !eventTz) return "";
   if (!hasDifferentTimezoneAtEventTime(event, viewerTz)) return "";
 
-  const city = localizedTimeZoneCity(viewerTz, locale);
+  const city = timeZoneCityLabel(viewerTz, locale);
   if (event.allDay) {
     const viewerLabel = formatEventDateTime({ ...event, eventTimezone: viewerTz }, true, {
       locale,

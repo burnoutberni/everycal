@@ -175,8 +175,8 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
-    startAtUtc: row.start_at_utc ?? row.start_date,
-    endAtUtc: row.end_at_utc ?? row.end_date,
+    startAtUtc: row.start_at_utc ?? undefined,
+    endAtUtc: row.end_at_utc ?? undefined,
     eventTimezone: row.event_timezone || "Europe/Vienna",
     allDay: !!row.all_day,
     location: row.location_name
@@ -1141,7 +1141,7 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
     if (!isValidIanaTimezone(eventTimezone)) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
 
     sanitizeEventFields(body as Record<string, unknown>);
@@ -1188,11 +1188,11 @@ export function eventRoutes(db: DB): Hono {
       : null;
     const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
     if (!startAtUtc) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
     const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null;
     if (endDateInput && !endAtUtc) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
 
     db.prepare(
@@ -1316,25 +1316,44 @@ export function eventRoutes(db: DB): Hono {
     const nextStart = body.startDateTime ?? body.startDate;
     const nextEnd = body.endDateTime ?? body.endDate;
     const nextTimezone = body.eventTimezone;
-    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
-    const nextStartAtUtc = nextStart !== undefined ? convertLegacyNaiveToUtcIso(nextStart, tzForConvert) : null;
-    if (nextStart !== undefined && !nextStartAtUtc) {
+    if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const nextEndAtUtc = nextEnd !== undefined && nextEnd !== null
-      ? convertLegacyNaiveToUtcIso(nextEnd, tzForConvert)
+    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
+    const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
+    const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
+    const endForUtc = nextEnd !== undefined
+      ? nextEnd
+      : (shouldRecomputeUtcForTimezoneChange ? existing.end_date : undefined);
+    const nextStartAtUtc = startForUtc !== undefined ? convertLegacyNaiveToUtcIso(startForUtc, tzForConvert) : null;
+    if (startForUtc !== undefined && !nextStartAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    const nextEndAtUtc = endForUtc !== undefined && endForUtc !== null
+      ? convertLegacyNaiveToUtcIso(endForUtc, tzForConvert)
       : null;
-    if (nextEnd !== undefined && nextEnd !== null && !nextEndAtUtc) {
+    if (endForUtc !== undefined && endForUtc !== null && !nextEndAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }
     if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
     if (nextTimezone !== undefined) {
-      if (!isValidIanaTimezone(nextTimezone)) return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
       fields.push("event_timezone = ?"); values.push(nextTimezone);
     }
-    if (nextStart !== undefined) { fields.push("start_at_utc = ?"); values.push(nextStartAtUtc); fields.push("start_on = ?"); values.push(nextStart.slice(0, 10)); }
-    if (nextEnd !== undefined) { fields.push("end_at_utc = ?"); values.push(nextEnd ? nextEndAtUtc : null); fields.push("end_on = ?"); values.push(nextEnd ? nextEnd.slice(0, 10) : null); }
+    if (startForUtc !== undefined) {
+      fields.push("start_at_utc = ?");
+      values.push(nextStartAtUtc);
+      const startForDateParts = nextStart ?? existing.start_date;
+      fields.push("start_on = ?");
+      values.push(startForDateParts.slice(0, 10));
+    }
+    if (endForUtc !== undefined) {
+      fields.push("end_at_utc = ?");
+      values.push(endForUtc ? nextEndAtUtc : null);
+      const endForDateParts = nextEnd !== undefined ? nextEnd : existing.end_date;
+      fields.push("end_on = ?");
+      values.push(endForDateParts ? endForDateParts.slice(0, 10) : null);
+    }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {
       if (!isValidVisibility(body.visibility)) {
