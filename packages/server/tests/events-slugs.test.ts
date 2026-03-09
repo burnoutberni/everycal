@@ -14,6 +14,7 @@ vi.mock("../src/lib/federation.js", () => ({
 }));
 
 import { eventRoutes } from "../src/routes/events.js";
+import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 
@@ -24,6 +25,7 @@ function makeApp(db: DB, user: { id: string; username: string } | null = null) {
     await next();
   });
   app.route("/api/v1/events", eventRoutes(db));
+  app.route("/api/v1/users", userRoutes(db));
   return app;
 }
 
@@ -158,6 +160,21 @@ describe("event slug canonical behavior", () => {
     expect(localRes.status).toBe(200);
     expect(remoteRes.status).toBe(200);
     expect((await remoteRes.json() as { source: string }).source).toBe("remote");
+  });
+
+  it("/users/:username/events returns remote slug when available", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/users/alice@remote.example/events");
+    const body = await res.json() as { events: Array<{ source: string; slug?: string }> };
+
+    expect(res.status).toBe(200);
+    expect(body.events[0]?.source).toBe("remote");
+    expect(body.events[0]?.slug).toBe("remote-slug");
   });
 
   it("resolver bootstraps unfetched remote event and returns canonical path", async () => {

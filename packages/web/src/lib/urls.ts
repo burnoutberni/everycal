@@ -53,5 +53,5 @@ export function accountProfilePath(
 
 /** Bootstrap path for resolving remote event URI to canonical local slug URL. */
 export function remoteEventResolvePath(eventUri: string): string {
-  return `/api/v1/events/resolve?uri=${encodeURIComponent(eventUri)}`;
+  return `/r/event?uri=${encodeURIComponent(eventUri)}`;
 }

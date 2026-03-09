@@ -17,6 +17,7 @@ import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { EventResolvePage } from "./pages/EventResolvePage";
 import { useAuth } from "./hooks/useAuth";
 
 const ONBOARDING_EXEMPT = ["/onboarding", "/login", "/register", "/check-email", "/verify-email", "/forgot-password", "/reset-password"];
@@ -71,6 +72,7 @@ export function App() {
       <Route path="/" component={HomePage} />
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/discover" component={DiscoverPage} />
+      <Route path="/r/event" component={EventResolvePage} />
       <Route path="/explore"><Redirect to="/discover" /></Route>
       <Route path="/federation"><Redirect to="/discover" /></Route>
       <Route path="/create">{() => <NewEventPage />}</Route>

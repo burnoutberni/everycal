@@ -661,6 +661,7 @@ export function userRoutes(db: DB): Hono {
 function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, unknown> {
   return {
     id: row.uri,
+    slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
     account: row.preferred_username

@@ -487,6 +487,7 @@ export function federationRoutes(db: DB): Hono {
       events: rows.map((row) => ({
         id: row.uri,
         uri: row.uri,
+        slug: row.slug,
         source: "remote",
         actorUri: row.actor_uri,
         account: row.preferred_username
