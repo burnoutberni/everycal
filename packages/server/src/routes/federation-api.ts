@@ -22,9 +22,9 @@ import {
   validateFederationUrl,
 } from "../lib/federation.js";
 import { generateKeyPair } from "../lib/crypto.js";
-import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
+import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -213,7 +213,7 @@ export function federationRoutes(db: DB): Hono {
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
-        storeRemoteEvent(db, fullObj, actor.uri);
+        upsertRemoteEvent(db, fullObj, actor.uri);
         imported++;
       }
 
@@ -635,96 +635,4 @@ export function federationRoutes(db: DB): Hono {
   });
 
   return router;
-}
-
-function storeRemoteEvent(
-  db: DB,
-  object: Record<string, unknown>,
-  actorUri: string
-) {
-  const tags = (object.tag as Array<{ name: string }>) || [];
-  const tagString = tags
-    .map((t) => stripHtml(t.name?.replace(/^#/, "") || ""))
-    .filter(Boolean)
-    .join(",");
-
-  // Sanitize content from remote servers (support both ActivityStreams and Schema.org property names)
-  const title =
-    typeof object.name === "string"
-      ? stripHtml(object.name)
-      : typeof object.title === "string"
-        ? stripHtml(object.title)
-        : "";
-  const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
-
-  const loc = object.location as Record<string, unknown> | undefined;
-  let locationAddress: string | null = null;
-  if (loc?.address) {
-    if (typeof loc.address === "string") {
-      locationAddress = stripHtml(loc.address);
-    } else {
-      const addr = loc.address as Record<string, string>;
-      locationAddress = [
-        addr.streetAddress,
-        addr.postalCode,
-        addr.addressLocality,
-        addr.addressCountry,
-      ]
-        .filter(Boolean)
-        .map((s) => stripHtml(s))
-        .join(", ");
-    }
-  }
-
-  const attachments =
-    (object.attachment as Array<Record<string, unknown>>) || [];
-  const image = attachments.find(
-    (a) => a.type === "Image" || a.type === "Document"
-  );
-
-  const imageAttribution = image?.attribution
-    ? (typeof image.attribution === "string"
-        ? (() => { try { return JSON.parse(image.attribution as string); } catch { return null; } })()
-        : image.attribution)
-    : null;
-  const imageAttributionJson = imageAttribution && typeof imageAttribution === "object"
-    ? JSON.stringify(imageAttribution)
-    : null;
-
-  db.prepare(
-    `INSERT INTO remote_events (uri, actor_uri, title, description, start_date, end_date,
-      location_name, location_address, location_latitude, location_longitude,
-      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(uri) DO UPDATE SET
-      title=excluded.title, description=excluded.description,
-      start_date=excluded.start_date, end_date=excluded.end_date,
-      location_name=excluded.location_name, location_address=excluded.location_address,
-      location_latitude=excluded.location_latitude, location_longitude=excluded.location_longitude,
-      image_url=excluded.image_url, image_media_type=excluded.image_media_type,
-      image_alt=excluded.image_alt, image_attribution=excluded.image_attribution,
-      url=excluded.url, tags=excluded.tags,
-      raw_json=excluded.raw_json, updated=excluded.updated, fetched_at=datetime('now')`
-  ).run(
-    object.id as string,
-    actorUri,
-    title,
-    description,
-    (object.startTime ?? object.startDate) as string,
-    ((object.endTime ?? object.endDate) as string) || null,
-    loc?.name ? stripHtml(loc.name as string) : null,
-    locationAddress,
-    (loc?.latitude as number) ?? null,
-    (loc?.longitude as number) ?? null,
-    (image?.url as string) || null,
-    (image?.mediaType as string) || null,
-    (image?.name as string) || null,
-    imageAttributionJson,
-    (object.url as string) || null,
-    tagString || null,
-    // Limit raw_json to 100KB to prevent storage abuse
-    JSON.stringify(object).slice(0, 100_000),
-    (object.published as string) || null,
-    (object.updated as string) || null
-  );
 }

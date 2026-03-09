@@ -6,7 +6,7 @@ import { events as eventsApi, users as usersApi, federation, identities as ident
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
-import { accountProfilePath, profilePath, remoteProfilePath, decodeRemoteEventId } from "../lib/urls";
+import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
@@ -113,16 +113,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
     let promise: Promise<CalEvent>;
     if (effectiveUsername && effectiveSlug) {
-      if (effectiveUsername.includes("@")) {
-        try {
-          const eventUri = decodeRemoteEventId(effectiveSlug);
-          promise = eventsApi.get(eventUri);
-        } catch {
-          promise = Promise.reject(new Error("Invalid event"));
-        }
-      } else {
-        promise = eventsApi.getBySlug(effectiveUsername, effectiveSlug);
-      }
+      promise = eventsApi.getBySlug(effectiveUsername, effectiveSlug);
     } else if (effectiveId) {
       promise = eventsApi.get(effectiveId);
     } else {
@@ -145,8 +136,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       .catch((e) => {
         setEvent(null);
         const msg = e.message;
-        if (msg === "Invalid event") setError(t("eventNotFound"));
-        else if (msg === "No event identifier") setError(t("noEventIdentifier"));
+        if (msg === "No event identifier") setError(t("noEventIdentifier"));
         else if (msg === "Event request timed out") setError(t("common:requestFailed"));
         else setError(msg);
       })

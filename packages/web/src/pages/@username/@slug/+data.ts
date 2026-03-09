@@ -1,7 +1,6 @@
 import type { PageContextServer } from "vike/types";
 import type { SsrInitialData } from "@everycal/core";
 import { events as eventsApi, auth as authApi, createApiRequestContext, type CalEvent } from "../../../lib/api";
-import { decodeRemoteEventId } from "../../../lib/urls";
 import { formatEventDateTime } from "../../../lib/formatEventDateTime";
 
 type EventPageContext = PageContextServer & { initialData?: SsrInitialData };
@@ -41,9 +40,7 @@ export async function data(pageContext: PageContextServer) {
     let event = null;
     let user = null;
     try {
-        const eventPromise = username.includes("@")
-            ? eventsApi.get(decodeRemoteEventId(slug), requestContext)
-            : eventsApi.getBySlug(username, slug, requestContext);
+        const eventPromise = eventsApi.getBySlug(username, slug, requestContext);
 
         const [authRes, eventRes] = await Promise.all([
             authPromise,

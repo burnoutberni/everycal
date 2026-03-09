@@ -50,7 +50,13 @@
     "title_startdate_required": "Titel und startDate sind erforderlich",
     "invalid_visibility": "Ungültige Sichtbarkeit. Muss sein: public, unlisted, followers_only oder private",
     "event_not_found_after_create": "Event nach Erstellung nicht gefunden",
-    "event_not_found_after_update": "Event nach Aktualisierung nicht gefunden"
+    "event_not_found_after_update": "Event nach Aktualisierung nicht gefunden",
+    "resolve_uri_required": "uri-Abfrageparameter ist erforderlich",
+    "resolve_invalid_uri": "Ungültige Event-URI",
+    "resolve_not_event": "Das aufgelöste Objekt ist kein Event",
+    "resolve_missing_required_fields": "Dem Event fehlen erforderliche Felder",
+    "resolve_missing_actor": "Dem Event fehlt ein attributedTo-Akteur",
+    "resolve_fetch_failed": "Remote-Event konnte nicht aufgelöst werden: {{error}}"
   },
   "feeds": {
     "token_required": "token-Abfrageparameter erforderlich",

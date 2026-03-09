@@ -3,6 +3,7 @@
  */
 
 import Database from "better-sqlite3";
+import { uniqueRemoteEventSlug } from "./lib/slugs.js";
 
 export type DB = Database.Database;
 
@@ -142,6 +143,7 @@ export function initDatabase(path: string): DB {
     CREATE TABLE IF NOT EXISTS remote_events (
       uri TEXT PRIMARY KEY,
       actor_uri TEXT NOT NULL,
+      slug TEXT,
       title TEXT NOT NULL,
       description TEXT,
       start_date TEXT NOT NULL,
@@ -496,6 +498,37 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE remote_events ADD COLUMN canceled INTEGER NOT NULL DEFAULT 0");
   } catch {
     // Column already exists
+  }
+
+  // Migration: immutable slug for remote event canonical URLs
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN slug TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL");
+  } catch {
+    // Index already exists
+  }
+
+  // Migration: backfill missing remote slugs for already-cached events
+  try {
+    const missing = db
+      .prepare(
+        `SELECT uri, actor_uri, title
+         FROM remote_events
+         WHERE slug IS NULL OR slug = ''
+         ORDER BY fetched_at ASC, uri ASC`
+      )
+      .all() as Array<{ uri: string; actor_uri: string; title: string }>;
+    const updateSlug = db.prepare("UPDATE remote_events SET slug = ? WHERE uri = ?");
+    for (const row of missing) {
+      const slug = uniqueRemoteEventSlug(db, row.actor_uri, row.title || "event");
+      updateSlug.run(slug, row.uri);
+    }
+  } catch {
+    // Ignore partial/legacy states where remote_events may not be initialized yet
   }
 
   db.exec(`
