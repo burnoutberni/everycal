@@ -702,6 +702,31 @@ export function initDatabase(path: string): DB {
     // Column already exists
   }
 
+
+  // Migration: enforce time_format validity for migrated SQLite schemas.
+  try {
+    db.exec("UPDATE accounts SET time_format = '24h' WHERE time_format IS NULL OR time_format NOT IN ('12h','24h')");
+  } catch {
+    // Ignore during partial initialization
+  }
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_accounts_time_format_insert
+    BEFORE INSERT ON accounts
+    FOR EACH ROW
+    WHEN NEW.time_format NOT IN ('12h','24h')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid time_format');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_accounts_time_format_update
+    BEFORE UPDATE OF time_format ON accounts
+    FOR EACH ROW
+    WHEN NEW.time_format NOT IN ('12h','24h')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid time_format');
+    END;
+  `);
+
   // Backfill legacy naive values assuming Europe/Vienna
   try {
     db.exec("UPDATE events SET event_timezone = COALESCE(NULLIF(event_timezone,''), 'Europe/Vienna')");

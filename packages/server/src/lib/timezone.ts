@@ -1,4 +1,6 @@
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 export function isValidIanaTimezone(tz: string): boolean {
   try {
@@ -27,19 +29,38 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
 }
 
 function localInZoneToUtcIso(localIso: string, timeZone: string): string {
-  const m = localIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return new Date(localIso).toISOString();
+  const m = localIso.match(LOCAL_DATE_TIME);
+  if (!m) {
+    return new Date(localIso).toISOString();
+  }
+
   const [, y, mo, d, h, mi, s] = m;
-  const guess = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0")));
-  const offset = getTimeZoneOffsetMs(guess, timeZone);
-  return new Date(guess.getTime() - offset).toISOString();
+  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+
+  // Iterative resolution for DST boundaries: offset depends on final instant.
+  let candidateMs = naiveUtcMs;
+  for (let i = 0; i < 4; i += 1) {
+    const offset = getTimeZoneOffsetMs(new Date(candidateMs), timeZone);
+    const next = naiveUtcMs - offset;
+    if (next === candidateMs) break;
+    candidateMs = next;
+  }
+
+  return new Date(candidateMs).toISOString();
 }
 
 export function convertLegacyNaiveToUtcIso(value: string, fallbackTimezone: string): string {
   if (!value) return value;
+
   if (ISO_HAS_OFFSET.test(value)) {
     return new Date(value).toISOString();
   }
+
   const tz = isValidIanaTimezone(fallbackTimezone) ? fallbackTimezone : "Europe/Vienna";
+
+  if (DATE_ONLY.test(value)) {
+    return localInZoneToUtcIso(`${value}T00:00:00`, tz);
+  }
+
   return localInZoneToUtcIso(value, tz);
 }

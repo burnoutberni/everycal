@@ -688,6 +688,7 @@ export function eventRoutes(db: DB): Hono {
       all_day: number;
       location_name: string | null;
       location_address: string | null;
+      event_timezone: string | null;
       url: string | null;
       description: string | null;
     }[];
@@ -1250,7 +1251,7 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
 
     const existing = db
-      .prepare("SELECT account_id, visibility, title, start_date, end_date, all_day, location_name, location_address FROM events WHERE id = ?")
+      .prepare("SELECT account_id, visibility, title, start_date, end_date, all_day, location_name, location_address, event_timezone FROM events WHERE id = ?")
       .get(id) as {
       account_id: string;
       visibility: string;
@@ -1260,6 +1261,7 @@ export function eventRoutes(db: DB): Hono {
       all_day: number;
       location_name: string | null;
       location_address: string | null;
+      event_timezone: string | null;
     } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     if (!canManageIdentityEvents(db, existing.account_id, user.id, "editor")) {
@@ -1300,7 +1302,7 @@ export function eventRoutes(db: DB): Hono {
       if (!isValidIanaTimezone(nextTimezone)) return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
       fields.push("event_timezone = ?"); values.push(nextTimezone);
     }
-    const tzForConvert = nextTimezone || "Europe/Vienna";
+    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
     if (nextStart !== undefined) { fields.push("start_at_utc = ?"); values.push(convertLegacyNaiveToUtcIso(nextStart, tzForConvert)); fields.push("start_on = ?"); values.push(nextStart.slice(0, 10)); }
     if (nextEnd !== undefined) { fields.push("end_at_utc = ?"); values.push(nextEnd ? convertLegacyNaiveToUtcIso(nextEnd, tzForConvert) : null); fields.push("end_on = ?"); values.push(nextEnd ? nextEnd.slice(0, 10) : null); }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }

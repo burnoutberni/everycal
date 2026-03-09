@@ -7,7 +7,7 @@ function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
 
 /** Format event start/end for display. Handles all-day, end time, and multi-day. */
 export function formatEventDateTime(
-  event: { startDate: string; endDate: string | null; allDay: boolean; eventTimezone?: string },
+  event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
   long = false,
   options?: { locale?: string; allDayLabel?: string; timeFormat?: "12h" | "24h"; viewerTimeZone?: string }
 ): string {
@@ -16,8 +16,10 @@ export function formatEventDateTime(
   const eventTz = event.eventTimezone;
   const viewerTz = options?.viewerTimeZone;
   const timeZone = eventTz;
-  const start = new Date(event.startDate);
-  const end = event.endDate ? new Date(event.endDate) : null;
+  const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
+  const endInstant = event.allDay ? event.endDate : (event.endAtUtc || event.endDate);
+  const start = new Date(startInstant);
+  const end = endInstant ? new Date(endInstant) : null;
   const isCurrentYear = start.getFullYear() === new Date().getFullYear();
 
   const dateOpts: Intl.DateTimeFormatOptions = long

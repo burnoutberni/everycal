@@ -21,6 +21,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
+import { TimezonePicker } from "../components/TimezonePicker";
 import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
 import { profilePath } from "../lib/urls";
 import { changeLanguage } from "../i18n";
@@ -161,7 +162,6 @@ export function SettingsPage() {
     { value: "en", label: t("english") },
     { value: "de", label: t("german") },
   ];
-  const timezoneOptions = ["Europe/Vienna", "Europe/Berlin", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Tokyo"];
 
   const normalizeAndValidateUrl = (value: string, errorKey: "invalidWebsiteUrl" | "invalidAvatarUrl") => {
     const normalized = normalizeHttpUrlInput(value);
@@ -847,11 +847,7 @@ export function SettingsPage() {
               </div>
               <div className="field">
                 <label htmlFor="settings-timezone">Timezone</label>
-                <select id="settings-timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                  {timezoneOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
+                <TimezonePicker id="settings-timezone" value={timezone} onChange={setTimezone} />
               </div>
               <div className="field">
                 <label htmlFor="settings-time-format">Time format</label>

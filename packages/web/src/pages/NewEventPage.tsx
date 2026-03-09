@@ -27,6 +27,7 @@ import { LocationMap } from "../components/LocationMap";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { TagInput } from "../components/TagInput";
+import { TimezonePicker } from "../components/TimezonePicker";
 
 // ---- Duration helpers ----
 
@@ -177,13 +178,13 @@ function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate
   const loc = event.location;
   const isOnline = !!(loc?.url);
   const { duration, showCustomEnd, customEnd } = durationFromStartEnd(
-    event.startDate,
-    event.endDate,
+    event.startAtUtc || event.startDate,
+    event.endAtUtc || event.endDate,
     event.allDay
   );
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
-    : toDatetimeLocal(new Date(event.startDate));
+    : toDatetimeLocal(new Date(event.startAtUtc || event.startDate));
   return {
     title: event.title,
     description: event.description || "",
@@ -361,6 +362,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
   const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
   const [eventTimezone, setEventTimezone] = useState(initialEvent?.eventTimezone ?? user?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Vienna");
+  const [showTimezonePicker, setShowTimezonePicker] = useState(!!initialEvent?.eventTimezone);
   const [postAsNotice, setPostAsNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -970,7 +972,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     let resolvedLocationUrl = locationUrl.trim() || undefined;
     if (locationMode === "online" && resolvedLocationUrl) {
       resolvedLocationUrl = normalizeHttpUrlInput(locationUrl);
-      setLocationUrl(resolvedLocationUrl);
+      setLocationUrl(resolvedLocationUrl || "");
       if (!isValidHttpUrl(resolvedLocationUrl, { allowLocalhost: allowLocalhostUrls })) {
         setLocationUrlError(t("invalidUrl"));
         return;
@@ -1567,6 +1569,22 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                 min={allDay ? minStartToday : minStartNow}
                 required
               />
+            </div>
+            <div className="field">
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => setShowTimezonePicker((prev) => !prev)}
+                style={{ width: "fit-content" }}
+              >
+                {showTimezonePicker ? "Hide timezone" : "Set timezone"}
+              </button>
+              {showTimezonePicker && (
+                <>
+                  <label htmlFor="ce-timezone" style={{ marginTop: "0.5rem" }}>Timezone</label>
+                  <TimezonePicker id="ce-timezone" value={eventTimezone} onChange={setEventTimezone} />
+                </>
+              )}
             </div>
 
             <div className="field">
