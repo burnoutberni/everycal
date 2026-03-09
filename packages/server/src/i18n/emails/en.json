@@ -39,6 +39,8 @@
     "title": "title",
     "time": "time",
     "location": "location",
-    "description": "description"
+    "description": "description",
+    "allDay": "All-day",
+    "specificTime": "Specific time"
   }
 }

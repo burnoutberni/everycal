@@ -39,6 +39,8 @@
     "title": "Titel",
     "time": "Zeit",
     "location": "Location",
-    "description": "Beschreibung"
+    "description": "Beschreibung",
+    "allDay": "Ganztägig",
+    "specificTime": "Uhrzeit"
   }
 }

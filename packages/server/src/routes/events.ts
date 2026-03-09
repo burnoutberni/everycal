@@ -78,9 +78,8 @@ function resolveEventUri(id: string): string {
   return id;
 }
 
-function formatTimeChangeValue(start: string, end: string | null | undefined, allDay: boolean): string {
-  const range = [start, end || ""].filter(Boolean).join(" – ");
-  return `${range} [allDay=${allDay ? 1 : 0}]`;
+function formatTimeChangeValue(start: string, end: string | null | undefined): string {
+  return [start, end || ""].filter(Boolean).join(" – ");
 }
 
 /** Check whether a user is allowed to view an event based on its visibility. */
@@ -777,16 +776,16 @@ export function eventRoutes(db: DB): Hono {
             }
 
             // Only material changes (title, time, location) trigger notifications
-            const changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
+            const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
             if (existingRow.title !== ev.title) {
               changes.push({ field: "title", before: existingRow.title, after: ev.title });
             }
             const oldAllDay = !!existingRow.all_day;
             const newAllDay = !!ev.allDay;
-            const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date, oldAllDay);
-            const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "", newAllDay);
+            const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
+            const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
             if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "") || oldAllDay !== newAllDay) {
-              changes.push({ field: "time", before: oldTime, after: newTime });
+              changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
             }
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
             const newLoc = [ev.location?.name || "", ev.location?.address || ""].filter(Boolean).join(", ");
@@ -1315,7 +1314,7 @@ export function eventRoutes(db: DB): Hono {
 
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
-      const changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
+      const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
       if (body.title !== undefined && existing.title !== body.title) {
         changes.push({ field: "title", before: existing.title, after: body.title });
       }
@@ -1324,10 +1323,10 @@ export function eventRoutes(db: DB): Hono {
         const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
         const oldAllDay = !!existing.all_day;
         const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
-        const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date, oldAllDay);
-        const newTime = formatTimeChangeValue(newStart, newEnd, newAllDay);
-        if (oldTime !== newTime) {
-          changes.push({ field: "time", before: oldTime, after: newTime });
+        const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
+        const newTime = formatTimeChangeValue(newStart, newEnd);
+        if (oldTime !== newTime || oldAllDay !== newAllDay) {
+          changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
         }
       }
       if (body.location !== undefined) {

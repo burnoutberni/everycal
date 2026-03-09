@@ -179,6 +179,8 @@ export interface EventChange {
   field: "title" | "time" | "location";
   before?: string | null;
   after?: string | null;
+  beforeAllDay?: boolean;
+  afterAllDay?: boolean;
 }
 
 /** Build event link for emails. Prefer canonical page path /@user/event-slug for both local and remote events. */
@@ -240,11 +242,19 @@ export async function sendEventUpdated(
   if (!transport) return;
 
   const eventUrl = getEventLink(event);
+  const formatTimeValue = (value: string, allDay: boolean | undefined): string => {
+    if (allDay === undefined) return value;
+    const mode = allDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime");
+    return value ? `${value} (${mode})` : mode;
+  };
+
   const translatedChanges = changes
     .map((c) => {
       const field = emailT(locale, `eventFields.${c.field}`);
-      const before = c.before?.trim() || "";
-      const after = c.after?.trim() || "";
+      const beforeRaw = c.before?.trim() || "";
+      const afterRaw = c.after?.trim() || "";
+      const before = c.field === "time" ? formatTimeValue(beforeRaw, c.beforeAllDay) : beforeRaw;
+      const after = c.field === "time" ? formatTimeValue(afterRaw, c.afterAllDay) : afterRaw;
       if (before && after) return `${field}: "${before}" → "${after}"`;
       if (after) return `${field}: ${after}`;
       if (before) return `${field}: ${before}`;
@@ -266,8 +276,20 @@ export async function sendEventUpdated(
     html: `<p><strong>${escapeHtml(event.title)}</strong></p><p>${escapeHtml(wasUpdated)}:</p><ul>${changes
       .map((c) => {
         const field = escapeHtml(emailT(locale, `eventFields.${c.field}`));
-        const before = escapeHtml((c.before || "").trim());
-        const after = escapeHtml((c.after || "").trim());
+        const beforeRaw = (c.before || "").trim();
+        const afterRaw = (c.after || "").trim();
+        const beforeFmt = c.field === "time"
+          ? (c.beforeAllDay === undefined
+            ? beforeRaw
+            : `${beforeRaw ? `${beforeRaw} ` : ""}(${c.beforeAllDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime")})`)
+          : beforeRaw;
+        const afterFmt = c.field === "time"
+          ? (c.afterAllDay === undefined
+            ? afterRaw
+            : `${afterRaw ? `${afterRaw} ` : ""}(${c.afterAllDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime")})`)
+          : afterRaw;
+        const before = escapeHtml(beforeFmt);
+        const after = escapeHtml(afterFmt);
         if (before && after) return `<li><strong>${field}</strong>: &quot;${before}&quot; → &quot;${after}&quot;</li>`;
         if (after) return `<li><strong>${field}</strong>: ${after}</li>`;
         if (before) return `<li><strong>${field}</strong>: ${before}</li>`;
