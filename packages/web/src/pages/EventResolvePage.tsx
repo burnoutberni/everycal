@@ -16,6 +16,8 @@ export function EventResolvePage() {
       return;
     }
 
+    setError(null);
+
     let cancelled = false;
     eventsApi.resolve(uri)
       .then((res) => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -24,6 +24,10 @@ vi.mock("../lib/api", () => ({
 import { EventResolvePage } from "./EventResolvePage";
 
 describe("EventResolvePage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.search = "?uri=https%3A%2F%2Fremote.example%2Fevents%2F99";
@@ -52,5 +56,22 @@ describe("EventResolvePage", () => {
     render(<EventResolvePage />);
 
     expect(await screen.findByText("not found")).toBeTruthy();
+  });
+
+  it("clears stale error when uri becomes valid", async () => {
+    mocks.search = "";
+    mocks.resolve.mockImplementation(() => new Promise(() => {}));
+    const { rerender } = render(<EventResolvePage />);
+
+    expect(await screen.findByText("Missing event URI.")).toBeTruthy();
+
+    mocks.search = "?uri=https%3A%2F%2Fremote.example%2Fevents%2F123";
+    rerender(<EventResolvePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Opening event…")).toBeTruthy();
+      expect(screen.queryByText("Missing event URI.")).toBeNull();
+      expect(mocks.resolve).toHaveBeenCalledWith("https://remote.example/events/123");
+    });
   });
 });
