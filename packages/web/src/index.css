@@ -3367,8 +3367,20 @@ button.tag {
   overflow: auto;
 }
 
+
 .timezone-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
   text-align: left;
+}
+
+.timezone-item-abbr {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .timezone-item-active {

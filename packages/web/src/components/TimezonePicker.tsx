@@ -1,55 +1,61 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const COUNTRY_ALIAS_BY_CITY: Record<string, string[]> = {
-  london: ["united kingdom", "uk", "gb", "great britain", "britain", "england"],
-  belfast: ["united kingdom", "uk", "gb", "great britain", "britain"],
-  dubai: ["united arab emirates", "uae"],
-  abu: ["united arab emirates", "uae"],
-  new: ["usa", "us", "united states", "america"],
-  los: ["usa", "us", "united states", "america"],
-  chicago: ["usa", "us", "united states", "america"],
-  denver: ["usa", "us", "united states", "america"],
-  phoenix: ["usa", "us", "united states", "america"],
-  toronto: ["canada", "ca"],
-  vancouver: ["canada", "ca"],
-  vienna: ["austria", "at"],
-  berlin: ["germany", "de"],
-  paris: ["france", "fr"],
-  madrid: ["spain", "es"],
-  rome: ["italy", "it"],
-  tokyo: ["japan", "jp"],
-  singapore: ["singapore", "sg"],
-  sydney: ["australia", "au"],
-  auckland: ["new zealand", "nz"],
+type TimezoneOption = {
+  tz: string;
+  continent: string;
+  city: string;
+  abbreviation: string;
+  offsetLabel: string;
+  offsetMinutes: number;
+  displayLabel: string;
+  searchText: string;
 };
 
-function safeSupportedTimezones(): string[] {
-  try {
-    const values = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] }).supportedValuesOf?.("timeZone");
-    if (values && values.length > 0) return values;
-  } catch {
-    // ignore
-  }
-  return [
-    "Europe/Vienna",
-    "Europe/Berlin",
-    "Europe/London",
-    "America/New_York",
-    "America/Los_Angeles",
-    "America/Denver",
-    "Asia/Tokyo",
-    "Asia/Singapore",
-    "Australia/Sydney",
-  ];
+const COUNTRY_ALIASES: Record<string, string[]> = {
+  "Europe/London": ["united kingdom", "uk", "gb", "great britain", "britain", "england"],
+  "Asia/Dubai": ["united arab emirates", "uae"],
+  "Asia/Kolkata": ["india", "indian", "delhi", "in"],
+  "America/New_York": ["usa", "us", "united states", "america"],
+  "America/Chicago": ["usa", "us", "united states", "america"],
+  "America/Denver": ["usa", "us", "united states", "america"],
+  "America/Los_Angeles": ["usa", "us", "united states", "america"],
+};
+
+const CITY_ALIASES: Record<string, string[]> = {
+  "Asia/Kolkata": ["delhi"],
+};
+
+function parseOffset(offsetPart: string): { label: string; minutes: number } {
+  const m = offsetPart.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!m) return { label: "UTC±00:00", minutes: 0 };
+  const sign = m[1] === "+" ? 1 : -1;
+  const hh = Number(m[2]);
+  const mm = Number(m[3] || "0");
+  const minutes = sign * (hh * 60 + mm);
+  return {
+    label: `UTC${m[1]}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+    minutes,
+  };
 }
 
-function parseOffsetToUtcLabel(offsetPart: string): string {
-  const m = offsetPart.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
-  if (!m) return "UTC±00:00";
-  const sign = m[1];
-  const hh = String(Number(m[2])).padStart(2, "0");
-  const mm = String(Number(m[3] || "0")).padStart(2, "0");
-  return `UTC${sign}${hh}:${mm}`;
+function timezoneShortName(tz: string, date: Date): string {
+  return new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "short" })
+    .formatToParts(date)
+    .find((p) => p.type === "timeZoneName")
+    ?.value || "";
+}
+
+function getAbbreviation(tz: string, now: Date): string {
+  const nowShort = timezoneShortName(tz, now);
+  if (nowShort && !/^(GMT|UTC)/i.test(nowShort)) return nowShort;
+
+  const winterShort = timezoneShortName(tz, new Date(Date.UTC(2024, 0, 15)));
+  if (winterShort && !/^(GMT|UTC)/i.test(winterShort)) return winterShort;
+
+  const summerShort = timezoneShortName(tz, new Date(Date.UTC(2024, 6, 15)));
+  if (summerShort && !/^(GMT|UTC)/i.test(summerShort)) return summerShort;
+
+  return nowShort || winterShort || summerShort || "GMT";
 }
 
 function collectNames(tz: string): string[] {
@@ -71,29 +77,56 @@ function collectNames(tz: string): string[] {
   return [...out];
 }
 
-function countryAliases(city: string): string[] {
-  const key = city.toLowerCase().split(" ")[0] || city.toLowerCase();
-  return COUNTRY_ALIAS_BY_CITY[key] || [];
+function chooseCandidateTimezones(): string[] {
+  try {
+    const all = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] }).supportedValuesOf?.("timeZone") || [];
+    // Prune noisy aliases/legacy names and deep paths like America/Indiana/Indianapolis.
+    const filtered = all.filter((tz) => {
+      if (tz.startsWith("Etc/") || tz.startsWith("US/") || tz.startsWith("Canada/")) return false;
+      const depth = tz.split("/").length;
+      return depth <= 2;
+    });
+    return filtered.length > 0 ? filtered : ["Europe/Vienna", "Europe/London", "Asia/Kolkata", "America/New_York"];
+  } catch {
+    return [
+      "Europe/Vienna",
+      "Europe/Berlin",
+      "Europe/London",
+      "America/New_York",
+      "America/Chicago",
+      "America/Denver",
+      "America/Los_Angeles",
+      "Asia/Kolkata",
+      "Asia/Tokyo",
+      "Asia/Dubai",
+      "Australia/Sydney",
+    ];
+  }
 }
 
-function timezoneMeta(tz: string, now: Date) {
+function toOption(tz: string, now: Date): TimezoneOption {
   const parts = tz.split("/");
   const continent = parts[0] || "";
-  const cityRaw = parts[parts.length - 1] || tz;
-  const city = cityRaw.replace(/_/g, " ");
+  const city = (parts[parts.length - 1] || tz).replace(/_/g, " ");
 
   const shortOffset = new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "shortOffset" })
     .formatToParts(now)
     .find((p) => p.type === "timeZoneName")
     ?.value || "GMT+0";
-  const abbreviation = new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "short" })
-    .formatToParts(now)
-    .find((p) => p.type === "timeZoneName")
-    ?.value || "GMT";
-
+  const { label: offsetLabel, minutes: offsetMinutes } = parseOffset(shortOffset);
+  const abbreviation = getAbbreviation(tz, now);
   const names = collectNames(tz);
-  const offsetLabel = parseOffsetToUtcLabel(shortOffset);
-  const displayLabel = `${offsetLabel} ${city} · ${continent}`;
+
+  const searchText = [
+    tz,
+    city,
+    continent,
+    abbreviation,
+    offsetLabel,
+    ...names,
+    ...(COUNTRY_ALIASES[tz] || []),
+    ...(CITY_ALIASES[tz] || []),
+  ].join(" ").toLowerCase();
 
   return {
     tz,
@@ -101,8 +134,9 @@ function timezoneMeta(tz: string, now: Date) {
     city,
     abbreviation,
     offsetLabel,
-    displayLabel,
-    searchText: [tz, city, continent, abbreviation, offsetLabel, ...names, ...countryAliases(city)].join(" ").toLowerCase(),
+    offsetMinutes,
+    displayLabel: `${offsetLabel} ${city} · ${continent}`,
+    searchText,
   };
 }
 
@@ -125,7 +159,12 @@ export function TimezonePicker({
   placeholder?: string;
 }) {
   const now = useMemo(() => new Date(), []);
-  const options = useMemo(() => safeSupportedTimezones().map((tz) => timezoneMeta(tz, now)), [now]);
+  const options = useMemo(() => {
+    return chooseCandidateTimezones()
+      .map((tz) => toOption(tz, now))
+      .sort((a, b) => a.offsetMinutes - b.offsetMinutes || a.city.localeCompare(b.city));
+  }, [now]);
+
   const selected = useMemo(() => options.find((o) => o.tz === value), [options, value]);
 
   const [query, setQuery] = useState(selected?.displayLabel || value || "");
@@ -133,6 +172,7 @@ export function TimezonePicker({
   const [highlight, setHighlight] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const justSelectedRef = useRef(false);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     setQuery(selected?.displayLabel || value || "");
@@ -149,6 +189,12 @@ export function TimezonePicker({
     }
     return matches.slice(0, 60);
   }, [ordered, query, selected]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = itemRefs.current[highlight];
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [highlight, open]);
 
   const apply = (tz: string) => {
     justSelectedRef.current = true;
@@ -219,7 +265,7 @@ export function TimezonePicker({
             setOpen(false);
           }
         }}
-        placeholder={placeholder || "Search timezone, city, country, offset (e.g. GMT, UK, USA, UTC+1)"}
+        placeholder={placeholder || "Search timezone, city, country, offset (e.g. CEST, UK, UAE, UTC+1)"}
         autoComplete="off"
       />
 
@@ -228,6 +274,7 @@ export function TimezonePicker({
           {filtered.map((opt, idx) => (
             <button
               key={opt.tz}
+              ref={(el) => { itemRefs.current[idx] = el; }}
               type="button"
               className={`venue-dropdown-item timezone-item ${idx === highlight ? "timezone-item-active" : ""}`}
               onMouseEnter={() => setHighlight(idx)}
@@ -239,7 +286,7 @@ export function TimezonePicker({
                 <span>{opt.city}</span>
                 <span className="timezone-item-muted">{opt.continent}</span>
               </span>
-              <span className="venue-dropdown-addr">{opt.abbreviation}</span>
+              <span className="timezone-item-abbr">{opt.abbreviation}</span>
             </button>
           ))}
         </div>
