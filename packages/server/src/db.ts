@@ -163,7 +163,6 @@ export function initDatabase(path: string): DB {
     );
 
     CREATE INDEX IF NOT EXISTS idx_remote_events_actor ON remote_events(actor_uri);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_date);
 
     -- Track which remote actors local users follow

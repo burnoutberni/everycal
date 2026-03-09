@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 vi.mock("../src/lib/federation.js", () => ({
   fetchAP: vi.fn(),
@@ -144,5 +148,27 @@ describe("event slug canonical behavior", () => {
     const app = makeApp(db);
     const res = await app.request(`http://localhost/api/v1/events/${oldId}`);
     expect(res.status).toBe(404);
+  });
+
+  it("migrates existing remote_events table without slug column", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE remote_events (
+        uri TEXT PRIMARY KEY,
+        actor_uri TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start_date TEXT NOT NULL
+      );
+    `);
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const cols = migrated.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+    const hasSlug = cols.some((c) => c.name === "slug");
+    expect(hasSlug).toBe(true);
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
