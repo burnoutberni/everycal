@@ -37,6 +37,16 @@ function baseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+
 /** Check if email sending is configured. */
 export function isEmailConfigured(): boolean {
   return getTransporter() !== null;
@@ -156,6 +166,8 @@ export async function sendPasswordResetEmail(
 export interface EventInfo {
   id: string;
   title: string;
+  slug: string;
+  account: { username: string; domain?: string | null };
   startDate: string;
   endDate?: string | null;
   allDay?: boolean;
@@ -163,11 +175,22 @@ export interface EventInfo {
   url?: string | null;
 }
 
-/** Build event link for emails. Local events use /events/{id}; remote events use url or omit. */
-function getEventLink(event: EventInfo): string | null {
-  const isRemote = event.id.startsWith("http://") || event.id.startsWith("https://");
-  if (isRemote) return event.url || null;
-  return `${baseUrl()}/events/${event.id}`;
+export interface EventChange {
+  field: "title" | "time" | "location";
+  before?: string | null;
+  after?: string | null;
+  beforeAllDay?: boolean;
+  afterAllDay?: boolean;
+}
+
+/** Build event link for emails. Prefer canonical page path /@user/event-slug for both local and remote events. */
+function getEventLink(event: EventInfo): string {
+  const hasExplicitDomain = !!event.account.domain;
+  const username = hasExplicitDomain && event.account.username.includes("@")
+    ? event.account.username.split("@")[0]
+    : event.account.username;
+  const domainPart = hasExplicitDomain ? `@${event.account.domain}` : "";
+  return `${baseUrl()}/@${username}${domainPart}/${event.slug}`;
 }
 
 /** Send event reminder. */
@@ -190,7 +213,9 @@ export async function sendEventReminder(
   const viewDetails = emailT(locale, "reminder.viewDetails");
   const starts = emailT(locale, "reminder.starts");
   const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
-  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
+  const detailsHtml = eventUrl
+    ? `<p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`
+    : "";
 
   const subject =
     hoursAhead === 1
@@ -202,7 +227,7 @@ export async function sendEventReminder(
     to,
     subject,
     text: `${event.title} ${starts} ${timeStr}${locationStr}.${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> ${starts} ${timeStr}${locationStr}.</p>${detailsHtml}`,
+    html: `<p><strong>${escapeHtml(event.title)}</strong> ${escapeHtml(starts)} ${escapeHtml(timeStr + locationStr)}.</p>${detailsHtml}`,
   });
 }
 
@@ -210,26 +235,67 @@ export async function sendEventReminder(
 export async function sendEventUpdated(
   to: string,
   event: EventInfo,
-  changes: string[],
+  changes: EventChange[],
   locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
   if (!transport) return;
 
   const eventUrl = getEventLink(event);
-  const translatedChanges = changes.map((c) => emailT(locale, `eventFields.${c}`));
-  const changesStr = translatedChanges.join(", ");
+  const formatTimeValue = (value: string, allDay: boolean | undefined): string => {
+    if (allDay === undefined) return value;
+    const mode = allDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime");
+    return value ? `${value} (${mode})` : mode;
+  };
+
+  const translatedChanges = changes
+    .map((c) => {
+      const field = emailT(locale, `eventFields.${c.field}`);
+      const beforeRaw = c.before?.trim() || "";
+      const afterRaw = c.after?.trim() || "";
+      const before = c.field === "time" ? formatTimeValue(beforeRaw, c.beforeAllDay) : beforeRaw;
+      const after = c.field === "time" ? formatTimeValue(afterRaw, c.afterAllDay) : afterRaw;
+      if (before && after) return `${field}: "${before}" → "${after}"`;
+      if (after) return `${field}: ${after}`;
+      if (before) return `${field}: ${before}`;
+      return field;
+    })
+    .join("\n- ");
   const viewDetails = emailT(locale, "eventUpdated.viewDetails");
-  const wasUpdated = emailT(locale, "eventUpdated.wasUpdated");
+  const wasUpdated = emailT(locale, "eventUpdated.changes");
   const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
-  const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
+  const detailsHtml = eventUrl
+    ? `<p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`
+    : "";
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
     subject: emailT(locale, "eventUpdated.subject", { title: event.title }),
-    text: `${event.title} ${wasUpdated} (${changesStr}).${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> ${wasUpdated}: ${changesStr}.</p>${detailsHtml}`,
+    text: `${event.title}\n\n${wasUpdated}:\n- ${translatedChanges}${detailsBlock}`,
+    html: `<p><strong>${escapeHtml(event.title)}</strong></p><p>${escapeHtml(wasUpdated)}:</p><ul>${changes
+      .map((c) => {
+        const field = escapeHtml(emailT(locale, `eventFields.${c.field}`));
+        const beforeRaw = (c.before || "").trim();
+        const afterRaw = (c.after || "").trim();
+        const beforeFmt = c.field === "time"
+          ? (c.beforeAllDay === undefined
+            ? beforeRaw
+            : `${beforeRaw ? `${beforeRaw} ` : ""}(${c.beforeAllDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime")})`)
+          : beforeRaw;
+        const afterFmt = c.field === "time"
+          ? (c.afterAllDay === undefined
+            ? afterRaw
+            : `${afterRaw ? `${afterRaw} ` : ""}(${c.afterAllDay ? emailT(locale, "eventFields.allDay") : emailT(locale, "eventFields.specificTime")})`)
+          : afterRaw;
+        const before = escapeHtml(beforeFmt);
+        const after = escapeHtml(afterFmt);
+        if (before && after) return `<li><strong>${field}</strong>: &quot;${before}&quot; → &quot;${after}&quot;</li>`;
+        if (after) return `<li><strong>${field}</strong>: ${after}</li>`;
+        if (before) return `<li><strong>${field}</strong>: ${before}</li>`;
+        return `<li><strong>${field}</strong></li>`;
+      })
+      .join("")}</ul>${detailsHtml}`,
   });
 }
 
@@ -243,12 +309,16 @@ export async function sendEventCancelled(
   if (!transport) return;
 
   const hasBeenCancelled = emailT(locale, "eventCancelled.hasBeenCancelled");
+  const viewDetails = emailT(locale, "eventUpdated.viewDetails");
+  const eventUrl = getEventLink(event);
 
   await transport.sendMail({
     from: process.env.SMTP_FROM,
     to,
     subject: emailT(locale, "eventCancelled.subject", { title: event.title }),
-    text: `${event.title} ${hasBeenCancelled}`,
-    html: `<p><strong>${event.title}</strong> ${hasBeenCancelled}</p>`,
+    text: `${event.title} ${hasBeenCancelled}
+
+${viewDetails}: ${eventUrl}`,
+    html: `<p><strong>${escapeHtml(event.title)}</strong> ${escapeHtml(hasBeenCancelled)}</p><p><a href="${escapeHtml(eventUrl)}">${escapeHtml(viewDetails)}</a></p>`,
   });
 }

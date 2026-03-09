@@ -20,6 +20,7 @@ import {
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 
@@ -554,6 +555,18 @@ async function handleUndo(
   console.log(`  ✅ ${actorUri} unfollowed ${account.username}`);
 }
 
+
+function actorHandleFromUri(actorUri: string): { username: string; domain?: string } {
+  try {
+    const u = new URL(actorUri);
+    const raw = u.pathname.split("/").filter(Boolean).pop() || "unknown";
+    const username = raw.startsWith("@") ? raw.slice(1) : raw;
+    return { username, domain: u.host };
+  } catch {
+    return { username: "unknown" };
+  }
+}
+
 function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string) {
   const object = activity.object as Record<string, unknown>;
   if (!object || object.type !== "Event") return;
@@ -599,25 +612,42 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
 
   // For Update: fetch existing to detect material changes and notify RSVP'd users.
   // Only title, time, and location trigger notifications (not description, image, url, tags).
-  let changes: string[] = [];
+  let changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
   if (activityType === "Update") {
     const existing = db.prepare(
       "SELECT title, start_date, end_date, location_name, location_address FROM remote_events WHERE uri = ?"
     ).get(uri) as { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
     if (existing) {
-      if (existing.title !== title) changes.push("title");
-      if (existing.start_date !== startDate || existing.end_date !== endDate) changes.push("time");
-      const locChanged = (existing.location_name || "") !== (locationName || "") || (existing.location_address || "") !== (locationAddr || "");
-      if (locChanged) changes.push("location");
+      if (existing.title !== title) changes.push({ field: "title", before: existing.title, after: title });
+      if (existing.start_date !== startDate || existing.end_date !== endDate) {
+        const oldTime = [existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ");
+        const newTime = [startDate, endDate || ""].filter(Boolean).join(" – ");
+        changes.push({ field: "time", before: oldTime, after: newTime });
+      }
+      const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
+      const newLoc = [locationName || "", locationAddr || ""].filter(Boolean).join(", ");
+      if (oldLoc !== newLoc) changes.push({ field: "location", before: oldLoc, after: newLoc });
     }
   }
 
   upsertRemoteEvent(db, object, effectiveActor, { clearCanceled: true });
 
   if (activityType === "Update" && changes.length > 0) {
+    const stored = db.prepare(
+      `SELECT re.slug, ra.preferred_username, ra.domain
+       FROM remote_events re
+       JOIN remote_actors ra ON ra.uri = re.actor_uri
+       WHERE re.uri = ?`
+    ).get(uri) as { slug: string | null; preferred_username: string; domain: string } | undefined;
+    const fallbackAccount = actorHandleFromUri(effectiveActor);
+
     notifyEventUpdated(db, uri, {
       id: uri,
       title,
+      slug: stored?.slug || fallbackSlugFromUri(uri),
+      account: stored
+        ? { username: stored.preferred_username, domain: stored.domain }
+        : { username: fallbackAccount.username, domain: fallbackAccount.domain },
       startDate,
       endDate,
       allDay: false,
@@ -640,15 +670,23 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
   if (objectUri && actorUri) {
     // Only mark canceled if the event belongs to the actor sending the Delete
     const existing = db.prepare(
-      "SELECT actor_uri, title, start_date, end_date, location_name, url FROM remote_events WHERE uri = ?"
+      "SELECT actor_uri, slug, title, start_date, end_date, location_name, url FROM remote_events WHERE uri = ?"
     ).get(objectUri) as
-      | { actor_uri: string; title: string; start_date: string; end_date: string | null; location_name: string | null; url: string | null }
+      | { actor_uri: string; slug: string | null; title: string; start_date: string; end_date: string | null; location_name: string | null; url: string | null }
       | undefined;
     if (existing && existing.actor_uri === actorUri) {
       db.prepare("UPDATE remote_events SET canceled = 1 WHERE uri = ?").run(objectUri);
+      const actor = db
+        .prepare("SELECT preferred_username, domain FROM remote_actors WHERE uri = ?")
+        .get(existing.actor_uri) as { preferred_username: string; domain: string } | undefined;
+      const fallbackAccount = actorHandleFromUri(existing.actor_uri);
       notifyEventCancelled(db, objectUri, {
         id: objectUri,
         title: existing.title,
+        slug: existing.slug || fallbackSlugFromUri(objectUri),
+        account: actor
+          ? { username: actor.preferred_username, domain: actor.domain }
+          : { username: fallbackAccount.username, domain: fallbackAccount.domain },
         startDate: existing.start_date,
         endDate: existing.end_date,
         allDay: false,

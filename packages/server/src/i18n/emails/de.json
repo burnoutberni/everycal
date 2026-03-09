@@ -28,8 +28,8 @@
   },
   "eventUpdated": {
     "subject": "Aktualisiert: {{title}}",
-    "wasUpdated": "wurde aktualisiert",
-    "viewDetails": "Details anzeigen"
+    "viewDetails": "Details anzeigen",
+    "changes": "Folgende Änderungen wurden vorgenommen"
   },
   "eventCancelled": {
     "subject": "Abgesagt: {{title}}",
@@ -39,6 +39,8 @@
     "title": "Titel",
     "time": "Zeit",
     "location": "Location",
-    "description": "Beschreibung"
+    "description": "Beschreibung",
+    "allDay": "Ganztägig",
+    "specificTime": "Uhrzeit"
   }
 }

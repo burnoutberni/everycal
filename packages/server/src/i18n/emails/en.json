@@ -28,8 +28,8 @@
   },
   "eventUpdated": {
     "subject": "Updated: {{title}}",
-    "wasUpdated": "was updated",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "changes": "The following has changed"
   },
   "eventCancelled": {
     "subject": "Cancelled: {{title}}",
@@ -39,6 +39,8 @@
     "title": "title",
     "time": "time",
     "location": "location",
-    "description": "description"
+    "description": "description",
+    "allDay": "All-day",
+    "specificTime": "Specific time"
   }
 }
