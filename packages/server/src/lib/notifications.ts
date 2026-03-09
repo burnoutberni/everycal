@@ -8,6 +8,7 @@ import {
   sendEventUpdated,
   sendEventCancelled,
   type EventInfo,
+  type EventChange,
 } from "./email.js";
 
 /** Run the reminder job: find events in window, send emails, record sent. */
@@ -16,12 +17,13 @@ export async function runSendReminders(db: DB): Promise<void> {
   const localRows = db
     .prepare(
       `SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
-              e.id AS event_uri, e.title, e.start_date, e.end_date, e.all_day,
-              e.location_name, e.url
+              e.id AS event_uri, e.slug, e.title, e.start_date, e.end_date, e.all_day,
+              e.location_name, e.url, owner.username AS owner_username
        FROM accounts a
        JOIN account_notification_prefs anp ON anp.account_id = a.id
        JOIN event_rsvps er ON er.account_id = a.id
        JOIN events e ON e.id = er.event_uri
+       JOIN accounts owner ON owner.id = e.account_id
        LEFT JOIN event_reminder_sent ers ON ers.account_id = a.id AND ers.event_uri = e.id
          AND ers.reminder_type = CAST(anp.reminder_hours_before AS TEXT)
        WHERE anp.reminder_enabled = 1
@@ -37,24 +39,28 @@ export async function runSendReminders(db: DB): Promise<void> {
     preferred_language: string;
     reminder_hours_before: number;
     event_uri: string;
+    slug: string | null;
+    owner_username: string;
     title: string;
     start_date: string;
     end_date: string | null;
     all_day: number;
     location_name: string | null;
     url: string | null;
+    owner_domain?: string | null;
   }[];
 
   // Remote events: same logic (exclude canceled)
   const remoteRows = db
     .prepare(
       `SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
-              re.uri AS event_uri, re.title, re.start_date, re.end_date,
-              0 AS all_day, re.location_name, re.url
+              re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date,
+              0 AS all_day, re.location_name, re.url, ra.preferred_username AS owner_username, ra.domain AS owner_domain
        FROM accounts a
        JOIN account_notification_prefs anp ON anp.account_id = a.id
        JOIN event_rsvps er ON er.account_id = a.id
        JOIN remote_events re ON re.uri = er.event_uri AND re.canceled = 0
+       JOIN remote_actors ra ON ra.uri = re.actor_uri
        LEFT JOIN event_reminder_sent ers ON ers.account_id = a.id AND ers.event_uri = re.uri
          AND ers.reminder_type = CAST(anp.reminder_hours_before AS TEXT)
        WHERE anp.reminder_enabled = 1
@@ -70,12 +76,15 @@ export async function runSendReminders(db: DB): Promise<void> {
     preferred_language: string;
     reminder_hours_before: number;
     event_uri: string;
+    slug: string | null;
+    owner_username: string;
     title: string;
     start_date: string;
     end_date: string | null;
     all_day: number;
     location_name: string | null;
     url: string | null;
+    owner_domain?: string | null;
   }[];
 
   const insertSent = db.prepare(
@@ -89,6 +98,8 @@ export async function runSendReminders(db: DB): Promise<void> {
         {
           id: row.event_uri,
           title: row.title,
+          slug: row.slug,
+          account: { username: row.owner_username, domain: row.owner_domain ?? null },
           startDate: row.start_date,
           endDate: row.end_date,
           allDay: !!row.all_day,
@@ -134,7 +145,7 @@ export function notifyEventUpdated(
   db: DB,
   eventUri: string,
   event: EventInfo,
-  changes: string[]
+  changes: EventChange[]
 ): void {
   const accounts = getAccountsToNotifyForEvent(db, eventUri, "event_updated_enabled");
   for (const { email, preferredLanguage } of accounts) {

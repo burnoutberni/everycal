@@ -156,6 +156,8 @@ export async function sendPasswordResetEmail(
 export interface EventInfo {
   id: string;
   title: string;
+  slug?: string | null;
+  account?: { username: string; domain?: string | null } | null;
   startDate: string;
   endDate?: string | null;
   allDay?: boolean;
@@ -163,11 +165,19 @@ export interface EventInfo {
   url?: string | null;
 }
 
-/** Build event link for emails. Local events use /events/{id}; remote events use url or omit. */
+export interface EventChange {
+  field: "title" | "time" | "location";
+  before?: string | null;
+  after?: string | null;
+}
+
+/** Build event link for emails. Prefer canonical page path /@user/event-slug for both local and remote events. */
 function getEventLink(event: EventInfo): string | null {
-  const isRemote = event.id.startsWith("http://") || event.id.startsWith("https://");
-  if (isRemote) return event.url || null;
-  return `${baseUrl()}/events/${event.id}`;
+  if (event.slug && event.account?.username) {
+    const domainPart = event.account.domain ? `@${event.account.domain}` : "";
+    return `${baseUrl()}/@${event.account.username}${domainPart}/${event.slug}`;
+  }
+  return event.url || null;
 }
 
 /** Send event reminder. */
@@ -210,17 +220,25 @@ export async function sendEventReminder(
 export async function sendEventUpdated(
   to: string,
   event: EventInfo,
-  changes: string[],
+  changes: EventChange[],
   locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
   if (!transport) return;
 
   const eventUrl = getEventLink(event);
-  const translatedChanges = changes.map((c) => emailT(locale, `eventFields.${c}`));
-  const changesStr = translatedChanges.join(", ");
+  const translatedChanges = changes
+    .map((c) => {
+      const field = emailT(locale, `eventFields.${c.field}`);
+      const before = c.before?.trim();
+      const after = c.after?.trim();
+      if (before && after) return `${field}: \"${before}\" → \"${after}\"`;
+      if (after) return `${field}: ${after}`;
+      return field;
+    })
+    .join("\n- ");
   const viewDetails = emailT(locale, "eventUpdated.viewDetails");
-  const wasUpdated = emailT(locale, "eventUpdated.wasUpdated");
+  const wasUpdated = emailT(locale, "eventUpdated.changes");
   const detailsBlock = eventUrl ? `\n\n${viewDetails}: ${eventUrl}` : "";
   const detailsHtml = eventUrl ? `<p><a href="${eventUrl}">${viewDetails}</a></p>` : "";
 
@@ -228,8 +246,17 @@ export async function sendEventUpdated(
     from: process.env.SMTP_FROM,
     to,
     subject: emailT(locale, "eventUpdated.subject", { title: event.title }),
-    text: `${event.title} ${wasUpdated} (${changesStr}).${detailsBlock}`,
-    html: `<p><strong>${event.title}</strong> ${wasUpdated}: ${changesStr}.</p>${detailsHtml}`,
+    text: `${event.title}\n\n${wasUpdated}:\n- ${translatedChanges}${detailsBlock}`,
+    html: `<p><strong>${event.title}</strong></p><p>${wasUpdated}:</p><ul>${changes
+      .map((c) => {
+        const field = emailT(locale, `eventFields.${c.field}`);
+        const before = c.before?.trim();
+        const after = c.after?.trim();
+        if (before && after) return `<li><strong>${field}</strong>: &quot;${before}&quot; → &quot;${after}&quot;</li>`;
+        if (after) return `<li><strong>${field}</strong>: ${after}</li>`;
+        return `<li><strong>${field}</strong></li>`;
+      })
+      .join("")}</ul>${detailsHtml}`,
   });
 }
 

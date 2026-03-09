@@ -28,8 +28,8 @@
   },
   "eventUpdated": {
     "subject": "Aktualisiert: {{title}}",
-    "wasUpdated": "wurde aktualisiert",
-    "viewDetails": "Details anzeigen"
+    "viewDetails": "Details anzeigen",
+    "changes": "Folgende Änderungen wurden vorgenommen"
   },
   "eventCancelled": {
     "subject": "Abgesagt: {{title}}",

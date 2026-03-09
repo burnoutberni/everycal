@@ -28,8 +28,8 @@
   },
   "eventUpdated": {
     "subject": "Updated: {{title}}",
-    "wasUpdated": "was updated",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "changes": "The following changed"
   },
   "eventCancelled": {
     "subject": "Cancelled: {{title}}",

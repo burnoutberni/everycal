@@ -667,10 +667,11 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
+      slug: string | null;
       external_id: string;
       content_hash: string | null;
       title: string;
@@ -729,6 +730,8 @@ export function eventRoutes(db: DB): Hono {
         notifyEventCancelled(db, row.id, {
           id: row.id,
           title: row.title,
+          slug: row.slug,
+          account: { username: user.username },
           startDate: row.start_date,
           endDate: row.end_date,
           allDay: false,
@@ -768,14 +771,20 @@ export function eventRoutes(db: DB): Hono {
             }
 
             // Only material changes (title, time, location) trigger notifications
-            const changes: string[] = [];
-            if (existingRow.title !== ev.title) changes.push("title");
-            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || ""))
-              changes.push("time");
-            const locName = ev.location?.name || "";
-            const locAddr = ev.location?.address || "";
-            if ((existingRow.location_name || "") !== locName || (existingRow.location_address || "") !== locAddr)
-              changes.push("location");
+            const changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
+            if (existingRow.title !== ev.title) {
+              changes.push({ field: "title", before: existingRow.title, after: ev.title });
+            }
+            const oldTime = [existingRow.start_date, existingRow.end_date || ""].filter(Boolean).join(" – ");
+            const newTime = [ev.startDate, ev.endDate || ""].filter(Boolean).join(" – ");
+            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "")) {
+              changes.push({ field: "time", before: oldTime, after: newTime });
+            }
+            const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
+            const newLoc = [ev.location?.name || "", ev.location?.address || ""].filter(Boolean).join(", ");
+            if (oldLoc !== newLoc) {
+              changes.push({ field: "location", before: oldLoc || "(none)", after: newLoc || "(none)" });
+            }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
             updateEvent.run(
@@ -796,6 +805,8 @@ export function eventRoutes(db: DB): Hono {
               notifyEventUpdated(db, existingRow.id, {
                 id: existingRow.id,
                 title: ev.title,
+                slug: evSlug,
+                account: { username: user.username },
                 startDate: ev.startDate,
                 endDate: ev.endDate || null,
                 allDay: ev.allDay ?? false,
@@ -1213,8 +1224,16 @@ export function eventRoutes(db: DB): Hono {
     const id = c.req.param("id");
 
     const existing = db
-      .prepare("SELECT account_id, visibility FROM events WHERE id = ?")
-      .get(id) as { account_id: string; visibility: string } | undefined;
+      .prepare("SELECT account_id, visibility, title, start_date, end_date, location_name, location_address FROM events WHERE id = ?")
+      .get(id) as {
+      account_id: string;
+      visibility: string;
+      title: string;
+      start_date: string;
+      end_date: string | null;
+      location_name: string | null;
+      location_address: string | null;
+    } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     if (!canManageIdentityEvents(db, existing.account_id, user.id, "editor")) {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
@@ -1287,17 +1306,32 @@ export function eventRoutes(db: DB): Hono {
 
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
-      const changes: string[] = [];
-      if (body.title !== undefined) changes.push("title");
-      if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined)
-        changes.push("time");
-      if (body.location !== undefined) changes.push("location");
+      const changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
+      if (body.title !== undefined) {
+        changes.push({ field: "title", before: existing.title, after: body.title });
+      }
+      if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined) {
+        const oldTime = [existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ");
+        const newStart = body.startDate ?? existing.start_date;
+        const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
+        const newTime = [newStart, newEnd].filter(Boolean).join(" – ");
+        changes.push({ field: "time", before: oldTime, after: newTime });
+      }
+      if (body.location !== undefined) {
+        const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
+        const newLoc = body.location === null
+          ? ""
+          : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
+        changes.push({ field: "location", before: oldLoc || "(none)", after: newLoc || "(none)" });
+      }
       if (changes.length > 0) {
         const ev = readLocalEventById(id);
         if (ev) {
           notifyEventUpdated(db, id, {
             id,
             title: ev.title as string,
+            slug: ev.slug as string | null,
+            account: { username: user.username },
             startDate: ev.startDate as string,
             endDate: ev.endDate as string | null,
             allDay: ev.allDay as boolean,
