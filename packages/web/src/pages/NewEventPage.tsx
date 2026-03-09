@@ -19,7 +19,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { eventPath } from "../lib/urls";
 import { inferImageSearchTerm, inferTagsFromTitle, toSingleWordTag } from "../lib/inferImageSearchTerm";
-import { formatEventDateTime } from "../lib/formatEventDateTime";
+import { formatEventDateTime, formatViewerTimezoneTooltip, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, ExternalLinkIcon, GlobeIcon, TrashIcon, ImageIcon, ChevronLeftIcon } from "../components/icons";
 import { sanitizeHtml } from "../lib/sanitize";
 import { ImagePickerModal } from "../components/ImagePickerModal";
@@ -28,6 +28,7 @@ import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { TagInput } from "../components/TagInput";
 import { TimezonePicker } from "../components/TimezonePicker";
+import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 
 // ---- Duration helpers ----
 
@@ -65,6 +66,107 @@ function completeDatetimeLocal(
   if (value.length === 10) return datePart + "T" + defaultTime;
   if (value === datePart + "T") return datePart + "T" + defaultTime;
   return null;
+}
+
+function parseDateTimeLocal(value: string): { year: number; month: number; day: number; hour: number; minute: number } | null {
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return {
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+  };
+}
+
+function formatLocalFromParts(parts: { year: number; month: number; day: number; hour: number; minute: number }): string {
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
+function formatInTimeZoneParts(ms: number, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(ms));
+    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value || "0");
+    return {
+      year: read("year"),
+      month: read("month"),
+      day: read("day"),
+      hour: read("hour"),
+      minute: read("minute"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function localDateTimeToUtcMillis(value: string, timeZone: string): number | null {
+  const desired = parseDateTimeLocal(value);
+  if (!desired) return null;
+  let guess = Date.UTC(desired.year, desired.month - 1, desired.day, desired.hour, desired.minute);
+  for (let i = 0; i < 4; i += 1) {
+    const actual = formatInTimeZoneParts(guess, timeZone);
+    if (!actual) return null;
+    const desiredMs = Date.UTC(desired.year, desired.month - 1, desired.day, desired.hour, desired.minute);
+    const actualMs = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute);
+    const diffMinutes = Math.round((desiredMs - actualMs) / 60000);
+    if (diffMinutes === 0) return guess;
+    guess += diffMinutes * 60000;
+  }
+  return guess;
+}
+
+function utcMillisToLocalDateTime(ms: number, timeZone: string): string {
+  const parts = formatInTimeZoneParts(ms, timeZone);
+  if (!parts) return "";
+  return formatLocalFromParts(parts);
+}
+
+function minimumEndValue(start: string, allDay: boolean, timeZone: string): string {
+  if (allDay) return start.slice(0, 10);
+  const startMs = localDateTimeToUtcMillis(start, timeZone);
+  if (startMs == null) return start;
+  return utcMillisToLocalDateTime(startMs, timeZone) || start;
+}
+
+function clampEndValue(
+  endValue: string,
+  startValue: string,
+  allDay: boolean,
+  timeZone: string
+): string {
+  if (!endValue) return endValue;
+  if (allDay) {
+    const min = startValue.slice(0, 10);
+    return endValue < min ? min : endValue;
+  }
+  const endMs = localDateTimeToUtcMillis(endValue, timeZone);
+  const startMs = localDateTimeToUtcMillis(startValue, timeZone);
+  if (endMs == null || startMs == null) {
+    const min = minimumEndValue(startValue, allDay, timeZone);
+    return endValue < min ? min : endValue;
+  }
+  if (endMs < startMs) return minimumEndValue(startValue, allDay, timeZone);
+  return endValue;
+}
+
+function timezoneReferenceMillis(value: string, allDay: boolean, timeZone: string): number | undefined {
+  if (!value) return undefined;
+
+  if (allDay) {
+    const datePart = value.slice(0, 10);
+    return localDateTimeToUtcMillis(`${datePart}T12:00`, timeZone) ?? undefined;
+  }
+
+  return localDateTimeToUtcMillis(value, timeZone) ?? undefined;
 }
 
 function getDurationPresets(t: (k: string) => string): { value: Duration; label: string }[] {
@@ -362,7 +464,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
   const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
   const [eventTimezone, setEventTimezone] = useState(initialEvent?.eventTimezone ?? user?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Vienna");
-  const [showTimezonePicker, setShowTimezonePicker] = useState(!!initialEvent?.eventTimezone);
+  const [showStartTimezonePicker, setShowStartTimezonePicker] = useState(false);
+  const [showEndTimezonePicker, setShowEndTimezonePicker] = useState(false);
   const [postAsNotice, setPostAsNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -388,7 +491,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    if (!initialEvent && user?.timezone) setEventTimezone(user.timezone);
+    if (!initialEvent && user?.timezone) {
+      setEventTimezone(user.timezone);
+    }
   }, [initialEvent, user?.timezone]);
   const imageSearchQueryRef = useRef<string>("");
   const imageUrlRef = useRef(imageUrl);
@@ -591,6 +696,12 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     if (!startDate) return "";
     return addDuration(startDate, duration);
   }, [startDate, duration, customEnd]);
+
+  useEffect(() => {
+    if (!showCustomEnd || !customEnd) return;
+    const clamped = clampEndValue(customEnd, startDate, allDay, eventTimezone);
+    if (clamped !== customEnd) setCustomEnd(clamped);
+  }, [showCustomEnd, customEnd, startDate, allDay, eventTimezone]);
 
   // Which preset matches the actual end (for highlighting); null when custom duration
   const durationPresets = useMemo(() => getDurationPresets(t), [t]);
@@ -1093,6 +1204,24 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     ? tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
+  const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
+  const previewStartAtUtc = !allDay ? localDateTimeToUtcMillis(startDate, eventTimezone) : null;
+  const previewEndAtUtc = !allDay && endDate ? localDateTimeToUtcMillis(endDate, eventTimezone) : null;
+  const startTimezoneReferenceMs = timezoneReferenceMillis(startDate, allDay, eventTimezone);
+  const endTimezoneReferenceMs = timezoneReferenceMillis(customEnd || startDate, allDay, eventTimezone);
+  const showPreviewTimezoneTooltip = startDate
+    ? hasDifferentTimezoneAtEventTime(
+      {
+        startDate: allDay ? startDate.slice(0, 10) : startDate,
+        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
+        allDay,
+        eventTimezone,
+      },
+      viewerTimeZone,
+    )
+    : false;
+
   const previewDateStr = startDate
     ? formatEventDateTime(
       {
@@ -1100,13 +1229,41 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         endDate: endDate
           ? allDay ? endDate.slice(0, 10) : endDate
           : null,
+        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
+        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
         allDay,
         eventTimezone,
       },
       true,
-      { locale: i18n.language, allDayLabel: t("events:allDay"), timeFormat: user?.timeFormat, viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      {
+        locale: dateTimeLocale,
+        allDayLabel: t("events:allDay"),
+        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
+        viewerTimeZone,
+      },
     )
     : null;
+
+  const previewDateInViewerTimezone = showPreviewTimezoneTooltip && startDate
+    ? formatViewerTimezoneTooltip(
+      {
+        startDate: allDay ? startDate.slice(0, 10) : startDate,
+        endDate: endDate
+          ? allDay ? endDate.slice(0, 10) : endDate
+          : null,
+        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
+        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
+        allDay,
+        eventTimezone,
+      },
+      {
+        locale: dateTimeLocale,
+        allDayLabel: t("events:allDay"),
+        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
+        viewerTimeZone,
+      },
+    )
+    : "";
 
   const hasPreviewLocation =
     (locationMode === "inperson" && (venueQuery || locationName)) ||
@@ -1278,7 +1435,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             <div className="flex items-center justify-between mb-2">
               <div className="flex flex-col gap-1">
                 {previewDateStr ? (
-                  <span style={{ color: "var(--accent)", fontWeight: 600 }}>{previewDateStr}</span>
+                  <span title={showPreviewTimezoneTooltip ? previewDateInViewerTimezone : undefined} style={{ color: "var(--accent)", fontWeight: 600 }}>{previewDateStr}</span>
                 ) : (
                   <span className="skeleton-line" style={{ width: "220px", height: "1.1em" }} />
                 )}
@@ -1556,34 +1713,40 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
 
             <div className="field">
               <label htmlFor="ce-startDate">{t("startLabel")}</label>
-              <input
-                id="ce-startDate"
-                type={allDay ? "date" : "datetime-local"}
-                value={allDay ? startDate.slice(0, 10) : startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                onBlur={(e) => {
-                  if (allDay) return;
-                  const completed = completeDatetimeLocal(e.target.value, "00:00");
-                  if (completed) setStartDate(completed);
-                }}
-                min={allDay ? minStartToday : minStartNow}
-                required
-              />
-            </div>
-            <div className="field">
-              <button
-                type="button"
-                className="btn-ghost btn-sm"
-                onClick={() => setShowTimezonePicker((prev) => !prev)}
-                style={{ width: "fit-content" }}
-              >
-                {showTimezonePicker ? "Hide timezone" : "Set timezone"}
-              </button>
-              {showTimezonePicker && (
-                <>
-                  <label htmlFor="ce-timezone" style={{ marginTop: "0.5rem" }}>Timezone</label>
-                  <TimezonePicker id="ce-timezone" value={eventTimezone} onChange={setEventTimezone} />
-                </>
+              <div className="datetime-with-tz">
+                <button
+                  type="button"
+                  className={`datetime-with-tz-toggle ${showStartTimezonePicker ? "datetime-with-tz-toggle-active" : ""}`}
+                  aria-label={showStartTimezonePicker ? t("hideStartTimezone") : t("showStartTimezone")}
+                  title={showStartTimezonePicker ? t("hideStartTimezone") : t("showStartTimezone")}
+                  onClick={() => setShowStartTimezonePicker((prev) => !prev)}
+                >
+                  <GlobeIcon />
+                </button>
+                <input
+                  id="ce-startDate"
+                  type={allDay ? "date" : "datetime-local"}
+                  lang={dateTimeLocale}
+                  value={allDay ? startDate.slice(0, 10) : startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  onBlur={(e) => {
+                    if (allDay) return;
+                    const completed = completeDatetimeLocal(e.target.value, "00:00");
+                    if (completed) setStartDate(completed);
+                  }}
+                  min={allDay ? minStartToday : minStartNow}
+                  required
+                />
+              </div>
+              {showStartTimezonePicker && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <TimezonePicker
+                    id="ce-timezone-start"
+                    value={eventTimezone}
+                    onChange={setEventTimezone}
+                    referenceDateMs={startTimezoneReferenceMs}
+                  />
+                </div>
               )}
             </div>
 
@@ -1622,28 +1785,51 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             {showCustomEnd && (
               <div className="field">
                 <label htmlFor="ce-endDate">{t("endLabel")}</label>
-                <input
-                  id="ce-endDate"
-                  type={allDay ? "date" : "datetime-local"}
-                  value={allDay ? customEnd.slice(0, 10) : customEnd}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    const min = allDay ? startDate.slice(0, 10) : startDate;
-                    setCustomEnd(val && val < min ? min : val);
-                  }}
-                  onBlur={(e) => {
-                    if (allDay) return;
-                    const val = e.target.value;
-                    const datePart = val.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
-                    const defaultTime =
-                      datePart && startDate.startsWith(datePart)
-                        ? addDuration(startDate, "1h").slice(11, 16)
-                        : "00:00";
-                    const completed = completeDatetimeLocal(val, defaultTime);
-                    if (completed) setCustomEnd(completed);
-                  }}
-                  min={allDay ? startDate.slice(0, 10) : startDate}
-                />
+                <div className="datetime-with-tz">
+                  <button
+                    type="button"
+                    className={`datetime-with-tz-toggle ${showEndTimezonePicker ? "datetime-with-tz-toggle-active" : ""}`}
+                    aria-label={showEndTimezonePicker ? t("hideEndTimezone") : t("showEndTimezone")}
+                    title={showEndTimezonePicker ? t("hideEndTimezone") : t("showEndTimezone")}
+                    onClick={() => setShowEndTimezonePicker((prev) => !prev)}
+                  >
+                    <GlobeIcon />
+                  </button>
+                  <input
+                    id="ce-endDate"
+                    type={allDay ? "date" : "datetime-local"}
+                    lang={dateTimeLocale}
+                    value={allDay ? customEnd.slice(0, 10) : customEnd}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomEnd(clampEndValue(val, startDate, allDay, eventTimezone));
+                    }}
+                    onBlur={(e) => {
+                      if (allDay) return;
+                      const val = e.target.value;
+                      const datePart = val.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+                      const defaultTime =
+                        datePart && startDate.startsWith(datePart)
+                          ? addDuration(startDate, "1h").slice(11, 16)
+                          : "00:00";
+                      const completed = completeDatetimeLocal(val, defaultTime);
+                      if (completed) {
+                        setCustomEnd(clampEndValue(completed, startDate, allDay, eventTimezone));
+                      }
+                    }}
+                    min={allDay ? startDate.slice(0, 10) : undefined}
+                  />
+                </div>
+                {showEndTimezonePicker && (
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <TimezonePicker
+                      id="ce-timezone-end"
+                      value={eventTimezone}
+                      onChange={setEventTimezone}
+                      referenceDateMs={endTimezoneReferenceMs}
+                    />
+                  </div>
+                )}
               </div>
             )}
 

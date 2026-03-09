@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   isValidHttpUrl,
@@ -22,10 +22,17 @@ import { Link, useLocation } from "wouter";
 import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { TimezonePicker } from "../components/TimezonePicker";
-import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
+import { UserIcon, LockIcon, CalendarIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
 import { profilePath } from "../lib/urls";
 import { changeLanguage } from "../i18n";
 import { validateAvatarUpload } from "../lib/avatarUpload";
+import {
+  buildCountryLocaleOptions,
+  inferTimeFormatFromLocale,
+  localeRegion,
+  localeWeekStart,
+  resolveDateTimeLocale,
+} from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
 
 type IdentityFormErrors = {
@@ -41,6 +48,7 @@ export function SettingsPage() {
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
   const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
+    { id: "calendar", label: t("calendarSettings"), icon: CalendarIcon },
     { id: "account", label: t("account"), icon: LockIcon },
     { id: "notifications", label: t("notifications"), icon: BellIcon },
     { id: "identities", label: t("publishingIdentities"), icon: UserIcon },
@@ -48,7 +56,7 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
-  const [activeSection, setActiveSection] = useState<string>("identities");
+  const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const [reminderEnabled, setReminderEnabled] = useState(true);
@@ -76,7 +84,10 @@ export function SettingsPage() {
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
   const [timezone, setTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
-  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("24h");
+  const [dateTimeLocale, setDateTimeLocale] = useState<string>("en-GB");
+  const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
+  const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
+  const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
   const [discoverable, setDiscoverable] = useState(false);
   const [city, setCity] = useState<CitySelection | null>(null);
   const [savingProfileSettings, setSavingProfileSettings] = useState(false);
@@ -120,6 +131,7 @@ export function SettingsPage() {
   const skipNextMemberLookupRef = useRef(false);
   const identityModalRef = useRef<HTMLDivElement | null>(null);
   const membersModalRef = useRef<HTMLDivElement | null>(null);
+  const dateTimeCountryRef = useRef<HTMLDivElement | null>(null);
   const identitySettingsModalRef = useRef<HTMLDivElement | null>(null);
   const identityModalTriggerRef = useRef<HTMLElement | null>(null);
   const identitySettingsModalTriggerRef = useRef<HTMLElement | null>(null);
@@ -133,7 +145,8 @@ export function SettingsPage() {
     authApi.me().then((u) => {
       setPreferredLanguage(u.preferredLanguage || "en");
       setTimezone(u.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
-      setTimeFormat(u.timeFormat === "12h" ? "12h" : "24h");
+      const resolved = resolveDateTimeLocale(u, u.preferredLanguage || i18n.language || "en");
+      setDateTimeLocale(resolved);
       setDiscoverable(!!u.discoverable);
       setCity(u.city && u.cityLat != null && u.cityLng != null ? { city: u.city, lat: u.cityLat, lng: u.cityLng } : null);
       const p = u.notificationPrefs;
@@ -151,6 +164,39 @@ export function SettingsPage() {
       setIdentities([]);
     });
   }, [user]);
+
+  const dateTimeCountryOptions = useMemo(
+    () => buildCountryLocaleOptions(i18n.language, preferredLanguage || i18n.language),
+    [i18n.language, preferredLanguage],
+  );
+
+  const selectedDateTimeCountry = useMemo(() => {
+    const region = localeRegion(dateTimeLocale);
+    if (!region) return "";
+    return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
+  }, [dateTimeCountryOptions, dateTimeLocale]);
+
+  useEffect(() => {
+    if (!showDateTimeCountrySuggestions) {
+      setDateTimeCountryQuery(selectedDateTimeCountry);
+    }
+  }, [selectedDateTimeCountry, showDateTimeCountrySuggestions]);
+
+  const filteredDateTimeCountryOptions = useMemo(() => {
+    const normalized = dateTimeCountryQuery.trim().toLowerCase();
+    if (!normalized) return dateTimeCountryOptions;
+    return dateTimeCountryOptions.filter((option) => option.searchText.includes(normalized));
+  }, [dateTimeCountryOptions, dateTimeCountryQuery]);
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (!dateTimeCountryRef.current?.contains(event.target as Node)) {
+        setShowDateTimeCountrySuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
 
   const visibilityOptions: Array<{ value: "public" | "unlisted" | "followers_only" | "private"; label: string }> = [
     { value: "public", label: t("visibility.public") },
@@ -461,7 +507,8 @@ export function SettingsPage() {
         discoverable,
         preferredLanguage,
         timezone,
-        timeFormat,
+        dateTimeLocale,
+        timeFormat: inferTimeFormatFromLocale(dateTimeLocale),
         city: city ? city.city : null,
         cityLat: city ? city.lat : null,
         cityLng: city ? city.lng : null,
@@ -819,6 +866,122 @@ export function SettingsPage() {
         <h1 className="settings-page-title">{t("title")}</h1>
 
         <section
+          id="calendar"
+          ref={(el) => { sectionRefs.current.calendar = el; }}
+          className="settings-section"
+          aria-labelledby="calendar-heading"
+        >
+          <div className="settings-card">
+            <h2 id="calendar-heading" className="settings-section-title">
+              {t("calendarSettings")}
+            </h2>
+            <form onSubmit={handleSaveProfileSettings} className="mb-1">
+              <div className="field">
+                <label htmlFor="settings-time-format">{t("dateTimeLocale")}</label>
+                <div ref={dateTimeCountryRef} style={{ position: "relative" }}>
+                  <input
+                    id="settings-time-format"
+                    value={dateTimeCountryQuery}
+                    onFocus={() => {
+                      setDateTimeCountryQuery("");
+                      setShowDateTimeCountrySuggestions(true);
+                      setDateTimeCountryHighlight(0);
+                    }}
+                    onChange={(e) => {
+                      setDateTimeCountryQuery(e.target.value);
+                      setShowDateTimeCountrySuggestions(true);
+                      setDateTimeCountryHighlight(0);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        setDateTimeCountryQuery(selectedDateTimeCountry);
+                      }, 120);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        setShowDateTimeCountrySuggestions(true);
+                        setDateTimeCountryHighlight((current) => Math.min(current + 1, Math.max(filteredDateTimeCountryOptions.length - 1, 0)));
+                        return;
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setDateTimeCountryHighlight((current) => Math.max(current - 1, 0));
+                        return;
+                      }
+                      if (event.key === "Enter") {
+                        const selected = filteredDateTimeCountryOptions[dateTimeCountryHighlight];
+                        if (!selected) return;
+                        event.preventDefault();
+                        setDateTimeLocale(selected.locale);
+                        setDateTimeCountryQuery(selected.countryName);
+                        setShowDateTimeCountrySuggestions(false);
+                        return;
+                      }
+                      if (event.key === "Escape") {
+                        setDateTimeCountryQuery(selectedDateTimeCountry);
+                        setShowDateTimeCountrySuggestions(false);
+                      }
+                    }}
+                    placeholder={t("dateTimeLocaleCountryPlaceholder")}
+                    autoComplete="off"
+                  />
+
+                  {showDateTimeCountrySuggestions && filteredDateTimeCountryOptions.length > 0 && (
+                    <div className="venue-dropdown" role="listbox" aria-label={t("dateTimeLocale")}
+                    >
+                      {filteredDateTimeCountryOptions.map((option, index) => {
+                        const weekStart = localeWeekStart(option.locale);
+                        const weekLabel = weekStart === 0 ? t("weekStartsSunday") : t("weekStartsMonday");
+                        const dateSample = new Intl.DateTimeFormat(option.locale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+                        const timeSample = new Intl.DateTimeFormat(option.locale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+                        return (
+                          <button
+                            key={option.regionCode}
+                            type="button"
+                            className={`venue-dropdown-item ${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
+                            onMouseEnter={() => setDateTimeCountryHighlight(index)}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setDateTimeLocale(option.locale);
+                              setDateTimeCountryQuery(option.countryName);
+                              setShowDateTimeCountrySuggestions(false);
+                            }}
+                          >
+                            <span className="venue-dropdown-name">{option.countryName}</span>
+                            <span className="venue-dropdown-addr">{`${weekLabel} · ${dateSample} · ${timeSample}`}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="text-sm text-dim" style={{ marginTop: "0.35rem" }}>
+                  {(() => {
+                    const weekStart = localeWeekStart(dateTimeLocale);
+                    const weekLabel = weekStart === 0 ? t("weekStartsSunday") : t("weekStartsMonday");
+                    const dateSample = new Intl.DateTimeFormat(dateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+                    const timeSample = new Intl.DateTimeFormat(dateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+                    return `${weekLabel} · ${dateSample} · ${timeSample}`;
+                  })()}
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="settings-timezone">{t("common:timezone")}</label>
+                <TimezonePicker id="settings-timezone" value={timezone} onChange={setTimezone} />
+              </div>
+              <div className="flex items-center gap-1">
+                <button type="submit" className="btn-primary btn-sm" disabled={savingProfileSettings}>
+                  {savingProfileSettings ? t("common:saving") : t("common:save")}
+                </button>
+                {savedProfileSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
+              </div>
+              {profileSettingsError && <p className="text-sm mt-1 error-text" role="alert">{profileSettingsError}</p>}
+            </form>
+          </div>
+        </section>
+
+        <section
           id="account"
           ref={(el) => { sectionRefs.current.account = el; }}
           className="settings-section"
@@ -843,17 +1006,6 @@ export function SettingsPage() {
                   {languageOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="settings-timezone">Timezone</label>
-                <TimezonePicker id="settings-timezone" value={timezone} onChange={setTimezone} />
-              </div>
-              <div className="field">
-                <label htmlFor="settings-time-format">Time format</label>
-                <select id="settings-time-format" value={timeFormat} onChange={(e) => setTimeFormat(e.target.value as "12h" | "24h")}>
-                  <option value="24h">24h</option>
-                  <option value="12h">12h</option>
                 </select>
               </div>
               <div className="field">

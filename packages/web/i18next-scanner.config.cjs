@@ -20,6 +20,7 @@ module.exports = {
       "settings",
       "onboarding",
       "createEvent",
+      "timezones",
     ],
     defaultLng: "en",
     defaultNs: "common",

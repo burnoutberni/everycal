@@ -478,7 +478,7 @@ export function authRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, time_format, email, email_verified, preferred_language, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, time_format, date_time_locale, email, email_verified, preferred_language, created_at,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -530,6 +530,7 @@ export function authRoutes(db: DB): Hono {
       cityLng: row.city_lng != null ? Number(row.city_lng) : null,
       timezone: row.timezone || "Europe/Vienna",
       timeFormat: row.time_format || "24h",
+      dateTimeLocale: row.date_time_locale || "en-GB",
       email: row.email || null,
       emailVerified: !!row.email_verified,
       preferredLanguage: row.preferred_language || "en",
@@ -556,6 +557,7 @@ export function authRoutes(db: DB): Hono {
       preferredLanguage?: string;
       timezone?: string;
       timeFormat?: "12h" | "24h";
+      dateTimeLocale?: string;
     }>();
 
     const fields: string[] = [];
@@ -643,6 +645,18 @@ export function authRoutes(db: DB): Hono {
       }
       fields.push("time_format = ?");
       values.push(body.timeFormat);
+    }
+    if (body.dateTimeLocale !== undefined) {
+      let canonical = "";
+      try {
+        canonical = Intl.getCanonicalLocales(body.dateTimeLocale)[0] || "";
+        if (!canonical) throw new Error("invalid locale");
+        new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
+      } catch {
+        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      }
+      fields.push("date_time_locale = ?");
+      values.push(canonical);
     }
 
     if (fields.length === 0) {

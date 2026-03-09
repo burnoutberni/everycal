@@ -2408,6 +2408,51 @@ button.tag {
   background: var(--border);
 }
 
+.datetime-with-tz {
+  position: relative;
+}
+
+.datetime-with-tz > input {
+  padding-left: 2.2rem;
+}
+
+.datetime-with-tz-toggle {
+  position: absolute;
+  top: 50%;
+  left: 0.5rem;
+  transform: translateY(-50%);
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.datetime-with-tz-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.datetime-with-tz-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.datetime-with-tz-toggle svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.datetime-with-tz-toggle-active {
+  color: var(--accent);
+}
+
 /* Venue search dropdown - above map (Leaflet uses ~400-600) */
 .venue-dropdown {
   position: absolute;

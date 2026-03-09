@@ -10,6 +10,7 @@ import enProfile from "./locales/en/profile.json";
 import enSettings from "./locales/en/settings.json";
 import enOnboarding from "./locales/en/onboarding.json";
 import enCreateEvent from "./locales/en/createEvent.json";
+import enTimezones from "./locales/en/timezones.json";
 import deCommon from "./locales/de/common.json";
 import deAuth from "./locales/de/auth.json";
 import deEvents from "./locales/de/events.json";
@@ -19,6 +20,7 @@ import deProfile from "./locales/de/profile.json";
 import deSettings from "./locales/de/settings.json";
 import deOnboarding from "./locales/de/onboarding.json";
 import deCreateEvent from "./locales/de/createEvent.json";
+import deTimezones from "./locales/de/timezones.json";
 
 export const STORAGE_KEY = "everycal_locale";
 
@@ -89,6 +91,7 @@ export async function initI18n(startupLocale?: AppLocale) {
           settings: enSettings,
           onboarding: enOnboarding,
           createEvent: enCreateEvent,
+          timezones: enTimezones,
         },
         de: {
           common: deCommon,
@@ -100,6 +103,7 @@ export async function initI18n(startupLocale?: AppLocale) {
           settings: deSettings,
           onboarding: deOnboarding,
           createEvent: deCreateEvent,
+          timezones: deTimezones,
         },
       },
       lng: locale,

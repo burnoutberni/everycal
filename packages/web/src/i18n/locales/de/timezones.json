@@ -1,0 +1,81 @@
+{
+  "continents": {
+    "Africa": "Afrika",
+    "America": "Nord- und Südamerika",
+    "Antarctica": "Antarktis",
+    "Arctic": "Arktis",
+    "Asia": "Asien",
+    "Atlantic": "Atlantik",
+    "Australia": "Australien",
+    "Europe": "Europa",
+    "Indian": "Indischer Ozean",
+    "Pacific": "Pazifik"
+  },
+  "cities": {
+    "Pacific_Honolulu": "Honolulu",
+    "America_Anchorage": "Anchorage",
+    "America_Los_Angeles": "Los Angeles",
+    "America_Denver": "Denver",
+    "America_Chicago": "Chicago",
+    "America_New_York": "New York",
+    "America_Halifax": "Halifax",
+    "America_St_Johns": "St. John's",
+    "Europe_London": "London",
+    "Europe_Berlin": "Berlin",
+    "Europe_Helsinki": "Helsinki",
+    "Europe_Vienna": "Wien",
+    "Europe_Paris": "Paris",
+    "Europe_Madrid": "Madrid",
+    "Europe_Rome": "Rom",
+    "Europe_Moscow": "Moskau",
+    "Asia_Dubai": "Dubai",
+    "Asia_Kolkata": "Kalkutta",
+    "Asia_Bangkok": "Bangkok",
+    "Asia_Singapore": "Singapur",
+    "Asia_Tokyo": "Tokio",
+    "Australia_Sydney": "Sydney",
+    "Pacific_Auckland": "Auckland"
+  },
+  "abbreviations": {
+    "Europe_Berlin": {
+      "standard": "MEZ",
+      "daylight": "MESZ"
+    },
+    "Europe_Vienna": {
+      "standard": "MEZ",
+      "daylight": "MESZ"
+    },
+    "Europe_Paris": {
+      "standard": "MEZ",
+      "daylight": "MESZ"
+    },
+    "Europe_Madrid": {
+      "standard": "MEZ",
+      "daylight": "MESZ"
+    },
+    "Europe_Rome": {
+      "standard": "MEZ",
+      "daylight": "MESZ"
+    },
+    "Europe_London": {
+      "standard": "GMT",
+      "daylight": "BST"
+    },
+    "America_New_York": {
+      "standard": "EST",
+      "daylight": "EDT"
+    },
+    "America_Chicago": {
+      "standard": "CST",
+      "daylight": "CDT"
+    },
+    "America_Denver": {
+      "standard": "MST",
+      "daylight": "MDT"
+    },
+    "America_Los_Angeles": {
+      "standard": "PST",
+      "daylight": "PDT"
+    }
+  }
+}

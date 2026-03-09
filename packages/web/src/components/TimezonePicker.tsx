@@ -1,280 +1,556 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 
-type TimezoneOption = {
-  tz: string;
-  continent: string;
-  city: string;
-  abbreviation: string;
-  offsetLabel: string;
-  offsetMinutes: number;
-  displayLabel: string;
-  searchText: string;
-};
-
-const COUNTRY_ALIASES: Record<string, string[]> = {
-  "Europe/London": ["united kingdom", "uk", "gb", "great britain", "britain", "england"],
-  "Asia/Dubai": ["united arab emirates", "uae"],
-  "Asia/Kolkata": ["india", "indian", "delhi", "in"],
-  "America/New_York": ["usa", "us", "united states", "america"],
-  "America/Chicago": ["usa", "us", "united states", "america"],
-  "America/Denver": ["usa", "us", "united states", "america"],
-  "America/Los_Angeles": ["usa", "us", "united states", "america"],
-};
-
-const CITY_ALIASES: Record<string, string[]> = {
-  "Asia/Kolkata": ["delhi"],
-};
-
-function parseOffset(offsetPart: string): { label: string; minutes: number } {
-  const m = offsetPart.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
-  if (!m) return { label: "UTC±00:00", minutes: 0 };
-  const sign = m[1] === "+" ? 1 : -1;
-  const hh = Number(m[2]);
-  const mm = Number(m[3] || "0");
-  const minutes = sign * (hh * 60 + mm);
-  return {
-    label: `UTC${m[1]}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
-    minutes,
-  };
-}
-
-function timezoneShortName(tz: string, date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" })
-    .formatToParts(date)
-    .find((p) => p.type === "timeZoneName")
-    ?.value || "";
-}
-
-function getAbbreviation(tz: string, now: Date): string {
-  const nowShort = timezoneShortName(tz, now);
-  if (nowShort && !/^(GMT|UTC)/i.test(nowShort)) return nowShort;
-
-  const winterShort = timezoneShortName(tz, new Date(Date.UTC(2024, 0, 15)));
-  if (winterShort && !/^(GMT|UTC)/i.test(winterShort)) return winterShort;
-
-  const summerShort = timezoneShortName(tz, new Date(Date.UTC(2024, 6, 15)));
-  if (summerShort && !/^(GMT|UTC)/i.test(summerShort)) return summerShort;
-
-  return nowShort || winterShort || summerShort || "GMT";
-}
-
-function collectNames(tz: string): string[] {
-  const dates = [new Date(Date.UTC(2024, 0, 15)), new Date(Date.UTC(2024, 6, 15))];
-  const styles: Intl.DateTimeFormatOptions["timeZoneName"][] = ["short", "long", "shortGeneric", "longGeneric"];
-  const out = new Set<string>();
-  for (const d of dates) {
-    for (const style of styles) {
-      try {
-        const val = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: style })
-          .formatToParts(d)
-          .find((p) => p.type === "timeZoneName")?.value;
-        if (val) out.add(val);
-      } catch {
-        // ignore
-      }
-    }
-  }
-  return [...out];
-}
-
-function chooseCandidateTimezones(): string[] {
-  try {
-    const all = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] }).supportedValuesOf?.("timeZone") || [];
-    // Prune noisy aliases/legacy names and deep paths like America/Indiana/Indianapolis.
-    const filtered = all.filter((tz) => {
-      if (tz.startsWith("Etc/") || tz.startsWith("US/") || tz.startsWith("Canada/")) return false;
-      const depth = tz.split("/").length;
-      return depth <= 2;
-    });
-    return filtered.length > 0 ? filtered : ["Europe/Vienna", "Europe/London", "Asia/Kolkata", "America/New_York"];
-  } catch {
-    return [
-      "Europe/Vienna",
-      "Europe/Berlin",
-      "Europe/London",
-      "America/New_York",
-      "America/Chicago",
-      "America/Denver",
-      "America/Los_Angeles",
-      "Asia/Kolkata",
-      "Asia/Tokyo",
-      "Asia/Dubai",
-      "Australia/Sydney",
-    ];
-  }
-}
-
-function toOption(tz: string, now: Date): TimezoneOption {
-  const parts = tz.split("/");
-  const continent = parts[0] || "";
-  const city = (parts[parts.length - 1] || tz).replace(/_/g, " ");
-
-  const shortOffset = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "shortOffset" })
-    .formatToParts(now)
-    .find((p) => p.type === "timeZoneName")
-    ?.value || "GMT+0";
-  const { label: offsetLabel, minutes: offsetMinutes } = parseOffset(shortOffset);
-  const abbreviation = getAbbreviation(tz, now);
-  const names = collectNames(tz);
-
-  const searchText = [
-    tz,
-    city,
-    continent,
-    abbreviation,
-    offsetLabel,
-    ...names,
-    ...(COUNTRY_ALIASES[tz] || []),
-    ...(CITY_ALIASES[tz] || []),
-  ].join(" ").toLowerCase();
-
-  return {
-    tz,
-    continent,
-    city,
-    abbreviation,
-    offsetLabel,
-    offsetMinutes,
-    displayLabel: `${offsetLabel} ${city} · ${continent}`,
-    searchText,
-  };
-}
-
-export function TimezonePicker({
-  id,
-  value,
-  onChange,
-  placeholder,
-}: {
+type TimezonePickerProps = {
   id: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-}) {
+  referenceDateMs?: number;
+};
+
+type TimezoneOption = {
+  tz: string;
+  continent: string;
+  country: string;
+  city: string;
+  offsetLabel: string;
+  offsetMinutes: number;
+  abbreviation: string;
+  displayLabel: string;
+  searchText: string;
+};
+
+const FALLBACK_TIMEZONES = [
+  "Europe/London",
+  "Europe/Berlin",
+  "America/New_York",
+  "America/Los_Angeles",
+  "Asia/Kolkata",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+];
+
+const POPULAR_TIMEZONES = [
+  "Pacific/Honolulu",
+  "America/Anchorage",
+  "America/Los_Angeles",
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Halifax",
+  "America/St_Johns",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Helsinki",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Bangkok",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+const MAX_VISIBLE_OPTIONS = 60;
+const BLUR_CLOSE_DELAY_MS = 120;
+const SAMPLE_WINTER_DATE = new Date(Date.UTC(2024, 0, 15));
+const SAMPLE_SUMMER_DATE = new Date(Date.UTC(2024, 6, 15));
+
+const optionCacheByLocaleAndDate = new Map<string, Map<string, TimezoneOption>>();
+const displayNamesCache = new Map<string, Intl.DisplayNames | null>();
+
+const CONTINENT_TRANSLATION_KEYS: Record<string, string> = {
+  Africa: "Africa",
+  America: "North and South America",
+  Antarctica: "Antarctica",
+  Arctic: "Arctic",
+  Asia: "Asia",
+  Atlantic: "Atlantic",
+  Australia: "Australia",
+  Europe: "Europe",
+  Indian: "Indian Ocean",
+  Pacific: "Pacific",
+};
+
+const COUNTRY_CODE_BY_TIMEZONE: Record<string, string> = {
+  "Pacific/Honolulu": "US",
+  "America/Anchorage": "US",
+  "America/Los_Angeles": "US",
+  "America/Denver": "US",
+  "America/Chicago": "US",
+  "America/New_York": "US",
+  "America/Halifax": "CA",
+  "America/St_Johns": "CA",
+  "Europe/London": "GB",
+  "Europe/Berlin": "DE",
+  "Europe/Helsinki": "FI",
+  "Asia/Dubai": "AE",
+  "Asia/Kolkata": "IN",
+  "Asia/Bangkok": "TH",
+  "Asia/Tokyo": "JP",
+  "Australia/Sydney": "AU",
+  "Pacific/Auckland": "NZ",
+};
+
+const FALLBACK_ABBREVIATIONS: Record<string, { standard: string; daylight?: string }> = {
+  "Pacific/Honolulu": { standard: "HST" },
+  "America/Anchorage": { standard: "AKST", daylight: "AKDT" },
+  "America/Los_Angeles": { standard: "PST", daylight: "PDT" },
+  "America/Denver": { standard: "MST", daylight: "MDT" },
+  "America/Chicago": { standard: "CST", daylight: "CDT" },
+  "America/New_York": { standard: "EST", daylight: "EDT" },
+  "America/Halifax": { standard: "AST", daylight: "ADT" },
+  "America/St_Johns": { standard: "NST", daylight: "NDT" },
+  "Europe/London": { standard: "GMT", daylight: "BST" },
+  "Europe/Berlin": { standard: "CET", daylight: "CEST" },
+  "Europe/Helsinki": { standard: "EET", daylight: "EEST" },
+  "Asia/Dubai": { standard: "GST" },
+  "Asia/Kolkata": { standard: "IST" },
+  "Asia/Bangkok": { standard: "ICT" },
+  "Asia/Singapore": { standard: "SGT" },
+  "Asia/Tokyo": { standard: "JST" },
+  "Australia/Sydney": { standard: "AEST", daylight: "AEDT" },
+  "Pacific/Auckland": { standard: "NZST", daylight: "NZDT" },
+};
+
+function toCanonicalLocale(locale: string): string {
+  try {
+    return Intl.getCanonicalLocales(locale)[0] || "en";
+  } catch {
+    return "en";
+  }
+}
+
+function availableTimezones(): string[] {
+  try {
+    const zones = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] }).supportedValuesOf?.("timeZone") || [];
+    return zones.length > 0 ? zones : FALLBACK_TIMEZONES;
+  } catch {
+    return FALLBACK_TIMEZONES;
+  }
+}
+
+function readZoneNamePart(
+  timeZone: string,
+  date: Date,
+  locale: string,
+  style: Intl.DateTimeFormatOptions["timeZoneName"],
+): string {
+  return (
+    new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: style })
+      .formatToParts(date)
+      .find((part) => part.type === "timeZoneName")?.value || ""
+  );
+}
+
+function getDisplayNames(locale: string): Intl.DisplayNames | null {
+  const cached = displayNamesCache.get(locale);
+  if (cached !== undefined) return cached;
+
+  try {
+    const created = new Intl.DisplayNames(locale, { type: "region" });
+    displayNamesCache.set(locale, created);
+    return created;
+  } catch {
+    displayNamesCache.set(locale, null);
+    return null;
+  }
+}
+
+function parseOffset(offsetRaw: string): { label: string; minutes: number } {
+  const match = offsetRaw.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!match) return { label: "UTC+00:00", minutes: 0 };
+
+  const sign = match[1] === "+" ? 1 : -1;
+  const hours = Number(match[2]);
+  const minutesPart = Number(match[3] || "0");
+
+  return {
+    label: `UTC${match[1]}${String(hours).padStart(2, "0")}:${String(minutesPart).padStart(2, "0")}`,
+    minutes: sign * (hours * 60 + minutesPart),
+  };
+}
+
+function offsetMinutesAt(timeZone: string, date: Date, locale: string): number {
+  const shortOffset = readZoneNamePart(timeZone, date, locale, "shortOffset") || "GMT+0";
+  return parseOffset(shortOffset).minutes;
+}
+
+function prefersDaylightAbbreviation(timeZone: string, now: Date, locale: string): boolean {
+  const nowOffset = offsetMinutesAt(timeZone, now, locale);
+  const winterOffset = offsetMinutesAt(timeZone, SAMPLE_WINTER_DATE, locale);
+  const summerOffset = offsetMinutesAt(timeZone, SAMPLE_SUMMER_DATE, locale);
+  if (winterOffset === summerOffset) return false;
+  if (nowOffset === summerOffset) return true;
+  if (nowOffset === winterOffset) return false;
+  return summerOffset > winterOffset;
+}
+
+function normalizeAbbreviation(raw: string): string {
+  if (!raw) return "GMT";
+  if (/^(GMT|UTC)/i.test(raw)) return "GMT";
+  return raw;
+}
+
+function runtimeAbbreviationCandidates(timeZone: string, locale: string, now: Date): string[] {
+  const values = [
+    readZoneNamePart(timeZone, now, locale, "short"),
+    readZoneNamePart(timeZone, SAMPLE_WINTER_DATE, locale, "short"),
+    readZoneNamePart(timeZone, SAMPLE_SUMMER_DATE, locale, "short"),
+    readZoneNamePart(timeZone, now, "en", "short"),
+    readZoneNamePart(timeZone, SAMPLE_WINTER_DATE, "en", "short"),
+    readZoneNamePart(timeZone, SAMPLE_SUMMER_DATE, "en", "short"),
+  ];
+
+  return values.map((value) => normalizeAbbreviation(value)).filter((value) => value !== "GMT");
+}
+
+function localizedAbbreviation(
+  timeZone: string,
+  now: Date,
+  locale: string,
+  translate: (key: string, defaultValue: string) => string,
+): string {
+  const daylight = prefersDaylightAbbreviation(timeZone, now, locale);
+  const keySuffix = daylight ? "daylight" : "standard";
+  const timeZoneKey = timeZone.replace(/\//g, "_");
+  const fallbackByZone = FALLBACK_ABBREVIATIONS[timeZone];
+  const runtimeFallback = runtimeAbbreviationCandidates(timeZone, locale, now)[0] || "GMT";
+  const fallback =
+    (daylight ? fallbackByZone?.daylight || fallbackByZone?.standard : fallbackByZone?.standard || fallbackByZone?.daylight) ||
+    runtimeFallback;
+
+  return translate(`timezones:abbreviations.${timeZoneKey}.${keySuffix}`, fallback);
+}
+
+function localizedCity(timeZone: string, fallbackCity: string, translate: (key: string, defaultValue: string) => string): string {
+  const key = timeZone.replace(/\//g, "_");
+  return translate(`timezones:cities.${key}`, fallbackCity);
+}
+
+function localizedContinent(continent: string, translate: (key: string, defaultValue: string) => string): string {
+  return translate(`timezones:continents.${continent}`, CONTINENT_TRANSLATION_KEYS[continent] || continent);
+}
+
+function localizedCountry(timeZone: string, locale: string): string {
+  const code = COUNTRY_CODE_BY_TIMEZONE[timeZone];
+  if (!code) return "";
+  return getDisplayNames(locale)?.of(code) || code;
+}
+
+function dateCacheKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function compareOptions(a: TimezoneOption, b: TimezoneOption, locale: string): number {
+  return a.offsetMinutes - b.offsetMinutes || a.city.localeCompare(b.city, locale);
+}
+
+function buildTimezoneOption(
+  timeZone: string,
+  now: Date,
+  locale: string,
+  translate: (key: string, defaultValue: string) => string,
+): TimezoneOption {
+  const parts = timeZone.split("/");
+  const continentRaw = parts[0] || timeZone;
+  const cityRaw = (parts[parts.length - 1] || timeZone).replace(/_/g, " ");
+
+  const continent = localizedContinent(continentRaw, translate);
+  const country = localizedCountry(timeZone, locale);
+  const city = localizedCity(timeZone, cityRaw, translate);
+
+  const shortOffset = readZoneNamePart(timeZone, now, locale, "shortOffset") || "GMT+0";
+  const { label: offsetLabel, minutes: offsetMinutes } = parseOffset(shortOffset);
+  const abbreviation = localizedAbbreviation(timeZone, now, locale, translate);
+
+  const searchText = [
+    timeZone,
+    continentRaw,
+    city,
+    cityRaw,
+    country,
+    abbreviation,
+    offsetLabel,
+    readZoneNamePart(timeZone, now, locale, "long"),
+    readZoneNamePart(timeZone, now, locale, "longGeneric"),
+    readZoneNamePart(timeZone, now, locale, "shortGeneric"),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return {
+    tz: timeZone,
+    continent,
+    country,
+    city,
+    offsetLabel,
+    offsetMinutes,
+    abbreviation,
+    displayLabel: `${offsetLabel} ${city} ${abbreviation}`,
+    searchText,
+  };
+}
+
+function optionForTimezone(
+  timeZone: string,
+  referenceDate: Date,
+  locale: string,
+  cacheKey: string,
+  translate: (key: string, defaultValue: string) => string,
+): TimezoneOption | undefined {
+  const localeAndDateKey = `${locale}::${cacheKey}`;
+  let cache = optionCacheByLocaleAndDate.get(localeAndDateKey);
+  if (!cache) {
+    cache = new Map<string, TimezoneOption>();
+    optionCacheByLocaleAndDate.set(localeAndDateKey, cache);
+  }
+
+  const cached = cache.get(timeZone);
+  if (cached) return cached;
+
+  try {
+    const created = buildTimezoneOption(timeZone, referenceDate, locale, translate);
+    cache.set(timeZone, created);
+    return created;
+  } catch {
+    return undefined;
+  }
+}
+
+function uniqueSortedOptions(values: TimezoneOption[], locale: string): TimezoneOption[] {
+  const deduped = new Map<string, TimezoneOption>();
+  for (const option of values) deduped.set(option.tz, option);
+  return [...deduped.values()].sort((a, b) => compareOptions(a, b, locale));
+}
+
+export function TimezonePicker({ id, value, onChange, placeholder, referenceDateMs }: TimezonePickerProps) {
+  const { t, i18n } = useTranslation(["common", "timezones"]);
+
+  const locale = useMemo(() => toCanonicalLocale(i18n.language || "en"), [i18n.language]);
   const now = useMemo(() => new Date(), []);
-  const options = useMemo(() => {
-    return chooseCandidateTimezones()
-      .map((tz) => toOption(tz, now))
-      .sort((a, b) => a.offsetMinutes - b.offsetMinutes || a.city.localeCompare(b.city));
-  }, [now]);
+  const allTimezones = useMemo(() => availableTimezones(), []);
+  const referenceDate = useMemo(() => {
+    if (typeof referenceDateMs === "number" && Number.isFinite(referenceDateMs)) {
+      return new Date(referenceDateMs);
+    }
+    return now;
+  }, [referenceDateMs, now]);
+  const referenceDateKey = useMemo(() => dateCacheKey(referenceDate), [referenceDate]);
+  const translate = useMemo(
+    () => (key: string, defaultValue: string) => t(key, { defaultValue }),
+    [t],
+  );
 
-  const selected = useMemo(() => options.find((o) => o.tz === value), [options, value]);
-
-  const [query, setQuery] = useState(selected?.displayLabel || value || "");
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [hasTypedSearch, setHasTypedSearch] = useState(false);
+
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const justSelectedRef = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const justSelectedRef = useRef(false);
+
+  const selectedOption = useMemo(() => {
+    if (!value) return undefined;
+    return optionForTimezone(value, referenceDate, locale, referenceDateKey, translate);
+  }, [value, referenceDate, locale, referenceDateKey, translate]);
+
+  const defaultOptions = useMemo(() => {
+    const local = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const candidates = local ? [local, ...POPULAR_TIMEZONES] : POPULAR_TIMEZONES;
+
+    const options = candidates
+      .map((tz) => optionForTimezone(tz, referenceDate, locale, referenceDateKey, translate))
+      .filter((option): option is TimezoneOption => !!option);
+
+    if (selectedOption) options.push(selectedOption);
+    return uniqueSortedOptions(options, locale);
+  }, [locale, referenceDate, referenceDateKey, selectedOption, translate]);
+
+  const fullSearchOptions = useMemo(() => {
+    if (!hasTypedSearch) return [];
+
+    return allTimezones
+      .map((tz) => optionForTimezone(tz, referenceDate, locale, referenceDateKey, translate))
+      .filter((option): option is TimezoneOption => !!option)
+      .sort((a, b) => compareOptions(a, b, locale));
+  }, [allTimezones, hasTypedSearch, locale, referenceDate, referenceDateKey, translate]);
 
   useEffect(() => {
-    setQuery(selected?.displayLabel || value || "");
-  }, [selected?.displayLabel, value]);
+    setQuery(selectedOption?.displayLabel || value || "");
+  }, [selectedOption, value]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options.slice(0, 60);
-    return options.filter((o) => o.searchText.includes(q)).slice(0, 60);
-  }, [options, query]);
+  const filteredOptions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const source = normalized ? fullSearchOptions : defaultOptions;
+
+    if (!normalized) return source.slice(0, MAX_VISIBLE_OPTIONS);
+    return source.filter((option) => option.searchText.includes(normalized)).slice(0, MAX_VISIBLE_OPTIONS);
+  }, [defaultOptions, fullSearchOptions, query]);
+
+  const showSelectionOverlay = !open && !!selectedOption;
 
   useEffect(() => {
     if (!open) return;
-    const el = itemRefs.current[highlight];
-    if (el) el.scrollIntoView({ block: "nearest" });
+    const list = listRef.current;
+    const item = itemRefs.current[highlight];
+    if (!list || !item) return;
+
+    const top = item.offsetTop;
+    const bottom = top + item.offsetHeight;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+
+    if (top < viewTop) {
+      list.scrollTop = top;
+      return;
+    }
+
+    if (bottom > viewBottom) {
+      list.scrollTop = bottom - list.clientHeight;
+    }
   }, [highlight, open]);
 
-  const apply = (tz: string) => {
-    justSelectedRef.current = true;
-    onChange(tz);
-    const match = options.find((o) => o.tz === tz);
-    if (match) setQuery(match.displayLabel);
-    setOpen(false);
-  };
-
   useEffect(() => {
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+    const onMouseDown = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
+
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
+
+  const selectTimezone = (timeZone: string) => {
+    justSelectedRef.current = true;
+    onChange(timeZone);
+    const next = optionForTimezone(timeZone, referenceDate, locale, referenceDateKey, translate);
+    setQuery(next?.displayLabel || timeZone);
+    setOpen(false);
+  };
+
+  const onFocus = () => {
+    setOpen(true);
+    setQuery("");
+    const selectedIndex = defaultOptions.findIndex((option) => option.tz === value);
+    setHighlight(selectedIndex >= 0 ? selectedIndex : 0);
+  };
+
+  const onBlur = () => {
+    setTimeout(() => {
+      if (!justSelectedRef.current) {
+        setQuery(selectedOption?.displayLabel || value || "");
+      }
+
+      justSelectedRef.current = false;
+      setOpen(false);
+    }, BLUR_CLOSE_DELAY_MS);
+  };
+
+  const onInputChange = (next: string) => {
+    setQuery(next);
+    setOpen(true);
+    setHighlight(0);
+    if (next.trim()) setHasTypedSearch(true);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      setOpen(true);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlight((current) => Math.min(current + 1, Math.max(filteredOptions.length - 1, 0)));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlight((current) => Math.max(current - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      const selected = filteredOptions[highlight];
+      if (selected) {
+        event.preventDefault();
+        selectTimezone(selected.tz);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setQuery(selectedOption?.displayLabel || value || "");
+      setOpen(false);
+    }
+  };
 
   return (
     <div ref={wrapperRef} style={{ position: "relative" }}>
       <input
         id={id}
         value={query}
-        onFocus={() => {
-          setQuery("");
-          setOpen(true);
-          const idx = options.findIndex((o) => o.tz === value);
-          setHighlight(idx >= 0 ? idx : 0);
-        }}
-        onBlur={() => {
-          setTimeout(() => {
-            if (!justSelectedRef.current) {
-              setQuery(selected?.displayLabel || value || "");
-            }
-            justSelectedRef.current = false;
-            setOpen(false);
-          }, 120);
-        }}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-          setHighlight(0);
-        }}
-        onKeyDown={(e) => {
-          if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-            setOpen(true);
-            return;
-          }
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setHighlight((h) => Math.min(h + 1, Math.max(filtered.length - 1, 0)));
-            return;
-          }
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setHighlight((h) => Math.max(h - 1, 0));
-            return;
-          }
-          if (e.key === "Enter") {
-            if (open && filtered[highlight]) {
-              e.preventDefault();
-              apply(filtered[highlight].tz);
-            }
-            return;
-          }
-          if (e.key === "Escape") {
-            setQuery(selected?.displayLabel || value || "");
-            setOpen(false);
-          }
-        }}
-        placeholder={placeholder || "Search timezone, city, country, offset (e.g. CEST, UK, UAE, UTC+1)"}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onChange={(event) => onInputChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder || t("common:timezoneSearchPlaceholder")}
         autoComplete="off"
+        style={showSelectionOverlay ? { color: "transparent", caretColor: "transparent" } : undefined}
       />
 
-      {open && filtered.length > 0 && (
-        <div className="venue-dropdown timezone-dropdown" role="listbox" aria-label="Timezone suggestions">
-          {filtered.map((opt, idx) => (
+      {showSelectionOverlay && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            paddingLeft: 12,
+            paddingRight: 12,
+          }}
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <strong>{selectedOption.offsetLabel}</strong>
+            <span>{selectedOption.city}</span>
+          </span>
+          <span className="timezone-item-abbr">{selectedOption.abbreviation}</span>
+        </div>
+      )}
+
+      {open && filteredOptions.length > 0 && (
+        <div
+          ref={listRef}
+          className="venue-dropdown timezone-dropdown"
+          role="listbox"
+          aria-label={t("common:timezoneSuggestionsAria")}
+        >
+          {filteredOptions.map((option, index) => (
             <button
-              key={opt.tz}
-              ref={(el) => { itemRefs.current[idx] = el; }}
+              key={option.tz}
+              ref={(element) => {
+                itemRefs.current[index] = element;
+              }}
               type="button"
-              className={`venue-dropdown-item timezone-item ${idx === highlight ? "timezone-item-active" : ""}`}
-              onMouseEnter={() => setHighlight(idx)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => apply(opt.tz)}
+              className={`venue-dropdown-item timezone-item ${index === highlight ? "timezone-item-active" : ""}`}
+              onMouseEnter={() => setHighlight(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectTimezone(option.tz)}
             >
               <span className="timezone-item-main">
-                <strong>{opt.offsetLabel}</strong>
-                <span>{opt.city}</span>
-                <span className="timezone-item-muted">{opt.continent}</span>
+                <strong>{option.offsetLabel}</strong>
+                <span>{option.city}</span>
               </span>
-              <span className="timezone-item-abbr">{opt.abbreviation}</span>
+              <span className="timezone-item-abbr">{option.abbreviation}</span>
             </button>
           ))}
         </div>

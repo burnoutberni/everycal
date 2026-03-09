@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
 import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
+import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { ActAsActionModal } from "./ActAsActionModal";
 import { LocationPinIcon, MenuIcon, RepostIcon } from "./icons";
@@ -62,9 +63,9 @@ export function EventCard({
   }, [menuOpen]);
 
   const dateTimeStr = formatEventDateTime(event, false, {
-    locale: i18n.language,
+    locale: resolveDateTimeLocale(user, i18n.language),
     allDayLabel: t("allDay"),
-    timeFormat: user?.timeFormat,
+    timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
     viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
   const rsvpOptions: { value: RsvpStatus; label: string; icon: string }[] = [

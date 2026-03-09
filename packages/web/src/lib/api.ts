@@ -188,6 +188,7 @@ export interface User {
   preferredLanguage?: string;
   timezone?: string;
   timeFormat?: "12h" | "24h";
+  dateTimeLocale?: string;
   notificationPrefs?: NotificationPrefs;
   followersCount?: number;
   followingCount?: number;
@@ -276,7 +277,7 @@ export const auth = {
     return request<User>("/auth/me", {}, context);
   },
 
-  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string | null; cityLat?: number | null; cityLng?: number | null; preferredLanguage?: string; timezone?: string; timeFormat?: "12h" | "24h" }) {
+  updateProfile(data: { displayName?: string; bio?: string; website?: string; avatarUrl?: string; discoverable?: boolean; city?: string | null; cityLat?: number | null; cityLng?: number | null; preferredLanguage?: string; timezone?: string; timeFormat?: "12h" | "24h"; dateTimeLocale?: string }) {
     return request<{ ok: boolean }>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),

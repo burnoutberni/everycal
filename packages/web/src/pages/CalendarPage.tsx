@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
 import { escapeHtml, stripHtmlToText } from "../lib/sanitize";
+import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 
 import "./CalendarPage.css";
 
@@ -53,6 +54,7 @@ const SWIPE_COOLDOWN_MS = 300;
 export function CalendarPage() {
   const { t, i18n } = useTranslation(["calendar", "events"]);
   const { user } = useAuth();
+  const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -126,7 +128,7 @@ export function CalendarPage() {
       if (!ev) return;
 
       const dateStr = formatEventDateTime(ev, true, {
-        locale: i18n.language,
+        locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
       });
       const byLabel = t("events:by");
@@ -232,7 +234,7 @@ export function CalendarPage() {
         popover.remove();
       };
     },
-    [navigate, t, i18n.language]
+    [dateTimeLocale, navigate, t]
   );
 
   const handleEventWillUnmount = useCallback((info: EventMountArg) => {

@@ -1,6 +1,8 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { dateToLocalYMD } from "../lib/dateUtils";
+import { useAuth } from "../hooks/useAuth";
+import { localeWeekStart, resolveDateTimeLocale } from "../lib/dateTimeLocale";
 
 const SWIPE_THRESHOLD = 50;
 
@@ -31,9 +33,9 @@ interface MiniCalendarProps {
   interactionRef?: React.MutableRefObject<boolean | null>;
 }
 
-function getDayNames(locale: string): string[] {
+function getDayNames(locale: string, firstDay: number): string[] {
   const days: string[] = [];
-  const base = new Date(2024, 0, 1); // Monday
+  const base = new Date(2024, 0, 7 + firstDay);
   for (let i = 0; i < 7; i++) {
     const d = new Date(base);
     d.setDate(base.getDate() + i);
@@ -54,10 +56,9 @@ function isPast(day: Date, today: Date): boolean {
   return dayStart < todayStart;
 }
 
-function getWeeksForMonth(year: number, month: number): Date[][] {
+function getWeeksForMonth(year: number, month: number, firstDay: number): Date[][] {
   const first = new Date(year, month, 1);
-  let startDay = first.getDay() - 1;
-  if (startDay < 0) startDay = 6;
+  const startDay = (first.getDay() - firstDay + 7) % 7;
   const rows: Date[][] = [];
   let current = new Date(year, month, 1 - startDay);
   for (let w = 0; w < 6; w++) {
@@ -87,7 +88,9 @@ function formatDateLabel(d: Date, today: Date, i18n: { t: (key: string) => strin
 
 export function MiniCalendar({ selected, onSelect, eventDates, collapsible, collapsed = true, onCollapsedChange, navigateByDay, onMonthClick, onMonthNavigate, interactionRef }: MiniCalendarProps) {
   const { i18n } = useTranslation();
-  const locale = i18n.language;
+  const { user } = useAuth();
+  const locale = resolveDateTimeLocale(user, i18n.language);
+  const firstDay = localeWeekStart(locale);
   const year = selected.getFullYear();
   const month = selected.getMonth();
   const today = new Date();
@@ -101,7 +104,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
   const [isResetting, setIsResetting] = useState(false);
   committingToRef.current = committingTo;
 
-  const dayNames = useMemo(() => getDayNames(locale), [locale]);
+  const dayNames = useMemo(() => getDayNames(locale, firstDay), [firstDay, locale]);
 
   /** When eventDates provided and expanded: only allow nav to months that have events. Skip empty months. */
   const expandedNavTargets = useMemo(() => {
@@ -388,27 +391,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
     ? formatDateLabel(nextDate, today, i18n, locale)
     : nextDate.toLocaleDateString(locale, { month: "long", year: "numeric" });
 
-  const weeks = useMemo(() => {
-    const first = new Date(year, month, 1);
-    // Monday = 0, Sunday = 6
-    let startDay = first.getDay() - 1;
-    if (startDay < 0) startDay = 6;
-
-    const rows: Date[][] = [];
-    let current = new Date(year, month, 1 - startDay);
-
-    for (let w = 0; w < 6; w++) {
-      const week: Date[] = [];
-      for (let d = 0; d < 7; d++) {
-        week.push(new Date(current));
-        current.setDate(current.getDate() + 1);
-      }
-      rows.push(week);
-      // Stop if we've gone past this month
-      if (week[0].getMonth() > month && week[0].getFullYear() >= year) break;
-    }
-    return rows;
-  }, [year, month]);
+  const weeks = useMemo(() => getWeeksForMonth(year, month, firstDay), [firstDay, month, year]);
 
   if (collapsible && collapsed) {
     const goPrev = navigateByDay ? prevDay : prevMonth;
@@ -527,7 +510,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
   }
 
   const renderMonthSlide = (y: number, m: number) => {
-    const slideWeeks = getWeeksForMonth(y, m);
+    const slideWeeks = getWeeksForMonth(y, m, firstDay);
     const slideMonthLabel = new Date(y, m, 1).toLocaleDateString(locale, { month: "long", year: "numeric" });
     return (
       <div key={`${y}-${m}`} style={{ width: "33.333%", flexShrink: 0, minWidth: 0, padding: "0 0.1rem" }}>

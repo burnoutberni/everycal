@@ -29,6 +29,7 @@ export function initDatabase(path: string): DB {
       discoverable INTEGER NOT NULL DEFAULT 0,
       timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
       time_format TEXT NOT NULL DEFAULT '24h' CHECK(time_format IN ('12h','24h')),
+      date_time_locale TEXT NOT NULL DEFAULT 'en-GB',
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -675,6 +676,11 @@ export function initDatabase(path: string): DB {
   } catch {
     // Column already exists
   }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN date_time_locale TEXT NOT NULL DEFAULT 'en-GB'");
+  } catch {
+    // Column already exists
+  }
 
   try {
     db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
@@ -706,6 +712,13 @@ export function initDatabase(path: string): DB {
   // Migration: enforce time_format validity for migrated SQLite schemas.
   try {
     db.exec("UPDATE accounts SET time_format = '24h' WHERE time_format IS NULL OR time_format NOT IN ('12h','24h')");
+  } catch {
+    // Ignore during partial initialization
+  }
+  try {
+    db.exec(
+      "UPDATE accounts SET date_time_locale = CASE WHEN preferred_language = 'de' THEN 'de-DE' WHEN time_format = '12h' THEN 'en-US' ELSE 'en-GB' END WHERE date_time_locale IS NULL OR trim(date_time_locale) = ''"
+    );
   } catch {
     // Ignore during partial initialization
   }
