@@ -15,7 +15,8 @@ export function eventPath(event: {
     return `/@${event.account.username}/${event.slug}`;
   }
   if (event.source === "remote") {
-    return `/events/${encodeURIComponent(event.id)}`;
+    if (event.account?.username) return `/@${event.account.username}`;
+    return "/";
   }
   return `/events/${event.id}`;
 }
