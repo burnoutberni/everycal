@@ -3361,3 +3361,45 @@ button.tag {
   border-color: var(--accent-hover);
   color: #000;
 }
+
+.timezone-dropdown {
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.timezone-item {
+  text-align: left;
+}
+
+.timezone-item-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.timezone-item-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.timezone-item-muted {
+  color: var(--text-dim);
+}
+
+.timezone-preview {
+  margin-top: 0.35rem;
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.timezone-preview-offset {
+  font-weight: 700;
+}
+
+.timezone-preview-continent,
+.timezone-preview-now {
+  color: var(--text-dim);
+}

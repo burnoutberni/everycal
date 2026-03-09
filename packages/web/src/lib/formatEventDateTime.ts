@@ -1,5 +1,15 @@
 import i18n from "i18next";
 
+function safeTimeZone(tz?: string): string | undefined {
+  if (!tz) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return undefined;
+  }
+}
+
 function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
   const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit", timeZone };
   return a.toLocaleDateString("en-CA", opts) === b.toLocaleDateString("en-CA", opts);
@@ -13,7 +23,7 @@ export function formatEventDateTime(
 ): string {
   const locale = options?.locale;
   const allDayLabel = options?.allDayLabel ?? i18n.t("events:allDay");
-  const eventTz = event.eventTimezone;
+  const eventTz = safeTimeZone(event.eventTimezone);
   const viewerTz = options?.viewerTimeZone;
   const timeZone = eventTz;
   const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
