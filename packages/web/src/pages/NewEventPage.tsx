@@ -19,7 +19,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { eventPath } from "../lib/urls";
 import { inferImageSearchTerm, inferTagsFromTitle, toSingleWordTag } from "../lib/inferImageSearchTerm";
-import { formatEventDateTime, formatViewerTimezoneTooltip, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
+import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { LocationPinIcon, ExternalLinkIcon, GlobeIcon, TrashIcon, ImageIcon, ChevronLeftIcon } from "../components/icons";
 import { sanitizeHtml } from "../lib/sanitize";
 import { ImagePickerModal } from "../components/ImagePickerModal";
@@ -1204,7 +1204,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     ? tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
-  const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const previewStartAtUtc = !allDay ? localDateTimeToUtcMillis(startDate, eventTimezone) : null;
   const previewEndAtUtc = !allDay && endDate ? localDateTimeToUtcMillis(endDate, eventTimezone) : null;
@@ -1240,12 +1240,13 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         allDayLabel: t("events:allDay"),
         timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
+        displayTimeZone: viewerTimeZone,
       },
     )
     : null;
 
-  const previewDateInViewerTimezone = showPreviewTimezoneTooltip && startDate
-    ? formatViewerTimezoneTooltip(
+  const previewDateInEventTimezone = showPreviewTimezoneTooltip && startDate
+    ? `${t("common:localTimeLabel")}: ${formatEventDateTime(
       {
         startDate: allDay ? startDate.slice(0, 10) : startDate,
         endDate: endDate
@@ -1256,13 +1257,15 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
         allDay,
         eventTimezone,
       },
+      true,
       {
         locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
         timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
+        displayTimeZone: eventTimezone,
       },
-    )
+    )}`
     : "";
 
   const hasPreviewLocation =
@@ -1435,7 +1438,17 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
             <div className="flex items-center justify-between mb-2">
               <div className="flex flex-col gap-1">
                 {previewDateStr ? (
-                  <span title={showPreviewTimezoneTooltip ? previewDateInViewerTimezone : undefined} style={{ color: "var(--accent)", fontWeight: 600 }}>{previewDateStr}</span>
+                  <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+                    <span
+                      className={showPreviewTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
+                      tabIndex={showPreviewTimezoneTooltip ? 0 : undefined}
+                    >
+                      {previewDateStr}
+                      {showPreviewTimezoneTooltip && previewDateInEventTimezone && (
+                        <span className="inline-time-tooltip-bubble">{previewDateInEventTimezone}</span>
+                      )}
+                    </span>
+                  </span>
                 ) : (
                   <span className="skeleton-line" style={{ width: "220px", height: "1.1em" }} />
                 )}

@@ -30,22 +30,6 @@ function zonesEquivalent(a: string, b: string, date: Date): boolean {
     && zoneOffsetToken(a, jul) === zoneOffsetToken(b, jul);
 }
 
-function localizedTimeZoneLabel(timeZone: string, date: Date, locale?: string): string {
-  const styles: Intl.DateTimeFormatOptions["timeZoneName"][] = ["longGeneric", "long", "shortGeneric", "short"];
-  for (const style of styles) {
-    try {
-      const value = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: style })
-        .formatToParts(date)
-        .find((p) => p.type === "timeZoneName")
-        ?.value;
-      if (value) return value;
-    } catch {
-      // ignore and try next style
-    }
-  }
-  return timeZone;
-}
-
 function localizedTimeZoneCity(timeZone: string, locale?: string): string {
   const city = (timeZone.split("/").pop() || timeZone).replace(/_/g, " ");
   const lang = (locale || "").toLowerCase().split("-")[0];
@@ -77,13 +61,19 @@ function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
 export function formatEventDateTime(
   event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
   long = false,
-  options?: { locale?: string; allDayLabel?: string; timeFormat?: "12h" | "24h"; viewerTimeZone?: string }
+  options?: {
+    locale?: string;
+    allDayLabel?: string;
+    timeFormat?: "12h" | "24h";
+    viewerTimeZone?: string;
+    displayTimeZone?: string;
+  }
 ): string {
   const locale = options?.locale;
   const allDayLabel = options?.allDayLabel ?? i18n.t("events:allDay");
   const eventTz = safeTimeZone(event.eventTimezone);
-  const viewerTz = safeTimeZone(options?.viewerTimeZone);
-  const timeZone = eventTz;
+  const displayTz = safeTimeZone(options?.displayTimeZone);
+  const timeZone = displayTz || eventTz;
   const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
   const endInstant = event.allDay ? event.endDate : (event.endAtUtc || event.endDate);
   const start = new Date(startInstant);
@@ -108,11 +98,6 @@ export function formatEventDateTime(
   };
 
   const startDateStr = start.toLocaleDateString(locale, dateOpts);
-  const showEventTimeZone = !!(eventTz && viewerTz && !zonesEquivalent(eventTz, viewerTz, start));
-  const eventTimeZoneLabel = eventTz
-    ? localizedTimeZoneCity(eventTz, locale) || localizedTimeZoneLabel(eventTz, start, locale)
-    : "";
-
   if (event.allDay) {
     if (!end || isSameDay(start, end, timeZone)) {
       return `${startDateStr} · ${allDayLabel}`;
@@ -128,13 +113,12 @@ export function formatEventDateTime(
     const base = endTimeStr && endTimeStr !== startTimeStr
       ? `${startDateStr} · ${startTimeStr} – ${endTimeStr}`
       : `${startDateStr} · ${startTimeStr}`;
-    return showEventTimeZone ? `${base} (${eventTimeZoneLabel})` : base;
+    return base;
   }
 
   const endDateStr = end.toLocaleDateString(locale, dateOpts);
   const endTimeStr = end.toLocaleTimeString(locale, timeOpts);
-  const base = `${startDateStr} · ${startTimeStr} – ${endDateStr} · ${endTimeStr}`;
-  return showEventTimeZone ? `${base} (${eventTimeZoneLabel})` : base;
+  return `${startDateStr} · ${startTimeStr} – ${endDateStr} · ${endTimeStr}`;
 }
 
 export function hasDifferentTimezoneAtEventTime(

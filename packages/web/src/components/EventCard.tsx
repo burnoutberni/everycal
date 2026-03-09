@@ -4,7 +4,7 @@ import { events as eventsApi, type CalEvent } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
 import { useTranslation } from "react-i18next";
-import { formatEventDateTime } from "../lib/formatEventDateTime";
+import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { ActAsActionModal } from "./ActAsActionModal";
@@ -30,6 +30,7 @@ export function EventCard({
   const { t, i18n } = useTranslation(["events", "common"]);
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
   const [reposted, setReposted] = useState(event.reposted ?? false);
@@ -63,11 +64,28 @@ export function EventCard({
   }, [menuOpen]);
 
   const dateTimeStr = formatEventDateTime(event, false, {
-    locale: resolveDateTimeLocale(user, i18n.language),
+    locale: dateTimeLocale,
     allDayLabel: t("allDay"),
     timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
-    viewerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    viewerTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    displayTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
+  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const showEventLocalTime = hasDifferentTimezoneAtEventTime(event, viewerTimeZone);
+  const eventLocalTimeTooltip = showEventLocalTime
+    ? (() => {
+      const eventTz = event.eventTimezone;
+      if (!eventTz) return "";
+      const localDateTime = formatEventDateTime(event, false, {
+        locale: dateTimeLocale,
+        allDayLabel: t("allDay"),
+        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
+        viewerTimeZone,
+        displayTimeZone: eventTz,
+      });
+      return `${t("common:localTimeLabel")}: ${localDateTime}`;
+    })()
+    : "";
   const rsvpOptions: { value: RsvpStatus; label: string; icon: string }[] = [
     { value: "going", label: t("going"), icon: "✓" },
     { value: "maybe", label: t("maybe"), icon: "?" },
@@ -195,8 +213,17 @@ export function EventCard({
         )}
         <div className={compact && event.image ? "" : "flex-1"} style={{ minWidth: 0 }}>
           <div className="flex items-center gap-1 mb-1" style={{ flexWrap: "wrap" }}>
-            <span className="text-sm" style={{ color: "var(--accent)" }}>
-              {dateTimeStr}
+            <span
+              className="text-sm"
+              style={{ color: "var(--accent)" }}
+            >
+              <span
+                className={showEventLocalTime ? "inline-time-tooltip-anchor" : undefined}
+                tabIndex={showEventLocalTime ? 0 : undefined}
+              >
+                {dateTimeStr}
+                {showEventLocalTime && <span className="inline-time-tooltip-bubble">{eventLocalTimeTooltip}</span>}
+              </span>
             </span>
             {isCanceled && (
               <span className="canceled-badge" style={{ fontSize: "0.7rem", fontWeight: 600 }}>

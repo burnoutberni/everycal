@@ -34,6 +34,7 @@
   "add": "Hinzufügen",
   "search": "Suchen",
   "timezone": "Zeitzone",
+  "localTimeLabel": "Lokal",
   "timezoneSearchPlaceholder": "Zeitzone, Stadt, Land oder UTC-Offset suchen (z.B. MEZ, UK, VAE, UTC+1)",
   "timezoneSuggestionsAria": "Zeitzonenvorschläge",
   "searching": "Suchen…",

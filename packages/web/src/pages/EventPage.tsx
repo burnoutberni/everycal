@@ -7,7 +7,7 @@ import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
-import { formatEventDateTime, formatViewerTimezoneTooltip, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
+import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
@@ -79,7 +79,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const repostMenuRef = useRef<HTMLDivElement>(null);
   const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
   const repostMenuId = useId();
-  const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   useEffect(() => {
     if (!repostMenuOpen) return;
@@ -341,8 +341,8 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
     const title = event.title;
     const description = event.location?.name
-      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone })} • ${event.location.name}`
-      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone });
+      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone, displayTimeZone: viewerTimeZone })} • ${event.location.name}`
+      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone, displayTimeZone: viewerTimeZone });
 
     document.title = title;
     document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
@@ -378,13 +378,22 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     allDayLabel: t("allDay"),
     timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
     viewerTimeZone,
+    displayTimeZone: viewerTimeZone,
   });
   const showViewerTimezoneTooltip = hasDifferentTimezoneAtEventTime(event, viewerTimeZone);
   const viewerTimezoneDateLabel = showViewerTimezoneTooltip
-    ? formatViewerTimezoneTooltip(
-      event,
-      { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone },
-    )
+    ? (() => {
+      const eventTz = event.eventTimezone;
+      if (!eventTz) return "";
+      const localDateTime = formatEventDateTime(event, true, {
+        locale: dateTimeLocale,
+        allDayLabel: t("allDay"),
+        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
+        viewerTimeZone,
+        displayTimeZone: eventTz,
+      });
+      return `${t("common:localTimeLabel")}: ${localDateTime}`;
+    })()
     : "";
 
   return (
@@ -424,7 +433,13 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col gap-1">
             <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-              <span title={showViewerTimezoneTooltip ? viewerTimezoneDateLabel : undefined}>{eventDateLabel}</span>
+              <span
+                className={showViewerTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
+                tabIndex={showViewerTimezoneTooltip ? 0 : undefined}
+              >
+                {eventDateLabel}
+                {showViewerTimezoneTooltip && <span className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>}
+              </span>
             </span>
             {event.visibility !== "public" && (
               <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>

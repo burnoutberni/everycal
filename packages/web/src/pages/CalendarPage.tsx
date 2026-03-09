@@ -130,6 +130,8 @@ export function CalendarPage() {
       const dateStr = formatEventDateTime(ev, true, {
         locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
+        viewerTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        displayTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       const byLabel = t("events:by");
       const parts: string[] = [dateStr];
