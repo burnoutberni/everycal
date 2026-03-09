@@ -246,6 +246,7 @@ export function RichTextEditor({
       Placeholder.configure({ placeholder: resolvedPlaceholder }),
     ],
     content: value,
+    immediatelyRender: false,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const clean = sanitizeHtml(html);
