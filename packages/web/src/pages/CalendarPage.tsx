@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { formatEventDateTime } from "../lib/formatEventDateTime";
 import { useAuth } from "../hooks/useAuth";
 import { escapeHtml, stripHtmlToText } from "../lib/sanitize";
-import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
+import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 
 import "./CalendarPage.css";
 
@@ -54,6 +54,7 @@ const SWIPE_COOLDOWN_MS = 300;
 export function CalendarPage() {
   const { t, i18n } = useTranslation(["calendar", "events"]);
   const { user } = useAuth();
+  const viewerTimeZone = resolveUserTimezone(user);
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -130,8 +131,8 @@ export function CalendarPage() {
       const dateStr = formatEventDateTime(ev, true, {
         locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
-        viewerTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-        displayTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        viewerTimeZone,
+        displayTimeZone: viewerTimeZone,
       });
       const byLabel = t("events:by");
       const parts: string[] = [dateStr];
@@ -236,7 +237,7 @@ export function CalendarPage() {
         popover.remove();
       };
     },
-    [dateTimeLocale, navigate, t]
+    [dateTimeLocale, navigate, t, viewerTimeZone]
   );
 
   const handleEventWillUnmount = useCallback((info: EventMountArg) => {

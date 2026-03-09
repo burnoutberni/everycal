@@ -2492,6 +2492,14 @@ button.tag {
 .venue-dropdown-item:hover {
   background: var(--bg-hover);
 }
+
+.dropdown-pinned-item {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-raised);
+  box-shadow: 0 1px 0 var(--border);
+}
 .venue-dropdown-remove:hover {
   background: var(--border) !important;
   color: var(--text) !important;
@@ -2520,6 +2528,25 @@ button.tag {
   font-style: italic;
   border-top: 1px solid var(--border);
   justify-content: center;
+}
+
+.locale-suggestion-item {
+  align-items: center;
+}
+
+.locale-suggestion-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.locale-suggestion-preview {
+  margin-left: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: right;
 }
 .venue-dropdown-sep {
   height: 1px;

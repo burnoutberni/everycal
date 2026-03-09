@@ -5,7 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { eventPath, accountProfilePath, profilePath, eventsPathWithTags } from "../lib/urls";
 import { useTranslation } from "react-i18next";
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
-import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
+import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { ActAsActionModal } from "./ActAsActionModal";
 import { LocationPinIcon, MenuIcon, RepostIcon } from "./icons";
@@ -30,6 +30,7 @@ export function EventCard({
   const { t, i18n } = useTranslation(["events", "common"]);
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const viewerTimeZone = resolveUserTimezone(user);
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [rsvp, setRsvp] = useState<RsvpStatus>(event.rsvpStatus ?? null);
@@ -67,10 +68,9 @@ export function EventCard({
     locale: dateTimeLocale,
     allDayLabel: t("allDay"),
     timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
-    viewerTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-    displayTimeZone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    viewerTimeZone,
+    displayTimeZone: viewerTimeZone,
   });
-  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const showEventLocalTime = hasDifferentTimezoneAtEventTime(event, viewerTimeZone);
   const eventLocalTimeTooltip = showEventLocalTime
     ? (() => {

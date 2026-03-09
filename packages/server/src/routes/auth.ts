@@ -21,6 +21,9 @@ import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEm
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
 
+const SYSTEM_TIMEZONE = "system";
+const SYSTEM_DATE_TIME_LOCALE = "system";
+
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
 
@@ -127,8 +130,10 @@ export function authRoutes(db: DB): Hono {
     const passwordHash = body.password ? hashPassword(body.password) : null;
 
     db.prepare(
-      `INSERT INTO accounts (id, username, display_name, password_hash, email, email_verified, city, city_lat, city_lng, is_bot)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (
+         id, username, display_name, password_hash, email, email_verified, city, city_lat, city_lng, is_bot, timezone, date_time_locale
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       username,
@@ -139,7 +144,9 @@ export function authRoutes(db: DB): Hono {
       city,
       cityLat,
       cityLng,
-      isBot ? 1 : 0
+      isBot ? 1 : 0,
+      SYSTEM_TIMEZONE,
+      SYSTEM_DATE_TIME_LOCALE,
     );
 
     // Create default notification prefs
@@ -631,10 +638,12 @@ export function authRoutes(db: DB): Hono {
       }
     }
     if (body.timezone !== undefined) {
-      try {
-        new Intl.DateTimeFormat("en-US", { timeZone: body.timezone });
-      } catch {
-        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      if (body.timezone !== SYSTEM_TIMEZONE) {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: body.timezone });
+        } catch {
+          return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+        }
       }
       fields.push("timezone = ?");
       values.push(body.timezone);
@@ -647,13 +656,15 @@ export function authRoutes(db: DB): Hono {
       values.push(body.timeFormat);
     }
     if (body.dateTimeLocale !== undefined) {
-      let canonical = "";
-      try {
-        canonical = Intl.getCanonicalLocales(body.dateTimeLocale)[0] || "";
-        if (!canonical) throw new Error("invalid locale");
-        new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
-      } catch {
-        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      let canonical = body.dateTimeLocale;
+      if (body.dateTimeLocale !== SYSTEM_DATE_TIME_LOCALE) {
+        try {
+          canonical = Intl.getCanonicalLocales(body.dateTimeLocale)[0] || "";
+          if (!canonical) throw new Error("invalid locale");
+          new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
+        } catch {
+          return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+        }
       }
       fields.push("date_time_locale = ?");
       values.push(canonical);

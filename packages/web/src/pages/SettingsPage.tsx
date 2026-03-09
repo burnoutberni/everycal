@@ -27,11 +27,14 @@ import { profilePath } from "../lib/urls";
 import { changeLanguage } from "../i18n";
 import { validateAvatarUpload } from "../lib/avatarUpload";
 import {
+  browserTimezone,
   buildCountryLocaleOptions,
   inferTimeFormatFromLocale,
   localeRegion,
   localeWeekStart,
   resolveDateTimeLocale,
+  SYSTEM_DATE_TIME_LOCALE,
+  SYSTEM_TIMEZONE,
 } from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
 
@@ -42,7 +45,7 @@ type IdentityFormErrors = {
 };
 
 export function SettingsPage() {
-  const { t, i18n } = useTranslation(["settings", "common", "auth", "profile"]);
+  const { t, i18n } = useTranslation(["settings", "common", "auth", "profile", "timezones"]);
   const [, setLocation] = useLocation();
   const allowLocalhostUrls = typeof window !== "undefined"
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
@@ -83,16 +86,19 @@ export function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState("");
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
-  const [timezone, setTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
-  const [dateTimeLocale, setDateTimeLocale] = useState<string>("en-GB");
+  const [timezone, setTimezone] = useState<string>(SYSTEM_TIMEZONE);
+  const [dateTimeLocale, setDateTimeLocale] = useState<string>(SYSTEM_DATE_TIME_LOCALE);
   const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
   const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
   const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
   const [discoverable, setDiscoverable] = useState(false);
   const [city, setCity] = useState<CitySelection | null>(null);
-  const [savingProfileSettings, setSavingProfileSettings] = useState(false);
-  const [savedProfileSettings, setSavedProfileSettings] = useState(false);
-  const [profileSettingsError, setProfileSettingsError] = useState<string | null>(null);
+  const [savingCalendarSettings, setSavingCalendarSettings] = useState(false);
+  const [savedCalendarSettings, setSavedCalendarSettings] = useState(false);
+  const [calendarSettingsError, setCalendarSettingsError] = useState<string | null>(null);
+  const [savingAccountSettings, setSavingAccountSettings] = useState(false);
+  const [savedAccountSettings, setSavedAccountSettings] = useState(false);
+  const [accountSettingsError, setAccountSettingsError] = useState<string | null>(null);
 
   const [identities, setIdentities] = useState<PublishingIdentity[]>([]);
   const [selectedIdentityUsername, setSelectedIdentityUsername] = useState("");
@@ -144,9 +150,8 @@ export function SettingsPage() {
     if (!user) return;
     authApi.me().then((u) => {
       setPreferredLanguage(u.preferredLanguage || "en");
-      setTimezone(u.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna");
-      const resolved = resolveDateTimeLocale(u, u.preferredLanguage || i18n.language || "en");
-      setDateTimeLocale(resolved);
+      setTimezone(u.timezone || SYSTEM_TIMEZONE);
+      setDateTimeLocale(u.dateTimeLocale || SYSTEM_DATE_TIME_LOCALE);
       setDiscoverable(!!u.discoverable);
       setCity(u.city && u.cityLat != null && u.cityLng != null ? { city: u.city, lat: u.cityLat, lng: u.cityLng } : null);
       const p = u.notificationPrefs;
@@ -170,11 +175,48 @@ export function SettingsPage() {
     [i18n.language, preferredLanguage],
   );
 
+  const effectiveDateTimeLocale = useMemo(
+    () => resolveDateTimeLocale({ dateTimeLocale }, i18n.language),
+    [dateTimeLocale, i18n.language],
+  );
+
+  const runtimeSystemDateTimeLocale = useMemo(
+    () => resolveDateTimeLocale({ dateTimeLocale: SYSTEM_DATE_TIME_LOCALE }, i18n.language),
+    [i18n.language],
+  );
+
+  const systemTimezoneLabelValue = useMemo(() => {
+    const runtimeTimezone = browserTimezone();
+    const fallbackCity = (runtimeTimezone.split("/").pop() || runtimeTimezone).replace(/_/g, " ");
+    const city = t(`timezones:cities.${runtimeTimezone.replace(/\//g, "_")}`, { defaultValue: fallbackCity });
+    return city || runtimeTimezone;
+  }, [t]);
+
+  const systemLocaleCountry = useMemo(() => {
+    const region = localeRegion(runtimeSystemDateTimeLocale);
+    if (!region) return runtimeSystemDateTimeLocale;
+    return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
+  }, [dateTimeCountryOptions, runtimeSystemDateTimeLocale]);
+
+  const systemDateTimeLocaleOption = useMemo(() => {
+    const dateSample = new Intl.DateTimeFormat(runtimeSystemDateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+    const timeSample = new Intl.DateTimeFormat(runtimeSystemDateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+    const label = t("useSystemDateTimeLocale", { country: systemLocaleCountry, locale: runtimeSystemDateTimeLocale });
+    return {
+      regionCode: SYSTEM_DATE_TIME_LOCALE,
+      countryName: label,
+      locale: runtimeSystemDateTimeLocale,
+      searchText: `${label} ${t("systemSetting")} ${runtimeSystemDateTimeLocale} ${dateSample} ${timeSample}`.toLowerCase(),
+      isSystem: true,
+    };
+  }, [runtimeSystemDateTimeLocale, systemLocaleCountry, t]);
+
   const selectedDateTimeCountry = useMemo(() => {
+    if (dateTimeLocale === SYSTEM_DATE_TIME_LOCALE) return systemDateTimeLocaleOption.countryName;
     const region = localeRegion(dateTimeLocale);
     if (!region) return "";
     return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
-  }, [dateTimeCountryOptions, dateTimeLocale]);
+  }, [dateTimeCountryOptions, dateTimeLocale, systemDateTimeLocaleOption.countryName]);
 
   useEffect(() => {
     if (!showDateTimeCountrySuggestions) {
@@ -184,9 +226,15 @@ export function SettingsPage() {
 
   const filteredDateTimeCountryOptions = useMemo(() => {
     const normalized = dateTimeCountryQuery.trim().toLowerCase();
-    if (!normalized) return dateTimeCountryOptions;
-    return dateTimeCountryOptions.filter((option) => option.searchText.includes(normalized));
+    return normalized
+      ? dateTimeCountryOptions.filter((option) => option.searchText.includes(normalized))
+      : dateTimeCountryOptions;
   }, [dateTimeCountryOptions, dateTimeCountryQuery]);
+
+  const visibleDateTimeCountryOptions = useMemo(
+    () => [systemDateTimeLocaleOption, ...filteredDateTimeCountryOptions],
+    [filteredDateTimeCountryOptions, systemDateTimeLocaleOption],
+  );
 
   useEffect(() => {
     const onMouseDown = (event: MouseEvent) => {
@@ -497,30 +545,48 @@ export function SettingsPage() {
     authApi.listApiKeys().then((r) => setKeys(r.keys));
   };
 
-  const handleSaveProfileSettings = async (e: React.FormEvent) => {
+  const handleSaveCalendarSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingProfileSettings(true);
-    setSavedProfileSettings(false);
-    setProfileSettingsError(null);
+    setSavingCalendarSettings(true);
+    setSavedCalendarSettings(false);
+    setCalendarSettingsError(null);
+    try {
+      await authApi.updateProfile({
+        timezone,
+        dateTimeLocale,
+        timeFormat: inferTimeFormatFromLocale(effectiveDateTimeLocale),
+      });
+      await refreshUser();
+      setSavedCalendarSettings(true);
+      setTimeout(() => setSavedCalendarSettings(false), 1800);
+    } catch (err: unknown) {
+      setCalendarSettingsError((err as Error).message || t("common:requestFailed"));
+    } finally {
+      setSavingCalendarSettings(false);
+    }
+  };
+
+  const handleSaveAccountSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAccountSettings(true);
+    setSavedAccountSettings(false);
+    setAccountSettingsError(null);
     try {
       await authApi.updateProfile({
         discoverable,
         preferredLanguage,
-        timezone,
-        dateTimeLocale,
-        timeFormat: inferTimeFormatFromLocale(dateTimeLocale),
         city: city ? city.city : null,
         cityLat: city ? city.lat : null,
         cityLng: city ? city.lng : null,
       });
       changeLanguage((preferredLanguage === "de" ? "de" : "en"));
       await refreshUser();
-      setSavedProfileSettings(true);
-      setTimeout(() => setSavedProfileSettings(false), 1800);
+      setSavedAccountSettings(true);
+      setTimeout(() => setSavedAccountSettings(false), 1800);
     } catch (err: unknown) {
-      setProfileSettingsError((err as Error).message || t("common:requestFailed"));
+      setAccountSettingsError((err as Error).message || t("common:requestFailed"));
     } finally {
-      setSavingProfileSettings(false);
+      setSavingAccountSettings(false);
     }
   };
 
@@ -875,7 +941,7 @@ export function SettingsPage() {
             <h2 id="calendar-heading" className="settings-section-title">
               {t("calendarSettings")}
             </h2>
-            <form onSubmit={handleSaveProfileSettings} className="mb-1">
+            <form onSubmit={handleSaveCalendarSettings} className="mb-1">
               <div className="field">
                 <label htmlFor="settings-time-format">{t("dateTimeLocale")}</label>
                 <div ref={dateTimeCountryRef} style={{ position: "relative" }}>
@@ -901,7 +967,7 @@ export function SettingsPage() {
                       if (event.key === "ArrowDown") {
                         event.preventDefault();
                         setShowDateTimeCountrySuggestions(true);
-                        setDateTimeCountryHighlight((current) => Math.min(current + 1, Math.max(filteredDateTimeCountryOptions.length - 1, 0)));
+                        setDateTimeCountryHighlight((current) => Math.min(current + 1, Math.max(visibleDateTimeCountryOptions.length - 1, 0)));
                         return;
                       }
                       if (event.key === "ArrowUp") {
@@ -910,10 +976,10 @@ export function SettingsPage() {
                         return;
                       }
                       if (event.key === "Enter") {
-                        const selected = filteredDateTimeCountryOptions[dateTimeCountryHighlight];
+                        const selected = visibleDateTimeCountryOptions[dateTimeCountryHighlight];
                         if (!selected) return;
                         event.preventDefault();
-                        setDateTimeLocale(selected.locale);
+                        setDateTimeLocale(selected.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : selected.locale);
                         setDateTimeCountryQuery(selected.countryName);
                         setShowDateTimeCountrySuggestions(false);
                         return;
@@ -927,29 +993,27 @@ export function SettingsPage() {
                     autoComplete="off"
                   />
 
-                  {showDateTimeCountrySuggestions && filteredDateTimeCountryOptions.length > 0 && (
+                  {showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0 && (
                     <div className="venue-dropdown" role="listbox" aria-label={t("dateTimeLocale")}
                     >
-                      {filteredDateTimeCountryOptions.map((option, index) => {
-                        const weekStart = localeWeekStart(option.locale);
-                        const weekLabel = weekStart === 0 ? t("weekStartsSunday") : t("weekStartsMonday");
+                      {visibleDateTimeCountryOptions.map((option, index) => {
                         const dateSample = new Intl.DateTimeFormat(option.locale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
                         const timeSample = new Intl.DateTimeFormat(option.locale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
                         return (
                           <button
                             key={option.regionCode}
                             type="button"
-                            className={`venue-dropdown-item ${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
+                            className={`venue-dropdown-item locale-suggestion-item ${option.regionCode === SYSTEM_DATE_TIME_LOCALE ? "dropdown-pinned-item " : ""}${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
                             onMouseEnter={() => setDateTimeCountryHighlight(index)}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {
-                              setDateTimeLocale(option.locale);
+                              setDateTimeLocale(option.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : option.locale);
                               setDateTimeCountryQuery(option.countryName);
                               setShowDateTimeCountrySuggestions(false);
                             }}
                           >
-                            <span className="venue-dropdown-name">{option.countryName}</span>
-                            <span className="venue-dropdown-addr">{`${weekLabel} · ${dateSample} · ${timeSample}`}</span>
+                            <span className="venue-dropdown-name locale-suggestion-name">{option.countryName}</span>
+                            <span className="venue-dropdown-addr locale-suggestion-preview">{`${dateSample} · ${timeSample}`}</span>
                           </button>
                         );
                       })}
@@ -958,25 +1022,32 @@ export function SettingsPage() {
                 </div>
                 <div className="text-sm text-dim" style={{ marginTop: "0.35rem" }}>
                   {(() => {
-                    const weekStart = localeWeekStart(dateTimeLocale);
+                    const weekStart = localeWeekStart(effectiveDateTimeLocale);
                     const weekLabel = weekStart === 0 ? t("weekStartsSunday") : t("weekStartsMonday");
-                    const dateSample = new Intl.DateTimeFormat(dateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
-                    const timeSample = new Intl.DateTimeFormat(dateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+                    const dateSample = new Intl.DateTimeFormat(effectiveDateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+                    const timeSample = new Intl.DateTimeFormat(effectiveDateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
                     return `${weekLabel} · ${dateSample} · ${timeSample}`;
                   })()}
                 </div>
               </div>
               <div className="field">
                 <label htmlFor="settings-timezone">{t("common:timezone")}</label>
-                <TimezonePicker id="settings-timezone" value={timezone} onChange={setTimezone} />
+                <TimezonePicker
+                  id="settings-timezone"
+                  value={timezone}
+                  onChange={setTimezone}
+                  allowSystemOption
+                  systemValue={SYSTEM_TIMEZONE}
+                  systemLabel={t("useSystemTimezone", { timezone: systemTimezoneLabelValue })}
+                />
               </div>
               <div className="flex items-center gap-1">
-                <button type="submit" className="btn-primary btn-sm" disabled={savingProfileSettings}>
-                  {savingProfileSettings ? t("common:saving") : t("common:save")}
+                <button type="submit" className="btn-primary btn-sm" disabled={savingCalendarSettings}>
+                  {savingCalendarSettings ? t("common:saving") : t("common:save")}
                 </button>
-                {savedProfileSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
+                {savedCalendarSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
-              {profileSettingsError && <p className="text-sm mt-1 error-text" role="alert">{profileSettingsError}</p>}
+              {calendarSettingsError && <p className="text-sm mt-1 error-text" role="alert">{calendarSettingsError}</p>}
             </form>
           </div>
         </section>
@@ -991,7 +1062,7 @@ export function SettingsPage() {
             <h2 id="account-heading" className="settings-section-title">
               {t("account")}
             </h2>
-            <form onSubmit={handleSaveProfileSettings} className="mb-3" style={{ paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
+            <form onSubmit={handleSaveAccountSettings} className="mb-3" style={{ paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
               <div className="field">
                 <label htmlFor="settings-city">{t("city")}</label>
                 <CitySearch id="settings-city" value={city} onChange={setCity} placeholder={t("auth:whereBased")} />
@@ -1020,12 +1091,12 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="flex items-center gap-1">
-                <button type="submit" className="btn-primary btn-sm" disabled={savingProfileSettings}>
-                  {savingProfileSettings ? t("common:saving") : t("common:save")}
+                <button type="submit" className="btn-primary btn-sm" disabled={savingAccountSettings}>
+                  {savingAccountSettings ? t("common:saving") : t("common:save")}
                 </button>
-                {savedProfileSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
+                {savedAccountSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
-              {profileSettingsError && <p className="text-sm mt-1 error-text" role="alert">{profileSettingsError}</p>}
+              {accountSettingsError && <p className="text-sm mt-1 error-text" role="alert">{accountSettingsError}</p>}
             </form>
             <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
             <div className="field mb-2">

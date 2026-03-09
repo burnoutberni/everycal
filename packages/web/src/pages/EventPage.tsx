@@ -8,7 +8,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
-import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
+import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
@@ -79,7 +79,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const repostMenuRef = useRef<HTMLDivElement>(null);
   const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
   const repostMenuId = useId();
-  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const viewerTimeZone = resolveUserTimezone(user);
 
   useEffect(() => {
     if (!repostMenuOpen) return;

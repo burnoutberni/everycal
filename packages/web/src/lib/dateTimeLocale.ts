@@ -1,5 +1,46 @@
 import type { User } from "./api";
 
+export const SYSTEM_TIMEZONE = "system";
+export const SYSTEM_DATE_TIME_LOCALE = "system";
+
+function browserLocale(): string {
+  const runtimeLocale = Intl.DateTimeFormat().resolvedOptions().locale || "en-GB";
+  try {
+    return Intl.getCanonicalLocales(runtimeLocale)[0] || "en-GB";
+  } catch {
+    return "en-GB";
+  }
+}
+
+export function browserTimezone(): string {
+  const runtimeTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!runtimeTimeZone) return "Europe/Vienna";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: runtimeTimeZone });
+    return runtimeTimeZone;
+  } catch {
+    return "Europe/Vienna";
+  }
+}
+
+export function usesSystemTimezone(user: Pick<User, "timezone"> | null | undefined): boolean {
+  return !user?.timezone || user.timezone === SYSTEM_TIMEZONE;
+}
+
+export function usesSystemDateTimeLocale(user: Pick<User, "dateTimeLocale"> | null | undefined): boolean {
+  return !user?.dateTimeLocale || user.dateTimeLocale === SYSTEM_DATE_TIME_LOCALE;
+}
+
+export function resolveUserTimezone(user: Pick<User, "timezone"> | null | undefined): string {
+  if (usesSystemTimezone(user)) return browserTimezone();
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: user!.timezone! });
+    return user!.timezone!;
+  } catch {
+    return browserTimezone();
+  }
+}
+
 export type CountryLocaleOption = {
   regionCode: string;
   countryName: string;
@@ -26,6 +67,9 @@ const SUNDAY_FIRST_REGIONS = new Set([
 const SATURDAY_FIRST_REGIONS = new Set(["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SA", "SD", "SY", "YE"]);
 
 export function resolveDateTimeLocale(user: Pick<User, "dateTimeLocale"> | null | undefined, fallbackLocale: string): string {
+  if (usesSystemDateTimeLocale(user)) {
+    return browserLocale();
+  }
   const candidate = user?.dateTimeLocale || fallbackLocale || "en-GB";
   try {
     return Intl.getCanonicalLocales(candidate)[0] || "en-GB";

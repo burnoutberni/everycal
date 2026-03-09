@@ -7,6 +7,9 @@ type TimezonePickerProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   referenceDateMs?: number;
+  allowSystemOption?: boolean;
+  systemValue?: string;
+  systemLabel?: string;
 };
 
 type TimezoneOption = {
@@ -324,7 +327,16 @@ function uniqueSortedOptions(values: TimezoneOption[], locale: string): Timezone
   return [...deduped.values()].sort((a, b) => compareOptions(a, b, locale));
 }
 
-export function TimezonePicker({ id, value, onChange, placeholder, referenceDateMs }: TimezonePickerProps) {
+export function TimezonePicker({
+  id,
+  value,
+  onChange,
+  placeholder,
+  referenceDateMs,
+  allowSystemOption = false,
+  systemValue = "system",
+  systemLabel,
+}: TimezonePickerProps) {
   const { t, i18n } = useTranslation(["common", "timezones"]);
 
   const locale = useMemo(() => toCanonicalLocale(i18n.language || "en"), [i18n.language]);
@@ -353,9 +365,27 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
   const justSelectedRef = useRef(false);
 
   const selectedOption = useMemo(() => {
-    if (!value) return undefined;
+    if (!value || (allowSystemOption && value === systemValue)) return undefined;
     return optionForTimezone(value, referenceDate, locale, referenceDateKey, translate);
-  }, [value, referenceDate, locale, referenceDateKey, translate]);
+  }, [allowSystemOption, locale, referenceDate, referenceDateKey, systemValue, translate, value]);
+
+  const systemOption = useMemo(() => {
+    if (!allowSystemOption) return undefined;
+    const runtimeTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!runtimeTimeZone) return undefined;
+    const runtimeOption = optionForTimezone(runtimeTimeZone, referenceDate, locale, referenceDateKey, translate);
+    if (!runtimeOption) return undefined;
+    const label = systemLabel || t("systemTimeZone");
+    return {
+      ...runtimeOption,
+      tz: systemValue,
+      city: label,
+      displayLabel: `${label} · ${runtimeOption.offsetLabel} ${runtimeOption.abbreviation}`,
+      searchText: `${label} ${runtimeOption.searchText}`.toLowerCase(),
+    } satisfies TimezoneOption;
+  }, [allowSystemOption, locale, referenceDate, referenceDateKey, systemLabel, systemValue, t, translate]);
+
+  const isSystemSelected = allowSystemOption && value === systemValue && !!systemOption;
 
   const defaultOptions = useMemo(() => {
     const local = new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -366,8 +396,9 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
       .filter((option): option is TimezoneOption => !!option);
 
     if (selectedOption) options.push(selectedOption);
-    return uniqueSortedOptions(options, locale);
-  }, [locale, referenceDate, referenceDateKey, selectedOption, translate]);
+    const sorted = uniqueSortedOptions(options, locale).filter((option) => option.tz !== systemValue);
+    return systemOption ? [systemOption, ...sorted] : sorted;
+  }, [locale, referenceDate, referenceDateKey, selectedOption, systemOption, systemValue, translate]);
 
   const fullSearchOptions = useMemo(() => {
     if (!hasTypedSearch) return [];
@@ -379,18 +410,19 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
   }, [allTimezones, hasTypedSearch, locale, referenceDate, referenceDateKey, translate]);
 
   useEffect(() => {
-    setQuery(selectedOption?.displayLabel || value || "");
-  }, [selectedOption, value]);
+    setQuery(selectedOption?.displayLabel || (isSystemSelected ? systemOption?.displayLabel : value) || "");
+  }, [isSystemSelected, selectedOption, systemOption?.displayLabel, value]);
 
   const filteredOptions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const source = normalized ? fullSearchOptions : defaultOptions;
+    const sourceBase = (normalized ? fullSearchOptions : defaultOptions).filter((option) => option.tz !== systemValue);
+    const source = normalized ? sourceBase.filter((option) => option.searchText.includes(normalized)) : sourceBase;
+    const withPinnedSystem = systemOption ? [systemOption, ...source] : source;
 
-    if (!normalized) return source.slice(0, MAX_VISIBLE_OPTIONS);
-    return source.filter((option) => option.searchText.includes(normalized)).slice(0, MAX_VISIBLE_OPTIONS);
-  }, [defaultOptions, fullSearchOptions, query]);
+    return withPinnedSystem.slice(0, MAX_VISIBLE_OPTIONS);
+  }, [defaultOptions, fullSearchOptions, query, systemOption, systemValue]);
 
-  const showSelectionOverlay = !open && !!selectedOption;
+  const showSelectionOverlay = !open && (!!selectedOption || isSystemSelected);
 
   useEffect(() => {
     if (!open) return;
@@ -427,6 +459,11 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
   const selectTimezone = (timeZone: string) => {
     justSelectedRef.current = true;
     onChange(timeZone);
+    if (allowSystemOption && timeZone === systemValue && systemOption) {
+      setQuery(systemOption.displayLabel);
+      setOpen(false);
+      return;
+    }
     const next = optionForTimezone(timeZone, referenceDate, locale, referenceDateKey, translate);
     setQuery(next?.displayLabel || timeZone);
     setOpen(false);
@@ -441,9 +478,9 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
 
   const onBlur = () => {
     setTimeout(() => {
-      if (!justSelectedRef.current) {
-        setQuery(selectedOption?.displayLabel || value || "");
-      }
+        if (!justSelectedRef.current) {
+          setQuery(selectedOption?.displayLabel || (isSystemSelected ? systemOption?.displayLabel : value) || "");
+        }
 
       justSelectedRef.current = false;
       setOpen(false);
@@ -485,7 +522,7 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
     }
 
     if (event.key === "Escape") {
-      setQuery(selectedOption?.displayLabel || value || "");
+      setQuery(selectedOption?.displayLabel || (isSystemSelected ? systemOption?.displayLabel : value) || "");
       setOpen(false);
     }
   };
@@ -520,10 +557,10 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
           }}
         >
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <strong>{selectedOption.offsetLabel}</strong>
-            <span>{selectedOption.city}</span>
+            <strong>{(isSystemSelected ? systemOption : selectedOption)?.offsetLabel}</strong>
+            <span>{(isSystemSelected ? systemOption : selectedOption)?.city}</span>
           </span>
-          <span className="timezone-item-abbr">{selectedOption.abbreviation}</span>
+          <span className="timezone-item-abbr">{(isSystemSelected ? systemOption : selectedOption)?.abbreviation}</span>
         </div>
       )}
 
@@ -541,7 +578,7 @@ export function TimezonePicker({ id, value, onChange, placeholder, referenceDate
                 itemRefs.current[index] = element;
               }}
               type="button"
-              className={`venue-dropdown-item timezone-item ${index === highlight ? "timezone-item-active" : ""}`}
+              className={`venue-dropdown-item timezone-item ${option.tz === systemValue ? "dropdown-pinned-item " : ""}${index === highlight ? "timezone-item-active" : ""}`}
               onMouseEnter={() => setHighlight(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectTimezone(option.tz)}

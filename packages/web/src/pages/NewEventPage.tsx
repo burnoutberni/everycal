@@ -28,7 +28,7 @@ import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { TagInput } from "../components/TagInput";
 import { TimezonePicker } from "../components/TimezonePicker";
-import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
+import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 
 // ---- Duration helpers ----
 
@@ -463,7 +463,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const [availableIdentities, setAvailableIdentities] = useState<PublishingIdentity[]>([]);
   const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
   const [postAsAccountId, setPostAsAccountId] = useState(initialEvent?.accountId ?? user?.id ?? "");
-  const [eventTimezone, setEventTimezone] = useState(initialEvent?.eventTimezone ?? user?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Europe/Vienna");
+  const [eventTimezone, setEventTimezone] = useState(initialEvent?.eventTimezone ?? resolveUserTimezone(user));
   const [showStartTimezonePicker, setShowStartTimezonePicker] = useState(false);
   const [showEndTimezonePicker, setShowEndTimezonePicker] = useState(false);
   const [postAsNotice, setPostAsNotice] = useState("");
@@ -491,8 +491,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    if (!initialEvent && user?.timezone) {
-      setEventTimezone(user.timezone);
+    if (!initialEvent) {
+      setEventTimezone(resolveUserTimezone(user));
     }
   }, [initialEvent, user?.timezone]);
   const imageSearchQueryRef = useRef<string>("");
@@ -1204,7 +1204,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     ? tags.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
-  const viewerTimeZone = user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const viewerTimeZone = resolveUserTimezone(user);
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const previewStartAtUtc = !allDay ? localDateTimeToUtcMillis(startDate, eventTimezone) : null;
   const previewEndAtUtc = !allDay && endDate ? localDateTimeToUtcMillis(endDate, eventTimezone) : null;
