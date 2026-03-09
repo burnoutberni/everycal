@@ -138,6 +138,28 @@ describe("event slug canonical behavior", () => {
     expect(body.path).toBe("/@alice@remote.example/resolver-event");
   });
 
+  it("resolver assigns slug for existing cached remote event without slug", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://events.htu.at/users/htu", "htu", "https://events.htu.at/inbox", "events.htu.at");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date) VALUES (?, ?, ?, ?)")
+      .run(
+        "https://events.htu.at/events/13064e2e-f644-4b7d-8421-c280ad93b066",
+        "https://events.htu.at/users/htu",
+        "HTU Event",
+        "2026-01-01T10:00:00Z",
+      );
+
+    const app = makeApp(db);
+    const res = await app.request(
+      "http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fevents.htu.at%2Fevents%2F13064e2e-f644-4b7d-8421-c280ad93b066"
+    );
+    const body = await res.json() as { path: string };
+
+    expect(res.status).toBe(200);
+    expect(body.path).toBe("/@htu@events.htu.at/htu-event");
+    expect(vi.mocked(fetchAP)).not.toHaveBeenCalled();
+  });
+
   it("old base64 remote route is no longer supported", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");

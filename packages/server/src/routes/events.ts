@@ -26,7 +26,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { generateAndSaveOgImage } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor } from "../lib/federation.js";
-import { uniqueLocalEventSlug } from "../lib/slugs.js";
+import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
   ActorSelectionPayloadError,
@@ -983,9 +983,17 @@ export function eventRoutes(db: DB): Hono {
          WHERE re.uri = ?`
       )
       .get(normalizedUri) as Record<string, unknown> | undefined;
-    if (existing?.slug && existing.preferred_username && existing.domain) {
-      const path = `/@${existing.preferred_username}@${existing.domain}/${existing.slug}`;
-      return c.json({ path, event: formatRemoteEvent(existing) });
+    if (existing?.preferred_username && existing.domain) {
+      const resolvedSlug = (existing.slug as string | null) || uniqueRemoteEventSlug(
+        db,
+        existing.actor_uri as string,
+        (existing.title as string) || "event",
+      );
+      if (!existing.slug) {
+        db.prepare("UPDATE remote_events SET slug = ? WHERE uri = ?").run(resolvedSlug, existing.uri as string);
+      }
+      const path = `/@${existing.preferred_username}@${existing.domain}/${resolvedSlug}`;
+      return c.json({ path, event: formatRemoteEvent({ ...existing, slug: resolvedSlug }) });
     }
 
     const object = await fetchAP(normalizedUri) as Record<string, unknown>;
