@@ -1,6 +1,7 @@
 import type { DB } from "../db.js";
 import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
+import { DELETED_REMOTE_DISPLAY_NAME } from "./federation.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -121,7 +122,7 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
     return {
       id: remoteRow.uri,
       username: isDeleted ? `deleted@${remoteRow.domain}` : username,
-      displayName: isDeleted ? "Deleted account" : remoteRow.display_name,
+      displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : remoteRow.display_name,
       bio: isDeleted ? null : remoteRow.summary,
       avatarUrl: isDeleted ? null : remoteRow.icon_url,
       website: null,
@@ -416,7 +417,7 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     account: isDeletedActor
       ? {
           username: `deleted@${domain}`,
-          displayName: "Deleted account",
+          displayName: DELETED_REMOTE_DISPLAY_NAME,
           domain,
           iconUrl: null,
         }

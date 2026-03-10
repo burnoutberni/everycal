@@ -16,7 +16,7 @@ import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { deliverToFollowers } from "../lib/federation.js";
+import { DELETED_REMOTE_DISPLAY_NAME, deliverToFollowers } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
@@ -52,8 +52,6 @@ const REMOTE_EVENT_SELECT = `
          ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
-
-const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
 const EVERYCAL_CONTEXT = {

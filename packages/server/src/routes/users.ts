@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
-import { resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
+import { DELETED_REMOTE_DISPLAY_NAME, resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import {
@@ -97,7 +97,7 @@ export function userRoutes(db: DB): Hono {
         return c.json({
           id: remoteRow.uri,
           username: isDeleted ? `deleted@${remoteRow.domain}` : username,
-          displayName: isDeleted ? "Deleted account" : remoteRow.display_name,
+          displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : remoteRow.display_name,
           bio: isDeleted ? null : remoteRow.summary,
           avatarUrl: isDeleted ? null : remoteRow.icon_url,
           website: null,
@@ -672,7 +672,7 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     account: isDeletedActor
       ? {
           username: `deleted@${domain}`,
-          displayName: "Deleted account",
+          displayName: DELETED_REMOTE_DISPLAY_NAME,
           domain,
           iconUrl: null,
         }
@@ -766,7 +766,7 @@ function formatRemoteFollower(row: Record<string, unknown>): Record<string, unkn
   return {
     id: uri,
     username: isDeleted ? `deleted@${domain}` : username,
-    displayName: isDeleted ? "Deleted account" : row.display_name ?? null,
+    displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : row.display_name ?? null,
     avatarUrl: isDeleted ? null : row.icon_url ?? null,
     domain,
     source: "remote",
@@ -784,7 +784,7 @@ function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unk
   return {
     id: uri,
     username: isDeleted ? `deleted@${domain}` : username,
-    displayName: isDeleted ? "Deleted account" : row.display_name ?? null,
+    displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : row.display_name ?? null,
     avatarUrl: isDeleted ? null : row.icon_url ?? null,
     domain,
     source: "remote",

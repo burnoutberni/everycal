@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
+  DELETED_REMOTE_DISPLAY_NAME,
   fetchAP,
   resolveRemoteActor,
   fetchRemoteOutbox,
@@ -492,7 +493,7 @@ export function federationRoutes(db: DB): Hono {
           ? {
               account: {
                 username: `deleted@${(row.domain as string) || "unknown"}`,
-                displayName: "Deleted account",
+                displayName: DELETED_REMOTE_DISPLAY_NAME,
                 domain: (row.domain as string) || "unknown",
                 iconUrl: null,
               },
@@ -556,19 +557,22 @@ export function federationRoutes(db: DB): Hono {
       .all(user.id) as Record<string, unknown>[];
 
     return c.json({
-      actors: rows.map((r) => ({
-        uri: r.uri,
-        type: r.type,
-        username: r.fetch_status === "gone" ? "deleted" : r.preferred_username,
-        displayName: r.fetch_status === "gone" ? "Deleted account" : r.display_name,
-        summary: r.fetch_status === "gone" ? null : r.summary,
-        domain: r.domain,
-        iconUrl: r.fetch_status === "gone" ? null : r.icon_url,
-        imageUrl: r.fetch_status === "gone" ? null : r.image_url,
-        outbox: r.outbox,
-        followersCount: r.followers_count ?? 0,
-        followingCount: r.following_count ?? 0,
-      })),
+      actors: rows.map((r) => {
+        const isGone = r.fetch_status === "gone";
+        return {
+          uri: r.uri,
+          type: r.type,
+          username: isGone ? "deleted" : r.preferred_username,
+          displayName: isGone ? DELETED_REMOTE_DISPLAY_NAME : r.display_name,
+          summary: isGone ? null : r.summary,
+          domain: r.domain,
+          iconUrl: isGone ? null : r.icon_url,
+          imageUrl: isGone ? null : r.image_url,
+          outbox: r.outbox,
+          followersCount: r.followers_count ?? 0,
+          followingCount: r.following_count ?? 0,
+        };
+      }),
     });
   });
 
@@ -644,19 +648,22 @@ export function federationRoutes(db: DB): Hono {
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
-      actors: rows.map((r) => ({
-        uri: r.uri,
-        type: r.type,
-        username: r.fetch_status === "gone" ? "deleted" : r.preferred_username,
-        displayName: r.fetch_status === "gone" ? "Deleted account" : r.display_name,
-        summary: r.fetch_status === "gone" ? null : r.summary,
-        domain: r.domain,
-        iconUrl: r.fetch_status === "gone" ? null : r.icon_url,
-        imageUrl: r.fetch_status === "gone" ? null : r.image_url,
-        eventsCount: r.events_count ?? 0,
-        followersCount: r.followers_count ?? 0,
-        followingCount: r.following_count ?? 0,
-      })),
+      actors: rows.map((r) => {
+        const isGone = r.fetch_status === "gone";
+        return {
+          uri: r.uri,
+          type: r.type,
+          username: isGone ? "deleted" : r.preferred_username,
+          displayName: isGone ? DELETED_REMOTE_DISPLAY_NAME : r.display_name,
+          summary: isGone ? null : r.summary,
+          domain: r.domain,
+          iconUrl: isGone ? null : r.icon_url,
+          imageUrl: isGone ? null : r.image_url,
+          eventsCount: r.events_count ?? 0,
+          followersCount: r.followers_count ?? 0,
+          followingCount: r.following_count ?? 0,
+        };
+      }),
     });
   });
 

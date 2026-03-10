@@ -9,7 +9,7 @@ import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 const DELETED_REMOTE_USERNAME = "deleted";
-const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
+export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
