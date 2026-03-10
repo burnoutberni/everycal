@@ -2540,6 +2540,18 @@ button.tag {
   max-width: none;
 }
 
+.locale-suggestion-locale {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.locale-selected-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .locale-suggestion-preview {
   margin-left: auto;
   flex: 0 0 auto;

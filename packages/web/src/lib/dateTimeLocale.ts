@@ -133,8 +133,9 @@ export function buildCountryLocaleOptions(displayLocale: string, languageHint: s
 
     for (const candidate of candidates) {
       try {
-        const maximized = new Intl.Locale(candidate).maximize().toString();
-        const canonical = Intl.getCanonicalLocales(maximized)[0] || Intl.getCanonicalLocales(candidate)[0];
+        const maximized = new Intl.Locale(candidate).maximize();
+        const normalized = `${maximized.language}-${maximized.region || regionCode}`;
+        const canonical = Intl.getCanonicalLocales(normalized)[0];
         if (!canonical) continue;
         new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
         return canonical;

@@ -29,6 +29,7 @@ import { validateAvatarUpload } from "../lib/avatarUpload";
 import {
   browserTimezone,
   buildCountryLocaleOptions,
+  type CountryLocaleOption,
   localeRegion,
   localeWeekStart,
   resolveDateTimeLocale,
@@ -87,6 +88,7 @@ export function SettingsPage() {
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
   const [timezone, setTimezone] = useState<string>(SYSTEM_TIMEZONE);
   const [dateTimeLocale, setDateTimeLocale] = useState<string>(SYSTEM_DATE_TIME_LOCALE);
+  const [customDateTimeLocaleOptions, setCustomDateTimeLocaleOptions] = useState<CountryLocaleOption[]>([]);
   const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
   const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
   const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
@@ -211,12 +213,95 @@ export function SettingsPage() {
     };
   }, [runtimeSystemDateTimeLocale, systemLocaleCountry, t]);
 
+  const formatDateTimeCountryOptionLabel = (
+    option: { regionCode: string; countryName: string; locale: string },
+  ): string => {
+    if (option.regionCode === SYSTEM_DATE_TIME_LOCALE) return option.countryName;
+    return `${option.countryName} (${option.locale})`;
+  };
+
+  const canonicalizeManualDateTimeLocale = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed === SYSTEM_DATE_TIME_LOCALE) return SYSTEM_DATE_TIME_LOCALE;
+    try {
+      const canonical = Intl.getCanonicalLocales(trimmed)[0] || "";
+      if (!canonical) return null;
+      new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
+      return canonical;
+    } catch {
+      return null;
+    }
+  };
+
+  const addCustomDateTimeLocaleOption = (locale: string): void => {
+    if (locale === SYSTEM_DATE_TIME_LOCALE) return;
+    if (dateTimeCountryOptions.some((option) => option.locale.toLowerCase() === locale.toLowerCase())) return;
+    const region = localeRegion(locale);
+    const displayNames = new Intl.DisplayNames(i18n.language, { type: "region" });
+    const countryName = region ? (displayNames.of(region) || region) : locale;
+    setCustomDateTimeLocaleOptions((current) => {
+      if (current.some((option) => option.locale.toLowerCase() === locale.toLowerCase())) return current;
+      const next: CountryLocaleOption = {
+        regionCode: region || locale,
+        countryName,
+        locale,
+        searchText: `${countryName} ${region || ""} ${locale}`.toLowerCase(),
+      };
+      return [next, ...current];
+    });
+  };
+
+  useEffect(() => {
+    if (dateTimeLocale !== SYSTEM_DATE_TIME_LOCALE) {
+      addCustomDateTimeLocaleOption(dateTimeLocale);
+    }
+  }, [dateTimeCountryOptions, dateTimeLocale, i18n.language]);
+
+  const allDateTimeCountryOptions = useMemo(() => {
+    const existing = new Set(dateTimeCountryOptions.map((option) => option.locale.toLowerCase()));
+    const mergedCustom = customDateTimeLocaleOptions.filter((option) => !existing.has(option.locale.toLowerCase()));
+    return [...mergedCustom, ...dateTimeCountryOptions];
+  }, [customDateTimeLocaleOptions, dateTimeCountryOptions]);
+
   const selectedDateTimeCountry = useMemo(() => {
-    if (dateTimeLocale === SYSTEM_DATE_TIME_LOCALE) return systemDateTimeLocaleOption.countryName;
+    if (dateTimeLocale === SYSTEM_DATE_TIME_LOCALE) return formatDateTimeCountryOptionLabel(systemDateTimeLocaleOption);
     const region = localeRegion(dateTimeLocale);
-    if (!region) return "";
-    return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
-  }, [dateTimeCountryOptions, dateTimeLocale, systemDateTimeLocaleOption.countryName]);
+    if (!region) return dateTimeLocale;
+    const option = allDateTimeCountryOptions.find((candidate) => candidate.regionCode === region);
+    return formatDateTimeCountryOptionLabel({
+      regionCode: region,
+      countryName: option?.countryName || region,
+      locale: dateTimeLocale,
+    });
+  }, [allDateTimeCountryOptions, dateTimeLocale, systemDateTimeLocaleOption]);
+
+  const selectedDateTimeCountryOption = useMemo(() => {
+    if (dateTimeLocale === SYSTEM_DATE_TIME_LOCALE) return systemDateTimeLocaleOption;
+    const region = localeRegion(dateTimeLocale);
+    if (!region) {
+      return { regionCode: dateTimeLocale, countryName: dateTimeLocale, locale: dateTimeLocale };
+    }
+    const exactLocale = allDateTimeCountryOptions.find((candidate) => candidate.locale.toLowerCase() === dateTimeLocale.toLowerCase());
+    if (exactLocale) {
+      return {
+        regionCode: exactLocale.regionCode,
+        countryName: exactLocale.countryName,
+        locale: dateTimeLocale,
+      };
+    }
+    const option = allDateTimeCountryOptions.find((candidate) => candidate.regionCode === region);
+    return {
+      regionCode: region,
+      countryName: option?.countryName || region,
+      locale: dateTimeLocale,
+    };
+  }, [allDateTimeCountryOptions, dateTimeLocale, systemDateTimeLocaleOption]);
+
+  const showDateTimeCountrySelectionOverlay =
+    !showDateTimeCountrySuggestions &&
+    !!selectedDateTimeCountryOption &&
+    dateTimeCountryQuery === selectedDateTimeCountry;
 
   useEffect(() => {
     if (!showDateTimeCountrySuggestions) {
@@ -227,13 +312,33 @@ export function SettingsPage() {
   const filteredDateTimeCountryOptions = useMemo(() => {
     const normalized = dateTimeCountryQuery.trim().toLowerCase();
     return normalized
-      ? dateTimeCountryOptions.filter((option) => option.searchText.includes(normalized))
-      : dateTimeCountryOptions;
-  }, [dateTimeCountryOptions, dateTimeCountryQuery]);
+      ? allDateTimeCountryOptions.filter((option) => option.searchText.includes(normalized))
+      : allDateTimeCountryOptions;
+  }, [allDateTimeCountryOptions, dateTimeCountryQuery]);
+
+  const manualDateTimeLocaleSuggestion = useMemo(() => {
+    const manualLocale = canonicalizeManualDateTimeLocale(dateTimeCountryQuery);
+    if (!manualLocale || manualLocale === SYSTEM_DATE_TIME_LOCALE) return null;
+    const exists = allDateTimeCountryOptions.some((option) => option.locale.toLowerCase() === manualLocale.toLowerCase());
+    if (exists) return null;
+    const region = localeRegion(manualLocale);
+    const displayNames = new Intl.DisplayNames(i18n.language, { type: "region" });
+    const countryName = region ? (displayNames.of(region) || region) : manualLocale;
+    return {
+      regionCode: region || manualLocale,
+      countryName,
+      locale: manualLocale,
+      searchText: `${countryName} ${region || ""} ${manualLocale}`.toLowerCase(),
+    };
+  }, [allDateTimeCountryOptions, dateTimeCountryQuery, i18n.language]);
 
   const visibleDateTimeCountryOptions = useMemo(
-    () => [systemDateTimeLocaleOption, ...filteredDateTimeCountryOptions],
-    [filteredDateTimeCountryOptions, systemDateTimeLocaleOption],
+    () => [
+      systemDateTimeLocaleOption,
+      ...(manualDateTimeLocaleSuggestion ? [manualDateTimeLocaleSuggestion] : []),
+      ...filteredDateTimeCountryOptions,
+    ],
+    [filteredDateTimeCountryOptions, manualDateTimeLocaleSuggestion, systemDateTimeLocaleOption],
   );
 
   useEffect(() => {
@@ -551,9 +656,15 @@ export function SettingsPage() {
     setSavedCalendarSettings(false);
     setCalendarSettingsError(null);
     try {
+      const manualLocale = canonicalizeManualDateTimeLocale(dateTimeCountryQuery);
+      const localeToSave = manualLocale || dateTimeLocale;
+      if (manualLocale && manualLocale !== dateTimeLocale) {
+        setDateTimeLocale(manualLocale);
+        addCustomDateTimeLocaleOption(manualLocale);
+      }
       await authApi.updateProfile({
         timezone,
-        dateTimeLocale,
+        dateTimeLocale: localeToSave,
       });
       await refreshUser();
       setSavedCalendarSettings(true);
@@ -963,15 +1074,25 @@ export function SettingsPage() {
                       setDateTimeCountryHighlight(0);
                     }}
                     onChange={(e) => {
-                      setDateTimeCountryQuery(e.target.value);
+                      const nextQuery = e.target.value;
+                      setDateTimeCountryQuery(nextQuery);
                       setShowDateTimeCountrySuggestions(true);
-                      setDateTimeCountryHighlight(0);
+                      const manualLocale = canonicalizeManualDateTimeLocale(nextQuery);
+                      const hasManualSuggestion = !!manualLocale
+                        && manualLocale !== SYSTEM_DATE_TIME_LOCALE
+                        && !allDateTimeCountryOptions.some((option) => option.locale.toLowerCase() === manualLocale.toLowerCase());
+                      setDateTimeCountryHighlight(hasManualSuggestion ? 1 : 0);
                     }}
                     onBlur={() => {
-                      setTimeout(() => {
-                        setShowDateTimeCountrySuggestions(false);
+                      const manualLocale = canonicalizeManualDateTimeLocale(dateTimeCountryQuery);
+                      if (manualLocale) {
+                        setDateTimeLocale(manualLocale);
+                        addCustomDateTimeLocaleOption(manualLocale);
+                      }
+                      setShowDateTimeCountrySuggestions(false);
+                      if (!manualLocale) {
                         setDateTimeCountryQuery(selectedDateTimeCountry);
-                      }, 120);
+                      }
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "ArrowDown") {
@@ -987,10 +1108,21 @@ export function SettingsPage() {
                       }
                       if (event.key === "Enter") {
                         const selected = visibleDateTimeCountryOptions[dateTimeCountryHighlight];
-                        if (!selected) return;
                         event.preventDefault();
-                        setDateTimeLocale(selected.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : selected.locale);
-                        setDateTimeCountryQuery(selected.countryName);
+                        if (selected) {
+                          setDateTimeLocale(selected.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : selected.locale);
+                          if (selected.regionCode !== SYSTEM_DATE_TIME_LOCALE) {
+                            addCustomDateTimeLocaleOption(selected.locale);
+                          }
+                          setDateTimeCountryQuery(formatDateTimeCountryOptionLabel(selected));
+                          setShowDateTimeCountrySuggestions(false);
+                          return;
+                        }
+                        const manualLocale = canonicalizeManualDateTimeLocale(dateTimeCountryQuery);
+                        if (manualLocale) {
+                          setDateTimeLocale(manualLocale);
+                          addCustomDateTimeLocaleOption(manualLocale);
+                        }
                         setShowDateTimeCountrySuggestions(false);
                         return;
                       }
@@ -1001,7 +1133,31 @@ export function SettingsPage() {
                     }}
                     placeholder={t("dateTimeLocaleCountryPlaceholder")}
                     autoComplete="off"
+                    style={showDateTimeCountrySelectionOverlay ? { color: "transparent", caretColor: "transparent" } : undefined}
                   />
+
+                  {showDateTimeCountrySelectionOverlay && selectedDateTimeCountryOption && (
+                    <div
+                      aria-hidden
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        pointerEvents: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        paddingLeft: 12,
+                        paddingRight: 12,
+                        minWidth: 0,
+                      }}
+                    >
+                      <span className="locale-selected-label">
+                        <span>{selectedDateTimeCountryOption.countryName}</span>
+                        {selectedDateTimeCountryOption.regionCode !== SYSTEM_DATE_TIME_LOCALE && (
+                          <span className="locale-suggestion-locale"> ({selectedDateTimeCountryOption.locale})</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
 
                   {showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0 && (
                     <div className="venue-dropdown" role="listbox" id={dateTimeCountryListboxId} aria-label={t("dateTimeLocale")}
@@ -1011,7 +1167,7 @@ export function SettingsPage() {
                         const timeSample = new Intl.DateTimeFormat(option.locale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
                         return (
                           <button
-                            key={option.regionCode}
+                            key={`${option.regionCode}-${option.locale}`}
                             id={`${dateTimeCountryListboxId}-option-${index}`}
                             type="button"
                             className={`venue-dropdown-item locale-suggestion-item ${option.regionCode === SYSTEM_DATE_TIME_LOCALE ? "dropdown-pinned-item " : ""}${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
@@ -1021,11 +1177,16 @@ export function SettingsPage() {
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {
                               setDateTimeLocale(option.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : option.locale);
-                              setDateTimeCountryQuery(option.countryName);
+                              setDateTimeCountryQuery(formatDateTimeCountryOptionLabel(option));
                               setShowDateTimeCountrySuggestions(false);
                             }}
                           >
-                            <span className="venue-dropdown-name locale-suggestion-name">{option.countryName}</span>
+                            <span className="venue-dropdown-name locale-suggestion-name">
+                              {option.countryName}
+                              {option.regionCode !== SYSTEM_DATE_TIME_LOCALE && (
+                                <span className="locale-suggestion-locale"> ({option.locale})</span>
+                              )}
+                            </span>
                             <span className="venue-dropdown-addr locale-suggestion-preview">{`${dateSample} · ${timeSample}`}</span>
                           </button>
                         );

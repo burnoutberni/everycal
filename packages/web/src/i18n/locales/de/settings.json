@@ -101,7 +101,7 @@
   "useSystemDateTimeLocale": "Systemeinstellung ({{country}}, {{locale}})",
   "systemSetting": "Systemeinstellung",
   "useSystemTimezone": "Systemzeitzone ({{timezone}})",
-  "dateTimeLocaleCountryPlaceholder": "Land suchen",
+  "dateTimeLocaleCountryPlaceholder": "Land oder Format suchen (z.B. en-AT)",
   "weekStartsSunday": "Woche beginnt am Sonntag",
   "weekStartsMonday": "Woche beginnt am Montag",
   "english": "Englisch",
