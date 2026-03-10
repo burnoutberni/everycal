@@ -23,11 +23,17 @@ import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.j
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { convertLegacyNaiveToUtcIso, normalizeApTemporal } from "../lib/timezone.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
   "application/ld+json",
 ];
+
+const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
+const EVERYCAL_CONTEXT = {
+  eventTimezone: "https://everycal.org/ns#eventTimezone",
+};
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
@@ -43,6 +49,13 @@ function toISO8601(dt: string | null | undefined): string | undefined {
   if (dt.includes("T")) return dt.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dt) ? dt : dt + "Z";
   const normalized = dt.replace(" ", "T");
   return normalized.includes(".") ? normalized + "Z" : normalized + ".000Z";
+}
+
+function toUtcIsoOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString();
 }
 
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
@@ -605,8 +618,9 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const uri = object.id as string;
-  const startDate = (object.startTime ?? object.startDate) as string;
-  const endDate = ((object.endTime ?? object.endDate) as string) || null;
+  const temporal = normalizeApTemporal(object);
+  const startDate = temporal.startDate;
+  const endDate = temporal.endDate;
   const locationName = loc?.name ? stripHtml(loc.name as string) : null;
   const locationAddr = locationAddress ? stripHtml(locationAddress) : null;
 
@@ -630,7 +644,12 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  upsertRemoteEvent(db, object, effectiveActor, { clearCanceled: true });
+  if (!startDate) return;
+
+  upsertRemoteEvent(db, object, effectiveActor, {
+    clearCanceled: true,
+    temporal,
+  });
 
   if (activityType === "Update" && changes.length > 0) {
     const stored = db.prepare(
@@ -739,13 +758,23 @@ function rowToAPEvent(
 ): Record<string, unknown> {
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
+  const rowTimezone = typeof row.event_timezone === "string" && row.event_timezone
+    ? row.event_timezone
+    : "Europe/Vienna";
+  const startUtc = toUtcIsoOrUndefined(row.start_at_utc)
+    ?? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.start_date as string, rowTimezone));
+  const endUtc = row.end_at_utc
+    ? toUtcIsoOrUndefined(row.end_at_utc)
+    : row.end_date
+      ? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.end_date as string, rowTimezone))
+      : undefined;
 
   const event: Record<string, unknown> = {
-    "@context": "https://www.w3.org/ns/activitystreams",
+    "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
     id: eventUrl,
     type: "Event",
     name: row.title,
-    startTime: toISO8601(row.start_date as string) ?? row.start_date,
+    startTime: startUtc ?? (toISO8601(row.start_date as string) ?? row.start_date),
     published: toISO8601(row.created_at as string) ?? row.created_at,
     updated: toISO8601(row.updated_at as string) ?? row.updated_at,
     url: (row.url as string) || eventUrl,
@@ -755,7 +784,8 @@ function rowToAPEvent(
   };
 
   if (row.description) event.content = row.description;
-  if (row.end_date) event.endTime = toISO8601(row.end_date as string) ?? row.end_date;
+  if (row.end_date) event.endTime = endUtc ?? (toISO8601(row.end_date as string) ?? row.end_date);
+  if (row.event_timezone) event.eventTimezone = row.event_timezone;
   if (row.location_name) {
     const location: Record<string, unknown> = {
       type: "Place",

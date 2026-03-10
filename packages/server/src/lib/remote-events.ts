@@ -1,9 +1,11 @@
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
+import { normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
 
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
+  temporal?: NormalizedRemoteTemporal;
 }
 
 function extractLocationAddress(location?: Record<string, unknown>): string | null {
@@ -36,8 +38,9 @@ export function upsertRemoteEvent(
         ? stripHtml(object.title)
         : "";
   const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
-  const startDate = (object.startTime ?? object.startDate) as string;
-  const endDate = ((object.endTime ?? object.endDate) as string) || null;
+  const temporal = options.temporal ?? normalizeApTemporal(object);
+  const startDate = temporal.startDate;
+  const endDate = temporal.endDate;
 
   const loc = object.location as Record<string, unknown> | undefined;
   const locationAddress = extractLocationAddress(loc);
@@ -61,6 +64,7 @@ export function upsertRemoteEvent(
       `UPDATE remote_events SET
         slug = ?,
         title = ?, description = ?, start_date = ?, end_date = ?,
+        start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
         url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, fetched_at = datetime('now')${clearCanceled ? ", canceled = 0" : ""}
@@ -71,6 +75,10 @@ export function upsertRemoteEvent(
       description,
       startDate,
       endDate,
+      temporal.startAtUtc,
+      temporal.endAtUtc,
+      temporal.eventTimezone,
+      temporal.timezoneQuality,
       loc?.name ? stripHtml(loc.name as string) : null,
       locationAddress,
       (loc?.latitude as number) ?? null,
@@ -92,9 +100,10 @@ export function upsertRemoteEvent(
   const slug = uniqueRemoteEventSlug(db, actorUri, title);
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
+      start_at_utc, end_at_utc, event_timezone, timezone_quality,
       location_name, location_address, location_latitude, location_longitude,
       image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -103,6 +112,10 @@ export function upsertRemoteEvent(
     description,
     startDate,
     endDate,
+    temporal.startAtUtc,
+    temporal.endAtUtc,
+    temporal.eventTimezone,
+    temporal.timezoneQuality,
     loc?.name ? stripHtml(loc.name as string) : null,
     locationAddress,
     (loc?.latitude as number) ?? null,

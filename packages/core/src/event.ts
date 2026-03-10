@@ -7,6 +7,7 @@
 
 /** Visibility controls who can see an event over federation / API. */
 export type EventVisibility = "public" | "unlisted" | "followers_only" | "private";
+export type TimezoneQuality = "exact_tzid" | "offset_only" | "unknown";
 
 /** All valid visibility values as a runtime-checkable array. */
 export const EVENT_VISIBILITIES: readonly EventVisibility[] = [
@@ -82,6 +83,18 @@ export interface EveryCalEvent {
 
   /** End date/time in ISO 8601. Absent for open-ended events. */
   endDate?: string;
+
+  /** Absolute UTC instant for start when known/derivable. */
+  startAtUtc?: string;
+
+  /** Absolute UTC instant for end when known/derivable. */
+  endAtUtc?: string;
+
+  /** IANA timezone when known (e.g. Europe/Vienna). */
+  eventTimezone?: string;
+
+  /** Quality marker for imported timezone precision. */
+  timezoneQuality?: TimezoneQuality;
 
   /** True if this is an all-day event (no specific time). */
   allDay?: boolean;

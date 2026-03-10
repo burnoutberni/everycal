@@ -4,6 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
+import { convertLegacyNaiveToUtcIso } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -27,6 +28,8 @@ export function initDatabase(path: string): DB {
       public_key TEXT,
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
+      timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
+      date_time_locale TEXT NOT NULL DEFAULT 'en-GB',
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -58,6 +61,11 @@ export function initDatabase(path: string): DB {
       description TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT,
+      start_at_utc TEXT,
+      end_at_utc TEXT,
+      event_timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
+      start_on TEXT,
+      end_on TEXT,
       all_day INTEGER NOT NULL DEFAULT 0,
       location_name TEXT,
       location_address TEXT,
@@ -148,6 +156,10 @@ export function initDatabase(path: string): DB {
       description TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT,
+      start_at_utc TEXT,
+      end_at_utc TEXT,
+      event_timezone TEXT,
+      timezone_quality TEXT NOT NULL DEFAULT 'unknown' CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown')),
       location_name TEXT,
       location_address TEXT,
       location_latitude REAL,
@@ -512,6 +524,76 @@ export function initDatabase(path: string): DB {
     // Index already exists
   }
 
+  // Migration: remote event timezone interoperability columns
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN start_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN end_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN event_timezone TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN timezone_quality TEXT NOT NULL DEFAULT 'unknown' CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown'))");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: best-effort backfill for remote event UTC fields and quality
+  try {
+    const rows = db
+      .prepare(
+        `SELECT uri, start_date, end_date, start_at_utc, end_at_utc, event_timezone, timezone_quality
+         FROM remote_events`
+      )
+      .all() as Array<{
+        uri: string;
+        start_date: string;
+        end_date: string | null;
+        start_at_utc: string | null;
+        end_at_utc: string | null;
+        event_timezone: string | null;
+        timezone_quality: string | null;
+      }>;
+
+    const hasOffset = (value: string | null | undefined): boolean => !!value && /(Z|[+-]\d{2}:\d{2})$/i.test(value);
+    const toUtcIso = (value: string | null | undefined): string | null => {
+      if (!value || !hasOffset(value)) return null;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return parsed.toISOString();
+    };
+
+    const update = db.prepare(
+      `UPDATE remote_events
+       SET start_at_utc = ?, end_at_utc = ?, timezone_quality = ?
+       WHERE uri = ?`
+    );
+
+    for (const row of rows) {
+      const nextStartUtc = row.start_at_utc ?? toUtcIso(row.start_date);
+      const nextEndUtc = row.end_at_utc ?? toUtcIso(row.end_date);
+
+      let nextQuality = row.timezone_quality || "unknown";
+      if (!row.event_timezone && nextQuality === "unknown" && (hasOffset(row.start_date) || hasOffset(row.end_date))) {
+        nextQuality = "offset_only";
+      }
+
+      if (nextStartUtc !== row.start_at_utc || nextEndUtc !== row.end_at_utc || nextQuality !== row.timezone_quality) {
+        update.run(nextStartUtc, nextEndUtc, nextQuality, row.uri);
+      }
+    }
+  } catch {
+    // Ignore during partial initialization
+  }
+
   // Migration: backfill missing remote slugs for already-cached events
   try {
     const missing = db
@@ -655,6 +737,100 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE events ADD COLUMN og_image_url TEXT");
   } catch {
     // Column already exists
+  }
+
+
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Vienna'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN date_time_locale TEXT NOT NULL DEFAULT 'en-GB'");
+  } catch {
+    // Column already exists
+  }
+
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN end_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN event_timezone TEXT NOT NULL DEFAULT 'Europe/Vienna'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN start_on TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN end_on TEXT");
+  } catch {
+    // Column already exists
+  }
+
+
+  try {
+    db.exec(
+      "UPDATE accounts SET date_time_locale = CASE WHEN preferred_language = 'de' THEN 'de-DE' ELSE 'en-GB' END WHERE date_time_locale IS NULL OR trim(date_time_locale) = ''"
+    );
+  } catch {
+    // Ignore during partial initialization
+  }
+  db.exec("DROP TRIGGER IF EXISTS trg_accounts_time_format_insert");
+  db.exec("DROP TRIGGER IF EXISTS trg_accounts_time_format_update");
+  try {
+    db.exec("ALTER TABLE accounts DROP COLUMN time_format");
+  } catch {
+    // Column does not exist or SQLite version does not support DROP COLUMN
+  }
+
+  // Backfill legacy naive values assuming Europe/Vienna
+  try {
+    db.exec("UPDATE events SET event_timezone = COALESCE(NULLIF(event_timezone,''), 'Europe/Vienna')");
+    db.exec("UPDATE events SET start_on = substr(start_date,1,10) WHERE start_on IS NULL AND start_date IS NOT NULL");
+    db.exec("UPDATE events SET end_on = substr(end_date,1,10) WHERE end_on IS NULL AND end_date IS NOT NULL");
+
+    const rows = db
+      .prepare(
+        `SELECT id, start_date, end_date, start_at_utc, end_at_utc, event_timezone
+         FROM events
+         WHERE start_at_utc IS NULL OR (end_date IS NOT NULL AND end_at_utc IS NULL)`
+      )
+      .all() as Array<{
+        id: string;
+        start_date: string;
+        end_date: string | null;
+        start_at_utc: string | null;
+        end_at_utc: string | null;
+        event_timezone: string | null;
+      }>;
+
+    const updateUtc = db.prepare(
+      `UPDATE events
+       SET start_at_utc = ?, end_at_utc = ?
+       WHERE id = ?`
+    );
+
+    for (const row of rows) {
+      const fallbackTimezone = row.event_timezone || "Europe/Vienna";
+      const nextStartUtc = row.start_at_utc ?? convertLegacyNaiveToUtcIso(row.start_date, fallbackTimezone);
+      const nextEndUtc = row.end_at_utc ?? (row.end_date ? convertLegacyNaiveToUtcIso(row.end_date, fallbackTimezone) : null);
+
+      if (nextStartUtc !== row.start_at_utc || nextEndUtc !== row.end_at_utc) {
+        updateUtc.run(nextStartUtc, nextEndUtc, row.id);
+      }
+    }
+  } catch {
+    // Ignore during partial initialization
   }
 
   return db;

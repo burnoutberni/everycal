@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   isValidHttpUrl,
@@ -21,10 +21,20 @@ import {
 import { Link, useLocation } from "wouter";
 import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
-import { UserIcon, LockIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
+import { TimezonePicker } from "../components/TimezonePicker";
+import { UserIcon, LockIcon, CalendarIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
 import { profilePath } from "../lib/urls";
 import { changeLanguage } from "../i18n";
 import { validateAvatarUpload } from "../lib/avatarUpload";
+import {
+  browserTimezone,
+  buildCountryLocaleOptions,
+  localeRegion,
+  localeWeekStart,
+  resolveDateTimeLocale,
+  SYSTEM_DATE_TIME_LOCALE,
+  SYSTEM_TIMEZONE,
+} from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
 
 type IdentityFormErrors = {
@@ -34,12 +44,13 @@ type IdentityFormErrors = {
 };
 
 export function SettingsPage() {
-  const { t, i18n } = useTranslation(["settings", "common", "auth", "profile"]);
+  const { t, i18n } = useTranslation(["settings", "common", "auth", "profile", "timezones"]);
   const [, setLocation] = useLocation();
   const allowLocalhostUrls = typeof window !== "undefined"
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
   const SECTIONS: { id: string; label: string; icon: React.ComponentType<{ className?: string }>; danger?: boolean }[] = [
+    { id: "calendar", label: t("calendarSettings"), icon: CalendarIcon },
     { id: "account", label: t("account"), icon: LockIcon },
     { id: "notifications", label: t("notifications"), icon: BellIcon },
     { id: "identities", label: t("publishingIdentities"), icon: UserIcon },
@@ -47,7 +58,7 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
-  const [activeSection, setActiveSection] = useState<string>("identities");
+  const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const [reminderEnabled, setReminderEnabled] = useState(true);
@@ -74,11 +85,19 @@ export function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState("");
 
   const [preferredLanguage, setPreferredLanguage] = useState<string>("en");
+  const [timezone, setTimezone] = useState<string>(SYSTEM_TIMEZONE);
+  const [dateTimeLocale, setDateTimeLocale] = useState<string>(SYSTEM_DATE_TIME_LOCALE);
+  const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
+  const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
+  const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
   const [discoverable, setDiscoverable] = useState(false);
   const [city, setCity] = useState<CitySelection | null>(null);
-  const [savingProfileSettings, setSavingProfileSettings] = useState(false);
-  const [savedProfileSettings, setSavedProfileSettings] = useState(false);
-  const [profileSettingsError, setProfileSettingsError] = useState<string | null>(null);
+  const [savingCalendarSettings, setSavingCalendarSettings] = useState(false);
+  const [savedCalendarSettings, setSavedCalendarSettings] = useState(false);
+  const [calendarSettingsError, setCalendarSettingsError] = useState<string | null>(null);
+  const [savingAccountSettings, setSavingAccountSettings] = useState(false);
+  const [savedAccountSettings, setSavedAccountSettings] = useState(false);
+  const [accountSettingsError, setAccountSettingsError] = useState<string | null>(null);
 
   const [identities, setIdentities] = useState<PublishingIdentity[]>([]);
   const [selectedIdentityUsername, setSelectedIdentityUsername] = useState("");
@@ -117,6 +136,7 @@ export function SettingsPage() {
   const skipNextMemberLookupRef = useRef(false);
   const identityModalRef = useRef<HTMLDivElement | null>(null);
   const membersModalRef = useRef<HTMLDivElement | null>(null);
+  const dateTimeCountryRef = useRef<HTMLDivElement | null>(null);
   const identitySettingsModalRef = useRef<HTMLDivElement | null>(null);
   const identityModalTriggerRef = useRef<HTMLElement | null>(null);
   const identitySettingsModalTriggerRef = useRef<HTMLElement | null>(null);
@@ -124,11 +144,14 @@ export function SettingsPage() {
   const identityModalTitleId = useId();
   const identitySettingsModalTitleId = useId();
   const membersModalTitleId = useId();
+  const dateTimeCountryListboxId = useId();
 
   useEffect(() => {
     if (!user) return;
     authApi.me().then((u) => {
       setPreferredLanguage(u.preferredLanguage || "en");
+      setTimezone(u.timezone || SYSTEM_TIMEZONE);
+      setDateTimeLocale(u.dateTimeLocale || SYSTEM_DATE_TIME_LOCALE);
       setDiscoverable(!!u.discoverable);
       setCity(u.city && u.cityLat != null && u.cityLng != null ? { city: u.city, lat: u.cityLat, lng: u.cityLng } : null);
       const p = u.notificationPrefs;
@@ -146,6 +169,82 @@ export function SettingsPage() {
       setIdentities([]);
     });
   }, [user]);
+
+  const dateTimeCountryOptions = useMemo(
+    () => buildCountryLocaleOptions(i18n.language, preferredLanguage || i18n.language),
+    [i18n.language, preferredLanguage],
+  );
+
+  const effectiveDateTimeLocale = useMemo(
+    () => resolveDateTimeLocale({ dateTimeLocale }, i18n.language),
+    [dateTimeLocale, i18n.language],
+  );
+
+  const runtimeSystemDateTimeLocale = useMemo(
+    () => resolveDateTimeLocale({ dateTimeLocale: SYSTEM_DATE_TIME_LOCALE }, i18n.language),
+    [i18n.language],
+  );
+
+  const systemTimezoneLabelValue = useMemo(() => {
+    const runtimeTimezone = browserTimezone();
+    const fallbackCity = (runtimeTimezone.split("/").pop() || runtimeTimezone).replace(/_/g, " ");
+    const city = t(`timezones:cities.${runtimeTimezone.replace(/\//g, "_")}`, { defaultValue: fallbackCity });
+    return city || runtimeTimezone;
+  }, [t]);
+
+  const systemLocaleCountry = useMemo(() => {
+    const region = localeRegion(runtimeSystemDateTimeLocale);
+    if (!region) return runtimeSystemDateTimeLocale;
+    return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
+  }, [dateTimeCountryOptions, runtimeSystemDateTimeLocale]);
+
+  const systemDateTimeLocaleOption = useMemo(() => {
+    const dateSample = new Intl.DateTimeFormat(runtimeSystemDateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+    const timeSample = new Intl.DateTimeFormat(runtimeSystemDateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+    const label = t("useSystemDateTimeLocale", { country: systemLocaleCountry, locale: runtimeSystemDateTimeLocale });
+    return {
+      regionCode: SYSTEM_DATE_TIME_LOCALE,
+      countryName: label,
+      locale: runtimeSystemDateTimeLocale,
+      searchText: `${label} ${t("systemSetting")} ${runtimeSystemDateTimeLocale} ${dateSample} ${timeSample}`.toLowerCase(),
+      isSystem: true,
+    };
+  }, [runtimeSystemDateTimeLocale, systemLocaleCountry, t]);
+
+  const selectedDateTimeCountry = useMemo(() => {
+    if (dateTimeLocale === SYSTEM_DATE_TIME_LOCALE) return systemDateTimeLocaleOption.countryName;
+    const region = localeRegion(dateTimeLocale);
+    if (!region) return "";
+    return dateTimeCountryOptions.find((option) => option.regionCode === region)?.countryName || region;
+  }, [dateTimeCountryOptions, dateTimeLocale, systemDateTimeLocaleOption.countryName]);
+
+  useEffect(() => {
+    if (!showDateTimeCountrySuggestions) {
+      setDateTimeCountryQuery(selectedDateTimeCountry);
+    }
+  }, [selectedDateTimeCountry, showDateTimeCountrySuggestions]);
+
+  const filteredDateTimeCountryOptions = useMemo(() => {
+    const normalized = dateTimeCountryQuery.trim().toLowerCase();
+    return normalized
+      ? dateTimeCountryOptions.filter((option) => option.searchText.includes(normalized))
+      : dateTimeCountryOptions;
+  }, [dateTimeCountryOptions, dateTimeCountryQuery]);
+
+  const visibleDateTimeCountryOptions = useMemo(
+    () => [systemDateTimeLocaleOption, ...filteredDateTimeCountryOptions],
+    [filteredDateTimeCountryOptions, systemDateTimeLocaleOption],
+  );
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (!dateTimeCountryRef.current?.contains(event.target as Node)) {
+        setShowDateTimeCountrySuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
 
   const visibilityOptions: Array<{ value: "public" | "unlisted" | "followers_only" | "private"; label: string }> = [
     { value: "public", label: t("visibility.public") },
@@ -446,11 +545,31 @@ export function SettingsPage() {
     authApi.listApiKeys().then((r) => setKeys(r.keys));
   };
 
-  const handleSaveProfileSettings = async (e: React.FormEvent) => {
+  const handleSaveCalendarSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingProfileSettings(true);
-    setSavedProfileSettings(false);
-    setProfileSettingsError(null);
+    setSavingCalendarSettings(true);
+    setSavedCalendarSettings(false);
+    setCalendarSettingsError(null);
+    try {
+      await authApi.updateProfile({
+        timezone,
+        dateTimeLocale,
+      });
+      await refreshUser();
+      setSavedCalendarSettings(true);
+      setTimeout(() => setSavedCalendarSettings(false), 1800);
+    } catch (err: unknown) {
+      setCalendarSettingsError((err as Error).message || t("common:requestFailed"));
+    } finally {
+      setSavingCalendarSettings(false);
+    }
+  };
+
+  const handleSaveAccountSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAccountSettings(true);
+    setSavedAccountSettings(false);
+    setAccountSettingsError(null);
     try {
       await authApi.updateProfile({
         discoverable,
@@ -461,12 +580,12 @@ export function SettingsPage() {
       });
       changeLanguage((preferredLanguage === "de" ? "de" : "en"));
       await refreshUser();
-      setSavedProfileSettings(true);
-      setTimeout(() => setSavedProfileSettings(false), 1800);
+      setSavedAccountSettings(true);
+      setTimeout(() => setSavedAccountSettings(false), 1800);
     } catch (err: unknown) {
-      setProfileSettingsError((err as Error).message || t("common:requestFailed"));
+      setAccountSettingsError((err as Error).message || t("common:requestFailed"));
     } finally {
-      setSavingProfileSettings(false);
+      setSavingAccountSettings(false);
     }
   };
 
@@ -812,6 +931,141 @@ export function SettingsPage() {
         <h1 className="settings-page-title">{t("title")}</h1>
 
         <section
+          id="calendar"
+          ref={(el) => { sectionRefs.current.calendar = el; }}
+          className="settings-section"
+          aria-labelledby="calendar-heading"
+        >
+          <div className="settings-card">
+            <h2 id="calendar-heading" className="settings-section-title">
+              {t("calendarSettings")}
+            </h2>
+            <form onSubmit={handleSaveCalendarSettings} className="mb-1">
+              <div className="field">
+                <label htmlFor="settings-time-format">{t("dateTimeLocale")}</label>
+                <div ref={dateTimeCountryRef} style={{ position: "relative" }}>
+                  <input
+                    id="settings-time-format"
+                    value={dateTimeCountryQuery}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-haspopup="listbox"
+                    aria-expanded={showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0}
+                    aria-controls={dateTimeCountryListboxId}
+                    aria-activedescendant={
+                      showDateTimeCountrySuggestions && visibleDateTimeCountryOptions[dateTimeCountryHighlight]
+                        ? `${dateTimeCountryListboxId}-option-${dateTimeCountryHighlight}`
+                        : undefined
+                    }
+                    onFocus={() => {
+                      setDateTimeCountryQuery("");
+                      setShowDateTimeCountrySuggestions(true);
+                      setDateTimeCountryHighlight(0);
+                    }}
+                    onChange={(e) => {
+                      setDateTimeCountryQuery(e.target.value);
+                      setShowDateTimeCountrySuggestions(true);
+                      setDateTimeCountryHighlight(0);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        setShowDateTimeCountrySuggestions(false);
+                        setDateTimeCountryQuery(selectedDateTimeCountry);
+                      }, 120);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        setShowDateTimeCountrySuggestions(true);
+                        setDateTimeCountryHighlight((current) => Math.min(current + 1, Math.max(visibleDateTimeCountryOptions.length - 1, 0)));
+                        return;
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setDateTimeCountryHighlight((current) => Math.max(current - 1, 0));
+                        return;
+                      }
+                      if (event.key === "Enter") {
+                        const selected = visibleDateTimeCountryOptions[dateTimeCountryHighlight];
+                        if (!selected) return;
+                        event.preventDefault();
+                        setDateTimeLocale(selected.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : selected.locale);
+                        setDateTimeCountryQuery(selected.countryName);
+                        setShowDateTimeCountrySuggestions(false);
+                        return;
+                      }
+                      if (event.key === "Escape") {
+                        setDateTimeCountryQuery(selectedDateTimeCountry);
+                        setShowDateTimeCountrySuggestions(false);
+                      }
+                    }}
+                    placeholder={t("dateTimeLocaleCountryPlaceholder")}
+                    autoComplete="off"
+                  />
+
+                  {showDateTimeCountrySuggestions && visibleDateTimeCountryOptions.length > 0 && (
+                    <div className="venue-dropdown" role="listbox" id={dateTimeCountryListboxId} aria-label={t("dateTimeLocale")}
+                    >
+                      {visibleDateTimeCountryOptions.map((option, index) => {
+                        const dateSample = new Intl.DateTimeFormat(option.locale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+                        const timeSample = new Intl.DateTimeFormat(option.locale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+                        return (
+                          <button
+                            key={option.regionCode}
+                            id={`${dateTimeCountryListboxId}-option-${index}`}
+                            type="button"
+                            className={`venue-dropdown-item locale-suggestion-item ${option.regionCode === SYSTEM_DATE_TIME_LOCALE ? "dropdown-pinned-item " : ""}${index === dateTimeCountryHighlight ? "timezone-item-active" : ""}`}
+                            role="option"
+                            aria-selected={index === dateTimeCountryHighlight}
+                            onMouseEnter={() => setDateTimeCountryHighlight(index)}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setDateTimeLocale(option.regionCode === SYSTEM_DATE_TIME_LOCALE ? SYSTEM_DATE_TIME_LOCALE : option.locale);
+                              setDateTimeCountryQuery(option.countryName);
+                              setShowDateTimeCountrySuggestions(false);
+                            }}
+                          >
+                            <span className="venue-dropdown-name locale-suggestion-name">{option.countryName}</span>
+                            <span className="venue-dropdown-addr locale-suggestion-preview">{`${dateSample} · ${timeSample}`}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="text-sm text-dim" style={{ marginTop: "0.35rem" }}>
+                  {(() => {
+                    const weekStart = localeWeekStart(effectiveDateTimeLocale);
+                    const weekLabel = weekStart === 0 ? t("weekStartsSunday") : t("weekStartsMonday");
+                    const dateSample = new Intl.DateTimeFormat(effectiveDateTimeLocale, { dateStyle: "short" }).format(new Date(2026, 11, 31));
+                    const timeSample = new Intl.DateTimeFormat(effectiveDateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
+                    return `${weekLabel} · ${dateSample} · ${timeSample}`;
+                  })()}
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="settings-timezone">{t("common:timezone")}</label>
+                <TimezonePicker
+                  id="settings-timezone"
+                  value={timezone}
+                  onChange={setTimezone}
+                  allowSystemOption
+                  systemValue={SYSTEM_TIMEZONE}
+                  systemLabel={t("useSystemTimezone", { timezone: systemTimezoneLabelValue })}
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <button type="submit" className="btn-primary btn-sm" disabled={savingCalendarSettings}>
+                  {savingCalendarSettings ? t("common:saving") : t("common:save")}
+                </button>
+                {savedCalendarSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
+              </div>
+              {calendarSettingsError && <p className="text-sm mt-1 error-text" role="alert">{calendarSettingsError}</p>}
+            </form>
+          </div>
+        </section>
+
+        <section
           id="account"
           ref={(el) => { sectionRefs.current.account = el; }}
           className="settings-section"
@@ -821,7 +1075,7 @@ export function SettingsPage() {
             <h2 id="account-heading" className="settings-section-title">
               {t("account")}
             </h2>
-            <form onSubmit={handleSaveProfileSettings} className="mb-3" style={{ paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
+            <form onSubmit={handleSaveAccountSettings} className="mb-3" style={{ paddingBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
               <div className="field">
                 <label htmlFor="settings-city">{t("city")}</label>
                 <CitySearch id="settings-city" value={city} onChange={setCity} placeholder={t("auth:whereBased")} />
@@ -850,12 +1104,12 @@ export function SettingsPage() {
                 </label>
               </div>
               <div className="flex items-center gap-1">
-                <button type="submit" className="btn-primary btn-sm" disabled={savingProfileSettings}>
-                  {savingProfileSettings ? t("common:saving") : t("common:save")}
+                <button type="submit" className="btn-primary btn-sm" disabled={savingAccountSettings}>
+                  {savingAccountSettings ? t("common:saving") : t("common:save")}
                 </button>
-                {savedProfileSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
+                {savedAccountSettings && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
-              {profileSettingsError && <p className="text-sm mt-1 error-text" role="alert">{profileSettingsError}</p>}
+              {accountSettingsError && <p className="text-sm mt-1 error-text" role="alert">{accountSettingsError}</p>}
             </form>
             <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
             <div className="field mb-2">

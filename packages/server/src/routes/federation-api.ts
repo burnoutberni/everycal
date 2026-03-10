@@ -25,6 +25,7 @@ import { generateKeyPair } from "../lib/crypto.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { normalizeApTemporal } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -213,7 +214,9 @@ export function federationRoutes(db: DB): Hono {
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
-        upsertRemoteEvent(db, fullObj, actor.uri);
+        upsertRemoteEvent(db, fullObj, actor.uri, {
+          temporal: normalizeApTemporal(fullObj),
+        });
         imported++;
       }
 
@@ -502,6 +505,10 @@ export function federationRoutes(db: DB): Hono {
         description: row.description,
         startDate: row.start_date,
         endDate: row.end_date,
+        startAtUtc: row.start_at_utc,
+        endAtUtc: row.end_at_utc,
+        eventTimezone: row.event_timezone,
+        timezoneQuality: row.timezone_quality || "unknown",
         allDay: false,
         location: row.location_name
           ? {

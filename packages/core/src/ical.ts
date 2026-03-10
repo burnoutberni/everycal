@@ -1,37 +1,77 @@
-/**
- * Convert between EveryCal events and iCalendar VEVENT strings.
- *
- * Header images are stored as an X-IMAGE extended property since
- * standard iCal has no first-class image field (IMAGE was added in
- * RFC 7986 but support is patchy).
- */
+import { getVtimezoneComponent } from "@touch4it/ical-timezones";
+import { EveryCalEvent, type TimezoneQuality } from "./event.js";
 
-import { EveryCalEvent } from "./event.js";
-
-/** Options when producing iCal output. */
 export interface ToICalOptions {
-  /** If true, add STATUS:TENTATIVE (e.g. for "maybe" RSVPs). */
   tentative?: boolean;
-  /** If true, add STATUS:CANCELLED (e.g. for remote events that were deleted). */
   canceled?: boolean;
 }
 
-/** Produce a VEVENT string (without the VCALENDAR wrapper). */
+export interface ToICalendarOptions {
+  prodId?: string;
+  calendarName?: string;
+}
+
+export type CalendarEntry = EveryCalEvent | { event: EveryCalEvent; options?: ToICalOptions };
+
+interface ParsedProperty {
+  name: string;
+  rawKey: string;
+  params: Record<string, string>;
+  value: string;
+}
+
+const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+export function toICalendar(entries: CalendarEntry[], options?: ToICalendarOptions): string {
+  const normalized = entries.map((entry) => ("event" in entry ? entry : { event: entry }));
+  const tzids = new Set<string>();
+
+  for (const { event } of normalized) {
+    const tzid = getEventTzidForExport(event);
+    if (tzid) tzids.add(tzid);
+  }
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    `PRODID:${options?.prodId || "-//EveryCal//Calendar//EN"}`,
+  ];
+  if (options?.calendarName) lines.push(`X-WR-CALNAME:${escapeICalText(options.calendarName)}`);
+
+  for (const tzid of tzids) {
+    const component = getVtimezoneComponent(tzid);
+    if (component) lines.push(...component.trim().split(/\r?\n/));
+  }
+
+  for (const { event, options: eventOptions } of normalized) {
+    lines.push(...toICal(event, eventOptions).split("\r\n"));
+  }
+
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
 export function toICal(event: EveryCalEvent, options?: ToICalOptions): string {
   const lines: string[] = [
     "BEGIN:VEVENT",
     `UID:${event.id}`,
-    `DTSTAMP:${toICalDate(event.updatedAt)}`,
-    `DTSTART:${toICalDate(event.startDate)}`,
+    `DTSTAMP:${toUtcICalDate(event.updatedAt)}`,
   ];
+
+  const dtStart = buildDateLine("DTSTART", event, true);
+  if (dtStart) lines.push(dtStart);
+  const dtEnd = buildDateLine("DTEND", event, false);
+  if (dtEnd) lines.push(dtEnd);
 
   if (options?.canceled) {
     lines.push("STATUS:CANCELLED");
   } else if (options?.tentative) {
     lines.push("STATUS:TENTATIVE");
-    lines.push("X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE"); // Outlook "Show as: Tentative"
+    lines.push("X-MICROSOFT-CDO-BUSYSTATUS:TENTATIVE");
   }
-  if (event.endDate) lines.push(`DTEND:${toICalDate(event.endDate)}`);
+
   lines.push(`SUMMARY:${escapeICalText(event.title)}`);
   if (event.description) lines.push(`DESCRIPTION:${escapeICalText(event.description)}`);
   if (event.url) lines.push(`URL:${event.url}`);
@@ -42,99 +82,328 @@ export function toICal(event: EveryCalEvent, options?: ToICalOptions): string {
     lines.push(`LOCATION:${escapeICalText(loc)}`);
   }
   if (event.image) lines.push(`X-IMAGE;VALUE=URI:${event.image.url}`);
-  if (event.tags) {
-    lines.push(`CATEGORIES:${event.tags.map(escapeICalText).join(",")}`);
-  }
+  if (event.tags) lines.push(`CATEGORIES:${event.tags.map(escapeICalText).join(",")}`);
   if (event.organizer) lines.push(`ORGANIZER:${event.organizer}`);
 
-  lines.push(`CREATED:${toICalDate(event.createdAt)}`);
-  lines.push(`LAST-MODIFIED:${toICalDate(event.updatedAt)}`);
+  lines.push(`CREATED:${toUtcICalDate(event.createdAt)}`);
+  lines.push(`LAST-MODIFIED:${toUtcICalDate(event.updatedAt)}`);
   lines.push("END:VEVENT");
 
   return lines.join("\r\n");
 }
 
-/** Parse a VEVENT string back into a (partial) EveryCal event. */
 export function fromICal(vevent: string): Partial<EveryCalEvent> {
-  const props = parseProperties(vevent);
+  const properties = parseProperties(vevent);
+  const dtStart = firstProperty(properties, "DTSTART");
+  const dtEnd = firstProperty(properties, "DTEND");
 
   const event: Partial<EveryCalEvent> = {
-    visibility: "public", // iCal doesn't carry visibility in our sense
-    ...(props["UID"] !== undefined ? { id: props["UID"] } : {}),
-    ...(props["SUMMARY"] !== undefined
-      ? { title: unescapeICalText(props["SUMMARY"]) }
-      : {}),
-    ...(props["DESCRIPTION"] !== undefined
-      ? { description: unescapeICalText(props["DESCRIPTION"]) }
-      : {}),
-    ...(props["DTSTART"] !== undefined
-      ? { startDate: fromICalDate(props["DTSTART"]) }
-      : {}),
-    ...(props["DTEND"] !== undefined
-      ? { endDate: fromICalDate(props["DTEND"]) }
-      : {}),
-    ...(props["URL"] !== undefined ? { url: props["URL"] } : {}),
-    ...(props["CREATED"] !== undefined
-      ? { createdAt: fromICalDate(props["CREATED"]) }
-      : {}),
-    ...(props["LAST-MODIFIED"] !== undefined
-      ? { updatedAt: fromICalDate(props["LAST-MODIFIED"]) }
-      : {}),
+    visibility: "public",
+    ...(valueOf(properties, "UID") ? { id: valueOf(properties, "UID") } : {}),
+    ...(valueOf(properties, "SUMMARY") ? { title: unescapeICalText(valueOf(properties, "SUMMARY")!) } : {}),
+    ...(valueOf(properties, "DESCRIPTION") ? { description: unescapeICalText(valueOf(properties, "DESCRIPTION")!) } : {}),
+    ...(valueOf(properties, "URL") ? { url: valueOf(properties, "URL") } : {}),
+    ...(valueOf(properties, "CREATED") ? { createdAt: fromICalUtcOrLocal(valueOf(properties, "CREATED")!) } : {}),
+    ...(valueOf(properties, "LAST-MODIFIED") ? { updatedAt: fromICalUtcOrLocal(valueOf(properties, "LAST-MODIFIED")!) } : {}),
   };
 
-  if (props["LOCATION"]) {
-    event.location = { name: unescapeICalText(props["LOCATION"]) };
+  if (valueOf(properties, "LOCATION")) {
+    event.location = { name: unescapeICalText(valueOf(properties, "LOCATION")!) };
   }
 
-  // X-IMAGE;VALUE=URI — our custom property
-  const imageUrl = props["X-IMAGE"] || props["X-IMAGE;VALUE=URI"];
-  if (imageUrl) {
-    event.image = { url: imageUrl };
+  const image = properties.find((prop) => prop.name === "X-IMAGE" && prop.params.VALUE === "URI")
+    || firstProperty(properties, "X-IMAGE");
+  if (image?.value) event.image = { url: image.value };
+
+  if (valueOf(properties, "CATEGORIES")) {
+    event.tags = valueOf(properties, "CATEGORIES")!
+      .split(",")
+      .map((tag) => unescapeICalText(tag.trim()));
   }
 
-  if (props["CATEGORIES"]) {
-    event.tags = props["CATEGORIES"].split(",").map((t) => unescapeICalText(t.trim()));
-  }
+  if (valueOf(properties, "ORGANIZER")) event.organizer = valueOf(properties, "ORGANIZER")!;
 
-  if (props["ORGANIZER"]) {
-    event.organizer = props["ORGANIZER"];
-  }
+  const parsedStart = parseDateProperty(dtStart);
+  const parsedEnd = parseDateProperty(dtEnd);
+  if (!parsedStart) return event;
 
-  // DTSTART;VALUE=DATE indicates an all-day event (date-only, no time)
-  const dtStartIsDateOnly = Object.keys(props).some(
-    (k) => k.startsWith("DTSTART") && k.includes("VALUE=DATE")
-  );
-  if (dtStartIsDateOnly) {
+  if (parsedStart.kind === "date") {
     event.allDay = true;
+    event.startDate = parsedStart.date;
+    event.eventTimezone = parsedStart.tzid || undefined;
+
+    if (parsedEnd?.kind === "date") {
+      event.endDate = addDays(parsedEnd.date, -1);
+    } else {
+      event.endDate = parsedStart.date;
+    }
+
+    if (parsedStart.tzid) {
+      event.startAtUtc = localInZoneToUtcIso(`${parsedStart.date}T00:00:00`, parsedStart.tzid);
+      const exclusiveEnd = addDays(event.endDate, 1);
+      event.endAtUtc = localInZoneToUtcIso(`${exclusiveEnd}T00:00:00`, parsedStart.tzid);
+      event.timezoneQuality = "exact_tzid";
+    } else {
+      event.timezoneQuality = "unknown";
+    }
+  } else {
+    event.startDate = parsedStart.display;
+    event.startAtUtc = parsedStart.utc || undefined;
+    if (parsedEnd?.kind === "date-time") {
+      event.endDate = parsedEnd.display;
+      event.endAtUtc = parsedEnd.utc || undefined;
+    }
+
+    const tzid = parsedStart.tzid || parsedEnd?.tzid || null;
+    if (tzid) {
+      event.eventTimezone = tzid;
+      event.timezoneQuality = "exact_tzid";
+    } else {
+      const startHadOffset = parsedStart.kind === "date-time" ? parsedStart.hadOffset : false;
+      const endHadOffset = parsedEnd?.kind === "date-time" ? parsedEnd.hadOffset : false;
+      event.timezoneQuality = startHadOffset || endHadOffset ? "offset_only" : "unknown";
+    }
   }
 
   return event;
 }
 
-// ---- helpers ----
+function getEventTzidForExport(event: EveryCalEvent): string | null {
+  if (event.allDay || !event.eventTimezone) return null;
+  return isValidIanaTimezone(event.eventTimezone) ? event.eventTimezone : null;
+}
 
-function parseProperties(vevent: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  // Unfold continuation lines (RFC 5545 §3.1)
-  const unfolded = vevent.replace(/\r?\n[ \t]/g, "");
-  for (const line of unfolded.split(/\r?\n/)) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx < 1) continue;
-    const rawKey = line.slice(0, colonIdx).trim();
-    const value = line.slice(colonIdx + 1);
+function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStart: boolean): string | null {
+  const source = isStart ? event.startDate : event.endDate;
+  if (!source) return null;
 
-    // Store under full key (e.g. "DTSTART;TZID=Europe/Berlin")
-    if (!(rawKey in result)) result[rawKey] = value;
-
-    // Also store under base property name (e.g. "DTSTART")
-    // so lookups by base name work regardless of parameters
-    const semiIdx = rawKey.indexOf(";");
-    if (semiIdx > 0) {
-      const baseName = rawKey.slice(0, semiIdx);
-      if (!(baseName in result)) result[baseName] = value;
-    }
+  if (event.allDay) {
+    const start = toDateOnly(event.startDate);
+    const endInclusive = toDateOnly(event.endDate || event.startDate);
+    const value = isStart ? start : addDays(endInclusive, 1);
+    return `${prefix};VALUE=DATE:${value.replace(/-/g, "")}`;
   }
-  return result;
+
+  const tzid = getEventTzidForExport(event);
+  const utcSource = isStart ? event.startAtUtc : event.endAtUtc;
+
+  if (tzid) {
+    const wall = toWallTimeBasic(source, utcSource, tzid);
+    return `${prefix};TZID=${tzid}:${wall}`;
+  }
+
+  const utc = utcSource || absoluteIsoToUtcIso(source);
+  if (utc) return `${prefix}:${toUtcICalDate(utc)}`;
+
+  return `${prefix}:${toLocalICalDate(source)}`;
+}
+
+function toWallTimeBasic(source: string, utc: string | undefined, tzid: string): string {
+  const utcIso = utc || absoluteIsoToUtcIso(source);
+  if (utcIso) return formatUtcInZone(utcIso, tzid);
+
+  const m = source.match(LOCAL_DATE_TIME);
+  if (m) {
+    return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
+  }
+
+  if (DATE_ONLY.test(source)) return `${source.replace(/-/g, "")}T000000`;
+  return toLocalICalDate(source);
+}
+
+function formatUtcInZone(utcIso: string, tzid: string): string {
+  const instant = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tzid,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  return `${map.year}${map.month}${map.day}T${map.hour}${map.minute}${map.second}`;
+}
+
+function parseProperties(vevent: string): ParsedProperty[] {
+  const unfolded = vevent.replace(/\r?\n[ \t]/g, "");
+  const lines = unfolded.split(/\r?\n/);
+  const parsed: ParsedProperty[] = [];
+
+  for (const line of lines) {
+    const idx = line.indexOf(":");
+    if (idx < 1) continue;
+    const rawKey = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1);
+    const [name, ...paramParts] = rawKey.split(";");
+    const params: Record<string, string> = {};
+    for (const part of paramParts) {
+      const [k, v] = part.split("=", 2);
+      if (k && v) params[k.toUpperCase()] = v;
+    }
+    parsed.push({
+      name: name.toUpperCase(),
+      rawKey,
+      params,
+      value,
+    });
+  }
+
+  return parsed;
+}
+
+function firstProperty(properties: ParsedProperty[], name: string): ParsedProperty | undefined {
+  return properties.find((prop) => prop.name === name);
+}
+
+function valueOf(properties: ParsedProperty[], name: string): string | undefined {
+  return firstProperty(properties, name)?.value;
+}
+
+function parseDateProperty(prop?: ParsedProperty):
+  | { kind: "date"; date: string; tzid: string | null }
+  | { kind: "date-time"; display: string; utc: string | null; tzid: string | null; hadOffset: boolean }
+  | null {
+  if (!prop) return null;
+
+  const tzid = prop.params.TZID && isValidIanaTimezone(prop.params.TZID) ? prop.params.TZID : null;
+  const value = prop.value;
+
+  if (prop.params.VALUE === "DATE" || /^\d{8}$/.test(value)) {
+    const date = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+    return { kind: "date", date, tzid };
+  }
+
+  const m = value.match(/^(\d{8})T(\d{6})(Z|[+-]\d{2}:?\d{2})?$/);
+  if (!m) return null;
+
+  const date = `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}`;
+  const time = `${m[2].slice(0, 2)}:${m[2].slice(2, 4)}:${m[2].slice(4, 6)}`;
+  const suffix = m[3] || "";
+
+  if (tzid) {
+    const display = `${date}T${time}`;
+    return {
+      kind: "date-time",
+      display,
+      utc: localInZoneToUtcIso(display, tzid),
+      tzid,
+      hadOffset: false,
+    };
+  }
+
+  const normalizedSuffix = suffix && suffix !== "Z" && suffix.length === 5
+    ? `${suffix.slice(0, 3)}:${suffix.slice(3, 5)}`
+    : suffix;
+  const display = normalizedSuffix ? `${date}T${time}${normalizedSuffix}` : `${date}T${time}`;
+  const utc = absoluteIsoToUtcIso(display);
+
+  return {
+    kind: "date-time",
+    display,
+    utc,
+    tzid: null,
+    hadOffset: Boolean(normalizedSuffix),
+  };
+}
+
+function toUtcICalDate(iso: string): string {
+  const parsed = new Date(iso);
+  return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function toLocalICalDate(iso: string): string {
+  if (DATE_ONLY.test(iso)) return `${iso.replace(/-/g, "")}T000000`;
+  const m = iso.match(LOCAL_DATE_TIME);
+  if (m) return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
+
+  const parsed = new Date(iso);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "");
+  }
+  return iso.replace(/[-:]/g, "").replace(/\./g, "");
+}
+
+function fromICalUtcOrLocal(value: string): string {
+  const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] || ""}`;
+  const dm = value.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (dm) return `${dm[1]}-${dm[2]}-${dm[3]}`;
+  return value;
+}
+
+function toDateOnly(value: string): string {
+  if (DATE_ONLY.test(value)) return value;
+  return value.slice(0, 10);
+}
+
+function addDays(date: string, days: number): string {
+  const base = new Date(`${date}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function absoluteIsoToUtcIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (!ISO_HAS_OFFSET.test(value)) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function isValidIanaTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  const asUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second),
+  );
+  return asUtc - instant.getTime();
+}
+
+function localInZoneToUtcIso(localIso: string, timeZone: string): string {
+  const m = localIso.match(LOCAL_DATE_TIME);
+  if (!m) {
+    const parsed = new Date(localIso);
+    return Number.isNaN(parsed.getTime()) ? localIso : parsed.toISOString();
+  }
+
+  const [, y, mo, d, h, mi, s] = m;
+  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+
+  let candidateMs = naiveUtcMs;
+  for (let i = 0; i < 4; i += 1) {
+    const offset = getTimeZoneOffsetMs(new Date(candidateMs), timeZone);
+    const next = naiveUtcMs - offset;
+    if (next === candidateMs) break;
+    candidateMs = next;
+  }
+
+  return new Date(candidateMs).toISOString();
 }
 
 function escapeICalText(text: string): string {
@@ -153,16 +422,4 @@ function unescapeICalText(text: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-function toICalDate(iso: string): string {
-  return iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-
-function fromICalDate(ical: string): string {
-  // 20260210T213000Z -> 2026-02-10T21:30:00Z
-  const m = ical.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] || ""}`;
-  // 20260210 (DATE only, VALUE=DATE) -> 2026-02-10T12:00:00.000Z (noon UTC for all-day)
-  const dm = ical.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (dm) return `${dm[1]}-${dm[2]}-${dm[3]}T12:00:00.000Z`;
-  return ical;
-}
+export type { TimezoneQuality };

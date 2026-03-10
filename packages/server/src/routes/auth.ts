@@ -21,6 +21,9 @@ import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEm
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
 
+const SYSTEM_TIMEZONE = "system";
+const SYSTEM_DATE_TIME_LOCALE = "system";
+
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
 
@@ -127,8 +130,10 @@ export function authRoutes(db: DB): Hono {
     const passwordHash = body.password ? hashPassword(body.password) : null;
 
     db.prepare(
-      `INSERT INTO accounts (id, username, display_name, password_hash, email, email_verified, city, city_lat, city_lng, is_bot)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO accounts (
+         id, username, display_name, password_hash, email, email_verified, city, city_lat, city_lng, is_bot, timezone, date_time_locale
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       username,
@@ -139,7 +144,9 @@ export function authRoutes(db: DB): Hono {
       city,
       cityLat,
       cityLng,
-      isBot ? 1 : 0
+      isBot ? 1 : 0,
+      SYSTEM_TIMEZONE,
+      SYSTEM_DATE_TIME_LOCALE,
     );
 
     // Create default notification prefs
@@ -478,7 +485,7 @@ export function authRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, email, email_verified, preferred_language, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -528,6 +535,8 @@ export function authRoutes(db: DB): Hono {
       city: row.city || null,
       cityLat: row.city_lat != null ? Number(row.city_lat) : null,
       cityLng: row.city_lng != null ? Number(row.city_lng) : null,
+      timezone: row.timezone || "Europe/Vienna",
+      dateTimeLocale: row.date_time_locale || "en-GB",
       email: row.email || null,
       emailVerified: !!row.email_verified,
       preferredLanguage: row.preferred_language || "en",
@@ -552,6 +561,8 @@ export function authRoutes(db: DB): Hono {
       cityLat?: number | null;
       cityLng?: number | null;
       preferredLanguage?: string;
+      timezone?: string;
+      dateTimeLocale?: string;
     }>();
 
     const fields: string[] = [];
@@ -623,6 +634,31 @@ export function authRoutes(db: DB): Hono {
         fields.push("preferred_language = ?");
         values.push(body.preferredLanguage);
       }
+    }
+    if (body.timezone !== undefined) {
+      if (body.timezone !== SYSTEM_TIMEZONE) {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: body.timezone });
+        } catch {
+          return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+        }
+      }
+      fields.push("timezone = ?");
+      values.push(body.timezone);
+    }
+    if (body.dateTimeLocale !== undefined) {
+      let canonical = body.dateTimeLocale;
+      if (body.dateTimeLocale !== SYSTEM_DATE_TIME_LOCALE) {
+        try {
+          canonical = Intl.getCanonicalLocales(body.dateTimeLocale)[0] || "";
+          if (!canonical) throw new Error("invalid locale");
+          new Intl.DateTimeFormat(canonical, { dateStyle: "short", timeStyle: "short" });
+        } catch {
+          return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+        }
+      }
+      fields.push("date_time_locale = ?");
+      values.push(canonical);
     }
 
     if (fields.length === 0) {

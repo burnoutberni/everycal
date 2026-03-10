@@ -13,6 +13,9 @@ import {
   resolveIdentityByUsername,
 } from "../lib/identities.js";
 
+const SYSTEM_TIMEZONE = "system";
+const SYSTEM_DATE_TIME_LOCALE = "system";
+
 const VALID_ROLES: IdentityRole[] = ["editor", "owner"];
 const VALID_LOCALES = ["en", "de"] as const;
 type AppLocale = (typeof VALID_LOCALES)[number];
@@ -150,8 +153,8 @@ export function identityRoutes(db: DB): Hono {
       db.prepare(
         `INSERT INTO accounts (
           id, username, account_type, display_name, bio, website, avatar_url, discoverable,
-          default_event_visibility, city, city_lat, city_lng, preferred_language, email_verified
-        ) VALUES (?, ?, 'identity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          default_event_visibility, city, city_lat, city_lng, preferred_language, email_verified, timezone, date_time_locale
+        ) VALUES (?, ?, 'identity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
       ).run(
         id,
         username,
@@ -165,6 +168,8 @@ export function identityRoutes(db: DB): Hono {
         cityLat,
         cityLng,
         preferredLanguage,
+        SYSTEM_TIMEZONE,
+        SYSTEM_DATE_TIME_LOCALE,
       );
 
       db.prepare(

@@ -15,6 +15,7 @@ import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Link } from "wouter";
 import { eventsPathWithTags } from "../lib/urls";
+import { resolveDateTimeLocale } from "../lib/dateTimeLocale";
 
 const PAGE_SIZE = 20;
 /** Height of scope toggle row (All/My events) - part of sticky zone */
@@ -30,6 +31,7 @@ function parseTagsFromSearch(search: string): string[] {
 export function HomePage() {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
+  const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -579,7 +581,7 @@ export function HomePage() {
                   }}
                 >
                   {isPast && <span className="homepage-past-label">{t("events:past")} — </span>}
-                  {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
+                  {formatDateHeading(new Date(dateKey + "T00:00:00"), dateTimeLocale)}
                 </h2>
                 <div className="flex flex-col gap-1">
                   {dayEvents.map((e) => (

@@ -1,40 +1,117 @@
 import i18n from "i18next";
 
-const timeOpts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+function safeTimeZone(tz?: string): string | undefined {
+  if (!tz) return undefined;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return undefined;
+  }
+}
 
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function zoneOffsetToken(timeZone: string, date: Date): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", { timeZone, timeZoneName: "shortOffset" })
+      .formatToParts(date)
+      .find((p) => p.type === "timeZoneName")
+      ?.value || "";
+  } catch {
+    return "";
+  }
+}
+
+function zonesEquivalent(a: string, b: string, date: Date): boolean {
+  if (a === b) return true;
+  const jan = new Date(Date.UTC(date.getUTCFullYear(), 0, 15));
+  const jul = new Date(Date.UTC(date.getUTCFullYear(), 6, 15));
+  return zoneOffsetToken(a, date) === zoneOffsetToken(b, date)
+    && zoneOffsetToken(a, jan) === zoneOffsetToken(b, jan)
+    && zoneOffsetToken(a, jul) === zoneOffsetToken(b, jul);
+}
+
+function dayKey(date: Date, timeZone: string): string {
+  return date.toLocaleDateString("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone });
+}
+
+export function timeZoneCityLabel(timeZone: string, locale?: string): string {
+  const fallbackCity = (timeZone.split("/").pop() || timeZone).replace(/_/g, " ");
+  const translationKey = `timezones:cities.${timeZone.replace(/\//g, "_")}`;
+  return i18n.t(translationKey, {
+    ...(locale ? { lng: locale } : {}),
+    defaultValue: fallbackCity,
+  });
+}
+
+function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
+  const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit", timeZone };
+  return a.toLocaleDateString("en-CA", opts) === b.toLocaleDateString("en-CA", opts);
+}
+
+function parseDateOnly(value: string | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  return { year, month, day };
+}
+
+function dateOnlyToUtcDate(dateOnly: { year: number; month: number; day: number }): Date {
+  return new Date(Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day, 0, 0, 0));
 }
 
 /** Format event start/end for display. Handles all-day, end time, and multi-day. */
 export function formatEventDateTime(
-  event: { startDate: string; endDate: string | null; allDay: boolean },
+  event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
   long = false,
-  options?: { locale?: string; allDayLabel?: string }
+  options?: {
+    locale?: string;
+    allDayLabel?: string;
+    viewerTimeZone?: string;
+    displayTimeZone?: string;
+  }
 ): string {
   const locale = options?.locale;
   const allDayLabel = options?.allDayLabel ?? i18n.t("events:allDay");
-  const start = new Date(event.startDate);
-  const end = event.endDate ? new Date(event.endDate) : null;
+  const eventTz = safeTimeZone(event.eventTimezone);
+  const displayTz = safeTimeZone(options?.displayTimeZone);
+  const timeZone = displayTz || eventTz;
+  const startDateOnly = event.allDay ? parseDateOnly(event.startDate) : null;
+  const endDateOnly = event.allDay ? parseDateOnly(event.endDate) : null;
+  const startInstant = event.allDay
+    ? (startDateOnly ? dateOnlyToUtcDate(startDateOnly).toISOString() : event.startDate)
+    : (event.startAtUtc || event.startDate);
+  const endInstant = event.allDay
+    ? (endDateOnly ? dateOnlyToUtcDate(endDateOnly).toISOString() : null)
+    : (event.endAtUtc || event.endDate);
+  const start = new Date(startInstant);
+  const end = endInstant ? new Date(endInstant) : null;
   const isCurrentYear = start.getFullYear() === new Date().getFullYear();
 
+  const dateFormatTimeZone = event.allDay ? "UTC" : timeZone;
+
   const dateOpts: Intl.DateTimeFormatOptions = long
-    ? { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+    ? { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: dateFormatTimeZone }
     : {
         weekday: "short",
         month: "short",
         day: "numeric",
         ...(isCurrentYear ? {} : { year: "numeric" }),
+        timeZone: dateFormatTimeZone,
       };
 
-  const startDateStr = start.toLocaleDateString(locale, dateOpts);
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  };
 
+  const startDateStr = start.toLocaleDateString(locale, dateOpts);
   if (event.allDay) {
-    if (!end || isSameDay(start, end)) {
+    if (!end || isSameDay(start, end, timeZone)) {
       return `${startDateStr} · ${allDayLabel}`;
     }
     const endDateStr = end.toLocaleDateString(locale, dateOpts);
@@ -43,15 +120,94 @@ export function formatEventDateTime(
 
   const startTimeStr = start.toLocaleTimeString(locale, timeOpts);
 
-  if (!end || isSameDay(start, end)) {
+  if (!end || isSameDay(start, end, timeZone)) {
     const endTimeStr = end ? end.toLocaleTimeString(locale, timeOpts) : null;
-    if (endTimeStr && endTimeStr !== startTimeStr) {
-      return `${startDateStr} · ${startTimeStr} – ${endTimeStr}`;
-    }
-    return `${startDateStr} · ${startTimeStr}`;
+    const base = endTimeStr && endTimeStr !== startTimeStr
+      ? `${startDateStr} · ${startTimeStr} – ${endTimeStr}`
+      : `${startDateStr} · ${startTimeStr}`;
+    return base;
   }
 
   const endDateStr = end.toLocaleDateString(locale, dateOpts);
   const endTimeStr = end.toLocaleTimeString(locale, timeOpts);
   return `${startDateStr} · ${startTimeStr} – ${endDateStr} · ${endTimeStr}`;
+}
+
+export function hasDifferentTimezoneAtEventTime(
+  event: { startDate: string; startAtUtc?: string; allDay: boolean; eventTimezone?: string },
+  viewerTimeZone?: string
+): boolean {
+  const eventTz = safeTimeZone(event.eventTimezone);
+  const viewerTz = safeTimeZone(viewerTimeZone);
+  if (!eventTz || !viewerTz) return false;
+  const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
+  const start = new Date(startInstant);
+  return !zonesEquivalent(eventTz, viewerTz, start);
+}
+
+export function formatViewerTimezoneTooltip(
+  event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
+  options?: { locale?: string; allDayLabel?: string; viewerTimeZone?: string }
+): string {
+  const locale = options?.locale;
+  const viewerTz = safeTimeZone(options?.viewerTimeZone);
+  const eventTz = safeTimeZone(event.eventTimezone);
+  if (!viewerTz || !eventTz) return "";
+  if (!hasDifferentTimezoneAtEventTime(event, viewerTz)) return "";
+
+  const city = timeZoneCityLabel(viewerTz, locale);
+  if (event.allDay) {
+    const viewerLabel = formatEventDateTime({ ...event, eventTimezone: viewerTz }, true, {
+      locale,
+      allDayLabel: options?.allDayLabel,
+      viewerTimeZone: viewerTz,
+    });
+    return `${city}: ${viewerLabel}`;
+  }
+
+  const startInstant = event.startAtUtc || event.startDate;
+  const endInstant = event.endAtUtc || event.endDate;
+  const start = new Date(startInstant);
+  const end = endInstant ? new Date(endInstant) : null;
+
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(start.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }),
+    timeZone: viewerTz,
+  };
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: viewerTz,
+  };
+
+  const startTime = start.toLocaleTimeString(locale, timeOpts);
+  const eventStartDay = dayKey(start, eventTz);
+  const viewerStartDay = dayKey(start, viewerTz);
+  let body = startTime;
+
+  if (end) {
+    const endTime = end.toLocaleTimeString(locale, timeOpts);
+    if (endTime !== startTime || !isSameDay(start, end, viewerTz)) {
+      body = `${startTime} – ${endTime}`;
+    }
+    if (!isSameDay(start, end, viewerTz)) {
+      const startDate = start.toLocaleDateString(locale, dateOpts);
+      const endDate = end.toLocaleDateString(locale, dateOpts);
+      body = `${startDate} · ${startTime} – ${endDate} · ${endTime}`;
+    }
+  }
+
+  const shouldIncludeDate = eventStartDay !== viewerStartDay;
+  if (shouldIncludeDate && end && isSameDay(start, end, viewerTz)) {
+    const startDate = start.toLocaleDateString(locale, dateOpts);
+    body = `${startDate} · ${body}`;
+  } else if (shouldIncludeDate && !end) {
+    const startDate = start.toLocaleDateString(locale, dateOpts);
+    body = `${startDate} · ${body}`;
+  }
+
+  return `${city}: ${body}`;
 }

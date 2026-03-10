@@ -7,7 +7,8 @@ import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
-import { formatEventDateTime } from "../lib/formatEventDateTime";
+import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
+import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
@@ -21,6 +22,7 @@ type RsvpStatus = "going" | "maybe" | null;
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
+  const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [location, navigate] = useLocation();
 
@@ -77,6 +79,8 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const repostMenuRef = useRef<HTMLDivElement>(null);
   const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
   const repostMenuId = useId();
+  const viewerTimezoneTooltipId = useId();
+  const viewerTimeZone = resolveUserTimezone(user);
 
   useEffect(() => {
     if (!repostMenuOpen) return;
@@ -338,8 +342,8 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
     const title = event.title;
     const description = event.location?.name
-      ? `${formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })} • ${event.location.name}`
-      : formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") });
+      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone })} • ${event.location.name}`
+      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone });
 
     document.title = title;
     document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
@@ -350,7 +354,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       document.querySelector('meta[property="og:image"]')?.setAttribute("content", ogImageUrl);
       document.querySelector('meta[name="twitter:image"]')?.setAttribute("content", ogImageUrl);
     }
-  }, [event, i18n.language, t]);
+  }, [dateTimeLocale, event, t, user?.dateTimeLocale, viewerTimeZone]);
 
   const handleDelete = async () => {
     if (!event || !confirm(t("deleteEventConfirm"))) return;
@@ -370,6 +374,26 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     event.location?.latitude != null && event.location?.longitude != null;
 
   const isCanceled = !!event.canceled;
+  const eventDateLabel = formatEventDateTime(event, true, {
+    locale: dateTimeLocale,
+    allDayLabel: t("allDay"),
+    viewerTimeZone,
+    displayTimeZone: viewerTimeZone,
+  });
+  const showViewerTimezoneTooltip = hasDifferentTimezoneAtEventTime(event, viewerTimeZone);
+  const viewerTimezoneDateLabel = showViewerTimezoneTooltip
+    ? (() => {
+      const eventTz = event.eventTimezone;
+      if (!eventTz) return "";
+      const localDateTime = formatEventDateTime(event, true, {
+        locale: dateTimeLocale,
+        allDayLabel: t("allDay"),
+        viewerTimeZone,
+        displayTimeZone: eventTz,
+      });
+      return `${t("common:localTimeLabel")}: ${localDateTime}`;
+    })()
+    : "";
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
@@ -408,7 +432,16 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col gap-1">
             <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-              {formatEventDateTime(event, true, { locale: i18n.language, allDayLabel: t("allDay") })}
+              <span
+                className={showViewerTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
+                tabIndex={showViewerTimezoneTooltip ? 0 : undefined}
+                aria-describedby={showViewerTimezoneTooltip && viewerTimezoneDateLabel ? viewerTimezoneTooltipId : undefined}
+              >
+                {eventDateLabel}
+                {showViewerTimezoneTooltip && (
+                  <span id={viewerTimezoneTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>
+                )}
+              </span>
             </span>
             {event.visibility !== "public" && (
               <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>
