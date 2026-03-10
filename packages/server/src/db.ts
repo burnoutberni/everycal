@@ -8,6 +8,9 @@ import { convertLegacyNaiveToUtcIso } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
+const SYSTEM_TIMEZONE = "system";
+const SYSTEM_DATE_TIME_LOCALE = "system";
+
 export function initDatabase(path: string): DB {
   const db = new Database(path);
 
@@ -28,8 +31,8 @@ export function initDatabase(path: string): DB {
       public_key TEXT,
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
-      timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
-      date_time_locale TEXT NOT NULL DEFAULT 'en-GB',
+      timezone TEXT NOT NULL DEFAULT 'system',
+      date_time_locale TEXT NOT NULL DEFAULT 'system',
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -741,14 +744,100 @@ export function initDatabase(path: string): DB {
 
 
   try {
-    db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Vienna'");
+    db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'system'");
   } catch {
     // Column already exists
   }
   try {
-    db.exec("ALTER TABLE accounts ADD COLUMN date_time_locale TEXT NOT NULL DEFAULT 'en-GB'");
+    db.exec("ALTER TABLE accounts ADD COLUMN date_time_locale TEXT NOT NULL DEFAULT 'system'");
   } catch {
     // Column already exists
+  }
+
+  // Migration: normalize accounts column defaults for timezone/locale on legacy DBs
+  try {
+    const accountCols = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const timezoneDefault = accountCols.find((col) => col.name === "timezone")?.dflt_value;
+    const localeDefault = accountCols.find((col) => col.name === "date_time_locale")?.dflt_value;
+    const needsAccountsDefaultRebuild = timezoneDefault !== "'system'" || localeDefault !== "'system'";
+
+    if (needsAccountsDefaultRebuild) {
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.exec("BEGIN");
+      try {
+        db.exec(`
+          CREATE TABLE accounts_new (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
+            display_name TEXT,
+            bio TEXT,
+            avatar_url TEXT,
+            password_hash TEXT,
+            private_key TEXT,
+            public_key TEXT,
+            is_bot INTEGER NOT NULL DEFAULT 0,
+            discoverable INTEGER NOT NULL DEFAULT 0,
+            timezone TEXT NOT NULL DEFAULT 'system',
+            date_time_locale TEXT NOT NULL DEFAULT 'system',
+            default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            website TEXT,
+            city TEXT NOT NULL DEFAULT 'Wien',
+            city_lat REAL NOT NULL DEFAULT 48.2082,
+            city_lng REAL NOT NULL DEFAULT 16.3738,
+            email TEXT,
+            email_verified INTEGER NOT NULL DEFAULT 0,
+            email_verified_at TEXT,
+            preferred_language TEXT DEFAULT 'en'
+          )
+        `);
+        db.exec(`
+          INSERT INTO accounts_new (
+            id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
+            is_bot, discoverable, timezone, date_time_locale, default_event_visibility, created_at, updated_at,
+            website, city, city_lat, city_lng, email, email_verified, email_verified_at, preferred_language
+          )
+          SELECT
+            id,
+            username,
+            account_type,
+            display_name,
+            bio,
+            avatar_url,
+            password_hash,
+            private_key,
+            public_key,
+            is_bot,
+            discoverable,
+            COALESCE(NULLIF(timezone, ''), '${SYSTEM_TIMEZONE}') AS timezone,
+            COALESCE(NULLIF(date_time_locale, ''), '${SYSTEM_DATE_TIME_LOCALE}') AS date_time_locale,
+            default_event_visibility,
+            created_at,
+            updated_at,
+            website,
+            city,
+            city_lat,
+            city_lng,
+            email,
+            email_verified,
+            email_verified_at,
+            preferred_language
+          FROM accounts
+        `);
+        db.exec("DROP TABLE accounts");
+        db.exec("ALTER TABLE accounts_new RENAME TO accounts");
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      } finally {
+        db.exec("PRAGMA foreign_keys = ON");
+      }
+    }
+  } catch {
+    // Ignore during partial initialization
   }
 
   try {
@@ -780,7 +869,15 @@ export function initDatabase(path: string): DB {
 
   try {
     db.exec(
-      "UPDATE accounts SET date_time_locale = CASE WHEN preferred_language = 'de' THEN 'de-DE' ELSE 'en-GB' END WHERE date_time_locale IS NULL OR trim(date_time_locale) = ''"
+      `UPDATE accounts
+       SET timezone = '${SYSTEM_TIMEZONE}'
+       WHERE timezone IS NULL OR trim(timezone) = ''`
+    );
+    db.exec(
+      `UPDATE accounts
+       SET date_time_locale = '${SYSTEM_DATE_TIME_LOCALE}'
+       WHERE date_time_locale IS NULL
+          OR trim(date_time_locale) = ''`
     );
   } catch {
     // Ignore during partial initialization
