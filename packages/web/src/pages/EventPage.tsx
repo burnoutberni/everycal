@@ -342,8 +342,8 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
     const title = event.title;
     const description = event.location?.name
-      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone, displayTimeZone: viewerTimeZone })} • ${event.location.name}`
-      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat, viewerTimeZone, displayTimeZone: viewerTimeZone });
+      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone })} • ${event.location.name}`
+      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone });
 
     document.title = title;
     document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);
@@ -354,7 +354,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       document.querySelector('meta[property="og:image"]')?.setAttribute("content", ogImageUrl);
       document.querySelector('meta[name="twitter:image"]')?.setAttribute("content", ogImageUrl);
     }
-  }, [dateTimeLocale, event, t, user?.dateTimeLocale, user?.timeFormat, viewerTimeZone]);
+  }, [dateTimeLocale, event, t, user?.dateTimeLocale, viewerTimeZone]);
 
   const handleDelete = async () => {
     if (!event || !confirm(t("deleteEventConfirm"))) return;
@@ -377,7 +377,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const eventDateLabel = formatEventDateTime(event, true, {
     locale: dateTimeLocale,
     allDayLabel: t("allDay"),
-    timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
     viewerTimeZone,
     displayTimeZone: viewerTimeZone,
   });
@@ -389,7 +388,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       const localDateTime = formatEventDateTime(event, true, {
         locale: dateTimeLocale,
         allDayLabel: t("allDay"),
-        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
         displayTimeZone: eventTz,
       });

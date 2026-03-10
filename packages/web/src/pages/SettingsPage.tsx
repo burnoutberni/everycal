@@ -29,7 +29,6 @@ import { validateAvatarUpload } from "../lib/avatarUpload";
 import {
   browserTimezone,
   buildCountryLocaleOptions,
-  inferTimeFormatFromLocale,
   localeRegion,
   localeWeekStart,
   resolveDateTimeLocale,
@@ -555,7 +554,6 @@ export function SettingsPage() {
       await authApi.updateProfile({
         timezone,
         dateTimeLocale,
-        timeFormat: inferTimeFormatFromLocale(effectiveDateTimeLocale),
       });
       await refreshUser();
       setSavedCalendarSettings(true);

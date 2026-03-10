@@ -48,6 +48,21 @@ function isSameDay(a: Date, b: Date, timeZone?: string): boolean {
   return a.toLocaleDateString("en-CA", opts) === b.toLocaleDateString("en-CA", opts);
 }
 
+function parseDateOnly(value: string | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  return { year, month, day };
+}
+
+function dateOnlyToUtcDate(dateOnly: { year: number; month: number; day: number }): Date {
+  return new Date(Date.UTC(dateOnly.year, dateOnly.month - 1, dateOnly.day, 0, 0, 0));
+}
+
 /** Format event start/end for display. Handles all-day, end time, and multi-day. */
 export function formatEventDateTime(
   event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
@@ -55,7 +70,6 @@ export function formatEventDateTime(
   options?: {
     locale?: string;
     allDayLabel?: string;
-    timeFormat?: "12h" | "24h";
     viewerTimeZone?: string;
     displayTimeZone?: string;
   }
@@ -65,26 +79,33 @@ export function formatEventDateTime(
   const eventTz = safeTimeZone(event.eventTimezone);
   const displayTz = safeTimeZone(options?.displayTimeZone);
   const timeZone = displayTz || eventTz;
-  const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
-  const endInstant = event.allDay ? event.endDate : (event.endAtUtc || event.endDate);
+  const startDateOnly = event.allDay ? parseDateOnly(event.startDate) : null;
+  const endDateOnly = event.allDay ? parseDateOnly(event.endDate) : null;
+  const startInstant = event.allDay
+    ? (startDateOnly ? dateOnlyToUtcDate(startDateOnly).toISOString() : event.startDate)
+    : (event.startAtUtc || event.startDate);
+  const endInstant = event.allDay
+    ? (endDateOnly ? dateOnlyToUtcDate(endDateOnly).toISOString() : null)
+    : (event.endAtUtc || event.endDate);
   const start = new Date(startInstant);
   const end = endInstant ? new Date(endInstant) : null;
   const isCurrentYear = start.getFullYear() === new Date().getFullYear();
 
+  const dateFormatTimeZone = event.allDay ? "UTC" : timeZone;
+
   const dateOpts: Intl.DateTimeFormatOptions = long
-    ? { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone }
+    ? { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: dateFormatTimeZone }
     : {
         weekday: "short",
         month: "short",
         day: "numeric",
         ...(isCurrentYear ? {} : { year: "numeric" }),
-        timeZone,
+        timeZone: dateFormatTimeZone,
       };
 
   const timeOpts: Intl.DateTimeFormatOptions = {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: options?.timeFormat ? options.timeFormat === "12h" : undefined,
     timeZone,
   };
 
@@ -126,7 +147,7 @@ export function hasDifferentTimezoneAtEventTime(
 
 export function formatViewerTimezoneTooltip(
   event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
-  options?: { locale?: string; allDayLabel?: string; timeFormat?: "12h" | "24h"; viewerTimeZone?: string }
+  options?: { locale?: string; allDayLabel?: string; viewerTimeZone?: string }
 ): string {
   const locale = options?.locale;
   const viewerTz = safeTimeZone(options?.viewerTimeZone);
@@ -139,7 +160,6 @@ export function formatViewerTimezoneTooltip(
     const viewerLabel = formatEventDateTime({ ...event, eventTimezone: viewerTz }, true, {
       locale,
       allDayLabel: options?.allDayLabel,
-      timeFormat: options?.timeFormat,
       viewerTimeZone: viewerTz,
     });
     return `${city}: ${viewerLabel}`;
@@ -160,7 +180,6 @@ export function formatViewerTimezoneTooltip(
   const timeOpts: Intl.DateTimeFormatOptions = {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: options?.timeFormat ? options.timeFormat === "12h" : undefined,
     timeZone: viewerTz,
   };
 

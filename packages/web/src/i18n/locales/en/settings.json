@@ -97,7 +97,6 @@
   "deleteKeyConfirm": "Delete this API key?",
   "logInToAccess": "to access settings.",
   "language": "Language",
-  "timeFormat": "Time format",
   "dateTimeLocale": "Date and time locale",
   "useSystemDateTimeLocale": "System setting ({{country}}, {{locale}})",
   "systemSetting": "System setting",

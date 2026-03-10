@@ -485,7 +485,7 @@ export function authRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, time_format, date_time_locale, email, email_verified, preferred_language, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -536,7 +536,6 @@ export function authRoutes(db: DB): Hono {
       cityLat: row.city_lat != null ? Number(row.city_lat) : null,
       cityLng: row.city_lng != null ? Number(row.city_lng) : null,
       timezone: row.timezone || "Europe/Vienna",
-      timeFormat: row.time_format || "24h",
       dateTimeLocale: row.date_time_locale || "en-GB",
       email: row.email || null,
       emailVerified: !!row.email_verified,
@@ -563,7 +562,6 @@ export function authRoutes(db: DB): Hono {
       cityLng?: number | null;
       preferredLanguage?: string;
       timezone?: string;
-      timeFormat?: "12h" | "24h";
       dateTimeLocale?: string;
     }>();
 
@@ -647,13 +645,6 @@ export function authRoutes(db: DB): Hono {
       }
       fields.push("timezone = ?");
       values.push(body.timezone);
-    }
-    if (body.timeFormat !== undefined) {
-      if (body.timeFormat !== "12h" && body.timeFormat !== "24h") {
-        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-      }
-      fields.push("time_format = ?");
-      values.push(body.timeFormat);
     }
     if (body.dateTimeLocale !== undefined) {
       let canonical = body.dateTimeLocale;

@@ -97,7 +97,6 @@
   "deleteKeyConfirm": "Diesen API-Schlüssel löschen?",
   "logInToAccess": "um auf die Einstellungen zuzugreifen.",
   "language": "Sprache",
-  "timeFormat": "Zeitformat",
   "dateTimeLocale": "Datums- und Zeitformat",
   "useSystemDateTimeLocale": "Systemeinstellung ({{country}}, {{locale}})",
   "systemSetting": "Systemeinstellung",

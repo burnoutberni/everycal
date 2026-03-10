@@ -68,7 +68,6 @@ export function EventCard({
   const dateTimeStr = formatEventDateTime(event, false, {
     locale: dateTimeLocale,
     allDayLabel: t("allDay"),
-    timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
     viewerTimeZone,
     displayTimeZone: viewerTimeZone,
   });
@@ -80,7 +79,6 @@ export function EventCard({
       const localDateTime = formatEventDateTime(event, false, {
         locale: dateTimeLocale,
         allDayLabel: t("allDay"),
-        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
         displayTimeZone: eventTz,
       });

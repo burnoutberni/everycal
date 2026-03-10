@@ -29,7 +29,6 @@ export function initDatabase(path: string): DB {
       is_bot INTEGER NOT NULL DEFAULT 0,
       discoverable INTEGER NOT NULL DEFAULT 0,
       timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
-      time_format TEXT NOT NULL DEFAULT '24h' CHECK(time_format IN ('12h','24h')),
       date_time_locale TEXT NOT NULL DEFAULT 'en-GB',
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -747,11 +746,6 @@ export function initDatabase(path: string): DB {
     // Column already exists
   }
   try {
-    db.exec("ALTER TABLE accounts ADD COLUMN time_format TEXT NOT NULL DEFAULT '24h'");
-  } catch {
-    // Column already exists
-  }
-  try {
     db.exec("ALTER TABLE accounts ADD COLUMN date_time_locale TEXT NOT NULL DEFAULT 'en-GB'");
   } catch {
     // Column already exists
@@ -784,36 +778,20 @@ export function initDatabase(path: string): DB {
   }
 
 
-  // Migration: enforce time_format validity for migrated SQLite schemas.
-  try {
-    db.exec("UPDATE accounts SET time_format = '24h' WHERE time_format IS NULL OR time_format NOT IN ('12h','24h')");
-  } catch {
-    // Ignore during partial initialization
-  }
   try {
     db.exec(
-      "UPDATE accounts SET date_time_locale = CASE WHEN preferred_language = 'de' THEN 'de-DE' WHEN time_format = '12h' THEN 'en-US' ELSE 'en-GB' END WHERE date_time_locale IS NULL OR trim(date_time_locale) = ''"
+      "UPDATE accounts SET date_time_locale = CASE WHEN preferred_language = 'de' THEN 'de-DE' ELSE 'en-GB' END WHERE date_time_locale IS NULL OR trim(date_time_locale) = ''"
     );
   } catch {
     // Ignore during partial initialization
   }
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS trg_accounts_time_format_insert
-    BEFORE INSERT ON accounts
-    FOR EACH ROW
-    WHEN NEW.time_format NOT IN ('12h','24h')
-    BEGIN
-      SELECT RAISE(ABORT, 'invalid time_format');
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS trg_accounts_time_format_update
-    BEFORE UPDATE OF time_format ON accounts
-    FOR EACH ROW
-    WHEN NEW.time_format NOT IN ('12h','24h')
-    BEGIN
-      SELECT RAISE(ABORT, 'invalid time_format');
-    END;
-  `);
+  db.exec("DROP TRIGGER IF EXISTS trg_accounts_time_format_insert");
+  db.exec("DROP TRIGGER IF EXISTS trg_accounts_time_format_update");
+  try {
+    db.exec("ALTER TABLE accounts DROP COLUMN time_format");
+  } catch {
+    // Column does not exist or SQLite version does not support DROP COLUMN
+  }
 
   // Backfill legacy naive values assuming Europe/Vienna
   try {

@@ -1269,7 +1269,6 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       {
         locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
-        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
         displayTimeZone: viewerTimeZone,
       },
@@ -1292,7 +1291,6 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
       {
         locale: dateTimeLocale,
         allDayLabel: t("events:allDay"),
-        timeFormat: user?.dateTimeLocale ? undefined : user?.timeFormat,
         viewerTimeZone,
         displayTimeZone: eventTimezone,
       },

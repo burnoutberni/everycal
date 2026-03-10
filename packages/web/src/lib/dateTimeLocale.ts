@@ -160,15 +160,6 @@ export function buildCountryLocaleOptions(displayLocale: string, languageHint: s
     .sort((a, b) => a.countryName.localeCompare(b.countryName, displayLocale));
 }
 
-export function inferTimeFormatFromLocale(locale: string): "12h" | "24h" {
-  try {
-    const resolved = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions();
-    return resolved.hour12 ? "12h" : "24h";
-  } catch {
-    return "24h";
-  }
-}
-
 export function localeWeekStart(locale: string): number {
   try {
     const localeWithWeekInfo = new Intl.Locale(locale) as Intl.Locale & { weekInfo?: { firstDay?: number } };
