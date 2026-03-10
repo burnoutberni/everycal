@@ -151,7 +151,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       const sorted = [...eventDates].sort();
       const idx = sorted.findIndex((d) => d >= selectedYmd);
       if (idx === 0 && !allowPastNavigation) return new Date(selected);
-      const prevYmd = idx > 0 ? sorted[idx - 1] : sorted[sorted.length - 1];
+      const prevYmd = idx > 0 ? sorted[idx - 1] : null;
       if (prevYmd) {
         const [y, m, d] = prevYmd.split("-").map(Number);
         return new Date(y, m - 1, d);
@@ -174,6 +174,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
         const [y, m, d] = nextYmd.split("-").map(Number);
         return new Date(y, m - 1, d);
       }
+      return new Date(selected);
     }
     if (navigateByDay) {
       const d = new Date(selected);
@@ -453,6 +454,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
             }}
           >
             <div
+              className="mini-calendar-collapsed-label"
               style={{
                 width: "33.333%",
                 flexShrink: 0,
@@ -467,6 +469,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
               {prevLabel}
             </div>
             <div
+              className="mini-calendar-collapsed-label"
               style={{
                 width: "33.333%",
                 flexShrink: 0,
@@ -481,6 +484,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
               {selectedLabel}
             </div>
             <div
+              className="mini-calendar-collapsed-label"
               style={{
                 width: "33.333%",
                 flexShrink: 0,
@@ -499,6 +503,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
         <button
           type="button"
           className="mini-calendar-nav-btn"
+          disabled={sameDay(nextDate, selected)}
           onClick={handleNavClick(goNext)}
           onTouchEnd={(e) => {
             e.stopPropagation();

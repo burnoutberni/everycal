@@ -71,7 +71,7 @@ export function Header() {
           <Link
             href="/"
             style={{ display: "flex", alignItems: "center", marginRight: "1rem" }}
-            onClick={() => location === "/" && window.dispatchEvent(new CustomEvent("homepage-reset"))}
+            onClick={() => window.dispatchEvent(new CustomEvent("homepage-reset"))}
           >
             <Logo />
           </Link>
@@ -88,7 +88,7 @@ export function Header() {
           <Link
             href="/"
             style={{ display: "flex", alignItems: "center" }}
-            onClick={() => location === "/" && window.dispatchEvent(new CustomEvent("homepage-reset"))}
+            onClick={() => window.dispatchEvent(new CustomEvent("homepage-reset"))}
           >
             <Logo />
           </Link>

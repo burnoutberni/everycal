@@ -1320,7 +1320,7 @@ button.tag {
   .mobile-calendar-fold__inner {
     display: flex;
     width: 100%;
-    min-width: min-content;
+    min-width: 0;
   }
   .mobile-calendar-fold__inner .mini-calendar-collapsed {
     flex-shrink: 0;
@@ -1520,9 +1520,18 @@ button.tag {
     cursor: pointer;
     transition: background 0.15s;
   }
-  .mini-calendar-collapsed:hover {
-    background: var(--border);
-  }
+.mini-calendar-collapsed:hover {
+  background: var(--border);
+}
+.mini-calendar-collapsed-label {
+  min-width: 0;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  padding: 0;
+}
 }
 
 /* Unified mobile header container (homepage + profile) */
@@ -2865,7 +2874,12 @@ button.tag {
   align-items: baseline;
   cursor: help;
   outline: none;
-  z-index: 2100;
+}
+
+.inline-time-tooltip-anchor:hover,
+.inline-time-tooltip-anchor:focus,
+.inline-time-tooltip-anchor:focus-visible {
+  z-index: 30;
 }
 
 .inline-time-tooltip-bubble {
@@ -2887,7 +2901,7 @@ button.tag {
   white-space: normal;
   opacity: 0;
   pointer-events: none;
-  z-index: 2101;
+  z-index: 31;
   transition: opacity 0.14s ease, transform 0.14s ease;
 }
 

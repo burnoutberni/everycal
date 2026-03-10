@@ -42,6 +42,7 @@ export function HomePage() {
   const dateSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
   const [allTags, setAllTags] = useState<string[]>([]);
+  const fetchRequestIdRef = useRef(0);
 
   // Derive selectedTags from URL; useSearch updates when Link navigates or user uses back/forward
   const searchString = useSearch();
@@ -56,19 +57,17 @@ export function HomePage() {
   const viewingPast = rangeFromOverride != null;
   const range = useMemo(() => {
     if (rangeFromOverride) {
-      const [y, m, d] = rangeFromOverride.split("-").map(Number);
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
       return {
-        from: startOfDayForApi(new Date(y, m - 1, d)),
-        to: endOfDayForApi(yesterday),
-        label: t("events:past"),
+        from: rangeFromOverride,
+        to: undefined as string | undefined,
       };
     }
-    return { from: new Date().toISOString(), to: undefined as string | undefined, label: t("events:upcoming") };
-  }, [t, rangeFromOverride]);
+    return { from: new Date().toISOString(), to: undefined as string | undefined };
+  }, [rangeFromOverride]);
 
-  // Fetch event dates for the minicalendar (visible grid, scope filter only)
+  // Fetch event dates for minicalendar navigation + dots (scope filter only).
+  // We extend beyond the visible grid so mobile day-swipe can jump to the next
+  // event date even when it's outside the current month view.
   const calendarMonthRange = useMemo(() => {
     const y = selectedDate.getFullYear();
     const m = selectedDate.getMonth();
@@ -80,7 +79,13 @@ export function HomePage() {
     // End on Sunday of week containing last day
     const endOffset = (7 - lastOfMonth.getDay()) % 7;
     const lastVisible = new Date(y, m + 1, 0 + endOffset);
-    return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
+
+    const extendedFrom = new Date(firstVisible);
+    extendedFrom.setMonth(extendedFrom.getMonth() - 2);
+    const extendedTo = new Date(lastVisible);
+    extendedTo.setMonth(extendedTo.getMonth() + 2);
+
+    return { from: startOfDayForApi(extendedFrom), to: endOfDayForApi(extendedTo) };
   }, [selectedDate]);
 
   useEffect(() => {
@@ -110,6 +115,7 @@ export function HomePage() {
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
+      const requestId = ++fetchRequestIdRef.current;
       if (offset === 0) setLoading(true);
       else setLoadingMore(true);
 
@@ -124,6 +130,7 @@ export function HomePage() {
         if (selectedTags.length > 0) params.tags = selectedTags;
 
         const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
+        if (requestId !== fetchRequestIdRef.current) return;
         if (append) {
           setEvents((prev) => [...prev, ...res.events]);
         } else {
@@ -131,8 +138,10 @@ export function HomePage() {
         }
         setHasMore(res.events.length === PAGE_SIZE);
       } catch {
+        if (requestId !== fetchRequestIdRef.current) return;
         if (!append) setEvents([]);
       } finally {
+        if (requestId !== fetchRequestIdRef.current) return;
         setLoading(false);
         setLoadingMore(false);
       }
@@ -175,22 +184,6 @@ export function HomePage() {
   const loadMore = () => fetchEvents(events.length, true);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
-  /** Dates that have events in the loaded list — use for mobile calendar swipe so we only show dates with events */
-  const eventDatesFromList = useMemo(() => new Set(grouped.keys()), [grouped]);
-
-  /** When first event is in the future (e.g. tomorrow), start on that date and don't allow going back. Mobile only. */
-  useEffect(() => {
-    if (!isMobile || eventDatesFromList.size === 0) return;
-    const sorted = [...eventDatesFromList].sort();
-    const firstYmd = sorted[0];
-    const selectedYmd = dateToLocalYMD(selectedDate);
-    if (selectedYmd < firstYmd) {
-      const [y, m, d] = firstYmd.split("-").map(Number);
-      setSelectedDate(new Date(y, m - 1, d));
-      setScrollToDate(firstYmd);
-    }
-  }, [isMobile, eventDatesFromList, selectedDate]);
-
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [tagsUnfolded, setTagsUnfolded] = useState(false);
@@ -259,10 +252,18 @@ export function HomePage() {
 
   const goToUpcoming = useCallback(() => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    const today = new Date();
+    const todayKey = dateToLocalYMD(today);
+    const sortedCalendarKeys = [...calendarEventDates].sort();
+    const nextFromCalendar = sortedCalendarKeys.find((k) => k >= todayKey) || null;
+    const sortedLoadedKeys = [...grouped.keys()].sort();
+    const nextFromLoaded = sortedLoadedKeys.find((k) => k >= todayKey) || null;
+    const targetYmd = nextFromCalendar || nextFromLoaded || todayKey;
+    const [y, m, d] = targetYmd.split("-").map(Number);
     setRangeFromOverride(null);
-    setSelectedDate(new Date());
-    setScrollToDate(dateToLocalYMD(new Date()));
-  }, []);
+    setSelectedDate(new Date(y, m - 1, d));
+    setScrollToDate(targetYmd);
+  }, [calendarEventDates, grouped]);
 
   const handleDateSelectMobile = (date: Date) => {
     handleDateSelect(date);
@@ -271,12 +272,31 @@ export function HomePage() {
   useEffect(() => {
     if (!scrollToDate || events.length === 0) return;
     const keys = [...grouped.keys()].sort();
+    const hasTargetRangeData = viewingPast
+      ? keys.some((k) => k < todayYmd)
+      : keys.some((k) => k >= todayYmd);
+    if (!hasTargetRangeData) {
+      return;
+    }
+
+    const hasExactDate = keys.includes(scrollToDate);
+    if (viewingPast && !hasExactDate) {
+      return;
+    }
+    const allowNearestUpcomingFallback = !viewingPast && scrollToDate === todayYmd;
+    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback) {
+      setScrollToDate(null);
+      return;
+    }
+
     const idx = keys.findIndex((k) => k >= scrollToDate);
-    const targetKey = idx >= 0 ? keys[idx] : keys[keys.length - 1];
+    const targetKey = hasExactDate ? scrollToDate : (idx >= 0 ? keys[idx] : keys[keys.length - 1]);
     setScrollToDate(null);
     if (!targetKey) return;
-    const [y, m, d] = targetKey.split("-").map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
+    if (!hasExactDate && allowNearestUpcomingFallback) {
+      const [y, m, d] = targetKey.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
     ignoreScrollSpyUntilRef.current = Date.now() + 800;
     ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
     requestAnimationFrame(() => {
@@ -290,11 +310,13 @@ export function HomePage() {
               : allTags.length > 0
                 ? "calc(3.5rem + 68px + 68px + 52px)" /* header + tags + calendar + scope */
                 : "calc(3.5rem + 68px + 52px)"; /* header + calendar + scope (no tags) */
+        } else {
+          el.style.scrollMarginTop = "calc(3.5rem + 1rem)";
         }
-        el.scrollIntoView({ behavior: "smooth", block: isMobile ? "start" : "nearest" });
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
-  }, [scrollToDate, grouped, events.length, tagsUnfolded, allTags.length, isMobile]);
+  }, [scrollToDate, grouped, events.length, tagsUnfolded, allTags.length, isMobile, viewingPast, todayYmd]);
 
   useEffect(() => {
     const positions = tagFlipPositionsRef.current;
@@ -502,7 +524,7 @@ export function HomePage() {
             ref={calendarFoldRef}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelectMobile}
-            eventDates={eventDatesFromList}
+            eventDates={calendarEventDates}
             allowPastNavigation
             collapseOnSelect
             layout="fixed"
@@ -592,39 +614,6 @@ export function HomePage() {
               </div>
             );
             })}
-            {viewingPast && (
-              <div className="homepage-upcoming-bridge" style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  onClick={goToUpcoming}
-                  style={{ display: "block", width: "100%", padding: "1rem" }}
-                >
-                  {t("events:showUpcomingEvents")}
-                </button>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={goToUpcoming}
-                  onKeyDown={(e) => e.key === "Enter" && goToUpcoming()}
-                  className="homepage-force-scroll-zone"
-                  style={{
-                    minHeight: "60vh",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "flex-end",
-                    justifyContent: "center",
-                    paddingBottom: "2rem",
-                    color: "var(--text-dim)",
-                    fontSize: "0.85rem",
-                  }}
-                  aria-label={t("events:showUpcomingEvents")}
-                >
-                  {t("events:showUpcomingEvents")}
-                </div>
-              </div>
-            )}
-
             {hasMore && (
               <div className="text-center mt-2">
                 <button className="btn-ghost" onClick={loadMore} disabled={loadingMore}>

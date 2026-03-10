@@ -21,10 +21,18 @@ import { useOptionalPageContext } from "../renderer/PageContext";
 /** Linear collapse: progress 0→1 over this scroll range. Once 1, stay compact until header back in flow.
  *  Keep range short so collapse completes before date separator + first event card scroll out of view. */
 const PROFILE_COLLAPSE_START = 2;
-const PROFILE_COLLAPSE_RANGE = 20;
-const PROFILE_EXPAND_AT_TOP = 18;
-/** Only expand when header top > this — user scrolled back up. Stuck header ≈56px, natural position ≈80px. */
-const PROFILE_EXPAND_HEADER_TOP = 70;
+
+function parseLocalYmdDate(ymd: string): Date | null {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const parsed = new Date(y, mo - 1, d);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.getFullYear() !== y || parsed.getMonth() !== mo - 1 || parsed.getDate() !== d) return null;
+  return parsed;
+}
 
 export function ProfilePage({ username }: { username: string }) {
   const { t, i18n } = useTranslation(["profile", "events", "common", "settings", "auth"]);
@@ -43,22 +51,39 @@ export function ProfilePage({ username }: { username: string }) {
   const [events, setEvents] = useState<CalEvent[]>(initialEvents);
   const [eventsLoading, setEventsLoading] = useState(!initialEvents.length);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [rangeFromOverride, setRangeFromOverride] = useState<string | null>(null);
+  const viewingPast = rangeFromOverride != null;
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
+  const fetchRequestIdRef = useRef(0);
+  const eventsRef = useRef(events);
   const [socialModal, setSocialModal] = useState<null | "follow" | "autoRepost">(null);
   const [socialActionError, setSocialActionError] = useState<string | null>(null);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
+  const didAutoSelectUpcomingRef = useRef(false);
 
-  // Fetch event dates for the minicalendar (visible grid)
+  const range = useMemo(() => {
+    if (rangeFromOverride) {
+      return { from: rangeFromOverride, to: undefined as string | undefined };
+    }
+    return { from: new Date().toISOString(), to: undefined as string | undefined };
+  }, [rangeFromOverride]);
+
+  // Fetch event dates for minicalendar navigation + dots.
   const calendarMonthRange = useMemo(() => {
-    const y = selectedDate.getFullYear();
-    const m = selectedDate.getMonth();
+    const safeSelectedDate = Number.isNaN(selectedDate.getTime()) ? new Date() : selectedDate;
+    const y = safeSelectedDate.getFullYear();
+    const m = safeSelectedDate.getMonth();
     const firstOfMonth = new Date(y, m, 1);
     const lastOfMonth = new Date(y, m + 1, 0);
     const startOffset = (firstOfMonth.getDay() + 6) % 7;
     const firstVisible = new Date(y, m, 1 - startOffset);
     const endOffset = (7 - lastOfMonth.getDay()) % 7;
     const lastVisible = new Date(y, m + 1, 0 + endOffset);
-    return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
+    const extendedFrom = new Date(firstVisible);
+    extendedFrom.setMonth(extendedFrom.getMonth() - 2);
+    const extendedTo = new Date(lastVisible);
+    extendedTo.setMonth(extendedTo.getMonth() + 2);
+    return { from: startOfDayForApi(extendedFrom), to: endOfDayForApi(extendedTo) };
   }, [selectedDate]);
 
   const normalizeAndValidateUrl = useCallback(
@@ -135,6 +160,10 @@ export function ProfilePage({ username }: { username: string }) {
   }, [currentUser?.id, profile?.id, profile?.username, profile?.source, profile?.accountType]);
 
   useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
+
+  useEffect(() => {
     let cancelled = false;
     const params = {
       from: calendarMonthRange.from,
@@ -159,33 +188,32 @@ export function ProfilePage({ username }: { username: string }) {
   const fetchEvents = useCallback(
     async () => {
       if (!profile) return;
-      if (events.length > 0 && String(events[0]?.accountId) === profile.id) return; // Skip if loaded via SSR
+      const currentEvents = eventsRef.current;
+      const todayYmd = dateToLocalYMD(new Date());
+      const hasPastInLoaded = currentEvents.some((event) => toLocalYMD(event.startDate) < todayYmd);
+      if (!viewingPast && currentEvents.length > 0 && String(currentEvents[0]?.accountId) === profile.id && !hasPastInLoaded) return; // Skip if loaded via SSR
+
+      const requestId = ++fetchRequestIdRef.current;
 
       setEventsLoading(true);
       try {
-        const now = new Date();
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const [upcomingRes, pastRes] = await Promise.all([
-          usersApi.events(username, {
-            from: now.toISOString(),
-            limit: 100,
-            sort: "asc",
-          }),
-          usersApi.events(username, {
-            to: endOfDayForApi(yesterday),
-            limit: 100,
-            sort: "desc",
-          }),
-        ]);
-        setEvents([...upcomingRes.events, ...pastRes.events]);
+        const res = await usersApi.events(username, {
+          from: range.from,
+          to: range.to,
+          limit: 100,
+          sort: "asc",
+        });
+        if (requestId !== fetchRequestIdRef.current) return;
+        setEvents(res.events);
       } catch {
+        if (requestId !== fetchRequestIdRef.current) return;
         setEvents([]);
       } finally {
+        if (requestId !== fetchRequestIdRef.current) return;
         setEventsLoading(false);
       }
     },
-    [username, profile, currentUser?.id]
+    [username, profile, currentUser?.id, viewingPast, range.from, range.to]
   );
 
   useEffect(() => {
@@ -193,7 +221,7 @@ export function ProfilePage({ username }: { username: string }) {
   }, [profile, fetchEvents]);
 
   useEffect(() => {
-    if (eventsLoading) {
+    if (eventsLoading && events.length === 0) {
       scrollSpyReadyRef.current = false;
       return;
     }
@@ -201,10 +229,9 @@ export function ProfilePage({ username }: { username: string }) {
       scrollSpyReadyRef.current = true;
     }, 400);
     return () => clearTimeout(t);
-  }, [eventsLoading]);
+  }, [eventsLoading, events.length]);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
-  const eventDatesFromList = useMemo(() => new Set(grouped.keys()), [grouped]);
   const isRemote = profile?.source === "remote";
   const isMobile = useIsMobile();
   const [profileCollapseProgress, setProfileCollapseProgress] = useState(0);
@@ -238,6 +265,7 @@ export function ProfilePage({ username }: { username: string }) {
     setAvatarTouched(false);
     setProfileEditorError(null);
     setProfileFormErrors({});
+    didAutoSelectUpcomingRef.current = false;
   }, [username]);
 
   useEffect(() => {
@@ -257,15 +285,23 @@ export function ProfilePage({ username }: { username: string }) {
     if (!isMobile || !el) return;
     const updateProgress = () => {
       profileCollapseRafRef.current = null;
-      if (profileEditing) {
-        hasReachedCompactRef.current = false;
-        setProfileCollapseProgress(0);
+      const nowTs = Date.now();
+      const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
+
+      if (viewingPast) {
+        hasReachedCompactRef.current = true;
+        setProfileCollapseProgress(1);
         return;
       }
-      const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
-      const headerTop = el.getBoundingClientRect().top;
 
-      if (headerTop > PROFILE_EXPAND_HEADER_TOP) {
+      if (nowTs < ignoreScrollCollapseUntilRef.current) {
+        if (hasReachedCompactRef.current) {
+          setProfileCollapseProgress(1);
+        }
+        return;
+      }
+
+      if (profileEditing) {
         hasReachedCompactRef.current = false;
         setProfileCollapseProgress(0);
         return;
@@ -276,16 +312,13 @@ export function ProfilePage({ username }: { username: string }) {
         return;
       }
 
-      if (scrollY <= PROFILE_EXPAND_AT_TOP && headerTop >= PROFILE_EXPAND_HEADER_TOP) {
-        hasReachedCompactRef.current = false;
+      if (scrollY <= PROFILE_COLLAPSE_START) {
         setProfileCollapseProgress(0);
         return;
       }
 
-      const raw = (scrollY - PROFILE_COLLAPSE_START) / PROFILE_COLLAPSE_RANGE;
-      const progress = Math.min(Math.max(raw, 0), 1);
-      if (progress >= 1) hasReachedCompactRef.current = true;
-      setProfileCollapseProgress(progress);
+      hasReachedCompactRef.current = true;
+      setProfileCollapseProgress(1);
     };
     const handleScroll = () => {
       if (profileCollapseRafRef.current != null) return;
@@ -297,17 +330,18 @@ export function ProfilePage({ username }: { username: string }) {
       window.removeEventListener("scroll", handleScroll);
       if (profileCollapseRafRef.current != null) cancelAnimationFrame(profileCollapseRafRef.current);
     };
-  }, [isMobile, profile, profileEditing]);
+  }, [isMobile, profile, profileEditing, viewingPast]);
 
   const dateKeys = useMemo(() => [...grouped.keys()].sort(), [grouped]);
   useDateScrollSpy({
     dateSectionRefs,
     dateKeys,
     onVisibleDateChange: useCallback((ymd: string) => {
-      const [y, m, d] = ymd.split("-").map(Number);
+      const parsed = parseLocalYmdDate(ymd);
+      if (!parsed) return;
       setSelectedDate((prev) => {
-        if (prev.getFullYear() === y && prev.getMonth() === m - 1 && prev.getDate() === d) return prev;
-        return new Date(y, m - 1, d);
+        if (prev.getFullYear() === parsed.getFullYear() && prev.getMonth() === parsed.getMonth() && prev.getDate() === parsed.getDate()) return prev;
+        return parsed;
       });
     }, []),
     ignoreUntilRef: ignoreScrollSpyUntilRef,
@@ -321,6 +355,24 @@ export function ProfilePage({ username }: { username: string }) {
     if (expanded) {
       ignoreScrollSpyUntilRef.current = Date.now() + 500;
     }
+  }, []);
+
+  const handleProfileHeaderExpand = useCallback(() => {
+    const sticky = document.querySelector(".mobile-header-container") as HTMLElement | null;
+    const beforeHeight = sticky?.getBoundingClientRect().height ?? 0;
+    ignoreScrollSpyUntilRef.current = Date.now() + 1200;
+    hasReachedCompactRef.current = false;
+    setProfileCollapseProgress(0);
+    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const afterHeight = sticky?.getBoundingClientRect().height ?? 0;
+        const delta = Math.round(afterHeight - beforeHeight);
+        if (delta > 0) {
+          window.scrollBy({ top: -delta, behavior: "auto" });
+        }
+      });
+    });
   }, []);
 
   const isOwn = currentUser?.id === profile?.id;
@@ -500,12 +552,37 @@ export function ProfilePage({ username }: { username: string }) {
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
 
   const handleDateSelect = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    if (d < today) {
+      const ymd = dateToLocalYMD(date);
+      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
+    } else {
+      setRangeFromOverride(null);
+    }
     setSelectedDate(date);
     setScrollToDate(dateToLocalYMD(date));
   };
 
   const handleDateSelectMobile = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return;
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+    hasReachedCompactRef.current = true;
+    setProfileCollapseProgress(1);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    if (d < today) {
+      const ymd = dateToLocalYMD(date);
+      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
+    } else {
+      setRangeFromOverride(null);
+    }
     setSelectedDate(date);
     setScrollToDate(dateToLocalYMD(date));
   };
@@ -513,12 +590,19 @@ export function ProfilePage({ username }: { username: string }) {
   useEffect(() => {
     if (!scrollToDate || events.length === 0) return;
     const keys = [...grouped.keys()].sort();
+    const todayYmd = dateToLocalYMD(new Date());
+    const hasTargetRangeData = viewingPast
+      ? keys.some((k) => k < todayYmd)
+      : keys.some((k) => k >= todayYmd);
+    if (!hasTargetRangeData) return;
+
+    const hasExactDate = keys.includes(scrollToDate);
+    if (viewingPast && !hasExactDate) return;
+
     const idx = keys.findIndex((k) => k >= scrollToDate);
-    const targetKey = idx >= 0 ? keys[idx] : keys[keys.length - 1];
+    const targetKey = hasExactDate ? scrollToDate : (idx >= 0 ? keys[idx] : keys[keys.length - 1]);
     setScrollToDate(null);
     if (!targetKey) return;
-    const [y, m, d] = targetKey.split("-").map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
     if (isMobile) {
       ignoreScrollSpyUntilRef.current = Date.now() + 800;
       ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
@@ -526,11 +610,43 @@ export function ProfilePage({ username }: { username: string }) {
     requestAnimationFrame(() => {
       const el = dateSectionRefs.current.get(targetKey);
       if (el) {
-        el.style.scrollMarginTop = "calc(3.5rem + 52px + 68px + 2rem)";
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (isMobile) {
+          const appHeaderHeight = (document.querySelector(".app-header") as HTMLElement | null)?.offsetHeight ?? 56;
+          const stickyProfileHeight = (document.querySelector(".mobile-header-container") as HTMLElement | null)?.offsetHeight ?? 120;
+          const dynamicOffset = appHeaderHeight + stickyProfileHeight + 12;
+          const targetTop = Math.max(0, Math.round(window.scrollY + el.getBoundingClientRect().top - dynamicOffset));
+          if (Math.abs(window.scrollY - targetTop) > 1) {
+            window.scrollTo({ top: targetTop, behavior: "auto" });
+          }
+        } else {
+          el.style.scrollMarginTop = "calc(3.5rem + 1rem)";
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       }
     });
-  }, [scrollToDate, grouped, events.length, isMobile]);
+  }, [scrollToDate, grouped, events.length, isMobile, viewingPast]);
+
+  useEffect(() => {
+    if (viewingPast || eventsLoading || grouped.size === 0 || didAutoSelectUpcomingRef.current) return;
+    const todayYmd = dateToLocalYMD(new Date());
+    const selectedYmd = dateToLocalYMD(selectedDate);
+    if (selectedYmd !== todayYmd) {
+      didAutoSelectUpcomingRef.current = true;
+      return;
+    }
+    if (grouped.has(todayYmd)) {
+      didAutoSelectUpcomingRef.current = true;
+      return;
+    }
+    const sortedKeys = [...grouped.keys()].sort();
+    const firstUpcoming = sortedKeys.find((k) => k >= todayYmd) || sortedKeys[0];
+    if (!firstUpcoming) return;
+    const parsed = parseLocalYmdDate(firstUpcoming);
+    if (!parsed) return;
+    setSelectedDate(parsed);
+    setScrollToDate(firstUpcoming);
+    didAutoSelectUpcomingRef.current = true;
+  }, [viewingPast, eventsLoading, grouped, selectedDate]);
 
   if (profileLoading) return <p className="text-muted">{t("common:loading")}</p>;
   if (!profile) return <p className="error-text">{t("userNotFound")}</p>;
@@ -546,7 +662,7 @@ export function ProfilePage({ username }: { username: string }) {
         {/* Main content */}
         <div className="flex-1" style={{ minWidth: 0 }}>
           {isMobile ? (
-            <MobileHeaderContainer paddingTop={`${0.2 * effectiveCollapseProgress}rem`}>
+            <MobileHeaderContainer>
               <ProfileHeader
                 profile={profile}
                 currentUser={currentUser}
@@ -584,6 +700,7 @@ export function ProfilePage({ username }: { username: string }) {
                 inlineError={profileEditorError || profileFormErrors.website || profileFormErrors.avatarUrl || null}
                 onInlineAvatarUpload={handleInlineAvatarUpload}
                 avatarUploading={avatarUploading}
+                onRequestExpand={handleProfileHeaderExpand}
               />
               {!profileEditing && (
                 <div className="profile-mobile-calendar-wrap">
@@ -591,20 +708,18 @@ export function ProfilePage({ username }: { username: string }) {
                     ref={calendarFoldRef}
                     selectedDate={selectedDate}
                     onDateSelect={handleDateSelectMobile}
-                    eventDates={eventDatesFromList}
+                    eventDates={calendarEventDates}
                     allowPastNavigation
                     collapseOnSelect
                     layout="sticky"
                     onMonthNavigate={(date) => {
-                      ignoreScrollSpyUntilRef.current = Date.now() + 600;
-                      ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-                      setSelectedDate(date);
-                      setScrollToDate(dateToLocalYMD(date));
+                      handleDateSelectMobile(date);
                     }}
                     onMonthClick={() => {
                       ignoreScrollSpyUntilRef.current = Date.now() + 600;
                       ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
                       const today = new Date();
+                      setRangeFromOverride(null);
                       setSelectedDate(today);
                       setScrollToDate(dateToLocalYMD(today));
                     }}
@@ -659,7 +774,7 @@ export function ProfilePage({ username }: { username: string }) {
           {/* Event list */}
           <div className="profile-mobile-events-wrap">
             {socialActionError && <p className="error-text mb-2" role="alert">{socialActionError}</p>}
-            {eventsLoading ? (
+            {eventsLoading && events.length === 0 ? (
               <p className="text-muted">{t("common:loading")}</p>
             ) : events.length === 0 ? (
               <div className="empty-state">

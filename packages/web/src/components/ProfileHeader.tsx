@@ -40,6 +40,7 @@ export interface ProfileHeaderProps {
   hideInlineActions?: boolean;
   onInlineAvatarUpload?: (file: File) => void;
   avatarUploading?: boolean;
+  onRequestExpand?: () => void;
 }
 
 export function ProfileHeader({
@@ -69,6 +70,7 @@ export function ProfileHeader({
   hideInlineActions = false,
   onInlineAvatarUpload,
   avatarUploading = false,
+  onRequestExpand,
 }: ProfileHeaderProps) {
   const { t } = useTranslation(["profile", "common", "settings", "auth"]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -119,11 +121,18 @@ export function ProfileHeader({
     <div
       ref={headerRef}
       className={`card profile-header ${isMobile ? "profile-header-mobile" : ""}`}
+      onClick={(e) => {
+        if (!isMobile || collapseProgress < 0.98 || !onRequestExpand) return;
+        const target = e.target as HTMLElement;
+        if (target.closest("a,button,input,select,textarea,label,[role='button']")) return;
+        onRequestExpand();
+      }}
       style={
         isMobile
           ? {
               padding: `${0.5 + 0.5 * (1 - collapseProgress)}rem 1rem`,
               boxShadow: collapseProgress > 0.02 ? "0 1px 0 0 var(--border)" : "none",
+              cursor: collapseProgress >= 0.98 ? "pointer" : undefined,
             }
           : undefined
       }

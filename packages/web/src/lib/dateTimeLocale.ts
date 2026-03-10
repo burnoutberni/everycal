@@ -3,15 +3,6 @@ import type { User } from "./api";
 export const SYSTEM_TIMEZONE = "system";
 export const SYSTEM_DATE_TIME_LOCALE = "system";
 
-function browserLocale(): string {
-  const runtimeLocale = Intl.DateTimeFormat().resolvedOptions().locale || "en-GB";
-  try {
-    return Intl.getCanonicalLocales(runtimeLocale)[0] || "en-GB";
-  } catch {
-    return "en-GB";
-  }
-}
-
 export function browserTimezone(): string {
   const runtimeTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!runtimeTimeZone) return "Europe/Vienna";
@@ -68,7 +59,12 @@ const SATURDAY_FIRST_REGIONS = new Set(["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ"
 
 export function resolveDateTimeLocale(user: Pick<User, "dateTimeLocale"> | null | undefined, fallbackLocale: string): string {
   if (usesSystemDateTimeLocale(user)) {
-    return browserLocale();
+    const candidate = fallbackLocale || "en-GB";
+    try {
+      return Intl.getCanonicalLocales(candidate)[0] || "en-GB";
+    } catch {
+      return "en-GB";
+    }
   }
   const candidate = user?.dateTimeLocale || fallbackLocale || "en-GB";
   try {
