@@ -1,6 +1,7 @@
 import type { DB } from "../db.js";
 import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
+import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federation.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -104,7 +105,7 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
     const remoteRow = db
       .prepare(
         `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
-                ra.followers_count, ra.following_count,
+                ra.followers_count, ra.following_count, ra.fetch_status,
                 (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
          FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
       )
@@ -117,12 +118,27 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
           .get(currentUser.id, remoteRow.uri)
       : null;
 
+    const account = formatRemoteActorAccount({
+      status: remoteRow.fetch_status as string | null,
+      preferredUsername: remoteRow.preferred_username as string | null,
+      displayName: remoteRow.display_name as string | null,
+      domain: remoteRow.domain as string | null,
+      iconUrl: remoteRow.icon_url as string | null,
+    });
+    const actorIdentity = formatRemoteActorIdentity({
+      status: remoteRow.fetch_status as string | null,
+      preferredUsername: remoteRow.preferred_username as string | null,
+      displayName: remoteRow.display_name as string | null,
+      summary: remoteRow.summary as string | null,
+      iconUrl: remoteRow.icon_url as string | null,
+      imageUrl: remoteRow.image_url as string | null,
+    });
     return {
       id: remoteRow.uri,
-      username,
-      displayName: remoteRow.display_name,
-      bio: remoteRow.summary,
-      avatarUrl: remoteRow.icon_url,
+      username: account?.username || username,
+      displayName: actorIdentity.displayName,
+      bio: actorIdentity.summary,
+      avatarUrl: actorIdentity.iconUrl,
       website: null,
       isBot: false,
       discoverable: true,
@@ -194,7 +210,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     const rows = db
       .prepare(
         `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
-                ra.domain, ra.icon_url AS actor_icon_url
+                ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE re.actor_uri = ?
@@ -298,7 +314,7 @@ function getEventByProfileSlug(db: DB, username: string, slug: string, currentUs
     const remoteRow = db
       .prepare(
         `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
-                ra.domain, ra.icon_url AS actor_icon_url
+                ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`
@@ -405,19 +421,19 @@ function formatLocalEvent(row: Record<string, unknown>): Record<string, unknown>
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
+  const account = formatRemoteActorAccount({
+    status: row.actor_fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.actor_display_name as string | null,
+    domain: row.domain as string | null,
+    iconUrl: row.actor_icon_url as string | null,
+  });
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: row.preferred_username
-      ? {
-          username: `${row.preferred_username}@${row.domain}`,
-          displayName: row.actor_display_name,
-          domain: row.domain,
-          iconUrl: row.actor_icon_url,
-        }
-      : null,
+    account,
     title: row.title,
     description: row.description,
     startDate: row.start_date,

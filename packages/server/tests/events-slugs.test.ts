@@ -6,12 +6,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../src/lib/federation.js", () => ({
-  fetchAP: vi.fn(),
-  resolveRemoteActor: vi.fn(),
-  deliverToFollowers: vi.fn(),
-  validateFederationUrl: vi.fn(),
-}));
+vi.mock("../src/lib/federation.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/lib/federation.js")>("../src/lib/federation.js");
+  return {
+    ...actual,
+    fetchAP: vi.fn(),
+    resolveRemoteActor: vi.fn(),
+    deliverToFollowers: vi.fn(),
+    validateFederationUrl: vi.fn(),
+  };
+});
 
 import { eventRoutes } from "../src/routes/events.js";
 import { userRoutes } from "../src/routes/users.js";

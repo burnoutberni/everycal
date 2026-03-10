@@ -144,6 +144,10 @@ export function initDatabase(path: string): DB {
       public_key_pem TEXT,
       domain TEXT NOT NULL,
       last_fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+      fetch_status TEXT NOT NULL DEFAULT 'active' CHECK(fetch_status IN ('active', 'error', 'gone')),
+      last_error TEXT,
+      next_retry_at TEXT,
+      gone_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -375,6 +379,31 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE remote_actors ADD COLUMN following_count INTEGER");
   } catch {
     // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN fetch_status TEXT NOT NULL DEFAULT 'active' CHECK(fetch_status IN ('active', 'error', 'gone'))");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN last_error TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN next_retry_at TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_actors ADD COLUMN gone_at TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("UPDATE remote_actors SET fetch_status = 'active' WHERE fetch_status IS NULL OR fetch_status = ''");
+  } catch {
+    // Ignore when table not yet initialized
   }
 
   // Migration: add slug to events if missing
