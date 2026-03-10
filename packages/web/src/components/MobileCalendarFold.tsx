@@ -38,6 +38,8 @@ export interface MobileCalendarFoldProps {
   ignoreScrollCollapseUntilRef?: React.MutableRefObject<number>;
   /** Called when expanded state changes (parent can use for overlay) */
   onExpandedChange?: (expanded: boolean) => void;
+  /** When true, allow navigating to dates/months before known eventDates. */
+  allowPastNavigation?: boolean;
 }
 
 export const MobileCalendarFold = forwardRef<MobileCalendarFoldRef, MobileCalendarFoldProps>(function MobileCalendarFold({
@@ -53,6 +55,7 @@ export const MobileCalendarFold = forwardRef<MobileCalendarFoldRef, MobileCalend
   ignoreScrollSpyUntilRef,
   ignoreScrollCollapseUntilRef,
   onExpandedChange,
+  allowPastNavigation = false,
 }, ref) {
   const [calendarExpanded, setCalendarExpandedState] = useState(false);
   const setCalendarExpanded = useCallback(
@@ -220,6 +223,7 @@ export const MobileCalendarFold = forwardRef<MobileCalendarFoldRef, MobileCalend
                     collapsed={true}
                     onCollapsedChange={handleCalendarCollapsedChange}
                     navigateByDay
+                    allowPastNavigation={allowPastNavigation}
                   />
                 </div>
               </div>
@@ -237,6 +241,7 @@ export const MobileCalendarFold = forwardRef<MobileCalendarFoldRef, MobileCalend
                     collapsed={false}
                     onCollapsedChange={handleCalendarCollapsedChange}
                     onMonthClick={handleMonthClick}
+                    allowPastNavigation={allowPastNavigation}
                   />
                 </div>
               </div>

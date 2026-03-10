@@ -414,7 +414,7 @@ export function HomePage() {
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
       {/* Sidebar */}
       <aside className="hide-mobile homepage-sidebar" style={{ flex: "0 0 220px", position: "sticky", top: "calc(3.5rem + 1rem)", alignSelf: "flex-start" }}>
-        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={calendarEventDates} />
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={calendarEventDates} allowPastNavigation />
 
         {/* Scope filter */}
         <div style={{ marginTop: "1rem" }}>
@@ -503,6 +503,7 @@ export function HomePage() {
             selectedDate={selectedDate}
             onDateSelect={handleDateSelectMobile}
             eventDates={eventDatesFromList}
+            allowPastNavigation
             collapseOnSelect
             layout="fixed"
             belowCalendarHeight={SCOPE_TOGGLE_HEIGHT}

@@ -163,12 +163,22 @@ export function ProfilePage({ username }: { username: string }) {
 
       setEventsLoading(true);
       try {
-        const res = await usersApi.events(username, {
-          from: new Date().toISOString(),
-          limit: 100,
-          sort: "asc",
-        });
-        setEvents(res.events);
+        const now = new Date();
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const [upcomingRes, pastRes] = await Promise.all([
+          usersApi.events(username, {
+            from: now.toISOString(),
+            limit: 100,
+            sort: "asc",
+          }),
+          usersApi.events(username, {
+            to: endOfDayForApi(yesterday),
+            limit: 100,
+            sort: "desc",
+          }),
+        ]);
+        setEvents([...upcomingRes.events, ...pastRes.events]);
       } catch {
         setEvents([]);
       } finally {
@@ -530,7 +540,7 @@ export function ProfilePage({ username }: { username: string }) {
       <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
         {/* Sidebar */}
         <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} />
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} allowPastNavigation />
         </aside>
 
         {/* Main content */}
@@ -582,6 +592,7 @@ export function ProfilePage({ username }: { username: string }) {
                     selectedDate={selectedDate}
                     onDateSelect={handleDateSelectMobile}
                     eventDates={eventDatesFromList}
+                    allowPastNavigation
                     collapseOnSelect
                     layout="sticky"
                     onMonthNavigate={(date) => {
