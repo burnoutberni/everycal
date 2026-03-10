@@ -14,7 +14,8 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
-  DELETED_REMOTE_DISPLAY_NAME,
+  formatRemoteActorAccount,
+  formatRemoteActorIdentity,
   fetchAP,
   resolveRemoteActor,
   fetchRemoteOutbox,
@@ -489,25 +490,13 @@ export function federationRoutes(db: DB): Hono {
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
       events: rows.map((row) => ({
-        ...(row.actor_fetch_status === "gone"
-          ? {
-              account: {
-                username: `deleted@${(row.domain as string) || "unknown"}`,
-                displayName: DELETED_REMOTE_DISPLAY_NAME,
-                domain: (row.domain as string) || "unknown",
-                iconUrl: null,
-              },
-            }
-          : {
-              account: row.preferred_username
-                ? {
-                    username: `${row.preferred_username}@${row.domain}`,
-                    displayName: row.actor_display_name,
-                    domain: row.domain,
-                    iconUrl: row.actor_icon_url,
-                  }
-                : null,
-            }),
+        account: formatRemoteActorAccount({
+          status: row.actor_fetch_status as string | null,
+          preferredUsername: row.preferred_username as string | null,
+          displayName: row.actor_display_name as string | null,
+          domain: row.domain as string | null,
+          iconUrl: row.actor_icon_url as string | null,
+        }),
         id: row.uri,
         uri: row.uri,
         slug: row.slug,
@@ -558,16 +547,23 @@ export function federationRoutes(db: DB): Hono {
 
     return c.json({
       actors: rows.map((r) => {
-        const isGone = r.fetch_status === "gone";
+        const actorIdentity = formatRemoteActorIdentity({
+          status: r.fetch_status as string | null,
+          preferredUsername: r.preferred_username as string | null,
+          displayName: r.display_name as string | null,
+          summary: r.summary as string | null,
+          iconUrl: r.icon_url as string | null,
+          imageUrl: r.image_url as string | null,
+        });
         return {
           uri: r.uri,
           type: r.type,
-          username: isGone ? "deleted" : r.preferred_username,
-          displayName: isGone ? DELETED_REMOTE_DISPLAY_NAME : r.display_name,
-          summary: isGone ? null : r.summary,
+          username: actorIdentity.username,
+          displayName: actorIdentity.displayName,
+          summary: actorIdentity.summary,
           domain: r.domain,
-          iconUrl: isGone ? null : r.icon_url,
-          imageUrl: isGone ? null : r.image_url,
+          iconUrl: actorIdentity.iconUrl,
+          imageUrl: actorIdentity.imageUrl,
           outbox: r.outbox,
           followersCount: r.followers_count ?? 0,
           followingCount: r.following_count ?? 0,
@@ -649,16 +645,23 @@ export function federationRoutes(db: DB): Hono {
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
       actors: rows.map((r) => {
-        const isGone = r.fetch_status === "gone";
+        const actorIdentity = formatRemoteActorIdentity({
+          status: r.fetch_status as string | null,
+          preferredUsername: r.preferred_username as string | null,
+          displayName: r.display_name as string | null,
+          summary: r.summary as string | null,
+          iconUrl: r.icon_url as string | null,
+          imageUrl: r.image_url as string | null,
+        });
         return {
           uri: r.uri,
           type: r.type,
-          username: isGone ? "deleted" : r.preferred_username,
-          displayName: isGone ? DELETED_REMOTE_DISPLAY_NAME : r.display_name,
-          summary: isGone ? null : r.summary,
+          username: actorIdentity.username,
+          displayName: actorIdentity.displayName,
+          summary: actorIdentity.summary,
           domain: r.domain,
-          iconUrl: isGone ? null : r.icon_url,
-          imageUrl: isGone ? null : r.image_url,
+          iconUrl: actorIdentity.iconUrl,
+          imageUrl: actorIdentity.imageUrl,
           eventsCount: r.events_count ?? 0,
           followersCount: r.followers_count ?? 0,
           followingCount: r.following_count ?? 0,

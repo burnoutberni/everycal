@@ -2,13 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 
-vi.mock("../src/lib/federation.js", () => ({
-  fetchAP: vi.fn(),
-  resolveRemoteActor: vi.fn(),
-  fetchRemoteOutbox: vi.fn(),
-  deliverActivity: vi.fn(),
-  discoverDomainActors: vi.fn(),
-}));
+vi.mock("../src/lib/federation.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/lib/federation.js")>("../src/lib/federation.js");
+  return {
+    ...actual,
+    fetchAP: vi.fn(),
+    resolveRemoteActor: vi.fn(),
+    fetchRemoteOutbox: vi.fn(),
+    deliverActivity: vi.fn(),
+    discoverDomainActors: vi.fn(),
+  };
+});
 
 import { federationRoutes } from "../src/routes/federation-api.js";
 import { resolveRemoteActor, deliverActivity } from "../src/lib/federation.js";

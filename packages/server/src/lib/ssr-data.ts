@@ -1,7 +1,7 @@
 import type { DB } from "../db.js";
 import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
-import { DELETED_REMOTE_DISPLAY_NAME } from "./federation.js";
+import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federation.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -118,13 +118,27 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
           .get(currentUser.id, remoteRow.uri)
       : null;
 
-    const isDeleted = remoteRow.fetch_status === "gone";
+    const account = formatRemoteActorAccount({
+      status: remoteRow.fetch_status as string | null,
+      preferredUsername: remoteRow.preferred_username as string | null,
+      displayName: remoteRow.display_name as string | null,
+      domain: remoteRow.domain as string | null,
+      iconUrl: remoteRow.icon_url as string | null,
+    });
+    const actorIdentity = formatRemoteActorIdentity({
+      status: remoteRow.fetch_status as string | null,
+      preferredUsername: remoteRow.preferred_username as string | null,
+      displayName: remoteRow.display_name as string | null,
+      summary: remoteRow.summary as string | null,
+      iconUrl: remoteRow.icon_url as string | null,
+      imageUrl: remoteRow.image_url as string | null,
+    });
     return {
       id: remoteRow.uri,
-      username: isDeleted ? `deleted@${remoteRow.domain}` : username,
-      displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : remoteRow.display_name,
-      bio: isDeleted ? null : remoteRow.summary,
-      avatarUrl: isDeleted ? null : remoteRow.icon_url,
+      username: account?.username || username,
+      displayName: actorIdentity.displayName,
+      bio: actorIdentity.summary,
+      avatarUrl: actorIdentity.iconUrl,
       website: null,
       isBot: false,
       discoverable: true,
@@ -407,28 +421,19 @@ function formatLocalEvent(row: Record<string, unknown>): Record<string, unknown>
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const isDeletedActor = row.actor_fetch_status === "gone";
-  const domain = (row.domain as string) || "unknown";
+  const account = formatRemoteActorAccount({
+    status: row.actor_fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.actor_display_name as string | null,
+    domain: row.domain as string | null,
+    iconUrl: row.actor_icon_url as string | null,
+  });
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: isDeletedActor
-      ? {
-          username: `deleted@${domain}`,
-          displayName: DELETED_REMOTE_DISPLAY_NAME,
-          domain,
-          iconUrl: null,
-        }
-      : row.preferred_username
-      ? {
-          username: `${row.preferred_username}@${domain}`,
-          displayName: row.actor_display_name,
-          domain,
-          iconUrl: row.actor_icon_url,
-        }
-      : null,
+    account,
     title: row.title,
     description: row.description,
     startDate: row.start_date,

@@ -30,16 +30,93 @@ export class FederationFetchError extends Error {
   }
 }
 
-function parseActorUriFallback(actorUri: string): { username: string; domain: string } {
+export interface RemoteActorAccount {
+  username: string;
+  displayName: string | null;
+  domain: string;
+  iconUrl: string | null;
+}
+
+export function formatRemoteActorAccount(input: {
+  status?: string | null;
+  preferredUsername?: string | null;
+  displayName?: string | null;
+  domain?: string | null;
+  iconUrl?: string | null;
+}): RemoteActorAccount | null {
+  const domain = input.domain || "unknown";
+  if (input.status === "gone") {
+    return {
+      username: `deleted@${domain}`,
+      displayName: DELETED_REMOTE_DISPLAY_NAME,
+      domain,
+      iconUrl: null,
+    };
+  }
+
+  if (!input.preferredUsername) return null;
+
+  return {
+    username: `${input.preferredUsername}@${domain}`,
+    displayName: input.displayName || null,
+    domain,
+    iconUrl: input.iconUrl || null,
+  };
+}
+
+export function formatRemoteActorIdentity(input: {
+  status?: string | null;
+  preferredUsername?: string | null;
+  displayName?: string | null;
+  summary?: string | null;
+  iconUrl?: string | null;
+  imageUrl?: string | null;
+}): {
+  username: string | null;
+  displayName: string | null;
+  summary: string | null;
+  iconUrl: string | null;
+  imageUrl: string | null;
+} {
+  if (input.status === "gone") {
+    return {
+      username: "deleted",
+      displayName: DELETED_REMOTE_DISPLAY_NAME,
+      summary: null,
+      iconUrl: null,
+      imageUrl: null,
+    };
+  }
+
+  return {
+    username: input.preferredUsername || null,
+    displayName: input.displayName || null,
+    summary: input.summary || null,
+    iconUrl: input.iconUrl || null,
+    imageUrl: input.imageUrl || null,
+  };
+}
+
+export function parseRemoteActorUri(uri: string): { username: string; domain: string } {
   try {
-    const parsed = new URL(actorUri);
+    const parsed = new URL(uri);
     const domain = parsed.hostname;
-    const match = parsed.pathname.match(/\/users\/([^/]+)$/);
-    const username = match?.[1] || DELETED_REMOTE_USERNAME;
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    let username = segments.length > 0 ? segments[segments.length - 1] : "unknown";
+    if (username.startsWith("@")) username = username.slice(1);
+    if (!username) username = "unknown";
     return { username, domain };
   } catch {
-    return { username: DELETED_REMOTE_USERNAME, domain: "unknown" };
+    return { username: "unknown", domain: "unknown" };
   }
+}
+
+function parseActorUriFallback(actorUri: string): { username: string; domain: string } {
+  const parsed = parseRemoteActorUri(actorUri);
+  return {
+    username: parsed.username === "unknown" ? DELETED_REMOTE_USERNAME : parsed.username,
+    domain: parsed.domain,
+  };
 }
 
 function upsertRemoteActorFetchState(
@@ -173,6 +250,11 @@ export async function resolveRemoteActor(
       .get(actorUri) as RemoteActor | undefined;
     if (cached?.fetch_status === "gone") return null;
     if (cached?.fetch_status === "error") {
+      const hasUsableCachedActor =
+        !!cached.public_key_pem ||
+        !!cached.outbox ||
+        (typeof cached.inbox === "string" && cached.inbox.length > 0 && cached.inbox !== cached.uri);
+      if (hasUsableCachedActor) return cached;
       if (cached.next_retry_at && cached.next_retry_at > nowIso) return null;
     } else if (cached) {
       return cached;

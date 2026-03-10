@@ -103,6 +103,25 @@ describe("resolveRemoteActor fetch status tracking", () => {
     expect(row.gone_at).toBeNull();
   });
 
+  it("returns cached actor for error status during retry cooldown when forceRefresh is false", async () => {
+    const retryAtIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    db.prepare(
+      `UPDATE remote_actors
+       SET fetch_status = 'error',
+           next_retry_at = ?,
+           public_key_pem = ?,
+           public_key_id = ?
+       WHERE uri = ?`
+    ).run(retryAtIso, "-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----", `${actorUri}#main-key`, actorUri);
+
+    const actor = await resolveRemoteActor(db, actorUri);
+    expect(actor).toBeTruthy();
+    expect(actor?.fetch_status).toBe("error");
+    expect(actor?.next_retry_at).toBe(retryAtIso);
+    expect(actor?.public_key_pem).toContain("BEGIN PUBLIC KEY");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("persists gone state for uncached actors", async () => {
     const uncachedActorUri = "https://remote.example/users/missing";
     fetchMock.mockResolvedValueOnce({ ok: false, status: 410, statusText: "Gone" } as Response);

@@ -6,7 +6,13 @@ import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
-import { DELETED_REMOTE_DISPLAY_NAME, resolveRemoteActor, fetchRemoteCollection } from "../lib/federation.js";
+import {
+  formatRemoteActorAccount,
+  formatRemoteActorIdentity,
+  parseRemoteActorUri,
+  resolveRemoteActor,
+  fetchRemoteCollection,
+} from "../lib/federation.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import {
@@ -93,13 +99,27 @@ export function userRoutes(db: DB): Hono {
               .get(currentUser.id, remoteRow.uri)
           : null;
 
-        const isDeleted = remoteRow.fetch_status === "gone";
+        const account = formatRemoteActorAccount({
+          status: remoteRow.fetch_status as string | null,
+          preferredUsername: remoteRow.preferred_username as string | null,
+          displayName: remoteRow.display_name as string | null,
+          domain: remoteRow.domain as string | null,
+          iconUrl: remoteRow.icon_url as string | null,
+        });
+        const actorIdentity = formatRemoteActorIdentity({
+          status: remoteRow.fetch_status as string | null,
+          preferredUsername: remoteRow.preferred_username as string | null,
+          displayName: remoteRow.display_name as string | null,
+          summary: remoteRow.summary as string | null,
+          iconUrl: remoteRow.icon_url as string | null,
+          imageUrl: remoteRow.image_url as string | null,
+        });
         return c.json({
           id: remoteRow.uri,
-          username: isDeleted ? `deleted@${remoteRow.domain}` : username,
-          displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : remoteRow.display_name,
-          bio: isDeleted ? null : remoteRow.summary,
-          avatarUrl: isDeleted ? null : remoteRow.icon_url,
+          username: account?.username || username,
+          displayName: actorIdentity.displayName,
+          bio: actorIdentity.summary,
+          avatarUrl: actorIdentity.iconUrl,
           website: null,
           isBot: false,
           discoverable: true,
@@ -662,28 +682,19 @@ export function userRoutes(db: DB): Hono {
 }
 
 function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, unknown> {
-  const isDeletedActor = row.actor_fetch_status === "gone";
-  const domain = (row.domain as string) || "unknown";
+  const account = formatRemoteActorAccount({
+    status: row.actor_fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.actor_display_name as string | null,
+    domain: row.domain as string | null,
+    iconUrl: row.actor_icon_url as string | null,
+  });
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: isDeletedActor
-      ? {
-          username: `deleted@${domain}`,
-          displayName: DELETED_REMOTE_DISPLAY_NAME,
-          domain,
-          iconUrl: null,
-        }
-      : row.preferred_username
-      ? {
-          username: `${row.preferred_username}@${domain}`,
-          displayName: row.actor_display_name,
-          domain,
-          iconUrl: row.actor_icon_url,
-        }
-      : null,
+    account,
     title: row.title,
     description: row.description,
     startDate: row.start_date,
@@ -727,22 +738,9 @@ function formatUser(row: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-/** Parse actor URI (e.g. https://domain/users/username) to username@domain */
-function parseActorUri(uri: string): { username: string; domain: string } {
-  try {
-    const url = new URL(uri);
-    const domain = url.hostname;
-    const match = url.pathname.match(/\/users\/([^/]+)$/);
-    const username = match ? match[1] : url.pathname.replace(/^\//, "").replace(/\/$/, "") || "unknown";
-    return { username, domain };
-  } catch {
-    return { username: "unknown", domain: "unknown" };
-  }
-}
-
 /** Convert an actor URI to a minimal User object for remote followers/following lists */
 function actorUriToUser(uri: string): Record<string, unknown> {
-  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
+  const { username: parsedUser, domain: parsedDomain } = parseRemoteActorUri(uri);
   if (parsedUser === "unknown" && parsedDomain === "unknown") return {};
   const username = `${parsedUser}@${parsedDomain}`;
   return {
@@ -757,17 +755,21 @@ function actorUriToUser(uri: string): Record<string, unknown> {
 
 function formatRemoteFollower(row: Record<string, unknown>): Record<string, unknown> {
   const uri = row.follower_actor_uri as string;
-  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
-  const domain = (row.domain as string) ?? parsedDomain;
-  const isDeleted = row.fetch_status === "gone";
-  const username = row.preferred_username && row.domain
-    ? `${row.preferred_username}@${row.domain}`
-    : `${parsedUser}@${parsedDomain}`;
+  const { username: parsedUser, domain: parsedDomain } = parseRemoteActorUri(uri);
+  const domain = (row.domain as string) || parsedDomain;
+  const account = formatRemoteActorAccount({
+    status: row.fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.display_name as string | null,
+    domain,
+    iconUrl: row.icon_url as string | null,
+  });
+  const username = account?.username || `${parsedUser}@${parsedDomain}`;
   return {
     id: uri,
-    username: isDeleted ? `deleted@${domain}` : username,
-    displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : row.display_name ?? null,
-    avatarUrl: isDeleted ? null : row.icon_url ?? null,
+    username,
+    displayName: account?.displayName || null,
+    avatarUrl: account?.iconUrl || null,
     domain,
     source: "remote",
   };
@@ -775,17 +777,21 @@ function formatRemoteFollower(row: Record<string, unknown>): Record<string, unkn
 
 function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unknown> {
   const uri = row.actor_uri as string;
-  const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
-  const domain = (row.domain as string) ?? parsedDomain;
-  const isDeleted = row.fetch_status === "gone";
-  const username = row.preferred_username && row.domain
-    ? `${row.preferred_username}@${row.domain}`
-    : `${parsedUser}@${parsedDomain}`;
+  const { username: parsedUser, domain: parsedDomain } = parseRemoteActorUri(uri);
+  const domain = (row.domain as string) || parsedDomain;
+  const account = formatRemoteActorAccount({
+    status: row.fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.display_name as string | null,
+    domain,
+    iconUrl: row.icon_url as string | null,
+  });
+  const username = account?.username || `${parsedUser}@${parsedDomain}`;
   return {
     id: uri,
-    username: isDeleted ? `deleted@${domain}` : username,
-    displayName: isDeleted ? DELETED_REMOTE_DISPLAY_NAME : row.display_name ?? null,
-    avatarUrl: isDeleted ? null : row.icon_url ?? null,
+    username,
+    displayName: account?.displayName || null,
+    avatarUrl: account?.iconUrl || null,
     domain,
     source: "remote",
   };

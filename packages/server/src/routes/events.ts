@@ -16,7 +16,7 @@ import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { DELETED_REMOTE_DISPLAY_NAME, deliverToFollowers } from "../lib/federation.js";
+import { deliverToFollowers, formatRemoteActorAccount } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
@@ -211,28 +211,19 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const isDeletedActor = row.actor_fetch_status === "gone";
-  const domain = (row.domain as string) || "unknown";
+  const account = formatRemoteActorAccount({
+    status: row.actor_fetch_status as string | null,
+    preferredUsername: row.preferred_username as string | null,
+    displayName: row.actor_display_name as string | null,
+    domain: row.domain as string | null,
+    iconUrl: row.actor_icon_url as string | null,
+  });
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: isDeletedActor
-      ? {
-          username: `deleted@${domain}`,
-          displayName: DELETED_REMOTE_DISPLAY_NAME,
-          domain,
-          iconUrl: null,
-        }
-      : row.preferred_username
-      ? {
-          username: `${row.preferred_username}@${domain}`,
-          displayName: row.actor_display_name,
-          domain,
-          iconUrl: row.actor_icon_url,
-        }
-      : null,
+    account,
     title: row.title,
     description: row.description,
     startDate: row.start_date,
