@@ -90,7 +90,10 @@ const COUNTRY_CODE_BY_TIMEZONE: Record<string, string> = {
   "Asia/Dubai": "AE",
   "Asia/Kolkata": "IN",
   "Asia/Bangkok": "TH",
+  "Asia/Hong_Kong": "HK",
   "Asia/Tokyo": "JP",
+  "Asia/Seoul": "KR",
+  "Asia/Taipei": "TW",
   "Australia/Sydney": "AU",
   "Pacific/Auckland": "NZ",
 };
@@ -106,12 +109,20 @@ const FALLBACK_ABBREVIATIONS: Record<string, { standard: string; daylight?: stri
   "America/St_Johns": { standard: "NST", daylight: "NDT" },
   "Europe/London": { standard: "GMT", daylight: "BST" },
   "Europe/Berlin": { standard: "CET", daylight: "CEST" },
+  "Europe/Vienna": { standard: "CET", daylight: "CEST" },
+  "Europe/Paris": { standard: "CET", daylight: "CEST" },
+  "Europe/Madrid": { standard: "CET", daylight: "CEST" },
+  "Europe/Rome": { standard: "CET", daylight: "CEST" },
   "Europe/Helsinki": { standard: "EET", daylight: "EEST" },
+  "Europe/Moscow": { standard: "MSK" },
   "Asia/Dubai": { standard: "GST" },
   "Asia/Kolkata": { standard: "IST" },
   "Asia/Bangkok": { standard: "ICT" },
+  "Asia/Hong_Kong": { standard: "HKT" },
   "Asia/Singapore": { standard: "SGT" },
   "Asia/Tokyo": { standard: "JST" },
+  "Asia/Seoul": { standard: "KST" },
+  "Asia/Taipei": { standard: "CST" },
   "Australia/Sydney": { standard: "AEST", daylight: "AEDT" },
   "Pacific/Auckland": { standard: "NZST", daylight: "NZDT" },
 };
@@ -190,9 +201,10 @@ function prefersDaylightAbbreviation(timeZone: string, now: Date, locale: string
 }
 
 function normalizeAbbreviation(raw: string): string {
-  if (!raw) return "GMT";
-  if (/^(GMT|UTC)/i.test(raw)) return "GMT";
-  return raw;
+  const value = raw.trim();
+  if (!value) return "";
+  if (/^(GMT|UTC)(?:[+-]\d{1,2}(?::?\d{2})?)?$/i.test(value)) return "";
+  return value;
 }
 
 function runtimeAbbreviationCandidates(timeZone: string, locale: string, now: Date): string[] {
@@ -205,7 +217,7 @@ function runtimeAbbreviationCandidates(timeZone: string, locale: string, now: Da
     readZoneNamePart(timeZone, SAMPLE_SUMMER_DATE, "en", "short"),
   ];
 
-  return values.map((value) => normalizeAbbreviation(value)).filter((value) => value !== "GMT");
+  return values.map((value) => normalizeAbbreviation(value)).filter(Boolean);
 }
 
 function localizedAbbreviation(
@@ -218,11 +230,12 @@ function localizedAbbreviation(
   const keySuffix = daylight ? "daylight" : "standard";
   const timeZoneKey = timeZone.replace(/\//g, "_");
   const fallbackByZone = FALLBACK_ABBREVIATIONS[timeZone];
-  const runtimeFallback = runtimeAbbreviationCandidates(timeZone, locale, now)[0] || "GMT";
+  const runtimeFallback = runtimeAbbreviationCandidates(timeZone, locale, now)[0] || "";
   const fallback =
     (daylight ? fallbackByZone?.daylight || fallbackByZone?.standard : fallbackByZone?.standard || fallbackByZone?.daylight) ||
     runtimeFallback;
 
+  if (!fallback) return "";
   return translate(`timezones:abbreviations.${timeZoneKey}.${keySuffix}`, fallback);
 }
 
@@ -290,7 +303,7 @@ function buildTimezoneOption(
     offsetLabel,
     offsetMinutes,
     abbreviation,
-    displayLabel: `${offsetLabel} ${city} ${abbreviation}`,
+    displayLabel: abbreviation ? `${offsetLabel} ${city} ${abbreviation}` : `${offsetLabel} ${city}`,
     searchText,
   };
 }
@@ -381,7 +394,9 @@ export function TimezonePicker({
       ...runtimeOption,
       tz: systemValue,
       city: label,
-      displayLabel: `${label} · ${runtimeOption.offsetLabel} ${runtimeOption.abbreviation}`,
+      displayLabel: runtimeOption.abbreviation
+        ? `${label} · ${runtimeOption.offsetLabel} ${runtimeOption.abbreviation}`
+        : `${label} · ${runtimeOption.offsetLabel}`,
       searchText: `${label} ${runtimeOption.searchText}`.toLowerCase(),
     } satisfies TimezoneOption;
   }, [allowSystemOption, locale, referenceDate, referenceDateKey, systemLabel, systemValue, t, translate]);
@@ -571,7 +586,9 @@ export function TimezonePicker({
             <strong>{(isSystemSelected ? systemOption : selectedOption)?.offsetLabel}</strong>
             <span>{(isSystemSelected ? systemOption : selectedOption)?.city}</span>
           </span>
-          <span className="timezone-item-abbr">{(isSystemSelected ? systemOption : selectedOption)?.abbreviation}</span>
+          {(isSystemSelected ? systemOption : selectedOption)?.abbreviation && (
+            <span className="timezone-item-abbr">{(isSystemSelected ? systemOption : selectedOption)?.abbreviation}</span>
+          )}
         </div>
       )}
 
@@ -602,7 +619,7 @@ export function TimezonePicker({
                 <strong>{option.offsetLabel}</strong>
                 <span>{option.city}</span>
               </span>
-              <span className="timezone-item-abbr">{option.abbreviation}</span>
+              {option.abbreviation && <span className="timezone-item-abbr">{option.abbreviation}</span>}
             </button>
           ))}
         </div>

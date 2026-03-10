@@ -31,7 +31,10 @@
     "Asia_Dubai": "Dubai",
     "Asia_Kolkata": "Kalkutta",
     "Asia_Bangkok": "Bangkok",
+    "Asia_Hong_Kong": "Hongkong",
+    "Asia_Seoul": "Seoul",
     "Asia_Singapore": "Singapur",
+    "Asia_Taipei": "Taipeh",
     "Asia_Tokyo": "Tokio",
     "Australia_Sydney": "Sydney",
     "Pacific_Auckland": "Auckland"
@@ -76,6 +79,60 @@
     "America_Los_Angeles": {
       "standard": "PST",
       "daylight": "PDT"
+    },
+    "Pacific_Honolulu": {
+      "standard": "HST"
+    },
+    "America_Anchorage": {
+      "standard": "AKST",
+      "daylight": "AKDT"
+    },
+    "America_Halifax": {
+      "standard": "AST",
+      "daylight": "ADT"
+    },
+    "America_St_Johns": {
+      "standard": "NST",
+      "daylight": "NDT"
+    },
+    "Europe_Helsinki": {
+      "standard": "EET",
+      "daylight": "EEST"
+    },
+    "Europe_Moscow": {
+      "standard": "MSK"
+    },
+    "Asia_Dubai": {
+      "standard": "GST"
+    },
+    "Asia_Kolkata": {
+      "standard": "IST"
+    },
+    "Asia_Bangkok": {
+      "standard": "ICT"
+    },
+    "Asia_Hong_Kong": {
+      "standard": "HKT"
+    },
+    "Asia_Seoul": {
+      "standard": "KST"
+    },
+    "Asia_Singapore": {
+      "standard": "SGT"
+    },
+    "Asia_Taipei": {
+      "standard": "CST"
+    },
+    "Asia_Tokyo": {
+      "standard": "JST"
+    },
+    "Australia_Sydney": {
+      "standard": "AEST",
+      "daylight": "AEDT"
+    },
+    "Pacific_Auckland": {
+      "standard": "NZST",
+      "daylight": "NZDT"
     }
   }
 }
