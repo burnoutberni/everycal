@@ -79,7 +79,7 @@ export function userRoutes(db: DB): Hono {
         const remoteRow = db
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
-                    ra.followers_count, ra.following_count,
+                    ra.followers_count, ra.following_count, ra.fetch_status,
                     (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
              FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
           )
@@ -93,12 +93,13 @@ export function userRoutes(db: DB): Hono {
               .get(currentUser.id, remoteRow.uri)
           : null;
 
+        const isDeleted = remoteRow.fetch_status === "gone";
         return c.json({
           id: remoteRow.uri,
-          username: username,
-          displayName: remoteRow.display_name,
-          bio: remoteRow.summary,
-          avatarUrl: remoteRow.icon_url,
+          username: isDeleted ? `deleted@${remoteRow.domain}` : username,
+          displayName: isDeleted ? "Deleted account" : remoteRow.display_name,
+          bio: isDeleted ? null : remoteRow.summary,
+          avatarUrl: isDeleted ? null : remoteRow.icon_url,
           website: null,
           isBot: false,
           discoverable: true,
@@ -177,7 +178,7 @@ export function userRoutes(db: DB): Hono {
 
         let sql = `
           SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
-                 ra.domain, ra.icon_url AS actor_icon_url
+                 ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
           FROM remote_events re
           LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
           WHERE re.actor_uri = ?
@@ -577,6 +578,7 @@ export function userRoutes(db: DB): Hono {
     const remoteRows = db
       .prepare(
         `SELECT rf.follower_actor_uri, ra.preferred_username, ra.display_name, ra.icon_url, ra.domain
+                , ra.fetch_status
          FROM remote_follows rf
          LEFT JOIN remote_actors ra ON ra.uri = rf.follower_actor_uri
          WHERE rf.account_id = ?
@@ -641,6 +643,7 @@ export function userRoutes(db: DB): Hono {
     const remoteRows = db
       .prepare(
         `SELECT rf.actor_uri, ra.preferred_username, ra.display_name, ra.icon_url, ra.domain
+                , ra.fetch_status
          FROM remote_following rf
          LEFT JOIN remote_actors ra ON ra.uri = rf.actor_uri
          WHERE rf.account_id = ?
@@ -659,16 +662,25 @@ export function userRoutes(db: DB): Hono {
 }
 
 function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, unknown> {
+  const isDeletedActor = row.actor_fetch_status === "gone";
+  const domain = (row.domain as string) || "unknown";
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: row.preferred_username
+    account: isDeletedActor
       ? {
-          username: `${row.preferred_username}@${row.domain}`,
+          username: `deleted@${domain}`,
+          displayName: "Deleted account",
+          domain,
+          iconUrl: null,
+        }
+      : row.preferred_username
+      ? {
+          username: `${row.preferred_username}@${domain}`,
           displayName: row.actor_display_name,
-          domain: row.domain,
+          domain,
           iconUrl: row.actor_icon_url,
         }
       : null,
@@ -747,14 +759,15 @@ function formatRemoteFollower(row: Record<string, unknown>): Record<string, unkn
   const uri = row.follower_actor_uri as string;
   const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
   const domain = (row.domain as string) ?? parsedDomain;
+  const isDeleted = row.fetch_status === "gone";
   const username = row.preferred_username && row.domain
     ? `${row.preferred_username}@${row.domain}`
     : `${parsedUser}@${parsedDomain}`;
   return {
     id: uri,
-    username,
-    displayName: row.display_name ?? null,
-    avatarUrl: row.icon_url ?? null,
+    username: isDeleted ? `deleted@${domain}` : username,
+    displayName: isDeleted ? "Deleted account" : row.display_name ?? null,
+    avatarUrl: isDeleted ? null : row.icon_url ?? null,
     domain,
     source: "remote",
   };
@@ -764,14 +777,15 @@ function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unk
   const uri = row.actor_uri as string;
   const { username: parsedUser, domain: parsedDomain } = parseActorUri(uri);
   const domain = (row.domain as string) ?? parsedDomain;
+  const isDeleted = row.fetch_status === "gone";
   const username = row.preferred_username && row.domain
     ? `${row.preferred_username}@${row.domain}`
     : `${parsedUser}@${parsedDomain}`;
   return {
     id: uri,
-    username,
-    displayName: row.display_name ?? null,
-    avatarUrl: row.icon_url ?? null,
+    username: isDeleted ? `deleted@${domain}` : username,
+    displayName: isDeleted ? "Deleted account" : row.display_name ?? null,
+    avatarUrl: isDeleted ? null : row.icon_url ?? null,
     domain,
     source: "remote",
   };

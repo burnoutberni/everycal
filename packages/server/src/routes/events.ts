@@ -49,9 +49,11 @@ const LOCAL_EVENT_SELECT = `
 
 const REMOTE_EVENT_SELECT = `
   SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
-         ra.domain, ra.icon_url AS actor_icon_url
+         ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
+
+const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
 const EVERYCAL_CONTEXT = {
@@ -211,16 +213,25 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
+  const isDeletedActor = row.actor_fetch_status === "gone";
+  const domain = (row.domain as string) || "unknown";
   return {
     id: row.uri,
     slug: row.slug,
     source: "remote",
     actorUri: row.actor_uri,
-    account: row.preferred_username
+    account: isDeletedActor
       ? {
-          username: `${row.preferred_username}@${row.domain}`,
+          username: `deleted@${domain}`,
+          displayName: DELETED_REMOTE_DISPLAY_NAME,
+          domain,
+          iconUrl: null,
+        }
+      : row.preferred_username
+      ? {
+          username: `${row.preferred_username}@${domain}`,
           displayName: row.actor_display_name,
-          domain: row.domain,
+          domain,
           iconUrl: row.actor_icon_url,
         }
       : null,

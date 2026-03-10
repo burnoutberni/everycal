@@ -8,9 +8,82 @@ import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js
 
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
+const DELETED_REMOTE_USERNAME = "deleted";
+const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
+
+const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
 /** Software types that support a Mastodon-compatible directory API */
 const DIRECTORY_SUPPORTED = ["mastodon", "pleroma", "glitch", "hometown"];
+
+export class FederationFetchError extends Error {
+  status: number;
+  statusText: string;
+  url: string;
+
+  constructor(url: string, status: number, statusText: string) {
+    super(`Failed to fetch ${url}: ${status} ${statusText}`);
+    this.name = "FederationFetchError";
+    this.url = url;
+    this.status = status;
+    this.statusText = statusText;
+  }
+}
+
+function parseActorUriFallback(actorUri: string): { username: string; domain: string } {
+  try {
+    const parsed = new URL(actorUri);
+    const domain = parsed.hostname;
+    const match = parsed.pathname.match(/\/users\/([^/]+)$/);
+    const username = match?.[1] || DELETED_REMOTE_USERNAME;
+    return { username, domain };
+  } catch {
+    return { username: DELETED_REMOTE_USERNAME, domain: "unknown" };
+  }
+}
+
+function upsertRemoteActorFetchState(
+  db: DB,
+  actorUri: string,
+  state: {
+    fetchStatus: "error" | "gone";
+    lastError: string;
+    nextRetryAt: string | null;
+    goneAt: string | null;
+    lastFetchedAt: string;
+  }
+): void {
+  const parsed = parseActorUriFallback(actorUri);
+  const placeholderDisplayName = state.fetchStatus === "gone" ? DELETED_REMOTE_DISPLAY_NAME : null;
+
+  db.prepare(
+    `INSERT INTO remote_actors (
+       uri, type, preferred_username, display_name, summary,
+       inbox, outbox, shared_inbox, followers_url, following_url,
+       icon_url, image_url, public_key_id, public_key_pem, domain,
+       last_fetched_at, fetch_status, last_error, next_retry_at, gone_at
+     )
+     VALUES (?, 'Person', ?, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(uri) DO UPDATE SET
+       display_name = CASE WHEN excluded.fetch_status = 'gone' THEN excluded.display_name ELSE remote_actors.display_name END,
+       fetch_status = excluded.fetch_status,
+       last_error = excluded.last_error,
+       next_retry_at = excluded.next_retry_at,
+       gone_at = excluded.gone_at,
+       last_fetched_at = excluded.last_fetched_at`
+  ).run(
+    actorUri,
+    parsed.username,
+    placeholderDisplayName,
+    actorUri,
+    parsed.domain,
+    state.lastFetchedAt,
+    state.fetchStatus,
+    state.lastError,
+    state.nextRetryAt,
+    state.goneAt
+  );
+}
 
 /**
  * Fetch a remote ActivityPub object/actor with proper Accept header.
@@ -27,7 +100,7 @@ export async function fetchAP(url: string): Promise<unknown> {
     redirect: "error", // Don't follow redirects (prevents redirect-based SSRF)
   });
   if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
+    throw new FederationFetchError(url, res.status, res.statusText);
   }
   return res.json();
 }
@@ -92,11 +165,18 @@ export async function resolveRemoteActor(
   actorUri: string,
   forceRefresh = false
 ): Promise<RemoteActor | null> {
+  const nowIso = new Date().toISOString();
+
   if (!forceRefresh) {
     const cached = db
       .prepare("SELECT * FROM remote_actors WHERE uri = ?")
       .get(actorUri) as RemoteActor | undefined;
-    if (cached) return cached;
+    if (cached?.fetch_status === "gone") return null;
+    if (cached?.fetch_status === "error") {
+      if (cached.next_retry_at && cached.next_retry_at > nowIso) return null;
+    } else if (cached) {
+      return cached;
+    }
   }
 
   try {
@@ -138,33 +218,64 @@ export async function resolveRemoteActor(
       public_key_id: (data.publicKey as Record<string, string>)?.id || null,
       public_key_pem: (data.publicKey as Record<string, string>)?.publicKeyPem || null,
       domain: new URL(data.id as string).hostname,
-      last_fetched_at: new Date().toISOString(),
+      last_fetched_at: nowIso,
+      fetch_status: "active",
+      last_error: null,
+      next_retry_at: null,
+      gone_at: null,
     };
 
     db.prepare(
       `INSERT INTO remote_actors (uri, type, preferred_username, display_name, summary,
         inbox, outbox, shared_inbox, followers_url, following_url, followers_count, following_count,
-        icon_url, image_url, public_key_id, public_key_pem, domain, last_fetched_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        icon_url, image_url, public_key_id, public_key_pem, domain, last_fetched_at,
+        fetch_status, last_error, next_retry_at, gone_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(uri) DO UPDATE SET
-        type=excluded.type, preferred_username=excluded.preferred_username,
-        display_name=excluded.display_name, summary=excluded.summary,
-        inbox=excluded.inbox, outbox=excluded.outbox, shared_inbox=excluded.shared_inbox,
-        followers_url=excluded.followers_url, following_url=excluded.following_url,
-        followers_count=excluded.followers_count, following_count=excluded.following_count,
-        icon_url=excluded.icon_url, image_url=excluded.image_url,
-        public_key_id=excluded.public_key_id, public_key_pem=excluded.public_key_pem,
-        domain=excluded.domain, last_fetched_at=excluded.last_fetched_at`
+         type=excluded.type, preferred_username=excluded.preferred_username,
+         display_name=excluded.display_name, summary=excluded.summary,
+         inbox=excluded.inbox, outbox=excluded.outbox, shared_inbox=excluded.shared_inbox,
+         followers_url=excluded.followers_url, following_url=excluded.following_url,
+         followers_count=excluded.followers_count, following_count=excluded.following_count,
+         icon_url=excluded.icon_url, image_url=excluded.image_url,
+         public_key_id=excluded.public_key_id, public_key_pem=excluded.public_key_pem,
+         domain=excluded.domain, last_fetched_at=excluded.last_fetched_at,
+         fetch_status=excluded.fetch_status, last_error=excluded.last_error,
+         next_retry_at=excluded.next_retry_at, gone_at=excluded.gone_at`
     ).run(
       actor.uri, actor.type, actor.preferred_username, actor.display_name, actor.summary,
       actor.inbox, actor.outbox, actor.shared_inbox, actor.followers_url, actor.following_url,
       actor.followers_count ?? null, actor.following_count ?? null,
       actor.icon_url, actor.image_url, actor.public_key_id, actor.public_key_pem,
-      actor.domain, actor.last_fetched_at
+      actor.domain, actor.last_fetched_at,
+      actor.fetch_status, actor.last_error, actor.next_retry_at, actor.gone_at
     );
 
     return actor;
   } catch (err) {
+    if (err instanceof FederationFetchError && err.status === 410) {
+      upsertRemoteActorFetchState(db, actorUri, {
+        fetchStatus: "gone",
+        lastError: err.message,
+        nextRetryAt: null,
+        goneAt: nowIso,
+        lastFetchedAt: nowIso,
+      });
+
+      db.prepare("DELETE FROM remote_following WHERE actor_uri = ?").run(actorUri);
+      db.prepare("DELETE FROM remote_follows WHERE follower_actor_uri = ?").run(actorUri);
+      return null;
+    }
+
+    const retryAtIso = new Date(Date.now() + FEDERATION_RETRY_DELAY_MS).toISOString();
+    const message = err instanceof Error ? err.message : String(err);
+    upsertRemoteActorFetchState(db, actorUri, {
+      fetchStatus: "error",
+      lastError: message,
+      nextRetryAt: retryAtIso,
+      goneAt: null,
+      lastFetchedAt: nowIso,
+    });
     console.error(`Failed to resolve actor ${actorUri}:`, err);
     return null;
   }
@@ -189,6 +300,10 @@ export interface RemoteActor {
   public_key_pem: string | null;
   domain: string;
   last_fetched_at: string;
+  fetch_status?: "active" | "error" | "gone";
+  last_error?: string | null;
+  next_retry_at?: string | null;
+  gone_at?: string | null;
 }
 
 /**

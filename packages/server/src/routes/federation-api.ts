@@ -466,7 +466,7 @@ export function federationRoutes(db: DB): Hono {
 
     let sql = `
       SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
-             ra.domain, ra.icon_url AS actor_icon_url
+             ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
       FROM remote_events re
       LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
       WHERE 1=1
@@ -488,19 +488,30 @@ export function federationRoutes(db: DB): Hono {
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
       events: rows.map((row) => ({
+        ...(row.actor_fetch_status === "gone"
+          ? {
+              account: {
+                username: `deleted@${(row.domain as string) || "unknown"}`,
+                displayName: "Deleted account",
+                domain: (row.domain as string) || "unknown",
+                iconUrl: null,
+              },
+            }
+          : {
+              account: row.preferred_username
+                ? {
+                    username: `${row.preferred_username}@${row.domain}`,
+                    displayName: row.actor_display_name,
+                    domain: row.domain,
+                    iconUrl: row.actor_icon_url,
+                  }
+                : null,
+            }),
         id: row.uri,
         uri: row.uri,
         slug: row.slug,
         source: "remote",
         actorUri: row.actor_uri,
-        account: row.preferred_username
-          ? {
-              username: `${row.preferred_username}@${row.domain}`,
-              displayName: row.actor_display_name,
-              domain: row.domain,
-              iconUrl: row.actor_icon_url,
-            }
-          : null,
         title: row.title,
         description: row.description,
         startDate: row.start_date,
@@ -548,12 +559,12 @@ export function federationRoutes(db: DB): Hono {
       actors: rows.map((r) => ({
         uri: r.uri,
         type: r.type,
-        username: r.preferred_username,
-        displayName: r.display_name,
-        summary: r.summary,
+        username: r.fetch_status === "gone" ? "deleted" : r.preferred_username,
+        displayName: r.fetch_status === "gone" ? "Deleted account" : r.display_name,
+        summary: r.fetch_status === "gone" ? null : r.summary,
         domain: r.domain,
-        iconUrl: r.icon_url,
-        imageUrl: r.image_url,
+        iconUrl: r.fetch_status === "gone" ? null : r.icon_url,
+        imageUrl: r.fetch_status === "gone" ? null : r.image_url,
         outbox: r.outbox,
         followersCount: r.followers_count ?? 0,
         followingCount: r.following_count ?? 0,
@@ -567,12 +578,19 @@ export function federationRoutes(db: DB): Hono {
     const maxRefresh = Math.min(parseInt(c.req.query("limit") || "20", 10), 50);
     const maxAgeHours = parseInt(c.req.query("maxAgeHours") || "24", 10);
     const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
 
     const stale = db
       .prepare(
-        `SELECT uri FROM remote_actors WHERE last_fetched_at < ? ORDER BY last_fetched_at ASC LIMIT ?`
+        `SELECT uri
+         FROM remote_actors
+         WHERE last_fetched_at < ?
+           AND COALESCE(fetch_status, 'active') != 'gone'
+           AND (next_retry_at IS NULL OR next_retry_at <= ?)
+         ORDER BY last_fetched_at ASC
+         LIMIT ?`
       )
-      .all(cutoff, maxRefresh) as { uri: string }[];
+      .all(cutoff, nowIso, maxRefresh) as { uri: string }[];
 
     let refreshed = 0;
     const concurrency = 3;
@@ -629,12 +647,12 @@ export function federationRoutes(db: DB): Hono {
       actors: rows.map((r) => ({
         uri: r.uri,
         type: r.type,
-        username: r.preferred_username,
-        displayName: r.display_name,
-        summary: r.summary,
+        username: r.fetch_status === "gone" ? "deleted" : r.preferred_username,
+        displayName: r.fetch_status === "gone" ? "Deleted account" : r.display_name,
+        summary: r.fetch_status === "gone" ? null : r.summary,
         domain: r.domain,
-        iconUrl: r.icon_url,
-        imageUrl: r.image_url,
+        iconUrl: r.fetch_status === "gone" ? null : r.icon_url,
+        imageUrl: r.fetch_status === "gone" ? null : r.image_url,
         eventsCount: r.events_count ?? 0,
         followersCount: r.followers_count ?? 0,
         followingCount: r.following_count ?? 0,
