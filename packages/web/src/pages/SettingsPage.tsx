@@ -969,6 +969,7 @@ export function SettingsPage() {
                     }}
                     onBlur={() => {
                       setTimeout(() => {
+                        setShowDateTimeCountrySuggestions(false);
                         setDateTimeCountryQuery(selectedDateTimeCountry);
                       }, 120);
                     }}
