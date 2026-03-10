@@ -490,6 +490,11 @@ export function federationRoutes(db: DB): Hono {
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
       events: rows.map((row) => ({
+        id: row.uri,
+        uri: row.uri,
+        slug: row.slug,
+        source: "remote",
+        actorUri: row.actor_uri,
         account: formatRemoteActorAccount({
           status: row.actor_fetch_status as string | null,
           preferredUsername: row.preferred_username as string | null,
@@ -497,11 +502,6 @@ export function federationRoutes(db: DB): Hono {
           domain: row.domain as string | null,
           iconUrl: row.actor_icon_url as string | null,
         }),
-        id: row.uri,
-        uri: row.uri,
-        slug: row.slug,
-        source: "remote",
-        actorUri: row.actor_uri,
         title: row.title,
         description: row.description,
         startDate: row.start_date,
