@@ -18,8 +18,9 @@ import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
-/** Linear collapse: progress 0→1 over this scroll range. Once 1, stay compact until header back in flow.
- *  Keep range short so collapse completes before date separator + first event card scroll out of view. */
+/** Mobile profile header collapse threshold.
+ *  At/near top we keep header expanded; after this offset it snaps compact and stays compact
+ *  until explicitly expanded (or user returns to top in upcoming mode). */
 const PROFILE_COLLAPSE_START = 2;
 
 function parseLocalYmdDate(ymd: string): Date | null {
