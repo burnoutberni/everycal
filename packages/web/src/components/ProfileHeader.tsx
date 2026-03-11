@@ -101,7 +101,7 @@ export function ProfileHeader({
   const tryRequestExpandFromTarget = (target: EventTarget | null) => {
     if (!canRequestExpand) return;
     const el = target as HTMLElement | null;
-    if (el?.closest("a,button,input,select,textarea,label,[role='button']")) return;
+    if (el?.closest("a,button,input,select,textarea,label")) return;
     onRequestExpand?.();
   };
 

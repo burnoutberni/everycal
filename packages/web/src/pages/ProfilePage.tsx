@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
 import { auth as authApi, identities as identitiesApi, users as usersApi, federation, uploads, type User, type CalEvent, type PublishingIdentity } from "../lib/api";
 import { validateAvatarUpload } from "../lib/avatarUpload";
-import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
+import { DateEventSection } from "../components/DateEventSection";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
 import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
@@ -233,6 +234,7 @@ export function ProfilePage({ username }: { username: string }) {
   }, [eventsLoading, events.length]);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
+  const todayYmd = dateToLocalYMD(new Date());
   const isRemote = profile?.source === "remote";
   const isMobile = useIsMobile();
   const [profileCollapseProgress, setProfileCollapseProgress] = useState(0);
@@ -598,8 +600,11 @@ export function ProfilePage({ username }: { username: string }) {
     if (!hasTargetRangeData) return;
 
     const hasExactDate = keys.includes(scrollToDate);
+    const isKnownCalendarDate = calendarEventDates.has(scrollToDate);
+    if (viewingPast && !hasExactDate && isKnownCalendarDate) return;
+
     const targetKey = viewingPast
-      ? resolveNearestDateKey(keys, scrollToDate, true)
+      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, true))
       : hasExactDate
         ? scrollToDate
         : resolveNearestDateKey(keys, scrollToDate, false);
@@ -626,7 +631,7 @@ export function ProfilePage({ username }: { username: string }) {
         }
       }
     });
-  }, [scrollToDate, grouped, events.length, isMobile, viewingPast]);
+  }, [scrollToDate, grouped, events.length, isMobile, viewingPast, calendarEventDates]);
 
   useEffect(() => {
     if (viewingPast || eventsLoading || grouped.size === 0 || didAutoSelectUpcomingRef.current) return;
@@ -795,33 +800,21 @@ export function ProfilePage({ username }: { username: string }) {
             ) : (
               <>
                 {[...grouped.entries()].map(([dateKey, dayEvents]) => (
-                  <div
+                  <DateEventSection
                     key={dateKey}
-                    ref={(el) => {
+                    dateKey={dateKey}
+                    locale={i18n.language}
+                    isPast={dateKey < todayYmd}
+                    pastLabel={t("events:past")}
+                    sectionClassName="profile-date-section"
+                    setSectionRef={(el) => {
                       if (el) dateSectionRefs.current.set(dateKey, el);
                     }}
-                    data-date={dateKey}
-                    className="profile-date-section"
-                    style={{ marginBottom: "1.25rem" }}
                   >
-                    <h2
-                      className="text-sm"
-                      style={{
-                        fontWeight: 600,
-                        color: "var(--text-muted)",
-                        marginBottom: "0.4rem",
-                        borderBottom: "1px solid var(--border)",
-                        paddingBottom: "0.3rem",
-                      }}
-                    >
-                      {formatDateHeading(new Date(dateKey + "T00:00:00"), i18n.language)}
-                    </h2>
-                    <div className="flex flex-col gap-1">
-                      {dayEvents.map((e) => (
-                        <EventCard key={e.id} event={e} />
-                      ))}
-                    </div>
-                  </div>
+                    {dayEvents.map((e) => (
+                      <EventCard key={e.id} event={e} />
+                    ))}
+                  </DateEventSection>
                 ))}
               </>
             )}

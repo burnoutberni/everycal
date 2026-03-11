@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { events as eventsApi, type CalEvent } from "../lib/api";
-import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { TrashIcon } from "../components/icons";
 import { MiniCalendar } from "../components/MiniCalendar";
+import { DateEventSection } from "../components/DateEventSection";
 import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
 import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
 import { ScopeToggle, type ScopeFilter } from "../components/ScopeToggle";
@@ -294,13 +295,17 @@ export function HomePage() {
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = calendarEventDates.has(scrollToDate);
 
+    if (viewingPast && !hasExactDate && isKnownCalendarDate) {
+      return;
+    }
+
     if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
       fetchEvents(events.length, true);
       return;
     }
 
     const targetKey = viewingPast
-      ? resolveNearestDateKey(keys, scrollToDate, true)
+      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, true))
       : hasExactDate
         ? scrollToDate
         : resolveNearestDateKey(keys, scrollToDate, false);
@@ -348,6 +353,7 @@ export function HomePage() {
     calendarEventDates,
     hasMore,
     loadingMore,
+    loading,
     fetchEvents,
   ]);
 
@@ -618,34 +624,21 @@ export function HomePage() {
             {[...grouped.entries()].map(([dateKey, dayEvents]) => {
               const isPast = dateKey < todayYmd;
               return (
-              <div
+              <DateEventSection
                 key={dateKey}
-                ref={(el) => {
+                dateKey={dateKey}
+                locale={dateTimeLocale}
+                isPast={isPast}
+                pastLabel={t("events:past")}
+                sectionClassName={`homepage-date-section ${isPast ? "homepage-date-section-past" : ""}`}
+                setSectionRef={(el) => {
                   if (el) dateSectionRefs.current.set(dateKey, el);
                 }}
-                data-date={dateKey}
-                className={`homepage-date-section ${isPast ? "homepage-date-section-past" : ""}`}
-                style={{ marginBottom: "1.25rem" }}
               >
-                <h2
-                  className="text-sm"
-                  style={{
-                    fontWeight: 600,
-                    color: isPast ? "var(--text-dim)" : "var(--text-muted)",
-                    marginBottom: "0.4rem",
-                    borderBottom: "1px solid var(--border)",
-                    paddingBottom: "0.3rem",
-                  }}
-                >
-                  {isPast && <span className="homepage-past-label">{t("events:past")} — </span>}
-                  {formatDateHeading(new Date(dateKey + "T00:00:00"), dateTimeLocale)}
-                </h2>
-                <div className="flex flex-col gap-1">
-                  {dayEvents.map((e) => (
-                    <EventCard key={e.id} event={e} selectedTags={selectedTags} />
-                  ))}
-                </div>
-              </div>
+                {dayEvents.map((e) => (
+                  <EventCard key={e.id} event={e} selectedTags={selectedTags} />
+                ))}
+              </DateEventSection>
             );
             })}
             {hasMore && (
