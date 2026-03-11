@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
 import { auth as authApi, identities as identitiesApi, users as usersApi, federation, uploads, type User, type CalEvent, type PublishingIdentity } from "../lib/api";
 import { validateAvatarUpload } from "../lib/avatarUpload";
-import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
@@ -598,10 +598,11 @@ export function ProfilePage({ username }: { username: string }) {
     if (!hasTargetRangeData) return;
 
     const hasExactDate = keys.includes(scrollToDate);
-    if (viewingPast && !hasExactDate) return;
-
-    const idx = keys.findIndex((k) => k >= scrollToDate);
-    const targetKey = hasExactDate ? scrollToDate : (idx >= 0 ? keys[idx] : keys[keys.length - 1]);
+    const targetKey = viewingPast
+      ? resolveNearestDateKey(keys, scrollToDate, true)
+      : hasExactDate
+        ? scrollToDate
+        : resolveNearestDateKey(keys, scrollToDate, false);
     setScrollToDate(null);
     if (!targetKey) return;
     if (isMobile) {

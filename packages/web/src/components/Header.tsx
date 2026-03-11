@@ -69,9 +69,8 @@ export function Header() {
         {/* Desktop: full nav */}
         <div className="header-nav-desktop flex items-center gap-2">
           <Link
-            href="/"
+            href="/?reset=1"
             style={{ display: "flex", alignItems: "center", marginRight: "1rem" }}
-            onClick={() => window.dispatchEvent(new CustomEvent("homepage-reset"))}
           >
             <Logo />
           </Link>
@@ -86,9 +85,8 @@ export function Header() {
         {/* Mobile: logo (left) */}
         <div className="header-nav-mobile header-nav-mobile-left">
           <Link
-            href="/"
+            href="/?reset=1"
             style={{ display: "flex", alignItems: "center" }}
-            onClick={() => window.dispatchEvent(new CustomEvent("homepage-reset"))}
           >
             <Logo />
           </Link>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { events as eventsApi, type CalEvent } from "../lib/api";
-import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { TrashIcon } from "../components/icons";
 import { MiniCalendar } from "../components/MiniCalendar";
@@ -28,6 +28,12 @@ function parseTagsFromSearch(search: string): string[] {
   return tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
 }
 
+function parseResetFromSearch(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
+  const reset = params.get("reset");
+  return reset === "1" || reset === "true";
+}
+
 export function HomePage() {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
@@ -43,11 +49,16 @@ export function HomePage() {
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
   const [allTags, setAllTags] = useState<string[]>([]);
   const fetchRequestIdRef = useRef(0);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   // Derive selectedTags from URL; useSearch updates when Link navigates or user uses back/forward
   const searchString = useSearch();
   const selectedTags = useMemo(
     () => parseTagsFromSearch(searchString ? `?${searchString}` : ""),
+    [searchString]
+  );
+  const resetRequested = useMemo(
+    () => parseResetFromSearch(searchString ? `?${searchString}` : ""),
     [searchString]
   );
 
@@ -111,7 +122,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id]);
+  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id, refreshNonce]);
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
@@ -146,7 +157,7 @@ export function HomePage() {
         setLoadingMore(false);
       }
     },
-    [range, scopeFilter, selectedTags.join(","), user?.id]
+    [range, scopeFilter, selectedTags.join(","), user?.id, refreshNonce]
   );
 
   useEffect(() => {
@@ -174,7 +185,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to ?? "", scopeFilter, user?.id]);
+  }, [range.from, range.to ?? "", scopeFilter, user?.id, refreshNonce]);
 
   // Reset to "all" if the user logs out while on a logged-in-only filter
   useEffect(() => {
@@ -272,6 +283,7 @@ export function HomePage() {
   useEffect(() => {
     if (!scrollToDate || events.length === 0) return;
     const keys = [...grouped.keys()].sort();
+    const lastLoadedKey = keys[keys.length - 1] || null;
     const hasTargetRangeData = viewingPast
       ? keys.some((k) => k < todayYmd)
       : keys.some((k) => k >= todayYmd);
@@ -280,17 +292,25 @@ export function HomePage() {
     }
 
     const hasExactDate = keys.includes(scrollToDate);
-    if (viewingPast && !hasExactDate) {
+    const isKnownCalendarDate = calendarEventDates.has(scrollToDate);
+
+    if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
+      fetchEvents(events.length, true);
       return;
     }
+
+    const targetKey = viewingPast
+      ? resolveNearestDateKey(keys, scrollToDate, true)
+      : hasExactDate
+        ? scrollToDate
+        : resolveNearestDateKey(keys, scrollToDate, false);
+
     const allowNearestUpcomingFallback = !viewingPast && scrollToDate === todayYmd;
-    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback) {
+    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback && !isKnownCalendarDate) {
       setScrollToDate(null);
       return;
     }
 
-    const idx = keys.findIndex((k) => k >= scrollToDate);
-    const targetKey = hasExactDate ? scrollToDate : (idx >= 0 ? keys[idx] : keys[keys.length - 1]);
     setScrollToDate(null);
     if (!targetKey) return;
     if (!hasExactDate && allowNearestUpcomingFallback) {
@@ -316,7 +336,20 @@ export function HomePage() {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
-  }, [scrollToDate, grouped, events.length, tagsUnfolded, allTags.length, isMobile, viewingPast, todayYmd]);
+  }, [
+    scrollToDate,
+    grouped,
+    events.length,
+    tagsUnfolded,
+    allTags.length,
+    isMobile,
+    viewingPast,
+    todayYmd,
+    calendarEventDates,
+    hasMore,
+    loadingMore,
+    fetchEvents,
+  ]);
 
   useEffect(() => {
     const positions = tagFlipPositionsRef.current;
@@ -411,15 +444,16 @@ export function HomePage() {
     calendarFoldRef.current?.collapse();
   }, []);
 
-  /** When logo clicked on homepage: close folds and jump to today */
+  /** Handle explicit homepage reset requests (logo click). */
   useEffect(() => {
-    const handler = () => {
-      closeFolds();
-      goToUpcoming();
-    };
-    window.addEventListener("homepage-reset", handler);
-    return () => window.removeEventListener("homepage-reset", handler);
-  }, [closeFolds, goToUpcoming]);
+    if (!resetRequested) return;
+    closeFolds();
+    setScopeFilter("all");
+    setRangeFromOverride(null);
+    goToUpcoming();
+    setRefreshNonce((n) => n + 1);
+    navigate("/", { replace: true });
+  }, [resetRequested, closeFolds, goToUpcoming, navigate]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {

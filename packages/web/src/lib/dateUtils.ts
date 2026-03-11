@@ -55,3 +55,27 @@ export function groupEventsByDate<T extends { startDate: string }>(
   }
   return groups;
 }
+
+/**
+ * Given sorted YYYY-MM-DD keys, resolve best target when exact date has no events.
+ * preferEarlier=true picks closest earlier date first, then later.
+ */
+export function resolveNearestDateKey(sortedKeys: string[], targetYmd: string, preferEarlier = true): string | null {
+  if (sortedKeys.length === 0) return null;
+  let lower: string | null = null;
+  let upper: string | null = null;
+
+  for (const key of sortedKeys) {
+    if (key === targetYmd) return key;
+    if (key < targetYmd) {
+      lower = key;
+      continue;
+    }
+    if (key > targetYmd) {
+      upper = key;
+      break;
+    }
+  }
+
+  return preferEarlier ? (lower ?? upper) : (upper ?? lower);
+}

@@ -96,6 +96,14 @@ export function ProfileHeader({
   };
 
   const effectiveAvatarUrl = editingProfile && inlineDraft?.avatarUrl ? inlineDraft.avatarUrl : profile.avatarUrl;
+  const canRequestExpand = isMobile && collapseProgress >= 0.98 && !!onRequestExpand;
+
+  const tryRequestExpandFromTarget = (target: EventTarget | null) => {
+    if (!canRequestExpand) return;
+    const el = target as HTMLElement | null;
+    if (el?.closest("a,button,input,select,textarea,label,[role='button']")) return;
+    onRequestExpand?.();
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -121,11 +129,14 @@ export function ProfileHeader({
     <div
       ref={headerRef}
       className={`card profile-header ${isMobile ? "profile-header-mobile" : ""}`}
-      onClick={(e) => {
-        if (!isMobile || collapseProgress < 0.98 || !onRequestExpand) return;
-        const target = e.target as HTMLElement;
-        if (target.closest("a,button,input,select,textarea,label,[role='button']")) return;
-        onRequestExpand();
+      role={canRequestExpand ? "button" : undefined}
+      tabIndex={canRequestExpand ? 0 : undefined}
+      onClick={(e) => tryRequestExpandFromTarget(e.target)}
+      onKeyDown={(e) => {
+        if (!canRequestExpand) return;
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        tryRequestExpandFromTarget(e.target);
       }}
       style={
         isMobile
