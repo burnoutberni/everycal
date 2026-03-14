@@ -196,6 +196,11 @@ export function HomePage() {
   const loadMore = () => fetchEvents(events.length, true);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
+  const navigableEventDates = useMemo(() => {
+    const set = new Set(calendarEventDates);
+    for (const key of grouped.keys()) set.add(key);
+    return set;
+  }, [calendarEventDates, grouped]);
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [tagsUnfolded, setTagsUnfolded] = useState(false);
@@ -266,7 +271,7 @@ export function HomePage() {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
     const today = new Date();
     const todayKey = dateToLocalYMD(today);
-    const sortedCalendarKeys = [...calendarEventDates].sort();
+    const sortedCalendarKeys = [...navigableEventDates].sort();
     const nextFromCalendar = sortedCalendarKeys.find((k) => k >= todayKey) || null;
     const sortedLoadedKeys = [...grouped.keys()].sort();
     const nextFromLoaded = sortedLoadedKeys.find((k) => k >= todayKey) || null;
@@ -275,7 +280,7 @@ export function HomePage() {
     setRangeFromOverride(null);
     setSelectedDate(new Date(y, m - 1, d));
     setScrollToDate(targetYmd);
-  }, [calendarEventDates, grouped]);
+  }, [navigableEventDates, grouped]);
 
   const handleDateSelectMobile = (date: Date) => {
     handleDateSelect(date);
@@ -293,7 +298,7 @@ export function HomePage() {
     }
 
     const hasExactDate = keys.includes(scrollToDate);
-    const isKnownCalendarDate = calendarEventDates.has(scrollToDate);
+    const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
 
     if (viewingPast && !hasExactDate && isKnownCalendarDate) {
       return;
@@ -350,7 +355,7 @@ export function HomePage() {
     isMobile,
     viewingPast,
     todayYmd,
-    calendarEventDates,
+    navigableEventDates,
     hasMore,
     loadingMore,
     loading,
@@ -476,7 +481,7 @@ export function HomePage() {
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
       {/* Sidebar */}
       <aside className="hide-mobile homepage-sidebar" style={{ flex: "0 0 220px", position: "sticky", top: "calc(3.5rem + 1rem)", alignSelf: "flex-start" }}>
-        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={calendarEventDates} allowPastNavigation />
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={navigableEventDates} allowPastNavigation />
 
         {/* Scope filter */}
         <div style={{ marginTop: "1rem" }}>
@@ -564,7 +569,7 @@ export function HomePage() {
             ref={calendarFoldRef}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelectMobile}
-            eventDates={calendarEventDates}
+            eventDates={navigableEventDates}
             allowPastNavigation
             collapseOnSelect
             layout="fixed"

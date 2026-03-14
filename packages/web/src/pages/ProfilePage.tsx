@@ -234,6 +234,11 @@ export function ProfilePage({ username }: { username: string }) {
   }, [eventsLoading, events.length]);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
+  const navigableEventDates = useMemo(() => {
+    const set = new Set(calendarEventDates);
+    for (const key of grouped.keys()) set.add(key);
+    return set;
+  }, [calendarEventDates, grouped]);
   const todayYmd = dateToLocalYMD(new Date());
   const isRemote = profile?.source === "remote";
   const isMobile = useIsMobile();
@@ -600,7 +605,7 @@ export function ProfilePage({ username }: { username: string }) {
     if (!hasTargetRangeData) return;
 
     const hasExactDate = keys.includes(scrollToDate);
-    const isKnownCalendarDate = calendarEventDates.has(scrollToDate);
+    const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
     if (viewingPast && !hasExactDate && isKnownCalendarDate) return;
 
     const targetKey = viewingPast
@@ -631,7 +636,7 @@ export function ProfilePage({ username }: { username: string }) {
         }
       }
     });
-  }, [scrollToDate, grouped, events.length, isMobile, viewingPast, calendarEventDates]);
+  }, [scrollToDate, grouped, events.length, isMobile, viewingPast, navigableEventDates]);
 
   useEffect(() => {
     if (viewingPast || eventsLoading || grouped.size === 0 || didAutoSelectUpcomingRef.current) return;
@@ -663,7 +668,7 @@ export function ProfilePage({ username }: { username: string }) {
       <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
         {/* Sidebar */}
         <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={calendarEventDates} allowPastNavigation />
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={navigableEventDates} allowPastNavigation />
         </aside>
 
         {/* Main content */}
@@ -715,7 +720,7 @@ export function ProfilePage({ username }: { username: string }) {
                     ref={calendarFoldRef}
                     selectedDate={selectedDate}
                     onDateSelect={handleDateSelectMobile}
-                    eventDates={calendarEventDates}
+                    eventDates={navigableEventDates}
                     allowPastNavigation
                     collapseOnSelect
                     layout="sticky"
