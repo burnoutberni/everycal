@@ -604,6 +604,10 @@ export function ProfilePage({ username }: { username: string }) {
         : resolveNearestDateKey(keys, scrollToDate, false);
     setScrollToDate(null);
     if (!targetKey) return;
+    if (!hasExactDate && !viewingPast) {
+      const [y, m, d] = targetKey.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
     if (isMobile) {
       ignoreScrollSpyUntilRef.current = Date.now() + 800;
       ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
