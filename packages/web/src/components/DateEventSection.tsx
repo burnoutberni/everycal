@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { formatDateHeading } from "../lib/dateUtils";
+import { formatDateHeading, parseLocalYmdDate } from "../lib/dateUtils";
 
 interface DateEventSectionProps {
   dateKey: string;
@@ -22,6 +22,8 @@ export function DateEventSection({
   setSectionRef,
   children,
 }: DateEventSectionProps) {
+  const parsedDate = parseLocalYmdDate(dateKey);
+
   return (
     <div
       ref={setSectionRef}
@@ -40,7 +42,7 @@ export function DateEventSection({
         }}
       >
         {isPast && pastLabel && <span className={pastLabelClassName}>{pastLabel} — </span>}
-        {formatDateHeading(new Date(`${dateKey}T00:00:00`), locale)}
+        {parsedDate ? formatDateHeading(parsedDate, locale) : dateKey}
       </h2>
       <div className="flex flex-col gap-1">{children}</div>
     </div>

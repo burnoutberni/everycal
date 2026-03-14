@@ -31,7 +31,10 @@ interface MiniCalendarProps {
   onMonthNavigate?: (date: Date) => void;
   /** Ref set to true while user is touching the calendar (swiping). Parent can check to avoid collapsing on scroll. */
   interactionRef?: React.MutableRefObject<boolean | null>;
-  /** When true, allow navigating to past dates/months even if there are no known eventDates there. */
+  /**
+   * When true, disable eventDates-based month restrictions in expanded mode.
+   * This allows free month navigation in both directions (past + future).
+   */
   allowPastNavigation?: boolean;
 }
 
@@ -108,7 +111,11 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
 
   const dayNames = useMemo(() => getDayNames(locale, firstDay), [firstDay, locale]);
 
-  /** When eventDates provided and expanded: only allow nav to months that have events. Skip empty months. */
+  /**
+   * Expanded month navigation targets derived from eventDates.
+   * When allowPastNavigation=true we intentionally return null (no restrictions),
+   * so arrow/swipe month navigation is free-form instead of skipping empty months.
+   */
   const expandedNavTargets = useMemo(() => {
     if (!eventDates || eventDates.size === 0 || !collapsible || allowPastNavigation) return null;
     const months = new Set<string>();

@@ -21,7 +21,7 @@ import { useOptionalPageContext } from "../renderer/PageContext";
 
 /** Mobile profile header collapse threshold.
  *  At/near top we keep header expanded; after this offset it snaps compact and stays compact
- *  until explicitly expanded (or user returns to top in upcoming mode). */
+ *  until explicitly expanded (or while editing profile). */
 const PROFILE_COLLAPSE_START = 2;
 
 export function ProfilePage({ username }: { username: string }) {
