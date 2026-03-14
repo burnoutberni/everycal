@@ -284,6 +284,7 @@ export function HomePage() {
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
+    const needsMoreForTarget = !hasExactDate && isKnownCalendarDate && !!lastLoadedKey && scrollToDate > lastLoadedKey;
 
     if (keys.length === 0) {
       if (isKnownCalendarDate && rangeFromOverride !== scrollToDate) {
@@ -312,6 +313,10 @@ export function HomePage() {
       if (loading || loadingMore) {
         return;
       }
+    }
+
+    if (loadingMore && needsMoreForTarget) {
+      return;
     }
 
     if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
