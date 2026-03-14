@@ -151,7 +151,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       const sorted = [...eventDates].sort();
       const idx = sorted.findIndex((d) => d >= selectedYmd);
       if (idx === 0 && !allowPastNavigation) return new Date(selected);
-      const prevYmd = idx > 0 ? sorted[idx - 1] : null;
+      const prevYmd = idx < 0 ? sorted[sorted.length - 1] : (idx > 0 ? sorted[idx - 1] : null);
       if (prevYmd) {
         const [y, m, d] = prevYmd.split("-").map(Number);
         return new Date(y, m - 1, d);

@@ -630,6 +630,7 @@ export function HomePage() {
                 locale={dateTimeLocale}
                 isPast={isPast}
                 pastLabel={t("events:past")}
+                pastLabelClassName="homepage-past-label"
                 sectionClassName={`homepage-date-section ${isPast ? "homepage-date-section-past" : ""}`}
                 setSectionRef={(el) => {
                   if (el) dateSectionRefs.current.set(dateKey, el);

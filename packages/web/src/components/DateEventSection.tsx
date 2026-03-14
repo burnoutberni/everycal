@@ -6,6 +6,7 @@ interface DateEventSectionProps {
   locale: string;
   isPast?: boolean;
   pastLabel?: string;
+  pastLabelClassName?: string;
   sectionClassName?: string;
   setSectionRef?: (el: HTMLDivElement | null) => void;
   children: ReactNode;
@@ -16,6 +17,7 @@ export function DateEventSection({
   locale,
   isPast = false,
   pastLabel,
+  pastLabelClassName,
   sectionClassName,
   setSectionRef,
   children,
@@ -37,7 +39,7 @@ export function DateEventSection({
           paddingBottom: "0.3rem",
         }}
       >
-        {isPast && pastLabel && <span>{pastLabel} — </span>}
+        {isPast && pastLabel && <span className={pastLabelClassName}>{pastLabel} — </span>}
         {formatDateHeading(new Date(`${dateKey}T00:00:00`), locale)}
       </h2>
       <div className="flex flex-col gap-1">{children}</div>
