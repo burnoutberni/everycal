@@ -42,7 +42,8 @@ export function ProfilePage({ username }: { username: string }) {
   const [eventsLoading, setEventsLoading] = useState(!initialEvents.length);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [rangeFromOverride, setRangeFromOverride] = useState<string | null>(null);
-  const viewingPast = rangeFromOverride != null;
+  const todayYmd = dateToLocalYMD(new Date());
+  const viewingPast = rangeFromOverride != null && rangeFromOverride < todayYmd;
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
   const fetchRequestIdRef = useRef(0);
   const eventsRef = useRef(events);
@@ -182,7 +183,8 @@ export function ProfilePage({ username }: { username: string }) {
       const currentEvents = eventsRef.current;
       const todayYmd = dateToLocalYMD(new Date());
       const hasPastInLoaded = currentEvents.some((event) => toLocalYMD(event.startDate) < todayYmd);
-      if (!viewingPast && currentEvents.length > 0 && String(currentEvents[0]?.accountId) === profile.id && !hasPastInLoaded) return; // Skip if loaded via SSR
+      const hasCustomRange = rangeFromOverride != null;
+      if (!hasCustomRange && !viewingPast && currentEvents.length > 0 && String(currentEvents[0]?.accountId) === profile.id && !hasPastInLoaded) return; // Skip if loaded via SSR
 
       const requestId = ++fetchRequestIdRef.current;
 
@@ -204,7 +206,7 @@ export function ProfilePage({ username }: { username: string }) {
         setEventsLoading(false);
       }
     },
-    [username, profile, currentUser?.id, viewingPast, range.from, range.to]
+    [username, profile, currentUser?.id, viewingPast, range.from, range.to, rangeFromOverride]
   );
 
   useEffect(() => {
@@ -228,7 +230,6 @@ export function ProfilePage({ username }: { username: string }) {
     for (const key of grouped.keys()) set.add(key);
     return set;
   }, [calendarEventDates, grouped]);
-  const todayYmd = dateToLocalYMD(new Date());
   const isRemote = profile?.source === "remote";
   const isMobile = useIsMobile();
   const [profileCollapseProgress, setProfileCollapseProgress] = useState(0);
@@ -560,17 +561,12 @@ export function ProfilePage({ username }: { username: string }) {
   }, [username]);
 
   const applyRangeModeForDate = useCallback((date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
-    } else {
-      setRangeFromOverride(null);
-    }
-  }, []);
+    const ymd = dateToLocalYMD(date);
+    setRangeFromOverride((prev) => {
+      const next = ymd === todayYmd ? null : ymd;
+      return prev === next ? prev : next;
+    });
+  }, [todayYmd]);
 
   const handleDateSelect = (date: Date) => {
     if (Number.isNaN(date.getTime())) return;
@@ -600,13 +596,33 @@ export function ProfilePage({ username }: { username: string }) {
   };
 
   useEffect(() => {
-    if (!scrollToDate || events.length === 0) return;
+    if (!scrollToDate) return;
     if (eventsLoading) return;
     const keys = [...grouped.keys()].sort();
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
-    if (viewingPast && !hasExactDate && isKnownCalendarDate) {
+
+    if (keys.length === 0) {
+      if (isKnownCalendarDate && rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      if (isKnownCalendarDate && rangeFromOverride === scrollToDate) {
+        const fallbackPrevious = [...navigableEventDates].filter((k) => k < scrollToDate).sort().pop() || null;
+        if (fallbackPrevious && fallbackPrevious !== rangeFromOverride) {
+          const parsedFallback = parseLocalYmdDate(fallbackPrevious);
+          if (parsedFallback) setSelectedDate(parsedFallback);
+          setRangeFromOverride(fallbackPrevious);
+          setScrollToDate(fallbackPrevious);
+          return;
+        }
+      }
+      setScrollToDate(null);
+      return;
+    }
+
+    if (!hasExactDate && isKnownCalendarDate) {
       if (rangeFromOverride !== scrollToDate) {
         setRangeFromOverride(scrollToDate);
         return;
@@ -621,6 +637,7 @@ export function ProfilePage({ username }: { username: string }) {
       : hasExactDate
         ? scrollToDate
         : resolveNearestDateKey(keys, scrollToDate, false);
+
     setScrollToDate(null);
     if (!targetKey) return;
     if (!hasExactDate) {

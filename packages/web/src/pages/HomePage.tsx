@@ -66,7 +66,8 @@ export function HomePage() {
   const isMobile = useIsMobile();
 
   const [rangeFromOverride, setRangeFromOverride] = useState<string | null>(null);
-  const viewingPast = rangeFromOverride != null;
+  const todayYmd = dateToLocalYMD(new Date());
+  const viewingPast = rangeFromOverride != null && rangeFromOverride < todayYmd;
   const range = useMemo(() => {
     if (rangeFromOverride) {
       const parsed = parseLocalYmdDate(rangeFromOverride);
@@ -234,19 +235,13 @@ export function HomePage() {
     shouldUpdateRef: shouldUpdateScrollSpyRef,
   });
 
-  const todayYmd = dateToLocalYMD(new Date());
   const applyRangeModeForDate = useCallback((date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
-    } else {
-      setRangeFromOverride(null);
-    }
-  }, []);
+    const ymd = dateToLocalYMD(date);
+    setRangeFromOverride((prev) => {
+      const next = ymd === todayYmd ? null : ymd;
+      return prev === next ? prev : next;
+    });
+  }, [todayYmd]);
 
   const handleDateSelect = (date: Date) => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
@@ -282,13 +277,32 @@ export function HomePage() {
   };
 
   useEffect(() => {
-    if (!scrollToDate || events.length === 0) return;
+    if (!scrollToDate) return;
     if (loading) return;
     const keys = [...grouped.keys()].sort();
     const lastLoadedKey = keys[keys.length - 1] || null;
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
+
+    if (keys.length === 0) {
+      if (isKnownCalendarDate && rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      if (isKnownCalendarDate && rangeFromOverride === scrollToDate && !loadingMore) {
+        const fallbackPrevious = [...navigableEventDates].filter((k) => k < scrollToDate).sort().pop() || null;
+        if (fallbackPrevious && fallbackPrevious !== rangeFromOverride) {
+          const parsedFallback = parseLocalYmdDate(fallbackPrevious);
+          if (parsedFallback) setSelectedDate(parsedFallback);
+          setRangeFromOverride(fallbackPrevious);
+          setScrollToDate(fallbackPrevious);
+          return;
+        }
+      }
+      setScrollToDate(null);
+      return;
+    }
 
     if (viewingPast && !hasExactDate && isKnownCalendarDate) {
       if (hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
@@ -302,6 +316,15 @@ export function HomePage() {
 
     if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
       fetchEvents(events.length, true);
+      return;
+    }
+
+    if (!viewingPast && !hasExactDate && isKnownCalendarDate && lastLoadedKey && scrollToDate > lastLoadedKey && !hasMore) {
+      if (rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      setScrollToDate(null);
       return;
     }
 
@@ -356,6 +379,7 @@ export function HomePage() {
     loadingMore,
     loading,
     fetchEvents,
+    rangeFromOverride,
   ]);
 
   useEffect(() => {
