@@ -100,8 +100,7 @@ export function ProfileHeader({
 
   const tryRequestExpandFromTarget = (target: EventTarget | null) => {
     if (!canRequestExpand) return;
-    const el = target as HTMLElement | null;
-    if (el?.closest("a,button,input,select,textarea,label")) return;
+    if (target instanceof Element && target.closest("a,button,input,select,textarea,label")) return;
     onRequestExpand?.();
   };
 
@@ -131,7 +130,7 @@ export function ProfileHeader({
       className={`card profile-header ${isMobile ? "profile-header-mobile" : ""}`}
       role={canRequestExpand ? "button" : undefined}
       tabIndex={canRequestExpand ? 0 : undefined}
-      aria-label={canRequestExpand ? "Expand profile header" : undefined}
+      aria-label={canRequestExpand ? t("profile:expandProfileHeader") : undefined}
       onClick={(e) => tryRequestExpandFromTarget(e.target)}
       onKeyDown={(e) => {
         if (!canRequestExpand) return;

@@ -680,7 +680,7 @@ export function ProfilePage({ username }: { username: string }) {
       <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
         {/* Sidebar */}
         <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleMonthNavigateNoScroll} eventDates={navigableEventDates} allowPastNavigation />
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleMonthNavigateNoScroll} eventDates={navigableEventDates} allowBeyondEventDatesNavigation />
         </aside>
 
         {/* Main content */}
@@ -733,7 +733,7 @@ export function ProfilePage({ username }: { username: string }) {
                     selectedDate={selectedDate}
                     onDateSelect={handleDateSelectMobile}
                     eventDates={navigableEventDates}
-                    allowPastNavigation
+                    allowBeyondEventDatesNavigation
                     collapseOnSelect
                     layout="sticky"
                     onMonthNavigate={(date) => {

@@ -32,10 +32,11 @@ interface MiniCalendarProps {
   /** Ref set to true while user is touching the calendar (swiping). Parent can check to avoid collapsing on scroll. */
   interactionRef?: React.MutableRefObject<boolean | null>;
   /**
-   * When true, disable eventDates-based month restrictions in expanded mode.
-   * This allows free month navigation in both directions (past + future).
+   * When true, allow moving beyond known event dates in both directions.
+   * Expanded month navigation is no longer limited to months that contain events,
+   * and collapsed day navigation falls back to +/-1 day when no known event exists.
    */
-  allowPastNavigation?: boolean;
+  allowBeyondEventDatesNavigation?: boolean;
 }
 
 function getDayNames(locale: string, firstDay: number): string[] {
@@ -91,7 +92,7 @@ function formatDateLabel(d: Date, today: Date, i18n: { t: (key: string) => strin
   return d.toLocaleDateString(locale, opts);
 }
 
-export function MiniCalendar({ selected, onSelect, eventDates, collapsible, collapsed = true, onCollapsedChange, navigateByDay, onMonthClick, onMonthNavigate, interactionRef, allowPastNavigation = false }: MiniCalendarProps) {
+export function MiniCalendar({ selected, onSelect, eventDates, collapsible, collapsed = true, onCollapsedChange, navigateByDay, onMonthClick, onMonthNavigate, interactionRef, allowBeyondEventDatesNavigation = false }: MiniCalendarProps) {
   const { i18n } = useTranslation();
   const { user } = useAuth();
   const locale = resolveDateTimeLocale(user, i18n.language);
@@ -113,11 +114,11 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
 
   /**
    * Expanded month navigation targets derived from eventDates.
-   * When allowPastNavigation=true we intentionally return null (no restrictions),
+   * When allowBeyondEventDatesNavigation=true we intentionally return null (no restrictions),
    * so arrow/swipe month navigation is free-form instead of skipping empty months.
    */
   const expandedNavTargets = useMemo(() => {
-    if (!eventDates || eventDates.size === 0 || !collapsible || allowPastNavigation) return null;
+    if (!eventDates || eventDates.size === 0 || !collapsible || allowBeyondEventDatesNavigation) return null;
     const months = new Set<string>();
     for (const ymd of eventDates) {
       months.add(ymd.slice(0, 7));
@@ -133,7 +134,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       prevTarget: prevKey ? (() => { const [y, m] = prevKey.split("-").map(Number); return new Date(y, m - 1, 1); })() : null,
       nextTarget: nextKey ? (() => { const [y, m] = nextKey.split("-").map(Number); return new Date(y, m - 1, 1); })() : null,
     };
-  }, [eventDates, collapsible, year, month, allowPastNavigation]);
+  }, [eventDates, collapsible, year, month, allowBeyondEventDatesNavigation]);
 
   const prevMonth = (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -157,8 +158,8 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       const selectedYmd = dateToLocalYMD(selected);
       const sorted = [...eventDates].sort();
       const idx = sorted.findIndex((d) => d >= selectedYmd);
-      if (idx === 0 && !allowPastNavigation) return new Date(selected);
-      if (idx < 0 && allowPastNavigation) {
+      if (idx === 0 && !allowBeyondEventDatesNavigation) return new Date(selected);
+      if (idx < 0 && allowBeyondEventDatesNavigation) {
         const d = new Date(selected);
         d.setDate(d.getDate() - 1);
         return d;
@@ -175,7 +176,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       return d;
     }
     return new Date(selected.getFullYear(), selected.getMonth() - 1, 1);
-  }, [selected, navigateByDay, eventDates, allowPastNavigation]);
+  }, [selected, navigateByDay, eventDates, allowBeyondEventDatesNavigation]);
   const nextDate = useMemo(() => {
     if (navigateByDay && eventDates && eventDates.size > 0) {
       const selectedYmd = dateToLocalYMD(selected);
@@ -186,7 +187,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
         const [y, m, d] = nextYmd.split("-").map(Number);
         return new Date(y, m - 1, d);
       }
-      if (allowPastNavigation) {
+      if (allowBeyondEventDatesNavigation) {
         const d = new Date(selected);
         d.setDate(d.getDate() + 1);
         return d;
@@ -199,7 +200,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       return d;
     }
     return new Date(selected.getFullYear(), selected.getMonth() + 1, 1);
-  }, [selected, navigateByDay, eventDates, allowPastNavigation]);
+  }, [selected, navigateByDay, eventDates, allowBeyondEventDatesNavigation]);
 
   const prevDay = (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -315,7 +316,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       if (expandedNavTargets) {
         if (!expandedNavTargets.canGoNext) deltaX = Math.max(0, deltaX);  // block swipe left
         if (!expandedNavTargets.canGoPrev) deltaX = Math.min(0, deltaX);   // block swipe right
-      } else if (isAtCurrentMonth && !allowPastNavigation) {
+      } else if (isAtCurrentMonth && !allowBeyondEventDatesNavigation) {
         deltaX = Math.min(0, deltaX);
       }
       setSwipeOffset(deltaX);
@@ -331,7 +332,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
         interactionRef && (interactionRef.current = false);
         const slideWidth = slideContainer?.getBoundingClientRect().width ?? 100;
         const canNext = expandedNavTargets ? expandedNavTargets.canGoNext : true;
-        const canPrev = expandedNavTargets ? expandedNavTargets.canGoPrev : (allowPastNavigation || !isAtCurrentMonth);
+        const canPrev = expandedNavTargets ? expandedNavTargets.canGoPrev : (allowBeyondEventDatesNavigation || !isAtCurrentMonth);
         const nextTarget = expandedNavTargets?.nextTarget ?? new Date(year, month + 1, 1);
         const prevTarget = expandedNavTargets?.prevTarget ?? new Date(year, month - 1, 1);
         if (deltaX < 0 && canNext) {
@@ -384,7 +385,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       el.removeEventListener("touchcancel", handleTouchCancel as EventListener, PASSIVE_OPT);
       interactionRef && (interactionRef.current = false);
     };
-  }, [collapsible, collapsed, year, month, onSelect, onMonthNavigate, interactionRef, isAtCurrentMonth, expandedNavTargets, allowPastNavigation]);
+  }, [collapsible, collapsed, year, month, onSelect, onMonthNavigate, interactionRef, isAtCurrentMonth, expandedNavTargets, allowBeyondEventDatesNavigation]);
 
   useEffect(() => {
     setSwipeOffset(0);
@@ -540,7 +541,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
     return (
       <div key={`${y}-${m}`} style={{ width: "33.333%", flexShrink: 0, minWidth: 0, padding: "0 0.1rem" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: "0.5rem" }}>
-          <button type="button" className="mini-calendar-nav-btn" disabled={expandedNavTargets ? !expandedNavTargets.canGoPrev : (collapsible && isAtCurrentMonth && !allowPastNavigation)} onClick={(e) => prevMonth(e)}>
+          <button type="button" className="mini-calendar-nav-btn" disabled={expandedNavTargets ? !expandedNavTargets.canGoPrev : (collapsible && isAtCurrentMonth && !allowBeyondEventDatesNavigation)} onClick={(e) => prevMonth(e)}>
             ‹
           </button>
           <button
