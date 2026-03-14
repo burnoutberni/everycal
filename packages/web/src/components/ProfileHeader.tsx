@@ -131,6 +131,7 @@ export function ProfileHeader({
       className={`card profile-header ${isMobile ? "profile-header-mobile" : ""}`}
       role={canRequestExpand ? "button" : undefined}
       tabIndex={canRequestExpand ? 0 : undefined}
+      aria-label={canRequestExpand ? "Expand profile header" : undefined}
       onClick={(e) => tryRequestExpandFromTarget(e.target)}
       onKeyDown={(e) => {
         if (!canRequestExpand) return;
