@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
 import { auth as authApi, identities as identitiesApi, users as usersApi, federation, uploads, type User, type CalEvent, type PublishingIdentity } from "../lib/api";
 import { validateAvatarUpload } from "../lib/avatarUpload";
-import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, parseLocalYmdDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
 import { DateEventSection } from "../components/DateEventSection";
 import { EventCard } from "../components/EventCard";
@@ -23,18 +23,6 @@ import { useOptionalPageContext } from "../renderer/PageContext";
  *  At/near top we keep header expanded; after this offset it snaps compact and stays compact
  *  until explicitly expanded (or user returns to top in upcoming mode). */
 const PROFILE_COLLAPSE_START = 2;
-
-function parseLocalYmdDate(ymd: string): Date | null {
-  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const parsed = new Date(y, mo - 1, d);
-  if (Number.isNaN(parsed.getTime())) return null;
-  if (parsed.getFullYear() !== y || parsed.getMonth() !== mo - 1 || parsed.getDate() !== d) return null;
-  return parsed;
-}
 
 export function ProfilePage({ username }: { username: string }) {
   const { t, i18n } = useTranslation(["profile", "events", "common", "settings", "auth"]);
@@ -65,7 +53,8 @@ export function ProfilePage({ username }: { username: string }) {
 
   const range = useMemo(() => {
     if (rangeFromOverride) {
-      return { from: rangeFromOverride, to: undefined as string | undefined };
+      const parsed = parseLocalYmdDate(rangeFromOverride);
+      return { from: parsed ? startOfDayForApi(parsed) : rangeFromOverride, to: undefined as string | undefined };
     }
     return { from: new Date().toISOString(), to: undefined as string | undefined };
   }, [rangeFromOverride]);

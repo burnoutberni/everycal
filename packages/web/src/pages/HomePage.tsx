@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { events as eventsApi, type CalEvent } from "../lib/api";
-import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, parseLocalYmdDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { TrashIcon } from "../components/icons";
 import { MiniCalendar } from "../components/MiniCalendar";
@@ -69,8 +69,9 @@ export function HomePage() {
   const viewingPast = rangeFromOverride != null;
   const range = useMemo(() => {
     if (rangeFromOverride) {
+      const parsed = parseLocalYmdDate(rangeFromOverride);
       return {
-        from: rangeFromOverride,
+        from: parsed ? startOfDayForApi(parsed) : rangeFromOverride,
         to: undefined as string | undefined,
       };
     }
@@ -316,14 +317,14 @@ export function HomePage() {
         : resolveNearestDateKey(keys, scrollToDate, false);
 
     const allowNearestUpcomingFallback = !viewingPast && scrollToDate === todayYmd;
-    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback && !isKnownCalendarDate) {
+    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback && !isKnownCalendarDate && !targetKey) {
       setScrollToDate(null);
       return;
     }
 
     setScrollToDate(null);
     if (!targetKey) return;
-    if (!hasExactDate && allowNearestUpcomingFallback) {
+    if (!hasExactDate && !viewingPast) {
       const [y, m, d] = targetKey.split("-").map(Number);
       setSelectedDate(new Date(y, m - 1, d));
     }
