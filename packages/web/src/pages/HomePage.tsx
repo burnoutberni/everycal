@@ -235,37 +235,31 @@ export function HomePage() {
   });
 
   const todayYmd = dateToLocalYMD(new Date());
-  const handleDateSelect = (date: Date) => {
-    ignoreScrollSpyUntilRef.current = Date.now() + 600;
-    setSelectedDate(date);
-    setScrollToDate(dateToLocalYMD(date));
+  const applyRangeModeForDate = useCallback((date: Date) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
     if (d < today) {
       const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
+      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
     } else {
       setRangeFromOverride(null);
     }
+  }, []);
+
+  const handleDateSelect = (date: Date) => {
+    ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    setSelectedDate(date);
+    setScrollToDate(dateToLocalYMD(date));
+    applyRangeModeForDate(date);
   };
 
   const handleDateSelectNoScroll = (date: Date) => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
     setSelectedDate(date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
-      setScrollToDate(ymd);
-    } else {
-      setRangeFromOverride(null);
-      setScrollToDate(dateToLocalYMD(date));
-    }
+    setScrollToDate(null);
+    applyRangeModeForDate(date);
   };
 
   const goToUpcoming = useCallback(() => {
@@ -289,14 +283,9 @@ export function HomePage() {
 
   useEffect(() => {
     if (!scrollToDate || events.length === 0) return;
+    if (loading) return;
     const keys = [...grouped.keys()].sort();
     const lastLoadedKey = keys[keys.length - 1] || null;
-    const hasTargetRangeData = viewingPast
-      ? keys.some((k) => k < todayYmd)
-      : keys.some((k) => k >= todayYmd);
-    if (!hasTargetRangeData) {
-      return;
-    }
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
@@ -317,7 +306,7 @@ export function HomePage() {
     }
 
     const targetKey = viewingPast
-      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, true))
+      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, false))
       : hasExactDate
         ? scrollToDate
         : resolveNearestDateKey(keys, scrollToDate, false);
@@ -330,7 +319,7 @@ export function HomePage() {
 
     setScrollToDate(null);
     if (!targetKey) return;
-    if (!hasExactDate && !viewingPast) {
+    if (!hasExactDate) {
       const [y, m, d] = targetKey.split("-").map(Number);
       setSelectedDate(new Date(y, m - 1, d));
     }
@@ -591,8 +580,7 @@ export function HomePage() {
             onMonthNavigate={(date) => {
               ignoreScrollSpyUntilRef.current = Date.now() + 600;
               ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-              setSelectedDate(date);
-              setScrollToDate(dateToLocalYMD(date));
+              handleDateSelectNoScroll(date);
             }}
             onMonthClick={() => {
               ignoreScrollSpyUntilRef.current = Date.now() + 600;

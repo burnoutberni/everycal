@@ -1520,18 +1520,18 @@ button.tag {
     cursor: pointer;
     transition: background 0.15s;
   }
-.mini-calendar-collapsed:hover {
-  background: var(--border);
-}
-.mini-calendar-collapsed-label {
-  min-width: 0;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-  padding: 0;
-}
+  .mini-calendar-collapsed:hover {
+    background: var(--border);
+  }
+  .mini-calendar-collapsed-label {
+    min-width: 0;
+    box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    padding: 0;
+  }
 }
 
 /* Unified mobile header container (homepage + profile) */

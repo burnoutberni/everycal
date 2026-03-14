@@ -548,8 +548,18 @@ export function ProfilePage({ username }: { username: string }) {
 
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
 
-  const handleDateSelect = (date: Date) => {
-    if (Number.isNaN(date.getTime())) return;
+  useEffect(() => {
+    setRangeFromOverride(null);
+    setSelectedDate(new Date());
+    setScrollToDate(null);
+    setCalendarExpanded(false);
+    setProfileCollapseProgress(0);
+    hasReachedCompactRef.current = false;
+    ignoreScrollSpyUntilRef.current = 0;
+    ignoreScrollCollapseUntilRef.current = 0;
+  }, [username]);
+
+  const applyRangeModeForDate = useCallback((date: Date) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const d = new Date(date);
@@ -560,9 +570,23 @@ export function ProfilePage({ username }: { username: string }) {
     } else {
       setRangeFromOverride(null);
     }
+  }, []);
+
+  const handleDateSelect = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return;
+    applyRangeModeForDate(date);
     setSelectedDate(date);
     setScrollToDate(dateToLocalYMD(date));
   };
+
+  const handleMonthNavigateNoScroll = useCallback((date: Date) => {
+    if (Number.isNaN(date.getTime())) return;
+    ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
+    setSelectedDate(date);
+    setScrollToDate(null);
+    applyRangeModeForDate(date);
+  }, [applyRangeModeForDate]);
 
   const handleDateSelectMobile = (date: Date) => {
     if (Number.isNaN(date.getTime())) return;
@@ -570,28 +594,15 @@ export function ProfilePage({ username }: { username: string }) {
     ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
     hasReachedCompactRef.current = true;
     setProfileCollapseProgress(1);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
-    } else {
-      setRangeFromOverride(null);
-    }
+    applyRangeModeForDate(date);
     setSelectedDate(date);
     setScrollToDate(dateToLocalYMD(date));
   };
 
   useEffect(() => {
     if (!scrollToDate || events.length === 0) return;
+    if (eventsLoading) return;
     const keys = [...grouped.keys()].sort();
-    const todayYmd = dateToLocalYMD(new Date());
-    const hasTargetRangeData = viewingPast
-      ? keys.some((k) => k < todayYmd)
-      : keys.some((k) => k >= todayYmd);
-    if (!hasTargetRangeData) return;
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
@@ -606,13 +617,13 @@ export function ProfilePage({ username }: { username: string }) {
     }
 
     const targetKey = viewingPast
-      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, true))
+      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, false))
       : hasExactDate
         ? scrollToDate
         : resolveNearestDateKey(keys, scrollToDate, false);
     setScrollToDate(null);
     if (!targetKey) return;
-    if (!hasExactDate && !viewingPast) {
+    if (!hasExactDate) {
       const [y, m, d] = targetKey.split("-").map(Number);
       setSelectedDate(new Date(y, m - 1, d));
     }
@@ -669,7 +680,7 @@ export function ProfilePage({ username }: { username: string }) {
       <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
         {/* Sidebar */}
         <aside className="hide-mobile" style={{ flex: "0 0 220px", position: "sticky", top: "1rem" }}>
-          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} eventDates={navigableEventDates} allowPastNavigation />
+          <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleMonthNavigateNoScroll} eventDates={navigableEventDates} allowPastNavigation />
         </aside>
 
         {/* Main content */}
@@ -726,7 +737,7 @@ export function ProfilePage({ username }: { username: string }) {
                     collapseOnSelect
                     layout="sticky"
                     onMonthNavigate={(date) => {
-                      handleDateSelectMobile(date);
+                      handleMonthNavigateNoScroll(date);
                     }}
                     onMonthClick={() => {
                       ignoreScrollSpyUntilRef.current = Date.now() + 600;

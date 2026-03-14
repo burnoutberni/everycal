@@ -181,6 +181,11 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
         const [y, m, d] = nextYmd.split("-").map(Number);
         return new Date(y, m - 1, d);
       }
+      if (allowPastNavigation) {
+        const d = new Date(selected);
+        d.setDate(d.getDate() + 1);
+        return d;
+      }
       return new Date(selected);
     }
     if (navigateByDay) {
@@ -189,7 +194,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       return d;
     }
     return new Date(selected.getFullYear(), selected.getMonth() + 1, 1);
-  }, [selected, navigateByDay, eventDates]);
+  }, [selected, navigateByDay, eventDates, allowPastNavigation]);
 
   const prevDay = (e?: React.MouseEvent) => {
     e?.stopPropagation();
