@@ -143,7 +143,7 @@ export function ProfileHeader({
           ? {
               padding: `${0.5 + 0.5 * (1 - collapseProgress)}rem 1rem`,
               boxShadow: collapseProgress > 0.02 ? "0 1px 0 0 var(--border)" : "none",
-              cursor: collapseProgress >= 0.98 ? "pointer" : undefined,
+              cursor: canRequestExpand ? "pointer" : undefined,
             }
           : undefined
       }

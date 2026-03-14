@@ -302,7 +302,13 @@ export function HomePage() {
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
 
     if (viewingPast && !hasExactDate && isKnownCalendarDate) {
-      return;
+      if (hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
+        fetchEvents(events.length, true);
+        return;
+      }
+      if (loading || loadingMore) {
+        return;
+      }
     }
 
     if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {

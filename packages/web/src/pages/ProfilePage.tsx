@@ -556,7 +556,7 @@ export function ProfilePage({ username }: { username: string }) {
     d.setHours(0, 0, 0, 0);
     if (d < today) {
       const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
+      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
     } else {
       setRangeFromOverride(null);
     }
@@ -576,7 +576,7 @@ export function ProfilePage({ username }: { username: string }) {
     d.setHours(0, 0, 0, 0);
     if (d < today) {
       const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
+      setRangeFromOverride((prev) => (prev === ymd ? prev : ymd));
     } else {
       setRangeFromOverride(null);
     }
@@ -595,7 +595,15 @@ export function ProfilePage({ username }: { username: string }) {
 
     const hasExactDate = keys.includes(scrollToDate);
     const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
-    if (viewingPast && !hasExactDate && isKnownCalendarDate) return;
+    if (viewingPast && !hasExactDate && isKnownCalendarDate) {
+      if (rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      if (eventsLoading) {
+        return;
+      }
+    }
 
     const targetKey = viewingPast
       ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, true))
@@ -629,7 +637,7 @@ export function ProfilePage({ username }: { username: string }) {
         }
       }
     });
-  }, [scrollToDate, grouped, events.length, isMobile, viewingPast, navigableEventDates]);
+  }, [scrollToDate, grouped, events.length, isMobile, viewingPast, navigableEventDates, rangeFromOverride, eventsLoading]);
 
   useEffect(() => {
     if (viewingPast || eventsLoading || grouped.size === 0 || didAutoSelectUpcomingRef.current) return;

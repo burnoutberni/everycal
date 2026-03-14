@@ -214,6 +214,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       let deltaX = x - touchStartX.current;
       const slideWidth = slideContainer?.getBoundingClientRect().width ?? 200;
       deltaX = Math.max(-slideWidth, Math.min(slideWidth, deltaX));
+      if (sameDay(nextDate, selected)) deltaX = Math.max(0, deltaX);
       if (sameDay(prevDate, selected)) deltaX = Math.min(0, deltaX);
       setSwipeOffset(deltaX);
     };
@@ -226,7 +227,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
       if (Math.abs(deltaX) >= SWIPE_THRESHOLD) {
         interactionRef && (interactionRef.current = false);
         const slideWidth = slideContainer?.getBoundingClientRect().width ?? 100;
-        if (deltaX < 0) {
+        if (deltaX < 0 && !sameDay(nextDate, selected)) {
           setCommittingTo("next");
           setSwipeOffset(-slideWidth); // animate to show next slide at center
           const onTransitionEnd = () => {
