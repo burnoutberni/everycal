@@ -55,11 +55,11 @@ export function HomePage() {
   // Derive selectedTags from URL; useSearch updates when Link navigates or user uses back/forward
   const searchString = useSearch();
   const selectedTags = useMemo(
-    () => parseTagsFromSearch(searchString ? `?${searchString}` : ""),
+    () => parseTagsFromSearch(searchString || ""),
     [searchString]
   );
   const resetRequested = useMemo(
-    () => parseResetFromSearch(searchString ? `?${searchString}` : ""),
+    () => parseResetFromSearch(searchString || ""),
     [searchString]
   );
 
