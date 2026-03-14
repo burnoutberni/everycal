@@ -100,7 +100,12 @@ export function ProfileHeader({
 
   const tryRequestExpandFromTarget = (target: EventTarget | null) => {
     if (!canRequestExpand) return;
-    if (target instanceof Element && target.closest("a,button,input,select,textarea,label")) return;
+    const targetElement = target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+    if (targetElement?.closest("a,button,input,select,textarea,label")) return;
     onRequestExpand?.();
   };
 
