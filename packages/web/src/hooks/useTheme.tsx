@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   applyThemeToDocument,
   getSystemTheme,
@@ -17,6 +26,7 @@ type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export function ThemeProvider({
   children,
@@ -32,7 +42,7 @@ export function ThemeProvider({
     resolveTheme(parseThemePreference(initialPreference) ?? readStoredThemePreference(), getSystemTheme())
   );
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (typeof window.matchMedia !== "function") {
       setResolvedTheme(applyThemeToDocument(preference));
       return;
