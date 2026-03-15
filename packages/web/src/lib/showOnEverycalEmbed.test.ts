@@ -57,13 +57,13 @@ describe("show-on-everycal embed component", () => {
     const { button, anchor } = createButton("/@alice");
     const prefix = button.shadowRoot?.querySelector(".label-prefix");
     const suffix = button.shadowRoot?.querySelector(".label-suffix");
-    const wordmark = button.shadowRoot?.querySelector("img.wordmark");
+    const wordmarkSvg = button.shadowRoot?.querySelector(".wordmark svg");
+    const wordmarkImg = button.shadowRoot?.querySelector("img.wordmark");
 
     expect(prefix?.textContent).toBe("Auf");
     expect(suffix?.textContent).toBe("anzeigen");
-    expect(wordmark?.getAttribute("src")).toBe(
-      "https://everycal.example/embed/everycal-wordmark.svg",
-    );
+    expect(wordmarkSvg).toBeTruthy();
+    expect(wordmarkImg).toBeNull();
     expect(anchor.getAttribute("aria-label")).toBe(
       "Auf EveryCal anzeigen (oeffnet in einem neuen Tab)",
     );
