@@ -1227,7 +1227,7 @@ export function SettingsPage() {
               </div>
               <div className="field">
                 <span className="settings-label">{t("themePreference")}</span>
-                <div className="theme-preference-group" role="radiogroup" aria-label={t("themePreference")}>
+                <div className="theme-preference-group">
                   {([
                     {
                       value: "system",
@@ -1238,20 +1238,24 @@ export function SettingsPage() {
                     { value: "light", label: t("themeLight") },
                     { value: "dark", label: t("themeDark") },
                   ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
-                    <button
+                    <label
                       key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={draftThemePreference === option.value}
                       className={`theme-preference-option ${draftThemePreference === option.value ? "is-active" : ""}`}
-                      onClick={() => {
-                        setDraftThemePreference(option.value);
-                        setThemePreference(option.value, { persist: false });
-                      }}
                     >
+                      <input
+                        className="theme-preference-control"
+                        type="radio"
+                        name="theme-preference"
+                        value={option.value}
+                        checked={draftThemePreference === option.value}
+                        onChange={() => {
+                          setDraftThemePreference(option.value);
+                          setThemePreference(option.value, { persist: false });
+                        }}
+                      />
                       <span className="theme-preference-dot" aria-hidden="true" />
                       <span>{option.label}</span>
-                    </button>
+                    </label>
                   ))}
                 </div>
               </div>

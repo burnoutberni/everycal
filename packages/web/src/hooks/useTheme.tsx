@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import {
   applyThemeToDocument,
   getSystemTheme,
+  parseThemePreference,
   readStoredThemePreference,
   resolveTheme,
   writeStoredThemePreference,
@@ -17,9 +18,19 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>(() => readStoredThemePreference());
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(readStoredThemePreference(), getSystemTheme()));
+export function ThemeProvider({
+  children,
+  initialPreference,
+}: {
+  children: ReactNode;
+  initialPreference?: ThemePreference;
+}) {
+  const [preference, setPreferenceState] = useState<ThemePreference>(
+    () => parseThemePreference(initialPreference) ?? readStoredThemePreference()
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(parseThemePreference(initialPreference) ?? readStoredThemePreference(), getSystemTheme())
+  );
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {

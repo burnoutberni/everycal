@@ -11,6 +11,7 @@ import { bootstrapViewerToUser } from "@everycal/core";
 import type { EverycalPageContext } from "./PageContext";
 import { isAppBootstrap } from "@everycal/core";
 import { ThemeProvider } from "../hooks/useTheme";
+import { parseThemePreference } from "../lib/theme";
 
 type SeoData = {
   title?: string;
@@ -24,13 +25,14 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   const bootstrap = await resolveBootstrapForRender(typedPageContext);
   const startupLocale = bootstrap?.locale || "en";
   const initialUser = bootstrapViewerToUser(bootstrap?.viewer);
+  const initialThemePreference = parseThemePreference(bootstrap?.viewer?.themePreference);
   await initI18n(startupLocale);
 
   // Render the app using wouter's SSR mode
   const appHtml = renderToString(
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <ThemeProvider>
+        <ThemeProvider initialPreference={initialThemePreference}>
           <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
             <Router ssrPath={urlPathname}>
               <App />

@@ -7,6 +7,10 @@ export function isThemePreference(value: string | null | undefined): value is Th
   return value === "system" || value === "light" || value === "dark";
 }
 
+export function parseThemePreference(value: string | null | undefined): ThemePreference | undefined {
+  return isThemePreference(value) ? value : undefined;
+}
+
 export function readStoredThemePreference(): ThemePreference {
   if (typeof window === "undefined") return "system";
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY);

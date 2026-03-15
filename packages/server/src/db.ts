@@ -850,7 +850,12 @@ export function initDatabase(path: string): DB {
             discoverable,
             COALESCE(NULLIF(timezone, ''), '${SYSTEM_TIMEZONE}') AS timezone,
             COALESCE(NULLIF(date_time_locale, ''), '${SYSTEM_DATE_TIME_LOCALE}') AS date_time_locale,
-            '${SYSTEM_THEME_PREFERENCE}' AS theme_preference,
+            CASE lower(trim(COALESCE(theme_preference, '')))
+              WHEN 'system' THEN 'system'
+              WHEN 'light' THEN 'light'
+              WHEN 'dark' THEN 'dark'
+              ELSE '${SYSTEM_THEME_PREFERENCE}'
+            END AS theme_preference,
             default_event_visibility,
             created_at,
             updated_at,

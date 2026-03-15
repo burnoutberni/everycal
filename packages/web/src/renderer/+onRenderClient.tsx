@@ -15,6 +15,7 @@ import type { PageContextClient } from "vike/types";
 import { initI18n } from "../i18n";
 import "../index.css";
 import { ThemeProvider } from "../hooks/useTheme";
+import { parseThemePreference } from "../lib/theme";
 
 function resolveHydrationLocale(pageBootstrapLocale?: "en" | "de"): "en" | "de" {
   if (pageBootstrapLocale) return pageBootstrapLocale;
@@ -49,11 +50,12 @@ export async function onRenderClient(pageContext: PageContextClient) {
 
   await initI18n(startupLocale);
   const initialUser = bootstrapViewerToUser(bootstrap?.viewer);
+  const initialThemePreference = parseThemePreference(bootstrap?.viewer?.themePreference);
 
   const app = (
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <ThemeProvider>
+        <ThemeProvider initialPreference={initialThemePreference}>
           <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
             <Router>
               <App />

@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   THEME_STORAGE_KEY,
   applyThemeToDocument,
+  parseThemePreference,
   readStoredThemePreference,
   resolveTheme,
   writeStoredThemePreference,
@@ -18,6 +19,14 @@ describe("theme preference", () => {
 
   it("defaults to system when no stored value exists", () => {
     expect(readStoredThemePreference()).toBe("system");
+  });
+
+  it("parses only valid preferences", () => {
+    expect(parseThemePreference("dark")).toBe("dark");
+    expect(parseThemePreference("light")).toBe("light");
+    expect(parseThemePreference("system")).toBe("system");
+    expect(parseThemePreference("auto")).toBeUndefined();
+    expect(parseThemePreference(null)).toBeUndefined();
   });
 
   it("stores light and dark, removes key for system", () => {

@@ -94,6 +94,7 @@ vi.mock("../lib/api", () => ({
 import { SettingsPage } from "./SettingsPage";
 import { auth as authApi, identities as identitiesApi, uploads } from "../lib/api";
 import { ThemeProvider } from "../hooks/useTheme";
+import { THEME_STORAGE_KEY } from "../lib/theme";
 
 function renderSettingsPage() {
   return render(
@@ -274,5 +275,72 @@ describe("SettingsPage identity flows", () => {
         cityLng: null,
       }));
     });
+  });
+
+  it("renders theme preference as native radio inputs", async () => {
+    renderSettingsPage();
+
+    const systemOption = await screen.findByRole("radio", { name: "themeSystem" }) as HTMLInputElement;
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    expect(systemOption.checked).toBe(true);
+    expect(darkOption.checked).toBe(false);
+
+    fireEvent.click(darkOption);
+
+    expect(darkOption.checked).toBe(true);
+    expect(systemOption.checked).toBe(false);
+  });
+
+  it("previews selected theme and persists it on calendar save", async () => {
+    vi.mocked(authApi.updateProfile).mockResolvedValue({} as any);
+
+    renderSettingsPage();
+
+    const darkOption = await screen.findByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+    fireEvent.click(darkOption);
+
+    expect(darkOption.checked).toBe(true);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+
+    const calendarForm = darkOption.closest("form");
+    if (!calendarForm) throw new Error("Expected calendar settings form");
+    fireEvent.submit(calendarForm);
+
+    await waitFor(() => {
+      expect(authApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({
+        themePreference: "dark",
+      }));
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    });
+  });
+
+  it("rolls back theme selection when calendar save fails", async () => {
+    vi.mocked(authApi.updateProfile).mockRejectedValue(new Error("theme-save-failed"));
+
+    renderSettingsPage();
+
+    const systemOption = await screen.findByRole("radio", { name: "themeSystem" }) as HTMLInputElement;
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    fireEvent.click(darkOption);
+    expect(darkOption.checked).toBe(true);
+
+    const calendarForm = darkOption.closest("form");
+    if (!calendarForm) throw new Error("Expected calendar settings form");
+    fireEvent.submit(calendarForm);
+
+    await waitFor(() => {
+      expect(authApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({
+        themePreference: "dark",
+      }));
+    });
+    await waitFor(() => {
+      expect(systemOption.checked).toBe(true);
+    });
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByText("theme-save-failed")).toBeTruthy();
   });
 });

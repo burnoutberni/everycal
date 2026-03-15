@@ -107,6 +107,7 @@
 }
 
 .theme-preference-option {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -120,7 +121,23 @@
   font-size: 0.85rem;
   font-weight: 600;
   padding: 0.45rem 0.6rem;
+  margin-bottom: 0;
+  cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.theme-preference-control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-preference-option:focus-within {
+  border-color: var(--border-focus);
+  outline: 3px solid color-mix(in srgb, var(--accent) 75%, white 25%);
+  outline-offset: 2px;
 }
 
 .theme-preference-option:hover {
