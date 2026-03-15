@@ -12,7 +12,7 @@ import {
 type ThemeContextValue = {
   preference: ThemePreference;
   resolvedTheme: ResolvedTheme;
-  setPreference: (value: ThemePreference) => void;
+  setPreference: (value: ThemePreference, options?: { persist?: boolean }) => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -37,9 +37,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media.removeListener(onSystemChange);
   }, [preference]);
 
-  const setPreference = (value: ThemePreference) => {
+  const setPreference = (value: ThemePreference, options?: { persist?: boolean }) => {
     setPreferenceState(value);
-    writeStoredThemePreference(value);
+    if (options?.persist ?? true) {
+      writeStoredThemePreference(value);
+    }
   };
 
   const contextValue = useMemo(

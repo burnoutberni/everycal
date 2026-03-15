@@ -62,6 +62,7 @@ export function SettingsPage() {
   ];
   const { user, refreshUser } = useAuth();
   const { preference: themePreference, setPreference: setThemePreference, resolvedTheme } = useTheme();
+  const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
   const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -111,6 +112,11 @@ export function SettingsPage() {
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identityAvatarUploading, setIdentityAvatarUploading] = useState(false);
   const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftThemePreference(themePreference);
+  }, [themePreference]);
+
   const [identityEditorOpen, setIdentityEditorOpen] = useState<"create" | null>(null);
   const [createIdentityStep, setCreateIdentityStep] = useState<1 | 2 | 3>(1);
   const [identitySettingsOpen, setIdentitySettingsOpen] = useState(false);
@@ -669,6 +675,7 @@ export function SettingsPage() {
         timezone,
         dateTimeLocale: localeToSave,
       });
+      setThemePreference(draftThemePreference, { persist: true });
       await refreshUser();
       setSavedCalendarSettings(true);
       setTimeout(() => setSavedCalendarSettings(false), 1800);
@@ -1219,9 +1226,12 @@ export function SettingsPage() {
                       key={option.value}
                       type="button"
                       role="radio"
-                      aria-checked={themePreference === option.value}
-                      className={`theme-preference-option ${themePreference === option.value ? "is-active" : ""}`}
-                      onClick={() => setThemePreference(option.value)}
+                      aria-checked={draftThemePreference === option.value}
+                      className={`theme-preference-option ${draftThemePreference === option.value ? "is-active" : ""}`}
+                      onClick={() => {
+                        setDraftThemePreference(option.value);
+                        setThemePreference(option.value, { persist: false });
+                      }}
                     >
                       <span className="theme-preference-dot" aria-hidden="true" />
                       <span>{option.label}</span>
