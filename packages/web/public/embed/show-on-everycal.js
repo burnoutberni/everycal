@@ -174,11 +174,10 @@
 
     try {
       const parsed = new URL(trimmed, ALLOWED_LINK_ORIGIN);
-      const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
-      const isAllowedDomain = parsed.hostname.toLowerCase() === ALLOWED_LINK_DOMAIN;
+      const isAllowedOrigin = parsed.origin === ALLOWED_LINK_ORIGIN;
       const isProfileOrEventPath = /^\/@[^/?#]+(?:\/[^/?#]+)?\/?$/.test(parsed.pathname);
       const hasNoQueryOrHash = !parsed.search && !parsed.hash;
-      if (isHttp && isAllowedDomain && isProfileOrEventPath && hasNoQueryOrHash) {
+      if (isAllowedOrigin && isProfileOrEventPath && hasNoQueryOrHash) {
         return parsed.toString();
       }
       return null;
