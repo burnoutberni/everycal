@@ -462,79 +462,16 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             )}
           </div>
 
-          <div className="flex gap-1" style={{ alignItems: "center" }}>
-            {canManageEvent && (
-              <>
-                <Link href={editHref}>
-                  <button className="btn-ghost btn-sm">{t("common:edit")}</button>
-                </Link>
-                <button className="btn-danger btn-sm" onClick={handleDelete}>
-                  {t("common:delete")}
-                </button>
-              </>
-            )}
-            {showEventMenu && (
-              <div ref={repostMenuRef} style={{ position: "relative" }}>
-                <button
-                  ref={repostMenuButtonRef}
-                  type="button"
-                  className="profile-menu-btn"
-                  onClick={() => setRepostMenuOpen((open) => !open)}
-                  aria-expanded={repostMenuOpen}
-                  aria-haspopup="menu"
-                  aria-controls={repostMenuOpen ? repostMenuId : undefined}
-                  aria-label={t("common:menu")}
-                  title={t("common:menu")}
-                >
-                  <MenuIcon />
-                </button>
-                {repostMenuOpen && (
-                  <div id={repostMenuId} className="header-dropdown" role="menu">
-                    {canRepostEvent && (
-                      <button
-                        type="button"
-                        className="header-dropdown-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setRepostMenuOpen(false);
-                          void handleRepost();
-                        }}
-                      >
-                        {reposted ? t("removeRepost") : t("repost")}
-                      </button>
-                    )}
-                    {canRepostAs && (
-                      <button
-                        type="button"
-                        className="header-dropdown-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setRepostMenuOpen(false);
-                          setRepostAsError(null);
-                          setRepostAsOpen(true);
-                        }}
-                      >
-                        {t("common:repostAs")}
-                      </button>
-                    )}
-                    {canEmbedEvent && (
-                      <button
-                        type="button"
-                        className="header-dropdown-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setRepostMenuOpen(false);
-                          setEmbedModalOpen(true);
-                        }}
-                      >
-                        {t("common:copyEmbedCode")}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          {canManageEvent && (
+            <div className="flex gap-1" style={{ alignItems: "center" }}>
+              <Link href={editHref}>
+                <button className="btn-ghost btn-sm">{t("common:edit")}</button>
+              </Link>
+              <button className="btn-danger btn-sm" onClick={handleDelete}>
+                {t("common:delete")}
+              </button>
+            </div>
+          )}
         </div>
 
         <h1
@@ -615,6 +552,67 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                   {reposted ? t("reposted") : t("repost")}
                 </button>
               </>
+            )}
+            {showEventMenu && (
+              <div ref={repostMenuRef} style={{ position: "relative" }}>
+                <button
+                  ref={repostMenuButtonRef}
+                  type="button"
+                  className="profile-menu-btn"
+                  onClick={() => setRepostMenuOpen((open) => !open)}
+                  aria-expanded={repostMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={repostMenuOpen ? repostMenuId : undefined}
+                  aria-label={t("common:menu")}
+                  title={t("common:menu")}
+                >
+                  <MenuIcon />
+                </button>
+                {repostMenuOpen && (
+                  <div id={repostMenuId} className="header-dropdown" role="menu">
+                    {canRepostEvent && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          void handleRepost();
+                        }}
+                      >
+                        {reposted ? t("removeRepost") : t("repost")}
+                      </button>
+                    )}
+                    {canRepostAs && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          setRepostAsError(null);
+                          setRepostAsOpen(true);
+                        }}
+                      >
+                        {t("common:repostAs")}
+                      </button>
+                    )}
+                    {canEmbedEvent && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          setEmbedModalOpen(true);
+                        }}
+                      >
+                        {t("common:copyEmbedCode")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
