@@ -619,7 +619,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
                         ? "var(--bg-hover)"
                         : "transparent",
                     color: isSelected
-                      ? "#000"
+                      ? "var(--text-on-accent)"
                       : !isCurrentMonth
                         ? "var(--text-dim)"
                         : "var(--text)",
@@ -644,7 +644,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
                         width: 4,
                         height: 4,
                         borderRadius: "50%",
-                        background: isSelected ? "#000" : "var(--accent)",
+                        background: isSelected ? "var(--text-on-accent)" : "var(--accent)",
                       }}
                     />
                   )}
@@ -763,7 +763,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
                           ? "var(--bg-hover)"
                           : "transparent",
                       color: isSelected
-                        ? "#000"
+                        ? "var(--text-on-accent)"
                         : !isCurrentMonth
                           ? "var(--text-dim)"
                           : "var(--text)",
@@ -788,7 +788,7 @@ export function MiniCalendar({ selected, onSelect, eventDates, collapsible, coll
                           width: 4,
                           height: 4,
                           borderRadius: "50%",
-                          background: isSelected ? "#000" : "var(--accent)",
+                          background: isSelected ? "var(--text-on-accent)" : "var(--accent)",
                         }}
                       />
                     )}

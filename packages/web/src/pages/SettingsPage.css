@@ -45,7 +45,7 @@
 
 .settings-nav-link.active {
   color: var(--accent);
-  background: rgba(110, 158, 255, 0.08);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .settings-nav-link svg {
@@ -65,12 +65,12 @@
 
 .settings-nav-link.danger:hover {
   color: var(--danger);
-  background: rgba(238, 85, 85, 0.08);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .settings-nav-link.danger.active {
   color: var(--danger);
-  background: rgba(238, 85, 85, 0.12);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
 .settings-nav-link.danger {
@@ -92,6 +92,60 @@
   color: var(--text);
 }
 
+
+.settings-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.theme-preference-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.theme-preference-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-content: center;
+  text-align: center;
+  min-height: 2.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.45rem 0.6rem;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.theme-preference-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.theme-preference-option.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.theme-preference-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-focus);
+  background: transparent;
+}
+
+.theme-preference-option.is-active .theme-preference-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .settings-code {
   font-family: var(--font-mono);
   font-size: 0.88em;
@@ -170,8 +224,8 @@
 }
 
 .settings-card.danger-card {
-  border-color: rgba(238, 85, 85, 0.35);
-  background: rgba(238, 85, 85, 0.04);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
 }
 
 .identity-list {

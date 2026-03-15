@@ -14,13 +14,15 @@ import {
 import type { PageContextClient } from "vike/types";
 import { initI18n } from "../i18n";
 import "../index.css";
+import { ThemeProvider } from "../hooks/useTheme";
 
 function resolveHydrationLocale(pageBootstrapLocale?: "en" | "de"): "en" | "de" {
   if (pageBootstrapLocale) return pageBootstrapLocale;
   const fromDom = readStartupLocaleFromDom();
   if (fromDom) return fromDom;
-  if (typeof document !== "undefined" && isAppLocale(document.documentElement.lang)) {
-    return document.documentElement.lang;
+  if (typeof document !== "undefined") {
+    const docLang = document.documentElement.lang;
+    if (docLang === "en" || docLang === "de" || isAppLocale(docLang)) return docLang as "en" | "de";
   }
   return "en";
 }
@@ -51,11 +53,13 @@ export async function onRenderClient(pageContext: PageContextClient) {
   const app = (
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
-          <Router>
-            <App />
-          </Router>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
+            <Router>
+              <App />
+            </Router>
+          </AuthProvider>
+        </ThemeProvider>
       </PageContextProvider>
     </React.StrictMode>
   );

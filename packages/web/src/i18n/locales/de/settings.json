@@ -115,5 +115,9 @@
   "createIdentityStepProfile": "Profil bearbeiten",
   "createIdentityStepSettings": "Standards festlegen",
   "createIdentityNextStep": "Weiter",
-  "createAndEditIdentity": "Erstellen und Profil bearbeiten"
+  "createAndEditIdentity": "Erstellen und Profil bearbeiten",
+  "themePreference": "Design",
+  "themeSystem": "System (aktuell {{theme}})",
+  "themeLight": "Hell",
+  "themeDark": "Dunkel"
 }

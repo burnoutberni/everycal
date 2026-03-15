@@ -37,7 +37,7 @@
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--elevation-2);
   z-index: 1000;
 }
 
@@ -92,14 +92,14 @@
 
   --fc-event-bg-color: var(--accent);
   --fc-event-border-color: var(--accent);
-  --fc-event-text-color: #000;
+  --fc-event-text-color: var(--text-on-accent);
 
   --fc-more-link-bg-color: var(--bg-hover);
   --fc-more-link-text-color: var(--text-muted);
 
-  --fc-today-bg-color: rgba(110, 158, 255, 0.08);
+  --fc-today-bg-color: color-mix(in srgb, var(--accent) 10%, transparent);
   --fc-now-indicator-color: var(--accent);
-  --fc-highlight-color: rgba(110, 158, 255, 0.15);
+  --fc-highlight-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .everycal-fullcalendar .fc {
@@ -170,7 +170,7 @@
 
 .everycal-fullcalendar .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
   background: var(--accent);
-  color: #000;
+  color: var(--text-on-accent);
   border-radius: var(--radius-sm);
   font-weight: 700;
 }
@@ -191,8 +191,8 @@
 
 /* Tentative (maybe) events — reduced background opacity, dashed border */
 .everycal-fullcalendar .fc-event-tentative {
-  --fc-event-bg-color: rgba(110, 158, 255, 0.45);
-  --fc-event-border-color: rgba(110, 158, 255, 0.6);
+  --fc-event-bg-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  --fc-event-border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   --fc-event-text-color: var(--text);
   border-style: dashed !important;
 }
@@ -214,7 +214,7 @@
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--elevation-1);
   font-size: 0.85rem;
   line-height: 1.4;
   z-index: 10000;

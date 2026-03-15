@@ -37,6 +37,8 @@ import {
   SYSTEM_TIMEZONE,
 } from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
+import { useTheme } from "../hooks/useTheme";
+import type { ThemePreference } from "../lib/theme";
 
 type IdentityFormErrors = {
   username?: string;
@@ -59,6 +61,7 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
+  const { preference: themePreference, setPreference: setThemePreference, resolvedTheme } = useTheme();
   const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -1202,6 +1205,28 @@ export function SettingsPage() {
                     const timeSample = new Intl.DateTimeFormat(effectiveDateTimeLocale, { timeStyle: "short" }).format(new Date(2026, 11, 31, 18, 30));
                     return `${weekLabel} · ${dateSample} · ${timeSample}`;
                   })()}
+                </div>
+              </div>
+              <div className="field">
+                <span className="settings-label">{t("themePreference")}</span>
+                <div className="theme-preference-group" role="radiogroup" aria-label={t("themePreference")}>
+                  {([
+                    { value: "system", label: t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) }) },
+                    { value: "light", label: t("themeLight") },
+                    { value: "dark", label: t("themeDark") },
+                  ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={themePreference === option.value}
+                      className={`theme-preference-option ${themePreference === option.value ? "is-active" : ""}`}
+                      onClick={() => setThemePreference(option.value)}
+                    >
+                      <span className="theme-preference-dot" aria-hidden="true" />
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="field">

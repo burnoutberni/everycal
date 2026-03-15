@@ -10,6 +10,8 @@ import { i18n, initI18n } from "../i18n";
 import { bootstrapViewerToUser } from "@everycal/core";
 import type { EverycalPageContext } from "./PageContext";
 import { isAppBootstrap } from "@everycal/core";
+import { THEME_STORAGE_KEY } from "../lib/theme";
+import { ThemeProvider } from "../hooks/useTheme";
 
 type SeoData = {
   title?: string;
@@ -29,11 +31,13 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   const appHtml = renderToString(
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
-          <Router ssrPath={urlPathname}>
-            <App />
-          </Router>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
+            <Router ssrPath={urlPathname}>
+              <App />
+            </Router>
+          </AuthProvider>
+        </ThemeProvider>
       </PageContextProvider>
     </React.StrictMode>
   );
@@ -76,6 +80,20 @@ export async function onRenderHtml(pageContext: PageContextServer) {
         ${ogImageUrl ? escapeInject`<meta property="og:image" content="${ogImageUrl}" />
         <meta name="twitter:image" content="${ogImageUrl}" />` : ""}
 
+        <script>${dangerouslySkipEscape(`(function(){
+  try {
+    var key = ${JSON.stringify(THEME_STORAGE_KEY)};
+    var pref = localStorage.getItem(key);
+    var valid = pref === "light" || pref === "dark" || pref === "system";
+    var preference = valid ? pref : "system";
+    var systemDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+    var root = document.documentElement;
+    if (preference === "light" || preference === "dark") root.setAttribute("data-theme", preference);
+    else root.removeAttribute("data-theme");
+    root.style.colorScheme = resolved;
+  } catch (e) {}
+})();`)}</script>
         <!-- Disable Vike client routing to let Wouter handle SPA natively -->
         <meta name="vike-client-routing" content="false" />
       </head>
