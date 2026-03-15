@@ -25,8 +25,9 @@ export function EmbedCodeModal({
   const previewSrcDoc = useMemo(() => {
     if (!embedCode) return "";
     const previewLang = (i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+    const safePreviewLang = /^[a-z0-9-]+$/.test(previewLang) ? previewLang : "en";
     return `<!doctype html>
-<html lang="${previewLang}">
+<html lang="${safePreviewLang}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
