@@ -71,6 +71,11 @@
   "confirmChanges": "Confirm",
   "embedCode": "Embed code",
   "embedCodeHint": "Paste this snippet into your site where you want the Show on EveryCal button.",
+  "embedButtonSizeLabel": "Button size",
+  "embedButtonSizeSmall": "Small",
+  "embedButtonSizeMedium": "Medium",
+  "embedButtonSizeLarge": "Large",
+  "embedPreview": "Preview",
   "actAsResultSummary": "Added: {{added}} · Removed: {{removed}} · Unchanged: {{unchanged}} · Failed: {{failed}}",
   "actAsStatus": {
     "added": "added",

@@ -11,6 +11,19 @@
     lg: "size-lg",
   };
 
+  const LABELS = {
+    en: {
+      beforeWordmark: "Show on",
+      afterWordmark: "",
+      aria: "Show on EveryCal (opens in a new tab)",
+    },
+    de: {
+      beforeWordmark: "Auf",
+      afterWordmark: "anzeigen",
+      aria: "Auf EveryCal anzeigen (oeffnet in einem neuen Tab)",
+    },
+  };
+
   const ALLOWED_LINK_ORIGIN = (() => {
     const scriptSrc = document.currentScript && document.currentScript.src;
     if (scriptSrc) {
@@ -27,89 +40,75 @@
     :host {
       display: inline-block;
       line-height: 1;
-      font-family: "Bricolage Grotesque Variable", "Avenir Next", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
     }
 
     a {
-      --ec-bg: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-      --ec-bg-hover: linear-gradient(135deg, #f6aa2a 0%, #c46508 100%);
-      --ec-text: #ffffff;
-      --ec-border: rgba(95, 48, 7, 0.35);
-      --ec-shadow: 0 8px 20px rgba(132, 64, 8, 0.26);
-      --ec-shadow-hover: 0 10px 24px rgba(132, 64, 8, 0.32);
+      --ec-bg: #edf1f8;
+      --ec-bg-hover: #dbe3f0;
+      --ec-text: #152033;
+      --ec-border: #c5cfdf;
+      --ec-border-hover: #b45309;
 
       align-items: center;
       background: var(--ec-bg);
       border: 1px solid var(--ec-border);
-      border-radius: 999px;
-      box-shadow: var(--ec-shadow);
+      border-radius: 4px;
       color: var(--ec-text);
       cursor: pointer;
       display: inline-flex;
-      font-weight: 670;
-      gap: 0.48rem;
+      font-weight: 620;
+      gap: 0.4rem;
       letter-spacing: 0.01em;
-      overflow: hidden;
-      position: relative;
       text-decoration: none;
-      transform: translateY(0);
-      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
       white-space: nowrap;
-    }
-
-    a::after {
-      background: linear-gradient(105deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.38) 48%, rgba(255, 255, 255, 0) 68%);
-      content: "";
-      inset: 0;
-      opacity: 0;
-      position: absolute;
-      transform: translateX(-125%);
-      transition: transform 320ms ease, opacity 200ms ease;
     }
 
     a:hover {
       background: var(--ec-bg-hover);
-      box-shadow: var(--ec-shadow-hover);
-      transform: translateY(-1px);
-    }
-
-    a:hover::after {
-      opacity: 1;
-      transform: translateX(125%);
-    }
-
-    a:active {
-      transform: translateY(0);
+      border-color: var(--ec-border-hover);
     }
 
     a:focus-visible {
-      outline: 3px solid rgba(245, 158, 11, 0.45);
-      outline-offset: 3px;
+      outline: 3px solid rgba(180, 83, 9, 0.35);
+      outline-offset: 2px;
     }
 
     a[aria-disabled="true"] {
       cursor: not-allowed;
       opacity: 0.62;
       pointer-events: none;
-      transform: none;
     }
 
     .size-sm {
-      font-size: 12px;
-      min-height: 34px;
-      padding: 0.45rem 0.72rem;
+      font-size: 10px;
+      min-height: 16px;
+      padding: 0.24rem 0.48rem;
+    }
+    .size-sm .wordmark {
+      height: 10px;
+      transform: translateY(0.07em);
     }
 
     .size-md {
-      font-size: 14px;
-      min-height: 40px;
-      padding: 0.58rem 0.92rem;
+      font-size: 12px;
+      min-height: 20px;
+      padding: 0.3rem 0.58rem;
+    }
+    .size-md .wordmark {
+      height: 12px;
+      transform: translateY(0.07em);
     }
 
     .size-lg {
-      font-size: 15px;
-      min-height: 46px;
-      padding: 0.72rem 1.04rem;
+      font-size: 14px;
+      min-height: 24px;
+      padding: 0.36rem 0.68rem;
+    }
+    .size-lg .wordmark {
+      height: 14px;
+      transform: translateY(0.07em);
     }
 
     .icon {
@@ -130,36 +129,41 @@
     .label {
       align-items: center;
       display: inline-flex;
-      line-height: 1.08;
-      position: relative;
-      top: 0.02em;
+      line-height: 1;
+      font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-weight: 600;
+      gap: 0.32em;
     }
 
-    @media (max-width: 480px) {
-      .size-md,
-      .size-lg {
-        font-size: 14px;
-        min-height: 44px;
-      }
+    .label-prefix,
+    .label-suffix {
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+
+    .wordmark {
+      display: block;
+      width: auto;
+      flex: 0 0 auto;
     }
 
     @media (prefers-reduced-motion: reduce) {
-      a,
-      a::after {
+      a {
         transition: none;
-      }
-
-      a:hover,
-      a:active {
-        transform: none;
-      }
-
-      a:hover::after {
-        opacity: 0;
-        transform: none;
       }
     }
   `;
+
+  function resolveLanguage(explicitLang) {
+    const direct = (explicitLang || "").trim();
+    const page =
+      (document.documentElement && document.documentElement.lang)
+      || (navigator.language || "");
+    const source = direct || page;
+    const base = source.toLowerCase().split(/[-_]/)[0];
+    return LABELS[base] ? base : "en";
+  }
 
   function normalizeSize(value) {
     const candidate = (value || "md").toLowerCase();
@@ -194,7 +198,7 @@
 
   class EveryCalButton extends HTMLElement {
     static get observedAttributes() {
-      return ["href", "size", "aria-label"];
+      return ["href", "size", "aria-label", "lang"];
     }
 
     constructor() {
@@ -215,10 +219,16 @@
 
       const href = normalizeHref(this.getAttribute("href"));
       const sizeClass = normalizeSize(this.getAttribute("size"));
+      const lang = resolveLanguage(this.getAttribute("lang"));
+      const labels = LABELS[lang] || LABELS.en;
+      const wordmarkUrl = `${ALLOWED_LINK_ORIGIN}/embed/everycal-wordmark.svg`;
       const accessibleLabel =
-        this.getAttribute("aria-label") || "Show on EveryCal (opens in a new tab)";
+        this.getAttribute("aria-label") || labels.aria;
       const safeHref = href ? escapeAttribute(href) : "";
       const safeLabel = escapeAttribute(accessibleLabel);
+      const safeWordmarkUrl = escapeAttribute(wordmarkUrl);
+      const safeBefore = escapeAttribute(labels.beforeWordmark || "");
+      const safeAfter = escapeAttribute(labels.afterWordmark || "");
       const linkStateAttributes = href
         ? `href="${safeHref}" target="_blank" rel="noopener noreferrer external" aria-disabled="false"`
         : `aria-disabled="true" tabindex="-1"`;
@@ -236,7 +246,11 @@
               <circle cx="20" cy="16" r="10" fill="#FCD34D" fill-opacity="0.9" />
             </svg>
           </span>
-          <span class="label">Show on EveryCal</span>
+          <span class="label">
+            ${safeBefore ? `<span class="label-prefix">${safeBefore}</span>` : ""}
+            <img class="wordmark" src="${safeWordmarkUrl}" alt="EveryCal" />
+            ${safeAfter ? `<span class="label-suffix">${safeAfter}</span>` : ""}
+          </span>
         </a>
       `;
     }

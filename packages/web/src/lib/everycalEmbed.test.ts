@@ -16,8 +16,8 @@ describe("everycalEmbed", () => {
   });
 
   it("builds script and button snippet", () => {
-    const code = buildShowOnEverycalEmbedCode("/@alice", "https://everycal.example");
+    const code = buildShowOnEverycalEmbedCode("/@alice", "https://everycal.example", "lg");
     expect(code).toContain('<script src="https://everycal.example/embed/show-on-everycal.js" defer></script>');
-    expect(code).toContain('<everycal-button href="https://everycal.example/@alice" size="md"></everycal-button>');
+    expect(code).toContain('<everycal-button href="https://everycal.example/@alice" size="lg"></everycal-button>');
   });
 });

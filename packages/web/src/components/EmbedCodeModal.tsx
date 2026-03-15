@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { buildShowOnEverycalEmbedCode } from "../lib/everycalEmbed";
+import { buildShowOnEverycalEmbedCode, type EverycalEmbedButtonSize } from "../lib/everycalEmbed";
 
 export function EmbedCodeModal({
   open,
@@ -11,17 +11,45 @@ export function EmbedCodeModal({
   onClose: () => void;
   path: string;
 }) {
-  const { t } = useTranslation(["common"]);
+  const { t, i18n } = useTranslation(["common"]);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "error">("idle");
+  const [buttonSize, setButtonSize] = useState<EverycalEmbedButtonSize>("md");
 
   const embedCode = useMemo(() => {
     if (typeof window === "undefined") return "";
-    return buildShowOnEverycalEmbedCode(path, window.location.origin);
-  }, [path]);
+    return buildShowOnEverycalEmbedCode(path, window.location.origin, buttonSize);
+  }, [path, buttonSize]);
+
+  const previewSrcDoc = useMemo(() => {
+    if (!embedCode) return "";
+    const previewLang = (i18n.resolvedLanguage || i18n.language || "en").toLowerCase();
+    return `<!doctype html>
+<html lang="${previewLang}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 84px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        padding: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    ${embedCode}
+  </body>
+</html>`;
+  }, [embedCode, i18n.language, i18n.resolvedLanguage]);
 
   useEffect(() => {
     if (!open) return;
     setCopyStatus("idle");
+    setButtonSize("md");
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -57,6 +85,31 @@ export function EmbedCodeModal({
         </div>
         <div className="modal-body embed-code-modal-body">
           <p className="text-sm text-muted">{t("embedCodeHint")}</p>
+          <div className="embed-code-options-row">
+            <label className="text-sm" htmlFor="embed-button-size">{t("embedButtonSizeLabel")}</label>
+            <select
+              id="embed-button-size"
+              value={buttonSize}
+              onChange={(e) => setButtonSize(e.target.value as EverycalEmbedButtonSize)}
+            >
+              <option value="sm">{t("embedButtonSizeSmall")}</option>
+              <option value="md">{t("embedButtonSizeMedium")}</option>
+              <option value="lg">{t("embedButtonSizeLarge")}</option>
+            </select>
+          </div>
+          <div className="embed-code-preview-wrap">
+            <div className="text-sm text-muted" style={{ marginBottom: "0.4rem" }}>{t("embedPreview")}</div>
+            {previewSrcDoc ? (
+              <iframe
+                className="embed-code-preview-frame"
+                title={t("embedPreview")}
+                srcDoc={previewSrcDoc}
+                sandbox="allow-scripts allow-popups"
+              />
+            ) : (
+              <div className="text-sm text-muted">{t("requestFailed")}</div>
+            )}
+          </div>
           <textarea
             readOnly
             value={embedCode}

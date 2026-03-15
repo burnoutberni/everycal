@@ -52,6 +52,25 @@ describe("show-on-everycal embed component", () => {
     expect(anchor.classList.contains("size-md")).toBe(true);
   });
 
+  it("translates label from page language", () => {
+    document.documentElement.lang = "de";
+    const { button, anchor } = createButton("/@alice");
+    const prefix = button.shadowRoot?.querySelector(".label-prefix");
+    const suffix = button.shadowRoot?.querySelector(".label-suffix");
+    const wordmark = button.shadowRoot?.querySelector("img.wordmark");
+
+    expect(prefix?.textContent).toBe("Auf");
+    expect(suffix?.textContent).toBe("anzeigen");
+    expect(wordmark?.getAttribute("src")).toBe(
+      "https://everycal.example/embed/everycal-wordmark.svg",
+    );
+    expect(anchor.getAttribute("aria-label")).toBe(
+      "Auf EveryCal anzeigen (oeffnet in einem neuen Tab)",
+    );
+
+    document.documentElement.lang = "";
+  });
+
   it("enables profile and event paths on the allowed domain", () => {
     const profile = createButton("/@alice").anchor;
     const event = createButton("/@bob/launch-party").anchor;

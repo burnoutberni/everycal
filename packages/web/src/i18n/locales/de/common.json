@@ -70,7 +70,12 @@
   "actAsYou": "du",
   "confirmChanges": "Bestätigen",
   "embedCode": "Embed-Code",
-  "embedCodeHint": "Füge diesen Snippet in deine Website ein, wo der Show-on-EveryCal-Button erscheinen soll.",
+  "embedCodeHint": "Füge diesen Snippet in deine Website ein, wo der Button erscheinen soll.",
+  "embedButtonSizeLabel": "Button-Groesse",
+  "embedButtonSizeSmall": "Klein",
+  "embedButtonSizeMedium": "Mittel",
+  "embedButtonSizeLarge": "Gross",
+  "embedPreview": "Vorschau",
   "actAsResultSummary": "Hinzugefügt: {{added}} · Entfernt: {{removed}} · Unverändert: {{unchanged}} · Fehlgeschlagen: {{failed}}",
   "actAsStatus": {
     "added": "hinzugefügt",
