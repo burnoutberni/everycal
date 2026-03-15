@@ -3,7 +3,7 @@ import { createRoot, hydrateRoot } from "react-dom/client";
 import { Router } from "wouter";
 import { App } from "../App";
 import { AuthProvider } from "../hooks/useAuth";
-import { bootstrapViewerToUser, isAppLocale } from "@everycal/core";
+import { bootstrapViewerToUser, isAppLocale, type AppLocale } from "@everycal/core";
 import {
   getPageContextBootstrap,
   PageContextProvider,
@@ -14,13 +14,16 @@ import {
 import type { PageContextClient } from "vike/types";
 import { initI18n } from "../i18n";
 import "../index.css";
+import { ThemeProvider } from "../hooks/useTheme";
+import { parseThemePreference } from "../lib/theme";
 
-function resolveHydrationLocale(pageBootstrapLocale?: "en" | "de"): "en" | "de" {
+function resolveHydrationLocale(pageBootstrapLocale?: AppLocale): AppLocale {
   if (pageBootstrapLocale) return pageBootstrapLocale;
   const fromDom = readStartupLocaleFromDom();
   if (fromDom) return fromDom;
-  if (typeof document !== "undefined" && isAppLocale(document.documentElement.lang)) {
-    return document.documentElement.lang;
+  if (typeof document !== "undefined") {
+    const docLang = document.documentElement.lang;
+    if (isAppLocale(docLang)) return docLang;
   }
   return "en";
 }
@@ -47,15 +50,18 @@ export async function onRenderClient(pageContext: PageContextClient) {
 
   await initI18n(startupLocale);
   const initialUser = bootstrapViewerToUser(bootstrap?.viewer);
+  const initialThemePreference = parseThemePreference(bootstrap?.viewer?.themePreference);
 
   const app = (
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
-          <Router>
-            <App />
-          </Router>
-        </AuthProvider>
+        <ThemeProvider initialPreference={initialThemePreference}>
+          <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
+            <Router>
+              <App />
+            </Router>
+          </AuthProvider>
+        </ThemeProvider>
       </PageContextProvider>
     </React.StrictMode>
   );

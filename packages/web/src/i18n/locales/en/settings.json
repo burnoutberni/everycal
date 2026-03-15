@@ -115,5 +115,9 @@
   "createIdentityStepProfile": "Edit profile",
   "createIdentityStepSettings": "Set defaults",
   "createIdentityNextStep": "Continue",
-  "createAndEditIdentity": "Create and edit profile"
+  "createAndEditIdentity": "Create and edit profile",
+  "themePreference": "Theme",
+  "themeSystem": "System (currently {{theme}})",
+  "themeLight": "Light",
+  "themeDark": "Dark"
 }

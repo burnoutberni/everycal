@@ -32,6 +32,7 @@ describe("bootstrap contract", () => {
       username: "alice",
       displayName: "Alice",
       avatarUrl: null,
+      themePreference: "dark",
       notificationPrefs: { onboardingCompleted: true },
     });
 
@@ -40,6 +41,7 @@ describe("bootstrap contract", () => {
       username: "alice",
       displayName: "Alice",
       avatarUrl: null,
+      themePreference: "dark",
       notificationPrefs: {
         reminderEnabled: true,
         reminderHoursBefore: 24,

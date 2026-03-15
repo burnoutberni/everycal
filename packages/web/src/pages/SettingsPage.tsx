@@ -37,6 +37,8 @@ import {
   SYSTEM_TIMEZONE,
 } from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
+import { useTheme } from "../hooks/useTheme";
+import { applyThemeToDocument, getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";
 
 type IdentityFormErrors = {
   username?: string;
@@ -59,6 +61,11 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
+  const committedThemePreferenceRef = useRef<ThemePreference>(themePreference);
+  const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
+  const [systemResolvedTheme, setSystemResolvedTheme] = useState<ResolvedTheme>("light");
+  const [themeLabelReady, setThemeLabelReady] = useState(false);
   const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -108,6 +115,39 @@ export function SettingsPage() {
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identityAvatarUploading, setIdentityAvatarUploading] = useState(false);
   const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    committedThemePreferenceRef.current = themePreference;
+    setDraftThemePreference(themePreference);
+  }, [themePreference]);
+
+  useEffect(() => {
+    return () => {
+      applyThemeToDocument(committedThemePreferenceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSystemResolvedTheme(getSystemTheme());
+
+    if (typeof window.matchMedia !== "function") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => setSystemResolvedTheme(getSystemTheme());
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onSystemThemeChange);
+      return () => media.removeEventListener("change", onSystemThemeChange);
+    }
+
+    media.addListener(onSystemThemeChange);
+    return () => media.removeListener(onSystemThemeChange);
+  }, []);
+
+  useEffect(() => {
+    setThemeLabelReady(true);
+  }, []);
+
   const [identityEditorOpen, setIdentityEditorOpen] = useState<"create" | null>(null);
   const [createIdentityStep, setCreateIdentityStep] = useState<1 | 2 | 3>(1);
   const [identitySettingsOpen, setIdentitySettingsOpen] = useState(false);
@@ -665,11 +705,19 @@ export function SettingsPage() {
       await authApi.updateProfile({
         timezone,
         dateTimeLocale: localeToSave,
+        themePreference: draftThemePreference,
       });
+      committedThemePreferenceRef.current = draftThemePreference;
+      setThemePreference(draftThemePreference, { persist: true });
       await refreshUser();
       setSavedCalendarSettings(true);
       setTimeout(() => setSavedCalendarSettings(false), 1800);
     } catch (err: unknown) {
+      const serverThemePreference = user.themePreference === "light" || user.themePreference === "dark" || user.themePreference === "system"
+        ? user.themePreference
+        : "system";
+      setDraftThemePreference(serverThemePreference);
+      setThemePreference(serverThemePreference, { persist: true });
       setCalendarSettingsError((err as Error).message || t("common:requestFailed"));
     } finally {
       setSavingCalendarSettings(false);
@@ -1203,6 +1251,42 @@ export function SettingsPage() {
                     return `${weekLabel} · ${dateSample} · ${timeSample}`;
                   })()}
                 </div>
+              </div>
+              <div className="field">
+                <fieldset className="theme-preference-fieldset">
+                  <legend className="settings-label">{t("themePreference")}</legend>
+                  <div className="theme-preference-group">
+                    {([
+                      {
+                        value: "system",
+                        label: themeLabelReady
+                          ? t("themeSystem", { theme: t(`theme${systemResolvedTheme === "dark" ? "Dark" : "Light"}`) })
+                          : t("themeSystem", { theme: "..." }),
+                      },
+                      { value: "light", label: t("themeLight") },
+                      { value: "dark", label: t("themeDark") },
+                    ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
+                      <label
+                        key={option.value}
+                        className={`theme-preference-option ${draftThemePreference === option.value ? "is-active" : ""}`}
+                      >
+                        <input
+                          className="theme-preference-control"
+                          type="radio"
+                          name="theme-preference"
+                          value={option.value}
+                          checked={draftThemePreference === option.value}
+                          onChange={() => {
+                            setDraftThemePreference(option.value);
+                            applyThemeToDocument(option.value);
+                          }}
+                        />
+                        <span className="theme-preference-dot" aria-hidden="true" />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
               <div className="field">
                 <label htmlFor="settings-timezone">{t("common:timezone")}</label>

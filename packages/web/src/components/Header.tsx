@@ -330,7 +330,7 @@ export function Header() {
               <Link href="/login" className="header-drawer-item" onClick={() => setDrawerOpen(false)} style={{ width: "100%", justifyContent: "center", marginBottom: "0.5rem" }}>
                 <KeyIcon /> {t("logIn")}
               </Link>
-              <Link href="/register" className="header-drawer-item" onClick={() => setDrawerOpen(false)} style={{ width: "100%", justifyContent: "center", background: "var(--accent)", color: "#000" }}>
+              <Link href="/register" className="header-drawer-item" onClick={() => setDrawerOpen(false)} style={{ width: "100%", justifyContent: "center", background: "var(--accent)", color: "var(--text-on-accent)" }}>
                 <UserIcon /> {t("signUp")}
               </Link>
             </div>

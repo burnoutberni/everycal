@@ -10,6 +10,8 @@ import { i18n, initI18n } from "../i18n";
 import { bootstrapViewerToUser } from "@everycal/core";
 import type { EverycalPageContext } from "./PageContext";
 import { isAppBootstrap } from "@everycal/core";
+import { ThemeProvider } from "../hooks/useTheme";
+import { parseThemePreference, THEME_STORAGE_KEY } from "../lib/theme";
 
 type SeoData = {
   title?: string;
@@ -23,17 +25,20 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   const bootstrap = await resolveBootstrapForRender(typedPageContext);
   const startupLocale = bootstrap?.locale || "en";
   const initialUser = bootstrapViewerToUser(bootstrap?.viewer);
+  const initialThemePreference = parseThemePreference(bootstrap?.viewer?.themePreference);
   await initI18n(startupLocale);
 
   // Render the app using wouter's SSR mode
   const appHtml = renderToString(
     <React.StrictMode>
       <PageContextProvider pageContext={typedPageContext}>
-        <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
-          <Router ssrPath={urlPathname}>
-            <App />
-          </Router>
-        </AuthProvider>
+        <ThemeProvider initialPreference={initialThemePreference}>
+          <AuthProvider initialUser={initialUser} initialBootstrap={bootstrap}>
+            <Router ssrPath={urlPathname}>
+              <App />
+            </Router>
+          </AuthProvider>
+        </ThemeProvider>
       </PageContextProvider>
     </React.StrictMode>
   );
@@ -56,7 +61,7 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   }
 
   return escapeInject`<!DOCTYPE html>
-    <html lang={startupLocale}>
+    <html lang="${startupLocale}" data-theme-storage-key="${THEME_STORAGE_KEY}">
       <head>
         <meta charset="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
@@ -76,15 +81,16 @@ export async function onRenderHtml(pageContext: PageContextServer) {
         ${ogImageUrl ? escapeInject`<meta property="og:image" content="${ogImageUrl}" />
         <meta name="twitter:image" content="${ogImageUrl}" />` : ""}
 
+        ${serializedBootstrap
+          ? escapeInject`<script id="everycal-bootstrap" type="application/json">${dangerouslySkipEscape(serializedBootstrap)}</script>`
+          : ""}
+        <script src="/theme-init.js"></script>
         <!-- Disable Vike client routing to let Wouter handle SPA natively -->
         <meta name="vike-client-routing" content="false" />
       </head>
       <body>
         <div id="root">${dangerouslySkipEscape(appHtml)}</div>
         <script id="everycal-startup-locale" type="application/json">${dangerouslySkipEscape(serializedStartupLocale)}</script>
-        ${serializedBootstrap
-          ? escapeInject`<script id="everycal-bootstrap" type="application/json">${dangerouslySkipEscape(serializedBootstrap)}</script>`
-          : ""}
       </body>
     </html>`;
 }

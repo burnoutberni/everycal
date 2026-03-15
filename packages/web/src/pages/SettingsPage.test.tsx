@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, string>) => {
+      if (key === "themeSystem") return `themeSystem (${params?.theme ?? "..."})`;
+      return key;
+    },
     i18n: { language: "en" },
   }),
 }));
@@ -93,13 +96,25 @@ vi.mock("../lib/api", () => ({
 
 import { SettingsPage } from "./SettingsPage";
 import { auth as authApi, identities as identitiesApi, uploads } from "../lib/api";
+import { ThemeProvider } from "../hooks/useTheme";
+import { THEME_STORAGE_KEY } from "../lib/theme";
+
+function renderSettingsPage() {
+  return render(
+    <ThemeProvider>
+      <SettingsPage />
+    </ThemeProvider>
+  );
+}
 
 describe("SettingsPage identity flows", () => {
   afterEach(() => {
+    window.localStorage.clear();
     cleanup();
   });
 
   beforeEach(() => {
+    window.localStorage.clear();
     vi.clearAllMocks();
     (globalThis as any).IntersectionObserver = class {
       observe() {}
@@ -129,7 +144,7 @@ describe("SettingsPage identity flows", () => {
   });
 
   it("blocks step progress on invalid handle and invalid website", async () => {
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
@@ -157,7 +172,7 @@ describe("SettingsPage identity flows", () => {
       resolveUpload = resolve;
     }) as Promise<any>);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
     fireEvent.change(screen.getByPlaceholderText("usernamePlaceholder"), { target: { value: "team_one" } });
@@ -185,7 +200,7 @@ describe("SettingsPage identity flows", () => {
       identity: { username: "team_one" },
     } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
     fireEvent.change(screen.getByPlaceholderText("usernamePlaceholder"), { target: { value: "team_one" } });
@@ -219,7 +234,7 @@ describe("SettingsPage identity flows", () => {
       }],
     } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     const settingsButton = await screen.findByRole("button", { name: "identitySettings" });
     settingsButton.focus();
@@ -251,7 +266,7 @@ describe("SettingsPage identity flows", () => {
     } as any);
     vi.mocked(identitiesApi.update).mockResolvedValue({ identity: { username: "team_one" } } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "identitySettings" }));
     const dialog = await screen.findByRole("dialog");
 
@@ -265,5 +280,100 @@ describe("SettingsPage identity flows", () => {
         cityLng: null,
       }));
     });
+  });
+
+  it("renders theme preference as native radio inputs", async () => {
+    renderSettingsPage();
+
+    const systemOption = await screen.findByRole("radio", { name: /^themeSystem/ }) as HTMLInputElement;
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    expect(systemOption.checked).toBe(true);
+    expect(darkOption.checked).toBe(false);
+
+    fireEvent.click(darkOption);
+
+    expect(darkOption.checked).toBe(true);
+    expect(systemOption.checked).toBe(false);
+  });
+
+  it("previews selected theme and persists it on calendar save", async () => {
+    vi.mocked(authApi.updateProfile).mockResolvedValue({} as any);
+
+    renderSettingsPage();
+
+    const darkOption = await screen.findByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+    fireEvent.click(darkOption);
+
+    expect(darkOption.checked).toBe(true);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+
+    const calendarForm = darkOption.closest("form");
+    if (!calendarForm) throw new Error("Expected calendar settings form");
+    fireEvent.submit(calendarForm);
+
+    await waitFor(() => {
+      expect(authApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({
+        themePreference: "dark",
+      }));
+    });
+    await waitFor(() => {
+      expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    });
+  });
+
+  it("reverts unsaved theme preview when leaving settings", async () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+
+    const view = renderSettingsPage();
+
+    const lightOption = await screen.findByRole("radio", { name: "themeLight" }) as HTMLInputElement;
+    fireEvent.click(lightOption);
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    view.unmount();
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+  });
+
+  it("rolls back theme selection when calendar save fails", async () => {
+    vi.mocked(authApi.updateProfile).mockRejectedValue(new Error("theme-save-failed"));
+
+    renderSettingsPage();
+
+    const systemOption = await screen.findByRole("radio", { name: /^themeSystem/ }) as HTMLInputElement;
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    fireEvent.click(darkOption);
+    expect(darkOption.checked).toBe(true);
+
+    const calendarForm = darkOption.closest("form");
+    if (!calendarForm) throw new Error("Expected calendar settings form");
+    fireEvent.submit(calendarForm);
+
+    await waitFor(() => {
+      expect(authApi.updateProfile).toHaveBeenCalledWith(expect.objectContaining({
+        themePreference: "dark",
+      }));
+    });
+    await waitFor(() => {
+      expect(systemOption.checked).toBe(true);
+    });
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(await screen.findByText("theme-save-failed")).toBeTruthy();
+  });
+
+  it("keeps system theme description tied to OS theme while previewing dark", async () => {
+    renderSettingsPage();
+
+    await screen.findByRole("radio", { name: "themeSystem (themeLight)" });
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    fireEvent.click(darkOption);
+
+    expect(await screen.findByRole("radio", { name: "themeSystem (themeLight)" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "themeSystem (themeDark)" })).toBeNull();
   });
 });

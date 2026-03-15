@@ -6,16 +6,18 @@ import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
 
 describe("account timezone/locale defaults", () => {
-  it("defaults new accounts to system timezone and locale", () => {
+  it("defaults new accounts to system timezone, locale, and theme", () => {
     const db = initDatabase(":memory:");
     db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u1", "user1");
-    const row = db.prepare("SELECT timezone, date_time_locale FROM accounts WHERE id = ?").get("u1") as {
+    const row = db.prepare("SELECT timezone, date_time_locale, theme_preference FROM accounts WHERE id = ?").get("u1") as {
       timezone: string;
       date_time_locale: string;
+      theme_preference: string;
     };
 
     expect(row.timezone).toBe("system");
     expect(row.date_time_locale).toBe("system");
+    expect(row.theme_preference).toBe("system");
   });
 
   it("backfills null legacy account timezone/locale to system", () => {
@@ -119,6 +121,59 @@ describe("account timezone/locale defaults", () => {
 
     expect(row.timezone).toBe("system");
     expect(row.date_time_locale).toBe("system");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("preserves and normalizes theme_preference during legacy accounts rebuild", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE accounts (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        account_type TEXT NOT NULL DEFAULT 'person',
+        display_name TEXT,
+        bio TEXT,
+        avatar_url TEXT,
+        password_hash TEXT,
+        private_key TEXT,
+        public_key TEXT,
+        is_bot INTEGER NOT NULL DEFAULT 0,
+        discoverable INTEGER NOT NULL DEFAULT 0,
+        timezone TEXT NOT NULL DEFAULT 'Europe/Vienna',
+        date_time_locale TEXT NOT NULL DEFAULT 'en-GB',
+        theme_preference TEXT NOT NULL DEFAULT 'system',
+        default_event_visibility TEXT NOT NULL DEFAULT 'public',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        website TEXT,
+        city TEXT NOT NULL DEFAULT 'Wien',
+        city_lat REAL NOT NULL DEFAULT 48.2082,
+        city_lng REAL NOT NULL DEFAULT 16.3738,
+        email TEXT,
+        email_verified INTEGER NOT NULL DEFAULT 0,
+        email_verified_at TEXT,
+        preferred_language TEXT DEFAULT 'en'
+      );
+    `);
+    legacy.prepare("INSERT INTO accounts (id, username, theme_preference) VALUES (?, ?, ?)")
+      .run("u1", "user1", "dark");
+    legacy.prepare("INSERT INTO accounts (id, username, theme_preference) VALUES (?, ?, ?)")
+      .run("u2", "user2", "AUTO");
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const rows = migrated
+      .prepare("SELECT id, theme_preference FROM accounts WHERE id IN (?, ?) ORDER BY id")
+      .all("u1", "u2") as Array<{ id: string; theme_preference: string }>;
+
+    expect(rows).toEqual([
+      { id: "u1", theme_preference: "dark" },
+      { id: "u2", theme_preference: "system" },
+    ]);
 
     migrated.close();
     rmSync(dir, { recursive: true, force: true });

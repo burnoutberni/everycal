@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Redirect, Route, Switch, useLocation } from "wouter";
 import { Header } from "./components/Header";
@@ -19,6 +19,8 @@ import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { EventResolvePage } from "./pages/EventResolvePage";
 import { useAuth } from "./hooks/useAuth";
+import { useTheme } from "./hooks/useTheme";
+import { isThemePreference } from "./lib/theme";
 
 const ONBOARDING_EXEMPT = ["/onboarding", "/login", "/register", "/check-email", "/verify-email", "/forgot-password", "/reset-password"];
 
@@ -40,7 +42,19 @@ function renderWithLayout(content: ReactNode) {
 export function App() {
   const { t } = useTranslation("common");
   const { user, authStatus } = useAuth();
+  const { setPreference } = useTheme();
   const [location] = useLocation();
+
+  useEffect(() => {
+    if (authStatus === "anonymous") {
+      setPreference("system", { persist: true });
+      return;
+    }
+    if (authStatus !== "authenticated") return;
+
+    const serverThemePreference = isThemePreference(user?.themePreference) ? user.themePreference : "system";
+    setPreference(serverThemePreference, { persist: true });
+  }, [authStatus, user?.themePreference, setPreference]);
 
   if (authStatus === "authenticated" && user && !user.notificationPrefs?.onboardingCompleted && !ONBOARDING_EXEMPT.some((p) => location.startsWith(p))) {
     return <Redirect to="/onboarding" />;

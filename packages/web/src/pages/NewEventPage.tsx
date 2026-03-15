@@ -2069,8 +2069,8 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                           minHeight: "1.75rem",
                           padding: 0,
                           borderRadius: "50%",
-                          border: "1px solid rgba(0,0,0,0.2)",
-                          background: "rgba(13, 13, 13, 0.92)",
+                          border: "1px solid var(--border)",
+                          background: "color-mix(in srgb, var(--bg-raised) 94%, transparent)",
                           color: "var(--text)",
                           cursor: "pointer",
                           fontSize: "1.1rem",
@@ -2078,7 +2078,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                          boxShadow: "var(--elevation-1)",
                         }}
                       >
                         ×

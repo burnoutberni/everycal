@@ -14,6 +14,7 @@ function loadViewer(db: DB, user: AuthUser | null): {
   const row = db
     .prepare(
       `SELECT a.id, a.username, a.display_name, a.avatar_url, a.preferred_language,
+              a.theme_preference,
               p.onboarding_completed
        FROM accounts a
        LEFT JOIN account_notification_prefs p ON p.account_id = a.id
@@ -26,6 +27,7 @@ function loadViewer(db: DB, user: AuthUser | null): {
         display_name: string | null;
         avatar_url: string | null;
         preferred_language: string | null;
+        theme_preference: "system" | "light" | "dark" | null;
         onboarding_completed: number | null;
       }
     | undefined;
@@ -47,6 +49,7 @@ function loadViewer(db: DB, user: AuthUser | null): {
       username: row.username,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
+      themePreference: row.theme_preference || "system",
       notificationPrefs: {
         onboardingCompleted: row.onboarding_completed != null ? !!row.onboarding_completed : undefined,
       },
