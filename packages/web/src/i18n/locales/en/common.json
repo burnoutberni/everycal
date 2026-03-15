@@ -76,6 +76,7 @@
   "embedButtonSizeMedium": "Medium",
   "embedButtonSizeLarge": "Large",
   "embedPreview": "Preview",
+  "embedPreviewUnavailable": "Preview unavailable for this page.",
   "actAsResultSummary": "Added: {{added}} · Removed: {{removed}} · Unchanged: {{unchanged}} · Failed: {{failed}}",
   "actAsStatus": {
     "added": "added",

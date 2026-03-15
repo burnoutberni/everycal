@@ -69,7 +69,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [reposted, setReposted] = useState(initialEvent ? (initialEvent.reposted ?? false) : false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
-  const [repostMenuOpen, setRepostMenuOpen] = useState(false);
+  const [eventActionMenuOpen, setEventActionMenuOpen] = useState(false);
   const [repostAsOpen, setRepostAsOpen] = useState(false);
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [repostAsError, setRepostAsError] = useState<string | null>(null);
@@ -79,31 +79,31 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [followedActorUris, setFollowedActorUris] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
   const [canManageEvent, setCanManageEvent] = useState(false);
-  const repostMenuRef = useRef<HTMLDivElement>(null);
-  const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const repostMenuId = useId();
+  const eventMenuRef = useRef<HTMLDivElement>(null);
+  const eventMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const eventMenuId = useId();
   const viewerTimezoneTooltipId = useId();
   const viewerTimeZone = resolveUserTimezone(user);
 
   useEffect(() => {
-    if (!repostMenuOpen) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (repostMenuRef.current && !repostMenuRef.current.contains(e.target as Node)) {
-        setRepostMenuOpen(false);
+    if (!eventActionMenuOpen) return;
+    const handleEventMenuClickOutside = (e: MouseEvent) => {
+      if (eventMenuRef.current && !eventMenuRef.current.contains(e.target as Node)) {
+        setEventActionMenuOpen(false);
       }
     };
-    const onEscape = (e: KeyboardEvent) => {
+    const handleEventMenuEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setRepostMenuOpen(false);
-      repostMenuButtonRef.current?.focus();
+      setEventActionMenuOpen(false);
+      eventMenuButtonRef.current?.focus();
     };
-    document.addEventListener("click", onClickOutside);
-    document.addEventListener("keydown", onEscape);
+    document.addEventListener("click", handleEventMenuClickOutside);
+    document.addEventListener("keydown", handleEventMenuEscape);
     return () => {
-      document.removeEventListener("click", onClickOutside);
-      document.removeEventListener("keydown", onEscape);
+      document.removeEventListener("click", handleEventMenuClickOutside);
+      document.removeEventListener("keydown", handleEventMenuEscape);
     };
-  }, [repostMenuOpen]);
+  }, [eventActionMenuOpen]);
 
   const rsvpOptions = useMemo(
     () => [
@@ -558,29 +558,29 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
               </>
             )}
             {showEventMenu && (
-              <div ref={repostMenuRef} style={{ position: "relative" }}>
+              <div ref={eventMenuRef} style={{ position: "relative" }}>
                 <button
-                  ref={repostMenuButtonRef}
+                  ref={eventMenuButtonRef}
                   type="button"
                   className="profile-menu-btn"
-                  onClick={() => setRepostMenuOpen((open) => !open)}
-                  aria-expanded={repostMenuOpen}
+                  onClick={() => setEventActionMenuOpen((open) => !open)}
+                  aria-expanded={eventActionMenuOpen}
                   aria-haspopup="menu"
-                  aria-controls={repostMenuOpen ? repostMenuId : undefined}
+                  aria-controls={eventActionMenuOpen ? eventMenuId : undefined}
                   aria-label={t("common:menu")}
                   title={t("common:menu")}
                 >
                   <MenuIcon />
                 </button>
-                {repostMenuOpen && (
-                  <div id={repostMenuId} className="header-dropdown" role="menu">
+                {eventActionMenuOpen && (
+                  <div id={eventMenuId} className="header-dropdown" role="menu">
                     {canRepostAs && (
                       <button
                         type="button"
                         className="header-dropdown-item"
                         role="menuitem"
                         onClick={() => {
-                          setRepostMenuOpen(false);
+                          setEventActionMenuOpen(false);
                           setRepostAsError(null);
                           setRepostAsOpen(true);
                         }}
@@ -594,7 +594,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                         className="header-dropdown-item"
                         role="menuitem"
                         onClick={() => {
-                          setRepostMenuOpen(false);
+                          setEventActionMenuOpen(false);
                           setEmbedModalOpen(true);
                         }}
                       >

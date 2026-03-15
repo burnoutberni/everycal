@@ -172,7 +172,7 @@ export function EmbedCodeModal({
                 sandbox="allow-scripts allow-popups"
               />
             ) : (
-              <div className="text-sm text-muted">{t("requestFailed")}</div>
+              <div className="text-sm text-muted">{t("embedPreviewUnavailable")}</div>
             )}
           </div>
           <textarea
