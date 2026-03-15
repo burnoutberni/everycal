@@ -10,9 +10,12 @@ describe("everycalEmbed", () => {
 
   it("rejects unsupported paths", () => {
     expect(normalizeEmbeddableEverycalPath("/events/123")).toBeNull();
+    expect(normalizeEmbeddableEverycalPath("")).toBeNull();
+  });
+
+  it("strips query strings and hash fragments from supported paths", () => {
     expect(normalizeEmbeddableEverycalPath("/@alice?view=list")).toBe("/@alice");
     expect(normalizeEmbeddableEverycalPath("/@alice#top")).toBe("/@alice");
-    expect(normalizeEmbeddableEverycalPath("")).toBeNull();
   });
 
   it("builds script and button snippet", () => {
