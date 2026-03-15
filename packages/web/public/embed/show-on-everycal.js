@@ -11,6 +11,18 @@
     lg: "size-lg",
   };
 
+  const ALLOWED_LINK_DOMAIN = (() => {
+    const scriptSrc = document.currentScript && document.currentScript.src;
+    if (scriptSrc) {
+      try {
+        return new URL(scriptSrc).hostname.toLowerCase();
+      } catch {
+        return window.location.hostname.toLowerCase();
+      }
+    }
+    return window.location.hostname.toLowerCase();
+  })();
+
   const BASE_CSS = `
     :host {
       display: inline-block;
@@ -157,9 +169,12 @@
   function normalizeHref(value) {
     const trimmed = (value || "").trim();
     if (!trimmed) return null;
+
     try {
-      const parsed = new URL(trimmed, window.location.href);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      const parsed = new URL(trimmed);
+      const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+      const isAllowedDomain = parsed.hostname.toLowerCase() === ALLOWED_LINK_DOMAIN;
+      if (isHttp && isAllowedDomain) {
         return parsed.toString();
       }
       return null;
@@ -201,18 +216,18 @@
       const sizeClass = normalizeSize(this.getAttribute("size"));
       const accessibleLabel =
         this.getAttribute("aria-label") || "Show on EveryCal (opens in a new tab)";
-      const safeHref = href ? escapeAttribute(href) : "#";
+      const safeHref = href ? escapeAttribute(href) : "";
       const safeLabel = escapeAttribute(accessibleLabel);
+      const linkStateAttributes = href
+        ? `href="${safeHref}" target="_blank" rel="noopener noreferrer external" aria-disabled="false"`
+        : `aria-disabled="true" tabindex="-1"`;
 
       this.shadowRoot.innerHTML = `
         <style>${BASE_CSS}</style>
         <a
           class="${sizeClass}"
-          href="${safeHref}"
-          target="_blank"
-          rel="noopener noreferrer external"
+          ${linkStateAttributes}
           aria-label="${safeLabel}"
-          aria-disabled="${href ? "false" : "true"}"
         >
           <span class="icon" aria-hidden="true">
             <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false">
