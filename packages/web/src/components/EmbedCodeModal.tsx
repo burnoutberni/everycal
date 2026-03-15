@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildShowOnEverycalEmbedCode, type EverycalEmbedButtonSize } from "../lib/everycalEmbed";
 
@@ -14,6 +14,8 @@ export function EmbedCodeModal({
   const { t, i18n } = useTranslation(["common"]);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const [buttonSize, setButtonSize] = useState<EverycalEmbedButtonSize>("md");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const embedCode = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -50,11 +52,60 @@ export function EmbedCodeModal({
     if (!open) return;
     setCopyStatus("idle");
     setButtonSize("md");
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+
+    const previousFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector =
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+    const focusInitial = () => {
+      const root = dialogRef.current;
+      if (!root) return;
+      const firstFocusable = root.querySelector<HTMLElement>(focusableSelector);
+      (closeButtonRef.current || firstFocusable || root).focus();
     };
+
+    focusInitial();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        root.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (!active || active === first) {
+          e.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+      if (active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocused?.isConnected) {
+        previousFocused.focus();
+      }
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -78,10 +129,10 @@ export function EmbedCodeModal({
       aria-labelledby="embed-code-modal-title"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-card embed-code-modal-card">
+      <div className="modal-card embed-code-modal-card" ref={dialogRef} tabIndex={-1}>
         <div className="modal-header">
           <h2 id="embed-code-modal-title" style={{ fontSize: "1rem", fontWeight: 600 }}>{t("embedCode")}</h2>
-          <button type="button" className="btn-ghost btn-sm" onClick={onClose} aria-label={t("close")}>✕</button>
+          <button ref={closeButtonRef} type="button" className="btn-ghost btn-sm" onClick={onClose} aria-label={t("close")}>✕</button>
         </div>
         <div className="modal-body embed-code-modal-body">
           <p className="text-sm text-muted">{t("embedCodeHint")}</p>

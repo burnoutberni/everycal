@@ -516,41 +516,45 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           </p>
         )}
 
-        {user && !isCanceled && (
+        {((user && !isCanceled) || showEventMenu) && (
           <div
             className="flex gap-1 mb-4"
             style={{ flexWrap: "wrap", alignItems: "center" }}
           >
-            {rsvpOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => handleRsvp(opt.value)}
-                disabled={saving}
-                className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
-                title={opt.label}
-              >
-                {opt.icon} {opt.label}
-              </button>
-            ))}
-            {event.source !== "remote" && event.accountId !== user.id && (
+            {user && !isCanceled && (
               <>
-                <span
-                  style={{
-                    width: 1,
-                    height: "1rem",
-                    background: "var(--border)",
-                    margin: "0 0.15rem",
-                  }}
-                />
-                <button
-                  onClick={handleRepost}
-                  disabled={repostSaving}
-                  className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
-                  title={reposted ? t("removeRepost") : t("repostToFeed")}
-                >
-                  <RepostIcon />
-                  {reposted ? t("reposted") : t("repost")}
-                </button>
+                {rsvpOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleRsvp(opt.value)}
+                    disabled={saving}
+                    className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
+                    title={opt.label}
+                  >
+                    {opt.icon} {opt.label}
+                  </button>
+                ))}
+                {event.source !== "remote" && event.accountId !== user.id && (
+                  <>
+                    <span
+                      style={{
+                        width: 1,
+                        height: "1rem",
+                        background: "var(--border)",
+                        margin: "0 0.15rem",
+                      }}
+                    />
+                    <button
+                      onClick={handleRepost}
+                      disabled={repostSaving}
+                      className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
+                      title={reposted ? t("removeRepost") : t("repostToFeed")}
+                    >
+                      <RepostIcon />
+                      {reposted ? t("reposted") : t("repost")}
+                    </button>
+                  </>
+                )}
               </>
             )}
             {showEventMenu && (
