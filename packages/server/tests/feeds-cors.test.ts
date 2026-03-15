@@ -129,6 +129,29 @@ describe("feed CORS policy", () => {
     expect(res.headers.get("pragma")).toBe("no-cache");
     expect(res.headers.get("expires")).toBe("0");
   });
+
+  it("returns a stable calendar token under concurrent calendar-url requests", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+          headers: { Cookie: `everycal_session=${token}` },
+        })
+      )
+    );
+
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    }
+
+    const bodies = (await Promise.all(responses.map((res) => res.json()))) as Array<{ url: string }>;
+    const urls = new Set(bodies.map((body) => body.url));
+    expect(urls.size).toBe(1);
+  });
 });
 
 describe("public feed visibility", () => {

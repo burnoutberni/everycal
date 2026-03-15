@@ -14,17 +14,20 @@ import { getLocale, t } from "../lib/i18n.js";
 import { rowToEvent } from "../lib/feed-event.js";
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
+  const token = `ecal_cal_${nanoid(40)}`;
+  db.prepare(
+    "INSERT OR IGNORE INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)"
+  ).run(accountId, token);
+
   const row = db
     .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
     .get(accountId) as { token: string } | undefined;
 
-  if (row) return row.token;
+  if (!row) {
+    throw new Error("Failed to resolve calendar feed token");
+  }
 
-  const token = `ecal_cal_${nanoid(40)}`;
-  db.prepare(
-    "INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)"
-  ).run(accountId, token);
-  return token;
+  return row.token;
 }
 
 function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
