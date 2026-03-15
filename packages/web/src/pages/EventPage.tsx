@@ -405,7 +405,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const canEmbedEvent = (event.visibility === "public" || event.visibility === "unlisted") && !!embeddableEventPath;
   const canRepostEvent = !!user && !isCanceled && event.source !== "remote" && event.accountId !== user.id;
   const canRepostAs = canRepostEvent && !identitiesLoading && hasAdditionalIdentities;
-  const showEventMenu = canEmbedEvent || canRepostEvent;
+  const showEventMenu = canEmbedEvent || canRepostAs;
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
