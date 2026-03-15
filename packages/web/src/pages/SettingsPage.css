@@ -100,6 +100,13 @@
   margin-bottom: 0.35rem;
 }
 
+.theme-preference-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
 .theme-preference-group {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

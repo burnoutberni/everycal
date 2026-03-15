@@ -60,8 +60,6 @@ export async function onRenderHtml(pageContext: PageContextServer) {
     );
   }
 
-  const inlineThemeInitScript = getInlineThemeInitScript();
-
   return escapeInject`<!DOCTYPE html>
     <html lang={startupLocale}>
       <head>
@@ -86,7 +84,7 @@ export async function onRenderHtml(pageContext: PageContextServer) {
         ${serializedBootstrap
           ? escapeInject`<script id="everycal-bootstrap" type="application/json">${dangerouslySkipEscape(serializedBootstrap)}</script>`
           : ""}
-        <script>${dangerouslySkipEscape(inlineThemeInitScript)}</script>
+        <script src="/theme-init.js"></script>
         <!-- Disable Vike client routing to let Wouter handle SPA natively -->
         <meta name="vike-client-routing" content="false" />
       </head>
@@ -95,43 +93,6 @@ export async function onRenderHtml(pageContext: PageContextServer) {
         <script id="everycal-startup-locale" type="application/json">${dangerouslySkipEscape(serializedStartupLocale)}</script>
       </body>
     </html>`;
-}
-
-function getInlineThemeInitScript() {
-  return `(function() {
-  try {
-    var key = "everycal-theme-preference";
-    var preference = "system";
-    var bootstrap = null;
-    var bootstrapEl = document.getElementById("everycal-bootstrap");
-    if (bootstrapEl && bootstrapEl.textContent) {
-      bootstrap = JSON.parse(bootstrapEl.textContent);
-    }
-    if (bootstrap && bootstrap.isAuthenticated === true) {
-      var viewerTheme = bootstrap.viewer && bootstrap.viewer.themePreference;
-      if (viewerTheme === "light" || viewerTheme === "dark" || viewerTheme === "system") {
-        preference = viewerTheme;
-      } else {
-        var pref = localStorage.getItem(key);
-        var valid = pref === "light" || pref === "dark" || pref === "system";
-        preference = valid ? pref : "system";
-      }
-    } else if (bootstrap && bootstrap.isAuthenticated === false) {
-      localStorage.removeItem(key);
-    } else {
-      var cachedPref = localStorage.getItem(key);
-      var cachedValid = cachedPref === "light" || cachedPref === "dark" || cachedPref === "system";
-      preference = cachedValid ? cachedPref : "system";
-    }
-    var systemDark = typeof window.matchMedia === "function"
-      && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    var resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
-    var root = document.documentElement;
-    if (preference === "light" || preference === "dark") root.setAttribute("data-theme", preference);
-    else root.removeAttribute("data-theme");
-    root.style.colorScheme = resolved;
-  } catch (_err) {}
-})();`;
 }
 
 async function resolveBootstrapForRender(pageContext: EverycalPageContext) {

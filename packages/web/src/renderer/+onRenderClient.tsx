@@ -3,7 +3,7 @@ import { createRoot, hydrateRoot } from "react-dom/client";
 import { Router } from "wouter";
 import { App } from "../App";
 import { AuthProvider } from "../hooks/useAuth";
-import { bootstrapViewerToUser, isAppLocale } from "@everycal/core";
+import { bootstrapViewerToUser, isAppLocale, type AppLocale } from "@everycal/core";
 import {
   getPageContextBootstrap,
   PageContextProvider,
@@ -17,13 +17,13 @@ import "../index.css";
 import { ThemeProvider } from "../hooks/useTheme";
 import { parseThemePreference } from "../lib/theme";
 
-function resolveHydrationLocale(pageBootstrapLocale?: "en" | "de"): "en" | "de" {
+function resolveHydrationLocale(pageBootstrapLocale?: AppLocale): AppLocale {
   if (pageBootstrapLocale) return pageBootstrapLocale;
   const fromDom = readStartupLocaleFromDom();
   if (fromDom) return fromDom;
   if (typeof document !== "undefined") {
     const docLang = document.documentElement.lang;
-    if (docLang === "en" || docLang === "de" || isAppLocale(docLang)) return docLang as "en" | "de";
+    if (isAppLocale(docLang)) return docLang;
   }
   return "en";
 }

@@ -1226,38 +1226,40 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="field">
-                <span className="settings-label">{t("themePreference")}</span>
-                <div className="theme-preference-group">
-                  {([
-                    {
-                      value: "system",
-                      label: themeLabelReady
-                        ? t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) })
-                        : t("themeSystem", { theme: "..." }),
-                    },
-                    { value: "light", label: t("themeLight") },
-                    { value: "dark", label: t("themeDark") },
-                  ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
-                    <label
-                      key={option.value}
-                      className={`theme-preference-option ${draftThemePreference === option.value ? "is-active" : ""}`}
-                    >
-                      <input
-                        className="theme-preference-control"
-                        type="radio"
-                        name="theme-preference"
-                        value={option.value}
-                        checked={draftThemePreference === option.value}
-                        onChange={() => {
-                          setDraftThemePreference(option.value);
-                          setThemePreference(option.value, { persist: false });
-                        }}
-                      />
-                      <span className="theme-preference-dot" aria-hidden="true" />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
-                </div>
+                <fieldset className="theme-preference-fieldset">
+                  <legend className="settings-label">{t("themePreference")}</legend>
+                  <div className="theme-preference-group">
+                    {([
+                      {
+                        value: "system",
+                        label: themeLabelReady
+                          ? t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) })
+                          : t("themeSystem", { theme: "..." }),
+                      },
+                      { value: "light", label: t("themeLight") },
+                      { value: "dark", label: t("themeDark") },
+                    ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
+                      <label
+                        key={option.value}
+                        className={`theme-preference-option ${draftThemePreference === option.value ? "is-active" : ""}`}
+                      >
+                        <input
+                          className="theme-preference-control"
+                          type="radio"
+                          name="theme-preference"
+                          value={option.value}
+                          checked={draftThemePreference === option.value}
+                          onChange={() => {
+                            setDraftThemePreference(option.value);
+                            setThemePreference(option.value, { persist: false });
+                          }}
+                        />
+                        <span className="theme-preference-dot" aria-hidden="true" />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
               <div className="field">
                 <label htmlFor="settings-timezone">{t("common:timezone")}</label>
