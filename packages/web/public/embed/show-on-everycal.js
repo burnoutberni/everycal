@@ -23,8 +23,6 @@
     return window.location.origin;
   })();
 
-  const ALLOWED_LINK_DOMAIN = new URL(ALLOWED_LINK_ORIGIN).hostname.toLowerCase();
-
   const BASE_CSS = `
     :host {
       display: inline-block;
