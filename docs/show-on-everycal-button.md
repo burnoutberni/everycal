@@ -4,9 +4,9 @@ Reusable, brand-locked embed button for external sites.
 
 ## Design spec
 
-- Label is fixed to `Show on EveryCal` for consistency and recognition.
-- Shape is a rounded pill with warm amber gradient background.
-- Icon uses the EveryCal two-circle mark for instant brand recall.
+- Label text is language-dependent (currently English and German) for consistency and recognition.
+- Shape is a rounded rectangle with a 4px corner radius.
+- Background is a flat light EveryCal brand color and includes the EveryCal two-circle mark for instant brand recall.
 - Interaction uses subtle lift + sheen (disabled if user prefers reduced motion).
 - Opens in a new tab by default with safe link attributes.
 - No analytics, no trackers, no network calls from the component itself.
