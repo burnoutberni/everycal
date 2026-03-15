@@ -41,6 +41,8 @@ export interface ProfileHeaderProps {
   onInlineAvatarUpload?: (file: File) => void;
   avatarUploading?: boolean;
   onRequestExpand?: () => void;
+  canShowEmbedOption?: boolean;
+  onOpenEmbedModal?: () => void;
 }
 
 export function ProfileHeader({
@@ -71,6 +73,8 @@ export function ProfileHeader({
   onInlineAvatarUpload,
   avatarUploading = false,
   onRequestExpand,
+  canShowEmbedOption = false,
+  onOpenEmbedModal,
 }: ProfileHeaderProps) {
   const { t } = useTranslation(["profile", "common", "settings", "auth"]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -97,6 +101,9 @@ export function ProfileHeader({
 
   const effectiveAvatarUrl = editingProfile && inlineDraft?.avatarUrl ? inlineDraft.avatarUrl : profile.avatarUrl;
   const canRequestExpand = isMobile && collapseProgress >= 0.98 && !!onRequestExpand;
+  const showSocialActions = !!(currentUser && !isOwn && (!isRemote || showIdentityActions));
+  const showEmbedAction = canShowEmbedOption && !!onOpenEmbedModal;
+  const showMenu = showSocialActions || showEmbedAction;
 
   const tryRequestExpandFromTarget = (target: EventTarget | null) => {
     if (!canRequestExpand) return;
@@ -258,7 +265,7 @@ export function ProfileHeader({
                 {profile.displayName || profile.username}
               </h1>
             )}
-            {currentUser && !isOwn && (!isRemote || showIdentityActions) && (
+            {showMenu && (
               <div ref={menuRef} style={{ position: "relative" }}>
                 <button
                   ref={menuButtonRef}
@@ -275,7 +282,7 @@ export function ProfileHeader({
                 </button>
                 {menuOpen && (
                   <div id={menuId} className="header-dropdown" role="menu">
-                    {showIdentityActions && (
+                    {showSocialActions && showIdentityActions && (
                       <button
                         type="button"
                         className="header-dropdown-item"
@@ -288,7 +295,7 @@ export function ProfileHeader({
                         {t("common:followAs")}
                       </button>
                     )}
-                    {!isRemote && showIdentityActions && (
+                    {showSocialActions && !isRemote && showIdentityActions && (
                       <button
                         type="button"
                         className="header-dropdown-item"
@@ -301,7 +308,7 @@ export function ProfileHeader({
                         {t("common:autoRepostAs")}
                       </button>
                     )}
-                    {!isRemote && (
+                    {showSocialActions && !isRemote && (
                       <button
                         type="button"
                         className="header-dropdown-item"
@@ -315,6 +322,19 @@ export function ProfileHeader({
                       >
                         <RepostIcon />
                         {profile.autoReposting ? t("autoReposting") : t("autoRepost")}
+                      </button>
+                    )}
+                    {showEmbedAction && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onOpenEmbedModal?.();
+                        }}
+                      >
+                        {t("common:copyEmbedCode")}
                       </button>
                     )}
                   </div>

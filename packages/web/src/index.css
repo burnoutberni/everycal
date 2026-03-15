@@ -2096,6 +2096,37 @@ button.tag {
   overflow-x: hidden !important;
 }
 
+.embed-code-modal-card {
+  max-width: 640px !important;
+  max-height: min(82vh, calc(100dvh - 3rem)) !important;
+}
+
+.embed-code-modal-body {
+  padding: 0.85rem 1rem !important;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.embed-code-textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  padding: 0.7rem;
+}
+
+.embed-code-textarea:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .act-as-field-wrap {
   position: relative;
   margin-top: 0.55rem;

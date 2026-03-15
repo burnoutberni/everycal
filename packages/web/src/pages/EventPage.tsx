@@ -9,12 +9,14 @@ import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities"
 import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
+import { normalizeEmbeddableEverycalPath } from "../lib/everycalEmbed";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { ActAsActionModal } from "../components/ActAsActionModal";
+import { EmbedCodeModal } from "../components/EmbedCodeModal";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
@@ -69,6 +71,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [repostSaving, setRepostSaving] = useState(false);
   const [repostMenuOpen, setRepostMenuOpen] = useState(false);
   const [repostAsOpen, setRepostAsOpen] = useState(false);
+  const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [repostAsError, setRepostAsError] = useState<string | null>(null);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
   const [suggestedEvents, setSuggestedEvents] = useState<CalEvent[]>([]);
@@ -394,6 +397,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       return `${t("common:localTimeLabel")}: ${localDateTime}`;
     })()
     : "";
+  const embeddableEventPath = normalizeEmbeddableEverycalPath(
+    event.slug && event.account?.username
+      ? `/@${event.account.username}/${event.slug}`
+      : location
+  );
+  const canEmbedEvent = (event.visibility === "public" || event.visibility === "unlisted") && !!embeddableEventPath;
+  const canRepostEvent = !!user && !isCanceled && event.source !== "remote" && event.accountId !== user.id;
+  const canRepostAs = canRepostEvent && !identitiesLoading && hasAdditionalIdentities;
+  const showEventMenu = canEmbedEvent || canRepostEvent;
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
@@ -450,16 +462,79 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             )}
           </div>
 
-          {canManageEvent && (
-            <div className="flex gap-1">
-              <Link href={editHref}>
-                <button className="btn-ghost btn-sm">{t("common:edit")}</button>
-              </Link>
-              <button className="btn-danger btn-sm" onClick={handleDelete}>
-                {t("common:delete")}
-              </button>
-            </div>
-          )}
+          <div className="flex gap-1" style={{ alignItems: "center" }}>
+            {canManageEvent && (
+              <>
+                <Link href={editHref}>
+                  <button className="btn-ghost btn-sm">{t("common:edit")}</button>
+                </Link>
+                <button className="btn-danger btn-sm" onClick={handleDelete}>
+                  {t("common:delete")}
+                </button>
+              </>
+            )}
+            {showEventMenu && (
+              <div ref={repostMenuRef} style={{ position: "relative" }}>
+                <button
+                  ref={repostMenuButtonRef}
+                  type="button"
+                  className="profile-menu-btn"
+                  onClick={() => setRepostMenuOpen((open) => !open)}
+                  aria-expanded={repostMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={repostMenuOpen ? repostMenuId : undefined}
+                  aria-label={t("common:menu")}
+                  title={t("common:menu")}
+                >
+                  <MenuIcon />
+                </button>
+                {repostMenuOpen && (
+                  <div id={repostMenuId} className="header-dropdown" role="menu">
+                    {canRepostEvent && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          void handleRepost();
+                        }}
+                      >
+                        {reposted ? t("removeRepost") : t("repost")}
+                      </button>
+                    )}
+                    {canRepostAs && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          setRepostAsError(null);
+                          setRepostAsOpen(true);
+                        }}
+                      >
+                        {t("common:repostAs")}
+                      </button>
+                    )}
+                    {canEmbedEvent && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setRepostMenuOpen(false);
+                          setEmbedModalOpen(true);
+                        }}
+                      >
+                        {t("common:copyEmbedCode")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <h1
@@ -539,39 +614,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                   <RepostIcon />
                   {reposted ? t("reposted") : t("repost")}
                 </button>
-                {!identitiesLoading && hasAdditionalIdentities && (
-                  <div ref={repostMenuRef} style={{ position: "relative" }}>
-                    <button
-                      ref={repostMenuButtonRef}
-                      type="button"
-                      className="profile-menu-btn"
-                      onClick={() => setRepostMenuOpen((open) => !open)}
-                      aria-expanded={repostMenuOpen}
-                      aria-haspopup="menu"
-                      aria-controls={repostMenuOpen ? repostMenuId : undefined}
-                      aria-label={t("common:menu")}
-                      title={t("common:menu")}
-                    >
-                      <MenuIcon />
-                    </button>
-                    {repostMenuOpen && (
-                      <div id={repostMenuId} className="header-dropdown" role="menu">
-                        <button
-                          type="button"
-                          className="header-dropdown-item"
-                          role="menuitem"
-                          onClick={() => {
-                            setRepostMenuOpen(false);
-                            setRepostAsError(null);
-                            setRepostAsOpen(true);
-                          }}
-                        >
-                          {t("common:repostAs")}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -738,6 +780,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             }
             return res;
           }}
+        />
+      )}
+
+      {embedModalOpen && embeddableEventPath && canEmbedEvent && (
+        <EmbedCodeModal
+          open
+          onClose={() => setEmbedModalOpen(false)}
+          path={embeddableEventPath}
         />
       )}
     </div>
