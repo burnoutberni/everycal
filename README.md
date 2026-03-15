@@ -88,6 +88,11 @@ pnpm --filter @everycal/server test
 pnpm --filter @everycal/web build
 ```
 
+## Embeddable button
+
+- `Show on EveryCal` web component script: `packages/web/public/embed/show-on-everycal.js`
+- Usage and design spec: `docs/show-on-everycal-button.md`
+
 ## Timezone interoperability
 
 - **ActivityPub outbound**: emits `Event.startTime` and `Event.endTime` as absolute UTC (`...Z`) for compatibility.

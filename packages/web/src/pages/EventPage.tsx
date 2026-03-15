@@ -9,12 +9,14 @@ import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities"
 import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls";
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
+import { normalizeEmbeddableEverycalPath } from "../lib/everycalEmbed";
 import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { ActAsActionModal } from "../components/ActAsActionModal";
+import { EmbedCodeModal } from "../components/EmbedCodeModal";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
@@ -67,8 +69,9 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [reposted, setReposted] = useState(initialEvent ? (initialEvent.reposted ?? false) : false);
   const [saving, setSaving] = useState(false);
   const [repostSaving, setRepostSaving] = useState(false);
-  const [repostMenuOpen, setRepostMenuOpen] = useState(false);
+  const [eventActionMenuOpen, setEventActionMenuOpen] = useState(false);
   const [repostAsOpen, setRepostAsOpen] = useState(false);
+  const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [repostAsError, setRepostAsError] = useState<string | null>(null);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
   const [suggestedEvents, setSuggestedEvents] = useState<CalEvent[]>([]);
@@ -76,31 +79,31 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [followedActorUris, setFollowedActorUris] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
   const [canManageEvent, setCanManageEvent] = useState(false);
-  const repostMenuRef = useRef<HTMLDivElement>(null);
-  const repostMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const repostMenuId = useId();
+  const eventMenuRef = useRef<HTMLDivElement>(null);
+  const eventMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const eventMenuId = useId();
   const viewerTimezoneTooltipId = useId();
   const viewerTimeZone = resolveUserTimezone(user);
 
   useEffect(() => {
-    if (!repostMenuOpen) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (repostMenuRef.current && !repostMenuRef.current.contains(e.target as Node)) {
-        setRepostMenuOpen(false);
+    if (!eventActionMenuOpen) return;
+    const handleEventMenuClickOutside = (e: MouseEvent) => {
+      if (eventMenuRef.current && !eventMenuRef.current.contains(e.target as Node)) {
+        setEventActionMenuOpen(false);
       }
     };
-    const onEscape = (e: KeyboardEvent) => {
+    const handleEventMenuEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setRepostMenuOpen(false);
-      repostMenuButtonRef.current?.focus();
+      setEventActionMenuOpen(false);
+      eventMenuButtonRef.current?.focus();
     };
-    document.addEventListener("click", onClickOutside);
-    document.addEventListener("keydown", onEscape);
+    document.addEventListener("click", handleEventMenuClickOutside);
+    document.addEventListener("keydown", handleEventMenuEscape);
     return () => {
-      document.removeEventListener("click", onClickOutside);
-      document.removeEventListener("keydown", onEscape);
+      document.removeEventListener("click", handleEventMenuClickOutside);
+      document.removeEventListener("keydown", handleEventMenuEscape);
     };
-  }, [repostMenuOpen]);
+  }, [eventActionMenuOpen]);
 
   const rsvpOptions = useMemo(
     () => [
@@ -394,6 +397,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       return `${t("common:localTimeLabel")}: ${localDateTime}`;
     })()
     : "";
+  const embeddableEventPath = normalizeEmbeddableEverycalPath(
+    event.slug && event.account?.username
+      ? `/@${event.account.username}/${event.slug}`
+      : location
+  );
+  const canEmbedEvent = (event.visibility === "public" || event.visibility === "unlisted") && !!embeddableEventPath;
+  const canRepostEvent = !!user && !isCanceled && event.source !== "remote" && event.accountId !== user.id;
+  const canRepostAs = canRepostEvent && !identitiesLoading && hasAdditionalIdentities;
+  const showEventMenu = canEmbedEvent || canRepostAs;
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
@@ -451,7 +463,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           </div>
 
           {canManageEvent && (
-            <div className="flex gap-1">
+            <div className="flex gap-1" style={{ alignItems: "center" }}>
               <Link href={editHref}>
                 <button className="btn-ghost btn-sm">{t("common:edit")}</button>
               </Link>
@@ -504,75 +516,94 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           </p>
         )}
 
-        {user && !isCanceled && (
+        {((user && !isCanceled) || showEventMenu) && (
           <div
             className="flex gap-1 mb-4"
             style={{ flexWrap: "wrap", alignItems: "center" }}
           >
-            {rsvpOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => handleRsvp(opt.value)}
-                disabled={saving}
-                className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
-                title={opt.label}
-              >
-                {opt.icon} {opt.label}
-              </button>
-            ))}
-            {event.source !== "remote" && event.accountId !== user.id && (
+            {user && !isCanceled && (
               <>
-                <span
-                  style={{
-                    width: 1,
-                    height: "1rem",
-                    background: "var(--border)",
-                    margin: "0 0.15rem",
-                  }}
-                />
-                <button
-                  onClick={handleRepost}
-                  disabled={repostSaving}
-                  className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
-                  title={reposted ? t("removeRepost") : t("repostToFeed")}
-                >
-                  <RepostIcon />
-                  {reposted ? t("reposted") : t("repost")}
-                </button>
-                {!identitiesLoading && hasAdditionalIdentities && (
-                  <div ref={repostMenuRef} style={{ position: "relative" }}>
+                {rsvpOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleRsvp(opt.value)}
+                    disabled={saving}
+                    className={`rsvp-btn ${rsvp === opt.value ? `rsvp-active rsvp-${opt.value}` : ""}`}
+                    title={opt.label}
+                  >
+                    {opt.icon} {opt.label}
+                  </button>
+                ))}
+                {event.source !== "remote" && event.accountId !== user.id && (
+                  <>
+                    <span
+                      style={{
+                        width: 1,
+                        height: "1rem",
+                        background: "var(--border)",
+                        margin: "0 0.15rem",
+                      }}
+                    />
                     <button
-                      ref={repostMenuButtonRef}
-                      type="button"
-                      className="profile-menu-btn"
-                      onClick={() => setRepostMenuOpen((open) => !open)}
-                      aria-expanded={repostMenuOpen}
-                      aria-haspopup="menu"
-                      aria-controls={repostMenuOpen ? repostMenuId : undefined}
-                      aria-label={t("common:menu")}
-                      title={t("common:menu")}
+                      onClick={handleRepost}
+                      disabled={repostSaving}
+                      className={reposted ? "rsvp-btn rsvp-active rsvp-maybe" : "rsvp-btn"}
+                      title={reposted ? t("removeRepost") : t("repostToFeed")}
                     >
-                      <MenuIcon />
+                      <RepostIcon />
+                      {reposted ? t("reposted") : t("repost")}
                     </button>
-                    {repostMenuOpen && (
-                      <div id={repostMenuId} className="header-dropdown" role="menu">
-                        <button
-                          type="button"
-                          className="header-dropdown-item"
-                          role="menuitem"
-                          onClick={() => {
-                            setRepostMenuOpen(false);
-                            setRepostAsError(null);
-                            setRepostAsOpen(true);
-                          }}
-                        >
-                          {t("common:repostAs")}
-                        </button>
-                      </div>
+                  </>
+                )}
+              </>
+            )}
+            {showEventMenu && (
+              <div ref={eventMenuRef} style={{ position: "relative" }}>
+                <button
+                  ref={eventMenuButtonRef}
+                  type="button"
+                  className="profile-menu-btn"
+                  onClick={() => setEventActionMenuOpen((open) => !open)}
+                  aria-expanded={eventActionMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={eventActionMenuOpen ? eventMenuId : undefined}
+                  aria-label={t("common:menu")}
+                  title={t("common:menu")}
+                >
+                  <MenuIcon />
+                </button>
+                {eventActionMenuOpen && (
+                  <div id={eventMenuId} className="header-dropdown" role="menu">
+                    {canRepostAs && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setEventActionMenuOpen(false);
+                          setRepostAsError(null);
+                          setRepostAsOpen(true);
+                        }}
+                      >
+                        {t("common:repostAs")}
+                      </button>
+                    )}
+                    {canEmbedEvent && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setEventActionMenuOpen(false);
+                          setEmbedModalOpen(true);
+                        }}
+                      >
+                        {t("common:copyEmbedCode")}
+                      </button>
                     )}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}
@@ -738,6 +769,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             }
             return res;
           }}
+        />
+      )}
+
+      {embedModalOpen && embeddableEventPath && canEmbedEvent && (
+        <EmbedCodeModal
+          open
+          onClose={() => setEmbedModalOpen(false)}
+          path={embeddableEventPath}
         />
       )}
     </div>

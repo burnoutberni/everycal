@@ -2096,6 +2096,115 @@ button.tag {
   overflow-x: hidden !important;
 }
 
+.embed-code-modal-card {
+  max-width: 640px !important;
+  max-height: min(82vh, calc(100dvh - 3rem)) !important;
+}
+
+.embed-code-modal-body {
+  padding: 0.85rem 1rem !important;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.embed-size-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.embed-size-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.embed-size-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  justify-content: center;
+  text-align: center;
+  min-height: 2.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.4rem 0.55rem;
+  margin-bottom: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.embed-size-control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.embed-size-option:focus-within {
+  border-color: var(--border-focus);
+  outline: 3px solid color-mix(in srgb, var(--accent) 75%, white 25%);
+  outline-offset: 2px;
+}
+
+.embed-size-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.embed-size-option.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.embed-size-dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-focus);
+  background: transparent;
+}
+
+.embed-size-option.is-active .embed-size-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.embed-code-preview-frame {
+  width: 100%;
+  height: 86px;
+  border: 0;
+  background: transparent;
+}
+
+.embed-code-textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  padding: 0.7rem;
+}
+
+.embed-code-textarea:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .act-as-field-wrap {
   position: relative;
   margin-top: 0.55rem;

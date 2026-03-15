@@ -6,6 +6,7 @@ import { auth as authApi, identities as identitiesApi, users as usersApi, federa
 import { validateAvatarUpload } from "../lib/avatarUpload";
 import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, parseLocalYmdDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { profilePath } from "../lib/urls";
+import { normalizeEmbeddableEverycalPath } from "../lib/everycalEmbed";
 import { DateEventSection } from "../components/DateEventSection";
 import { EventCard } from "../components/EventCard";
 import { MiniCalendar } from "../components/MiniCalendar";
@@ -13,6 +14,7 @@ import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/Mo
 import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
 import { ProfileHeader, type InlineProfileDraft } from "../components/ProfileHeader";
 import { ActAsActionModal } from "../components/ActAsActionModal";
+import { EmbedCodeModal } from "../components/EmbedCodeModal";
 import { useAuth } from "../hooks/useAuth";
 import { useHasAdditionalIdentities } from "../hooks/useHasAdditionalIdentities";
 import { useDateScrollSpy } from "../hooks/useDateScrollSpy";
@@ -27,7 +29,7 @@ const PROFILE_COLLAPSE_START = 2;
 export function ProfilePage({ username }: { username: string }) {
   const { t, i18n } = useTranslation(["profile", "events", "common", "settings", "auth"]);
   const { user: currentUser, refreshUser } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const allowLocalhostUrls = typeof window !== "undefined"
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
@@ -48,6 +50,7 @@ export function ProfilePage({ username }: { username: string }) {
   const fetchRequestIdRef = useRef(0);
   const eventsRef = useRef(events);
   const [socialModal, setSocialModal] = useState<null | "follow" | "autoRepost">(null);
+  const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [socialActionError, setSocialActionError] = useState<string | null>(null);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const didAutoSelectUpcomingRef = useRef(false);
@@ -377,6 +380,7 @@ export function ProfilePage({ username }: { username: string }) {
   const canEditProfile = !!profile && !isRemote && (isOwn || !!managedIdentity);
   const canCreateEvents = canEditProfile;
   const effectiveCollapseProgress = profileEditing ? 0 : profileCollapseProgress;
+  const embeddableProfilePath = normalizeEmbeddableEverycalPath(location);
 
   const openProfileEditor = useCallback(async () => {
     if (!profile || isRemote) return;
@@ -742,6 +746,8 @@ export function ProfilePage({ username }: { username: string }) {
                 onInlineAvatarUpload={handleInlineAvatarUpload}
                 avatarUploading={avatarUploading}
                 onRequestExpand={handleProfileHeaderExpand}
+                canShowEmbedOption={!!embeddableProfilePath}
+                onOpenEmbedModal={() => setEmbedModalOpen(true)}
               />
               {!profileEditing && (
                 <div className="profile-mobile-calendar-wrap">
@@ -808,6 +814,8 @@ export function ProfilePage({ username }: { username: string }) {
                 inlineError={profileEditorError || profileFormErrors.website || profileFormErrors.avatarUrl || null}
                 onInlineAvatarUpload={handleInlineAvatarUpload}
                 avatarUploading={avatarUploading}
+                canShowEmbedOption={!!embeddableProfilePath}
+                onOpenEmbedModal={() => setEmbedModalOpen(true)}
               />
             </div>
           )}
@@ -984,6 +992,14 @@ export function ProfilePage({ username }: { username: string }) {
           actionKind="autoRepost"
           loadState={() => usersApi.autoRepostActors(username)}
           apply={(desiredAccountIds) => usersApi.setAutoRepostActors(username, desiredAccountIds)}
+        />
+      )}
+
+      {embedModalOpen && embeddableProfilePath && (
+        <EmbedCodeModal
+          open
+          onClose={() => setEmbedModalOpen(false)}
+          path={embeddableProfilePath}
         />
       )}
     </>
