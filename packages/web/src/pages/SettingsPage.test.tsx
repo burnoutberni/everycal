@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, string>) => {
+      if (key === "themeSystem") return `themeSystem (${params?.theme ?? "..."})`;
+      return key;
+    },
     i18n: { language: "en" },
   }),
 }));
@@ -282,7 +285,7 @@ describe("SettingsPage identity flows", () => {
   it("renders theme preference as native radio inputs", async () => {
     renderSettingsPage();
 
-    const systemOption = await screen.findByRole("radio", { name: "themeSystem" }) as HTMLInputElement;
+    const systemOption = await screen.findByRole("radio", { name: /^themeSystem/ }) as HTMLInputElement;
     const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
 
     expect(systemOption.checked).toBe(true);
@@ -324,7 +327,7 @@ describe("SettingsPage identity flows", () => {
 
     renderSettingsPage();
 
-    const systemOption = await screen.findByRole("radio", { name: "themeSystem" }) as HTMLInputElement;
+    const systemOption = await screen.findByRole("radio", { name: /^themeSystem/ }) as HTMLInputElement;
     const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
 
     fireEvent.click(darkOption);
@@ -344,5 +347,17 @@ describe("SettingsPage identity flows", () => {
     });
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
     expect(await screen.findByText("theme-save-failed")).toBeTruthy();
+  });
+
+  it("keeps system theme description tied to OS theme while previewing dark", async () => {
+    renderSettingsPage();
+
+    await screen.findByRole("radio", { name: "themeSystem (themeLight)" });
+    const darkOption = screen.getByRole("radio", { name: "themeDark" }) as HTMLInputElement;
+
+    fireEvent.click(darkOption);
+
+    expect(await screen.findByRole("radio", { name: "themeSystem (themeLight)" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "themeSystem (themeDark)" })).toBeNull();
   });
 });
