@@ -11,17 +11,19 @@
     lg: "size-lg",
   };
 
-  const ALLOWED_LINK_DOMAIN = (() => {
+  const ALLOWED_LINK_ORIGIN = (() => {
     const scriptSrc = document.currentScript && document.currentScript.src;
     if (scriptSrc) {
       try {
-        return new URL(scriptSrc).hostname.toLowerCase();
+        return new URL(scriptSrc).origin;
       } catch {
-        return window.location.hostname.toLowerCase();
+        return window.location.origin;
       }
     }
-    return window.location.hostname.toLowerCase();
+    return window.location.origin;
   })();
+
+  const ALLOWED_LINK_DOMAIN = new URL(ALLOWED_LINK_ORIGIN).hostname.toLowerCase();
 
   const BASE_CSS = `
     :host {
@@ -171,10 +173,12 @@
     if (!trimmed) return null;
 
     try {
-      const parsed = new URL(trimmed);
+      const parsed = new URL(trimmed, ALLOWED_LINK_ORIGIN);
       const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
       const isAllowedDomain = parsed.hostname.toLowerCase() === ALLOWED_LINK_DOMAIN;
-      if (isHttp && isAllowedDomain) {
+      const isProfileOrEventPath = /^\/@[^/?#]+(?:\/[^/?#]+)?\/?$/.test(parsed.pathname);
+      const hasNoQueryOrHash = !parsed.search && !parsed.hash;
+      if (isHttp && isAllowedDomain && isProfileOrEventPath && hasNoQueryOrHash) {
         return parsed.toString();
       }
       return null;
