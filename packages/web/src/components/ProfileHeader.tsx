@@ -40,6 +40,7 @@ export interface ProfileHeaderProps {
   hideInlineActions?: boolean;
   onInlineAvatarUpload?: (file: File) => void;
   avatarUploading?: boolean;
+  onRequestExpand?: () => void;
 }
 
 export function ProfileHeader({
@@ -69,6 +70,7 @@ export function ProfileHeader({
   hideInlineActions = false,
   onInlineAvatarUpload,
   avatarUploading = false,
+  onRequestExpand,
 }: ProfileHeaderProps) {
   const { t } = useTranslation(["profile", "common", "settings", "auth"]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -94,6 +96,18 @@ export function ProfileHeader({
   };
 
   const effectiveAvatarUrl = editingProfile && inlineDraft?.avatarUrl ? inlineDraft.avatarUrl : profile.avatarUrl;
+  const canRequestExpand = isMobile && collapseProgress >= 0.98 && !!onRequestExpand;
+
+  const tryRequestExpandFromTarget = (target: EventTarget | null) => {
+    if (!canRequestExpand) return;
+    const targetElement = target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+    if (targetElement?.closest("a,button,input,select,textarea,label")) return;
+    onRequestExpand?.();
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -119,11 +133,22 @@ export function ProfileHeader({
     <div
       ref={headerRef}
       className={`card profile-header ${isMobile ? "profile-header-mobile" : ""}`}
+      role={canRequestExpand ? "button" : undefined}
+      tabIndex={canRequestExpand ? 0 : undefined}
+      aria-label={canRequestExpand ? t("profile:expandProfileHeader") : undefined}
+      onClick={(e) => tryRequestExpandFromTarget(e.target)}
+      onKeyDown={(e) => {
+        if (!canRequestExpand) return;
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        tryRequestExpandFromTarget(e.target);
+      }}
       style={
         isMobile
           ? {
               padding: `${0.5 + 0.5 * (1 - collapseProgress)}rem 1rem`,
               boxShadow: collapseProgress > 0.02 ? "0 1px 0 0 var(--border)" : "none",
+              cursor: canRequestExpand ? "pointer" : undefined,
             }
           : undefined
       }

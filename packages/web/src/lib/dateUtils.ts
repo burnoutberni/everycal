@@ -12,6 +12,19 @@ export function dateToLocalYMD(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Parse local YYYY-MM-DD into a Date, validating month/day overflow. */
+export function parseLocalYmdDate(ymd: string): Date | null {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const parsed = new Date(y, mo - 1, d);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.getFullYear() !== y || parsed.getMonth() !== mo - 1 || parsed.getDate() !== d) return null;
+  return parsed;
+}
+
 /**
  * Start/end of day as ISO strings for API from/to params.
  * Uses UTC boundaries for the selected calendar date so events at 11pm UTC
@@ -54,4 +67,28 @@ export function groupEventsByDate<T extends { startDate: string }>(
     groups.set(key, list);
   }
   return groups;
+}
+
+/**
+ * Given sorted YYYY-MM-DD keys, resolve best target when exact date has no events.
+ * preferEarlier=true picks closest earlier date first, then later.
+ */
+export function resolveNearestDateKey(sortedKeys: string[], targetYmd: string, preferEarlier = true): string | null {
+  if (sortedKeys.length === 0) return null;
+  let lower: string | null = null;
+  let upper: string | null = null;
+
+  for (const key of sortedKeys) {
+    if (key === targetYmd) return key;
+    if (key < targetYmd) {
+      lower = key;
+      continue;
+    }
+    if (key > targetYmd) {
+      upper = key;
+      break;
+    }
+  }
+
+  return preferEarlier ? (lower ?? upper) : (upper ?? lower);
 }

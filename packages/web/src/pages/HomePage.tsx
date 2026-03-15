@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { events as eventsApi, type CalEvent } from "../lib/api";
-import { dateToLocalYMD, endOfDayForApi, formatDateHeading, groupEventsByDate, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
+import { dateToLocalYMD, endOfDayForApi, groupEventsByDate, parseLocalYmdDate, resolveNearestDateKey, startOfDayForApi, toLocalYMD } from "../lib/dateUtils";
 import { EventCard } from "../components/EventCard";
 import { TrashIcon } from "../components/icons";
 import { MiniCalendar } from "../components/MiniCalendar";
+import { DateEventSection } from "../components/DateEventSection";
 import { MobileCalendarFold, type MobileCalendarFoldRef } from "../components/MobileCalendarFold";
 import { MobileHeaderContainer } from "../components/MobileHeaderContainer";
 import { ScopeToggle, type ScopeFilter } from "../components/ScopeToggle";
@@ -28,6 +29,12 @@ function parseTagsFromSearch(search: string): string[] {
   return tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
 }
 
+function parseResetFromSearch(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith("?") ? search : `?${search}`);
+  const reset = params.get("reset");
+  return reset === "1" || reset === "true";
+}
+
 export function HomePage() {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
@@ -42,33 +49,39 @@ export function HomePage() {
   const dateSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [calendarEventDates, setCalendarEventDates] = useState<Set<string>>(new Set());
   const [allTags, setAllTags] = useState<string[]>([]);
+  const fetchRequestIdRef = useRef(0);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   // Derive selectedTags from URL; useSearch updates when Link navigates or user uses back/forward
   const searchString = useSearch();
   const selectedTags = useMemo(
-    () => parseTagsFromSearch(searchString ? `?${searchString}` : ""),
+    () => parseTagsFromSearch(searchString || ""),
+    [searchString]
+  );
+  const resetRequested = useMemo(
+    () => parseResetFromSearch(searchString || ""),
     [searchString]
   );
 
   const isMobile = useIsMobile();
 
   const [rangeFromOverride, setRangeFromOverride] = useState<string | null>(null);
-  const viewingPast = rangeFromOverride != null;
+  const todayYmd = dateToLocalYMD(new Date());
+  const viewingPast = rangeFromOverride != null && rangeFromOverride < todayYmd;
   const range = useMemo(() => {
     if (rangeFromOverride) {
-      const [y, m, d] = rangeFromOverride.split("-").map(Number);
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
+      const parsed = parseLocalYmdDate(rangeFromOverride);
       return {
-        from: startOfDayForApi(new Date(y, m - 1, d)),
-        to: endOfDayForApi(yesterday),
-        label: t("events:past"),
+        from: parsed ? startOfDayForApi(parsed) : rangeFromOverride,
+        to: undefined as string | undefined,
       };
     }
-    return { from: new Date().toISOString(), to: undefined as string | undefined, label: t("events:upcoming") };
-  }, [t, rangeFromOverride]);
+    return { from: new Date().toISOString(), to: undefined as string | undefined };
+  }, [rangeFromOverride]);
 
-  // Fetch event dates for the minicalendar (visible grid, scope filter only)
+  // Fetch event dates for minicalendar navigation + dots (scope filter only).
+  // We extend beyond the visible grid so mobile day-swipe can jump to the next
+  // event date even when it's outside the current month view.
   const calendarMonthRange = useMemo(() => {
     const y = selectedDate.getFullYear();
     const m = selectedDate.getMonth();
@@ -80,7 +93,13 @@ export function HomePage() {
     // End on Sunday of week containing last day
     const endOffset = (7 - lastOfMonth.getDay()) % 7;
     const lastVisible = new Date(y, m + 1, 0 + endOffset);
-    return { from: startOfDayForApi(firstVisible), to: endOfDayForApi(lastVisible) };
+
+    const extendedFrom = new Date(firstVisible);
+    extendedFrom.setMonth(extendedFrom.getMonth() - 2);
+    const extendedTo = new Date(lastVisible);
+    extendedTo.setMonth(extendedTo.getMonth() + 2);
+
+    return { from: startOfDayForApi(extendedFrom), to: endOfDayForApi(extendedTo) };
   }, [selectedDate]);
 
   useEffect(() => {
@@ -106,10 +125,11 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id]);
+  }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id, refreshNonce]);
 
   const fetchEvents = useCallback(
     async (offset = 0, append = false) => {
+      const requestId = ++fetchRequestIdRef.current;
       if (offset === 0) setLoading(true);
       else setLoadingMore(true);
 
@@ -124,6 +144,7 @@ export function HomePage() {
         if (selectedTags.length > 0) params.tags = selectedTags;
 
         const res = await eventsApi.list(params as Parameters<typeof eventsApi.list>[0]);
+        if (requestId !== fetchRequestIdRef.current) return;
         if (append) {
           setEvents((prev) => [...prev, ...res.events]);
         } else {
@@ -131,13 +152,15 @@ export function HomePage() {
         }
         setHasMore(res.events.length === PAGE_SIZE);
       } catch {
+        if (requestId !== fetchRequestIdRef.current) return;
         if (!append) setEvents([]);
       } finally {
+        if (requestId !== fetchRequestIdRef.current) return;
         setLoading(false);
         setLoadingMore(false);
       }
     },
-    [range, scopeFilter, selectedTags.join(","), user?.id]
+    [range, scopeFilter, selectedTags.join(","), user?.id, refreshNonce]
   );
 
   useEffect(() => {
@@ -165,7 +188,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to ?? "", scopeFilter, user?.id]);
+  }, [range.from, range.to ?? "", scopeFilter, user?.id, refreshNonce]);
 
   // Reset to "all" if the user logs out while on a logged-in-only filter
   useEffect(() => {
@@ -175,22 +198,11 @@ export function HomePage() {
   const loadMore = () => fetchEvents(events.length, true);
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
-  /** Dates that have events in the loaded list — use for mobile calendar swipe so we only show dates with events */
-  const eventDatesFromList = useMemo(() => new Set(grouped.keys()), [grouped]);
-
-  /** When first event is in the future (e.g. tomorrow), start on that date and don't allow going back. Mobile only. */
-  useEffect(() => {
-    if (!isMobile || eventDatesFromList.size === 0) return;
-    const sorted = [...eventDatesFromList].sort();
-    const firstYmd = sorted[0];
-    const selectedYmd = dateToLocalYMD(selectedDate);
-    if (selectedYmd < firstYmd) {
-      const [y, m, d] = firstYmd.split("-").map(Number);
-      setSelectedDate(new Date(y, m - 1, d));
-      setScrollToDate(firstYmd);
-    }
-  }, [isMobile, eventDatesFromList, selectedDate]);
-
+  const navigableEventDates = useMemo(() => {
+    const set = new Set(calendarEventDates);
+    for (const key of grouped.keys()) set.add(key);
+    return set;
+  }, [calendarEventDates, grouped]);
   const [scrollToDate, setScrollToDate] = useState<string | null>(null);
   const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [tagsUnfolded, setTagsUnfolded] = useState(false);
@@ -223,60 +235,122 @@ export function HomePage() {
     shouldUpdateRef: shouldUpdateScrollSpyRef,
   });
 
-  const todayYmd = dateToLocalYMD(new Date());
+  const applyRangeModeForDate = useCallback((date: Date) => {
+    const ymd = dateToLocalYMD(date);
+    setRangeFromOverride((prev) => {
+      const next = ymd === todayYmd ? null : ymd;
+      return prev === next ? prev : next;
+    });
+  }, [todayYmd]);
+
   const handleDateSelect = (date: Date) => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
     setSelectedDate(date);
     setScrollToDate(dateToLocalYMD(date));
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
-    } else {
-      setRangeFromOverride(null);
-    }
+    applyRangeModeForDate(date);
   };
 
   const handleDateSelectNoScroll = (date: Date) => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
     setSelectedDate(date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (d < today) {
-      const ymd = dateToLocalYMD(date);
-      setRangeFromOverride((prev) => (prev && prev < ymd ? prev : ymd));
-      setScrollToDate(ymd);
-    } else {
-      setRangeFromOverride(null);
-      setScrollToDate(dateToLocalYMD(date));
-    }
+    setScrollToDate(null);
+    applyRangeModeForDate(date);
   };
 
   const goToUpcoming = useCallback(() => {
     ignoreScrollSpyUntilRef.current = Date.now() + 600;
+    const today = new Date();
+    const todayKey = dateToLocalYMD(today);
+    const sortedCalendarKeys = [...navigableEventDates].sort();
+    const nextFromCalendar = sortedCalendarKeys.find((k) => k >= todayKey) || null;
+    const sortedLoadedKeys = [...grouped.keys()].sort();
+    const nextFromLoaded = sortedLoadedKeys.find((k) => k >= todayKey) || null;
+    const targetYmd = nextFromCalendar || nextFromLoaded || todayKey;
+    const [y, m, d] = targetYmd.split("-").map(Number);
     setRangeFromOverride(null);
-    setSelectedDate(new Date());
-    setScrollToDate(dateToLocalYMD(new Date()));
-  }, []);
+    setSelectedDate(new Date(y, m - 1, d));
+    setScrollToDate(targetYmd);
+  }, [navigableEventDates, grouped]);
 
   const handleDateSelectMobile = (date: Date) => {
     handleDateSelect(date);
   };
 
   useEffect(() => {
-    if (!scrollToDate || events.length === 0) return;
+    if (!scrollToDate) return;
+    if (loading) return;
     const keys = [...grouped.keys()].sort();
-    const idx = keys.findIndex((k) => k >= scrollToDate);
-    const targetKey = idx >= 0 ? keys[idx] : keys[keys.length - 1];
+    const lastLoadedKey = keys[keys.length - 1] || null;
+
+    const hasExactDate = keys.includes(scrollToDate);
+    const isKnownCalendarDate = navigableEventDates.has(scrollToDate);
+    const needsMoreForTarget = !hasExactDate && isKnownCalendarDate && !!lastLoadedKey && scrollToDate > lastLoadedKey;
+
+    if (keys.length === 0) {
+      if (isKnownCalendarDate && rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      if (isKnownCalendarDate && rangeFromOverride === scrollToDate && !loadingMore) {
+        const fallbackPrevious = [...navigableEventDates].filter((k) => k < scrollToDate).sort().pop() || null;
+        if (fallbackPrevious && fallbackPrevious !== rangeFromOverride) {
+          const parsedFallback = parseLocalYmdDate(fallbackPrevious);
+          if (parsedFallback) setSelectedDate(parsedFallback);
+          setRangeFromOverride(fallbackPrevious);
+          setScrollToDate(fallbackPrevious);
+          return;
+        }
+      }
+      setScrollToDate(null);
+      return;
+    }
+
+    if (viewingPast && !hasExactDate && isKnownCalendarDate) {
+      if (hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
+        fetchEvents(events.length, true);
+        return;
+      }
+      if (loading || loadingMore) {
+        return;
+      }
+    }
+
+    if (loadingMore && needsMoreForTarget) {
+      return;
+    }
+
+    if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
+      fetchEvents(events.length, true);
+      return;
+    }
+
+    if (!viewingPast && !hasExactDate && isKnownCalendarDate && lastLoadedKey && scrollToDate > lastLoadedKey && !hasMore) {
+      if (rangeFromOverride !== scrollToDate) {
+        setRangeFromOverride(scrollToDate);
+        return;
+      }
+      setScrollToDate(null);
+      return;
+    }
+
+    const targetKey = viewingPast
+      ? (hasExactDate ? scrollToDate : resolveNearestDateKey(keys, scrollToDate, false))
+      : hasExactDate
+        ? scrollToDate
+        : resolveNearestDateKey(keys, scrollToDate, false);
+
+    const allowNearestUpcomingFallback = !viewingPast && scrollToDate === todayYmd;
+    if (!hasExactDate && !viewingPast && !allowNearestUpcomingFallback && !isKnownCalendarDate && !targetKey) {
+      setScrollToDate(null);
+      return;
+    }
+
     setScrollToDate(null);
     if (!targetKey) return;
-    const [y, m, d] = targetKey.split("-").map(Number);
-    setSelectedDate(new Date(y, m - 1, d));
+    if (!hasExactDate) {
+      const [y, m, d] = targetKey.split("-").map(Number);
+      setSelectedDate(new Date(y, m - 1, d));
+    }
     ignoreScrollSpyUntilRef.current = Date.now() + 800;
     ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
     requestAnimationFrame(() => {
@@ -290,11 +364,28 @@ export function HomePage() {
               : allTags.length > 0
                 ? "calc(3.5rem + 68px + 68px + 52px)" /* header + tags + calendar + scope */
                 : "calc(3.5rem + 68px + 52px)"; /* header + calendar + scope (no tags) */
+        } else {
+          el.style.scrollMarginTop = "calc(3.5rem + 1rem)";
         }
-        el.scrollIntoView({ behavior: "smooth", block: isMobile ? "start" : "nearest" });
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
-  }, [scrollToDate, grouped, events.length, tagsUnfolded, allTags.length, isMobile]);
+  }, [
+    scrollToDate,
+    grouped,
+    events.length,
+    tagsUnfolded,
+    allTags.length,
+    isMobile,
+    viewingPast,
+    todayYmd,
+    navigableEventDates,
+    hasMore,
+    loadingMore,
+    loading,
+    fetchEvents,
+    rangeFromOverride,
+  ]);
 
   useEffect(() => {
     const positions = tagFlipPositionsRef.current;
@@ -389,15 +480,16 @@ export function HomePage() {
     calendarFoldRef.current?.collapse();
   }, []);
 
-  /** When logo clicked on homepage: close folds and jump to today */
+  /** Handle explicit homepage reset requests (logo click). */
   useEffect(() => {
-    const handler = () => {
-      closeFolds();
-      goToUpcoming();
-    };
-    window.addEventListener("homepage-reset", handler);
-    return () => window.removeEventListener("homepage-reset", handler);
-  }, [closeFolds, goToUpcoming]);
+    if (!resetRequested) return;
+    closeFolds();
+    setScopeFilter("all");
+    setRangeFromOverride(null);
+    goToUpcoming();
+    setRefreshNonce((n) => n + 1);
+    navigate("/", { replace: true });
+  }, [resetRequested, closeFolds, goToUpcoming, navigate]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -414,7 +506,7 @@ export function HomePage() {
     <div className="flex gap-2" style={{ alignItems: "flex-start" }}>
       {/* Sidebar */}
       <aside className="hide-mobile homepage-sidebar" style={{ flex: "0 0 220px", position: "sticky", top: "calc(3.5rem + 1rem)", alignSelf: "flex-start" }}>
-        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={calendarEventDates} />
+        <MiniCalendar selected={selectedDate} onSelect={handleDateSelect} onMonthNavigate={handleDateSelectNoScroll} eventDates={navigableEventDates} allowBeyondEventDatesNavigation />
 
         {/* Scope filter */}
         <div style={{ marginTop: "1rem" }}>
@@ -502,7 +594,8 @@ export function HomePage() {
             ref={calendarFoldRef}
             selectedDate={selectedDate}
             onDateSelect={handleDateSelectMobile}
-            eventDates={eventDatesFromList}
+            eventDates={navigableEventDates}
+            allowBeyondEventDatesNavigation
             collapseOnSelect
             layout="fixed"
             belowCalendarHeight={SCOPE_TOGGLE_HEIGHT}
@@ -516,8 +609,7 @@ export function HomePage() {
             onMonthNavigate={(date) => {
               ignoreScrollSpyUntilRef.current = Date.now() + 600;
               ignoreScrollCollapseUntilRef.current = Date.now() + 1200;
-              setSelectedDate(date);
-              setScrollToDate(dateToLocalYMD(date));
+              handleDateSelectNoScroll(date);
             }}
             onMonthClick={() => {
               ignoreScrollSpyUntilRef.current = Date.now() + 600;
@@ -561,69 +653,24 @@ export function HomePage() {
             {[...grouped.entries()].map(([dateKey, dayEvents]) => {
               const isPast = dateKey < todayYmd;
               return (
-              <div
+              <DateEventSection
                 key={dateKey}
-                ref={(el) => {
+                dateKey={dateKey}
+                locale={dateTimeLocale}
+                isPast={isPast}
+                pastLabel={t("events:past")}
+                pastLabelClassName="homepage-past-label"
+                sectionClassName={`homepage-date-section ${isPast ? "homepage-date-section-past" : ""}`}
+                setSectionRef={(el) => {
                   if (el) dateSectionRefs.current.set(dateKey, el);
                 }}
-                data-date={dateKey}
-                className={`homepage-date-section ${isPast ? "homepage-date-section-past" : ""}`}
-                style={{ marginBottom: "1.25rem" }}
               >
-                <h2
-                  className="text-sm"
-                  style={{
-                    fontWeight: 600,
-                    color: isPast ? "var(--text-dim)" : "var(--text-muted)",
-                    marginBottom: "0.4rem",
-                    borderBottom: "1px solid var(--border)",
-                    paddingBottom: "0.3rem",
-                  }}
-                >
-                  {isPast && <span className="homepage-past-label">{t("events:past")} — </span>}
-                  {formatDateHeading(new Date(dateKey + "T00:00:00"), dateTimeLocale)}
-                </h2>
-                <div className="flex flex-col gap-1">
-                  {dayEvents.map((e) => (
-                    <EventCard key={e.id} event={e} selectedTags={selectedTags} />
-                  ))}
-                </div>
-              </div>
+                {dayEvents.map((e) => (
+                  <EventCard key={e.id} event={e} selectedTags={selectedTags} />
+                ))}
+              </DateEventSection>
             );
             })}
-            {viewingPast && (
-              <div className="homepage-upcoming-bridge" style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  onClick={goToUpcoming}
-                  style={{ display: "block", width: "100%", padding: "1rem" }}
-                >
-                  {t("events:showUpcomingEvents")}
-                </button>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={goToUpcoming}
-                  onKeyDown={(e) => e.key === "Enter" && goToUpcoming()}
-                  className="homepage-force-scroll-zone"
-                  style={{
-                    minHeight: "60vh",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "flex-end",
-                    justifyContent: "center",
-                    paddingBottom: "2rem",
-                    color: "var(--text-dim)",
-                    fontSize: "0.85rem",
-                  }}
-                  aria-label={t("events:showUpcomingEvents")}
-                >
-                  {t("events:showUpcomingEvents")}
-                </div>
-              </div>
-            )}
-
             {hasMore && (
               <div className="text-center mt-2">
                 <button className="btn-ghost" onClick={loadMore} disabled={loadingMore}>

@@ -41,7 +41,7 @@ export async function data(pageContext: PageContextServer) {
 
     const [profile, eventsData, authRes] = await Promise.all([
         usersApi.get(username, requestContext).catch(() => null),
-        usersApi.events(username, { limit: 100, sort: "asc" }, requestContext).catch(() => null),
+        usersApi.events(username, { from: new Date().toISOString(), limit: 100, sort: "asc" }, requestContext).catch(() => null),
         authPromise,
     ]);
 

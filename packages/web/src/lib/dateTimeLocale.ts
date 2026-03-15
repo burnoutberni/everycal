@@ -68,7 +68,15 @@ const SATURDAY_FIRST_REGIONS = new Set(["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ"
 
 export function resolveDateTimeLocale(user: Pick<User, "dateTimeLocale"> | null | undefined, fallbackLocale: string): string {
   if (usesSystemDateTimeLocale(user)) {
-    return browserLocale();
+    if (typeof window !== "undefined") {
+      return browserLocale();
+    }
+    const candidate = fallbackLocale || "en-GB";
+    try {
+      return Intl.getCanonicalLocales(candidate)[0] || "en-GB";
+    } catch {
+      return "en-GB";
+    }
   }
   const candidate = user?.dateTimeLocale || fallbackLocale || "en-GB";
   try {
