@@ -82,6 +82,9 @@ describe("feed CORS policy", () => {
       headers: { Origin: "https://embedder.example" },
     });
     expect(privateRes.status).toBe(401);
+    expect(privateRes.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(privateRes.headers.get("pragma")).toBe("no-cache");
+    expect(privateRes.headers.get("expires")).toBe("0");
     expect(privateRes.headers.get("access-control-allow-origin")).not.toBe("*");
     expect(privateRes.headers.get("access-control-allow-origin")).toBeNull();
     expect(privateRes.headers.get("access-control-allow-credentials")).toBeNull();

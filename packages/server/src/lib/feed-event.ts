@@ -1,6 +1,8 @@
-import type { EveryCalEvent } from "@everycal/core";
+import { isValidVisibility, type EveryCalEvent } from "@everycal/core";
 
 export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
+  const visibility = isValidVisibility(row.visibility) ? row.visibility : "public";
+
   return {
     id: row.id as string,
     title: row.title as string,
@@ -30,7 +32,7 @@ export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
       : undefined,
     url: row.url as string | undefined,
     tags: row.tags ? (row.tags as string).split(",") : undefined,
-    visibility: row.visibility as "public",
+    visibility,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };

@@ -43,9 +43,13 @@ function setPrivateNoStoreHeaders(c: Context): void {
 export function privateFeedRoutes(db: DB): Hono {
   const router = new Hono();
 
-  // Calendar feed URL (authenticated) — returns the iCal subscription URL
-  router.get("/calendar-url", requireAuth(), (c) => {
+  const privateNoStore = async (c: Context, next: () => Promise<void>) => {
     setPrivateNoStoreHeaders(c);
+    await next();
+  };
+
+  // Calendar feed URL (authenticated) — returns the iCal subscription URL
+  router.get("/calendar-url", privateNoStore, requireAuth(), (c) => {
     const user = c.get("user")!;
     const token = getOrCreateCalendarFeedToken(db, user.id);
     const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
