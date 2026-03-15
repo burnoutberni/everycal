@@ -85,20 +85,34 @@ export function EmbedCodeModal({
         </div>
         <div className="modal-body embed-code-modal-body">
           <p className="text-sm text-muted">{t("embedCodeHint")}</p>
-          <div className="embed-code-options-row">
-            <label className="text-sm" htmlFor="embed-button-size">{t("embedButtonSizeLabel")}</label>
-            <select
-              id="embed-button-size"
-              value={buttonSize}
-              onChange={(e) => setButtonSize(e.target.value as EverycalEmbedButtonSize)}
-            >
-              <option value="sm">{t("embedButtonSizeSmall")}</option>
-              <option value="md">{t("embedButtonSizeMedium")}</option>
-              <option value="lg">{t("embedButtonSizeLarge")}</option>
-            </select>
-          </div>
-          <div className="embed-code-preview-wrap">
-            <div className="text-sm text-muted" style={{ marginBottom: "0.4rem" }}>{t("embedPreview")}</div>
+          <fieldset className="embed-size-fieldset">
+            <legend className="text-sm text-muted" style={{ marginBottom: "0.35rem" }}>{t("embedButtonSizeLabel")}</legend>
+            <div className="embed-size-group">
+              {([
+                { value: "sm", label: t("embedButtonSizeSmall") },
+                { value: "md", label: t("embedButtonSizeMedium") },
+                { value: "lg", label: t("embedButtonSizeLarge") },
+              ] as Array<{ value: EverycalEmbedButtonSize; label: string }>).map((option) => (
+                <label
+                  key={option.value}
+                  className={`embed-size-option ${buttonSize === option.value ? "is-active" : ""}`}
+                >
+                  <input
+                    className="embed-size-control"
+                    type="radio"
+                    name="embed-size"
+                    value={option.value}
+                    checked={buttonSize === option.value}
+                    onChange={() => setButtonSize(option.value)}
+                  />
+                  <span className="embed-size-dot" aria-hidden="true" />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div>
+            <div className="text-sm text-muted" style={{ marginBottom: "0.35rem" }}>{t("embedPreview")}</div>
             {previewSrcDoc ? (
               <iframe
                 className="embed-code-preview-frame"

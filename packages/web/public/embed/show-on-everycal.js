@@ -88,7 +88,7 @@
     }
     .size-sm .wordmark {
       height: 10px;
-      transform: translateY(0.07em);
+      transform: translateY(1px);
     }
 
     .size-md {
@@ -98,7 +98,7 @@
     }
     .size-md .wordmark {
       height: 12px;
-      transform: translateY(0.07em);
+      transform: translateY(1px);
     }
 
     .size-lg {
@@ -108,7 +108,7 @@
     }
     .size-lg .wordmark {
       height: 14px;
-      transform: translateY(0.07em);
+      transform: translateY(1.5px);
     }
 
     .icon {
