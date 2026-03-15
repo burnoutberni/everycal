@@ -23,6 +23,7 @@ import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js"
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
+const SYSTEM_THEME_PREFERENCE = "system";
 
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
@@ -160,7 +161,7 @@ export function authRoutes(db: DB): Hono {
       setSessionCookie(c, session.token, session.expiresAt);
       return c.json(
         {
-          user: { id, username, displayName: body.displayName || username, city, cityLat, cityLng },
+          user: { id, username, displayName: body.displayName || username, city, cityLat, cityLng, themePreference: SYSTEM_THEME_PREFERENCE },
           expiresAt: session.expiresAt,
         },
         201
@@ -337,7 +338,7 @@ export function authRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -346,6 +347,7 @@ export function authRoutes(db: DB): Hono {
           display_name: string | null;
           password_hash: string | null;
           email_verified: number;
+          theme_preference: string | null;
         }
       | undefined;
 
@@ -401,6 +403,7 @@ export function authRoutes(db: DB): Hono {
         id: row.id,
         username: row.username,
         displayName: row.display_name,
+        themePreference: row.theme_preference || SYSTEM_THEME_PREFERENCE,
         notificationPrefs,
       },
       expiresAt: session.expiresAt,
@@ -486,6 +489,7 @@ export function authRoutes(db: DB): Hono {
     const row = db
       .prepare(
         `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at,
+                theme_preference,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -537,6 +541,7 @@ export function authRoutes(db: DB): Hono {
       cityLng: row.city_lng != null ? Number(row.city_lng) : null,
       timezone: row.timezone || SYSTEM_TIMEZONE,
       dateTimeLocale: row.date_time_locale || SYSTEM_DATE_TIME_LOCALE,
+      themePreference: row.theme_preference || SYSTEM_THEME_PREFERENCE,
       email: row.email || null,
       emailVerified: !!row.email_verified,
       preferredLanguage: row.preferred_language || "en",
@@ -563,6 +568,7 @@ export function authRoutes(db: DB): Hono {
       preferredLanguage?: string;
       timezone?: string;
       dateTimeLocale?: string;
+      themePreference?: string;
     }>();
 
     const fields: string[] = [];
@@ -659,6 +665,14 @@ export function authRoutes(db: DB): Hono {
       }
       fields.push("date_time_locale = ?");
       values.push(canonical);
+    }
+    if (body.themePreference !== undefined) {
+      const valid = ["system", "light", "dark"];
+      if (!valid.includes(body.themePreference)) {
+        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      }
+      fields.push("theme_preference = ?");
+      values.push(body.themePreference);
     }
 
     if (fields.length === 0) {

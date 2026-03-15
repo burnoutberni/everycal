@@ -79,6 +79,9 @@ export async function onRenderHtml(pageContext: PageContextServer) {
         ${ogImageUrl ? escapeInject`<meta property="og:image" content="${ogImageUrl}" />
         <meta name="twitter:image" content="${ogImageUrl}" />` : ""}
 
+        ${serializedBootstrap
+          ? escapeInject`<script id="everycal-bootstrap" type="application/json">${dangerouslySkipEscape(serializedBootstrap)}</script>`
+          : ""}
         <script src="/theme-init.js"></script>
         <!-- Disable Vike client routing to let Wouter handle SPA natively -->
         <meta name="vike-client-routing" content="false" />
@@ -86,9 +89,6 @@ export async function onRenderHtml(pageContext: PageContextServer) {
       <body>
         <div id="root">${dangerouslySkipEscape(appHtml)}</div>
         <script id="everycal-startup-locale" type="application/json">${dangerouslySkipEscape(serializedStartupLocale)}</script>
-        ${serializedBootstrap
-          ? escapeInject`<script id="everycal-bootstrap" type="application/json">${dangerouslySkipEscape(serializedBootstrap)}</script>`
-          : ""}
       </body>
     </html>`;
 }

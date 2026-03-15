@@ -6,16 +6,18 @@ import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
 
 describe("account timezone/locale defaults", () => {
-  it("defaults new accounts to system timezone and locale", () => {
+  it("defaults new accounts to system timezone, locale, and theme", () => {
     const db = initDatabase(":memory:");
     db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u1", "user1");
-    const row = db.prepare("SELECT timezone, date_time_locale FROM accounts WHERE id = ?").get("u1") as {
+    const row = db.prepare("SELECT timezone, date_time_locale, theme_preference FROM accounts WHERE id = ?").get("u1") as {
       timezone: string;
       date_time_locale: string;
+      theme_preference: string;
     };
 
     expect(row.timezone).toBe("system");
     expect(row.date_time_locale).toBe("system");
+    expect(row.theme_preference).toBe("system");
   });
 
   it("backfills null legacy account timezone/locale to system", () => {

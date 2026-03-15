@@ -679,12 +679,18 @@ export function SettingsPage() {
       await authApi.updateProfile({
         timezone,
         dateTimeLocale: localeToSave,
+        themePreference: draftThemePreference,
       });
       setThemePreference(draftThemePreference, { persist: true });
       await refreshUser();
       setSavedCalendarSettings(true);
       setTimeout(() => setSavedCalendarSettings(false), 1800);
     } catch (err: unknown) {
+      const serverThemePreference = user.themePreference === "light" || user.themePreference === "dark" || user.themePreference === "system"
+        ? user.themePreference
+        : "system";
+      setDraftThemePreference(serverThemePreference);
+      setThemePreference(serverThemePreference, { persist: true });
       setCalendarSettingsError((err as Error).message || t("common:requestFailed"));
     } finally {
       setSavingCalendarSettings(false);

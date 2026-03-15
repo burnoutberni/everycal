@@ -3,7 +3,7 @@ export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "everycal-theme-preference";
 
-function isThemePreference(value: string | null): value is ThemePreference {
+export function isThemePreference(value: string | null | undefined): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
 }
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   applyThemeToDocument,
   getSystemTheme,
@@ -42,12 +42,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media.removeListener(onSystemChange);
   }, [preference]);
 
-  const setPreference = (value: ThemePreference, options?: { persist?: boolean }) => {
+  const setPreference = useCallback((value: ThemePreference, options?: { persist?: boolean }) => {
     setPreferenceState(value);
     if (options?.persist ?? true) {
       writeStoredThemePreference(value);
     }
-  };
+  }, []);
 
   const contextValue = useMemo(
     () => ({ preference, resolvedTheme, setPreference }),

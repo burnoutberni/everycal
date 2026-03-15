@@ -10,6 +10,7 @@ export type DB = Database.Database;
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
+const SYSTEM_THEME_PREFERENCE = "system";
 
 export function initDatabase(path: string): DB {
   const db = new Database(path);
@@ -33,6 +34,7 @@ export function initDatabase(path: string): DB {
       discoverable INTEGER NOT NULL DEFAULT 0,
       timezone TEXT NOT NULL DEFAULT 'system',
       date_time_locale TEXT NOT NULL DEFAULT 'system',
+      theme_preference TEXT NOT NULL DEFAULT 'system' CHECK(theme_preference IN ('system','light','dark')),
       default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -782,6 +784,11 @@ export function initDatabase(path: string): DB {
   } catch {
     // Column already exists
   }
+  try {
+    db.exec("ALTER TABLE accounts ADD COLUMN theme_preference TEXT NOT NULL DEFAULT 'system' CHECK(theme_preference IN ('system','light','dark'))");
+  } catch {
+    // Column already exists
+  }
 
   // Migration: normalize accounts column defaults for timezone/locale on legacy DBs
   try {
@@ -809,6 +816,7 @@ export function initDatabase(path: string): DB {
             discoverable INTEGER NOT NULL DEFAULT 0,
             timezone TEXT NOT NULL DEFAULT 'system',
             date_time_locale TEXT NOT NULL DEFAULT 'system',
+            theme_preference TEXT NOT NULL DEFAULT 'system' CHECK(theme_preference IN ('system','light','dark')),
             default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -825,7 +833,7 @@ export function initDatabase(path: string): DB {
         db.exec(`
           INSERT INTO accounts_new (
             id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
-            is_bot, discoverable, timezone, date_time_locale, default_event_visibility, created_at, updated_at,
+            is_bot, discoverable, timezone, date_time_locale, theme_preference, default_event_visibility, created_at, updated_at,
             website, city, city_lat, city_lng, email, email_verified, email_verified_at, preferred_language
           )
           SELECT
@@ -842,6 +850,7 @@ export function initDatabase(path: string): DB {
             discoverable,
             COALESCE(NULLIF(timezone, ''), '${SYSTEM_TIMEZONE}') AS timezone,
             COALESCE(NULLIF(date_time_locale, ''), '${SYSTEM_DATE_TIME_LOCALE}') AS date_time_locale,
+            '${SYSTEM_THEME_PREFERENCE}' AS theme_preference,
             default_event_visibility,
             created_at,
             updated_at,
@@ -907,6 +916,13 @@ export function initDatabase(path: string): DB {
        SET date_time_locale = '${SYSTEM_DATE_TIME_LOCALE}'
        WHERE date_time_locale IS NULL
           OR trim(date_time_locale) = ''`
+    );
+    db.exec(
+      `UPDATE accounts
+       SET theme_preference = '${SYSTEM_THEME_PREFERENCE}'
+       WHERE theme_preference IS NULL
+          OR trim(theme_preference) = ''
+          OR theme_preference NOT IN ('system', 'light', 'dark')`
     );
   } catch {
     // Ignore during partial initialization
