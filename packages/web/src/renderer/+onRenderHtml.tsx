@@ -11,7 +11,7 @@ import { bootstrapViewerToUser } from "@everycal/core";
 import type { EverycalPageContext } from "./PageContext";
 import { isAppBootstrap } from "@everycal/core";
 import { ThemeProvider } from "../hooks/useTheme";
-import { parseThemePreference } from "../lib/theme";
+import { parseThemePreference, THEME_STORAGE_KEY } from "../lib/theme";
 
 type SeoData = {
   title?: string;
@@ -61,7 +61,7 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   }
 
   return escapeInject`<!DOCTYPE html>
-    <html lang={startupLocale}>
+    <html lang={startupLocale} data-theme-storage-key={THEME_STORAGE_KEY}>
       <head>
         <meta charset="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />

@@ -1,6 +1,7 @@
 (function() {
   try {
-    var key = "everycal-theme-preference";
+    var root = document.documentElement;
+    var key = (root && root.getAttribute("data-theme-storage-key")) || "everycal-theme-preference";
     var preference = "system";
     var bootstrap = null;
     var bootstrapEl = document.getElementById("everycal-bootstrap");
@@ -26,7 +27,6 @@
     var systemDark = typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-color-scheme: dark)").matches;
     var resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
-    var root = document.documentElement;
     if (preference === "light" || preference === "dark") root.setAttribute("data-theme", preference);
     else root.removeAttribute("data-theme");
     root.style.colorScheme = resolved;

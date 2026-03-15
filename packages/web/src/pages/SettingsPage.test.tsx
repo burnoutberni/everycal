@@ -106,10 +106,12 @@ function renderSettingsPage() {
 
 describe("SettingsPage identity flows", () => {
   afterEach(() => {
+    window.localStorage.clear();
     cleanup();
   });
 
   beforeEach(() => {
+    window.localStorage.clear();
     vi.clearAllMocks();
     (globalThis as any).IntersectionObserver = class {
       observe() {}
