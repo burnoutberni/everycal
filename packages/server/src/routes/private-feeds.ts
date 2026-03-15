@@ -14,6 +14,14 @@ import { getLocale, t } from "../lib/i18n.js";
 import { rowToEvent } from "../lib/feed-event.js";
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
+  const existing = db
+    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
+    .get(accountId) as { token: string } | undefined;
+
+  if (existing) {
+    return existing.token;
+  }
+
   const token = `ecal_cal_${nanoid(40)}`;
   db.prepare(
     "INSERT OR IGNORE INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)"
