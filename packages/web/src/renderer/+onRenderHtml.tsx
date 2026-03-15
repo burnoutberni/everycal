@@ -61,7 +61,7 @@ export async function onRenderHtml(pageContext: PageContextServer) {
   }
 
   return escapeInject`<!DOCTYPE html>
-    <html lang={startupLocale} data-theme-storage-key={THEME_STORAGE_KEY}>
+    <html lang="${startupLocale}" data-theme-storage-key="${THEME_STORAGE_KEY}">
       <head>
         <meta charset="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
