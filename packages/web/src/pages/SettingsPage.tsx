@@ -38,7 +38,7 @@ import {
 } from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
 import { useTheme } from "../hooks/useTheme";
-import type { ThemePreference } from "../lib/theme";
+import { getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";
 
 type IdentityFormErrors = {
   username?: string;
@@ -61,8 +61,9 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
-  const { preference: themePreference, setPreference: setThemePreference, resolvedTheme } = useTheme();
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
+  const [systemResolvedTheme, setSystemResolvedTheme] = useState<ResolvedTheme>("light");
   const [themeLabelReady, setThemeLabelReady] = useState(false);
   const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -117,6 +118,23 @@ export function SettingsPage() {
   useEffect(() => {
     setDraftThemePreference(themePreference);
   }, [themePreference]);
+
+  useEffect(() => {
+    setSystemResolvedTheme(getSystemTheme());
+
+    if (typeof window.matchMedia !== "function") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystemThemeChange = () => setSystemResolvedTheme(getSystemTheme());
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onSystemThemeChange);
+      return () => media.removeEventListener("change", onSystemThemeChange);
+    }
+
+    media.addListener(onSystemThemeChange);
+    return () => media.removeListener(onSystemThemeChange);
+  }, []);
 
   useEffect(() => {
     setThemeLabelReady(true);
@@ -1233,7 +1251,7 @@ export function SettingsPage() {
                       {
                         value: "system",
                         label: themeLabelReady
-                          ? t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) })
+                          ? t("themeSystem", { theme: t(`theme${systemResolvedTheme === "dark" ? "Dark" : "Light"}`) })
                           : t("themeSystem", { theme: "..." }),
                       },
                       { value: "light", label: t("themeLight") },
