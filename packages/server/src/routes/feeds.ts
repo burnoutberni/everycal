@@ -7,7 +7,7 @@
  * GET /api/v1/feeds/calendar.ics?token=xxx — iCal feed for my calendar (Going/Maybe events)
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
 import { toICalendar, type EveryCalEvent } from "@everycal/core";
@@ -34,6 +34,10 @@ function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
     .prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?")
     .get(token) as { account_id: string } | undefined;
   return row?.account_id ?? null;
+}
+
+function setPublicFeedCacheHeaders(c: Context): void {
+  c.header("Cache-Control", "public, max-age=300, s-maxage=900, stale-while-revalidate=300");
 }
 
 export function feedRoutes(db: DB): Hono {
@@ -186,6 +190,8 @@ export function feedRoutes(db: DB): Hono {
         ) ORDER BY start_date ASC`
       )
       .all(account.id, account.id, account.id, account.id, account.id);
+
+    setPublicFeedCacheHeaders(c);
 
     if (format === "json") {
       return c.json({ events: rows });
