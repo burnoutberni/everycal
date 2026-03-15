@@ -574,19 +574,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                 </button>
                 {repostMenuOpen && (
                   <div id={repostMenuId} className="header-dropdown" role="menu">
-                    {canRepostEvent && (
-                      <button
-                        type="button"
-                        className="header-dropdown-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setRepostMenuOpen(false);
-                          void handleRepost();
-                        }}
-                      >
-                        {reposted ? t("removeRepost") : t("repost")}
-                      </button>
-                    )}
                     {canRepostAs && (
                       <button
                         type="button"
