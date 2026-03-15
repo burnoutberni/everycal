@@ -1,0 +1,62 @@
+name = "everycal"
+main = "packages/cloudflare-worker/src/index.ts"
+compatibility_date = "2026-03-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "everycal"
+database_id = "REPLACE_WITH_REAL_D1_DATABASE_ID"
+migrations_dir = "packages/cloudflare-worker/migrations"
+
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "everycal-uploads"
+
+[[queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "everycal-jobs"
+
+[[queues.consumers]]
+queue = "everycal-jobs"
+max_batch_size = 10
+max_batch_timeout = 10
+
+# Optional distributed/global rate-limit backing store
+[[kv_namespaces]]
+binding = "RATE_LIMITS_KV"
+id = "REPLACE_WITH_RATE_LIMITS_KV_ID"
+
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITS_DO"
+class_name = "RateLimitCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimitCoordinator"]
+
+# Optional native queue consumer targets (service bindings)
+[[services]]
+binding = "REMINDERS_SERVICE"
+service = "everycal-reminders"
+
+[[services]]
+binding = "SCRAPERS_SERVICE"
+service = "everycal-scrapers"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+BASE_URL = "https://example.workers.dev"
+SESSION_COOKIE_NAME = "everycal_session"
+CORS_ORIGIN = "https://example.pages.dev"
+SSR_CACHE_MAX_AGE_SECONDS = "15"
+SSR_CACHE_STALE_WHILE_REVALIDATE_SECONDS = "30"
+SSR_EDGE_CACHE_ENABLED = "true"
+SSR_EDGE_CACHE_BYPASS_HEADER = "x-everycal-ssr-bypass"
+SSR_CACHE_TAG_VERSION = "v1"
+
+[observability]
+enabled = true
