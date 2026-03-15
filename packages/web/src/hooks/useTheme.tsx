@@ -43,18 +43,21 @@ export function ThemeProvider({
   );
 
   useIsomorphicLayoutEffect(() => {
+    setResolvedTheme(applyThemeToDocument(preference));
+
     if (typeof window.matchMedia !== "function") {
-      setResolvedTheme(applyThemeToDocument(preference));
+      return;
+    }
+
+    if (preference !== "system") {
       return;
     }
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onSystemChange = () => {
-      if (preference !== "system") return;
       setResolvedTheme(applyThemeToDocument("system"));
     };
 
-    setResolvedTheme(applyThemeToDocument(preference));
     if (typeof media.addEventListener === "function") {
       media.addEventListener("change", onSystemChange);
       return () => media.removeEventListener("change", onSystemChange);

@@ -38,7 +38,7 @@ import {
 } from "../lib/dateTimeLocale";
 import "./SettingsPage.css";
 import { useTheme } from "../hooks/useTheme";
-import { getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";
+import { applyThemeToDocument, getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";
 
 type IdentityFormErrors = {
   username?: string;
@@ -62,6 +62,7 @@ export function SettingsPage() {
   ];
   const { user, refreshUser } = useAuth();
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
+  const committedThemePreferenceRef = useRef<ThemePreference>(themePreference);
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
   const [systemResolvedTheme, setSystemResolvedTheme] = useState<ResolvedTheme>("light");
   const [themeLabelReady, setThemeLabelReady] = useState(false);
@@ -116,8 +117,15 @@ export function SettingsPage() {
   const [memberBusyId, setMemberBusyId] = useState<string | null>(null);
 
   useEffect(() => {
+    committedThemePreferenceRef.current = themePreference;
     setDraftThemePreference(themePreference);
   }, [themePreference]);
+
+  useEffect(() => {
+    return () => {
+      applyThemeToDocument(committedThemePreferenceRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setSystemResolvedTheme(getSystemTheme());
@@ -699,6 +707,7 @@ export function SettingsPage() {
         dateTimeLocale: localeToSave,
         themePreference: draftThemePreference,
       });
+      committedThemePreferenceRef.current = draftThemePreference;
       setThemePreference(draftThemePreference, { persist: true });
       await refreshUser();
       setSavedCalendarSettings(true);
@@ -1269,7 +1278,7 @@ export function SettingsPage() {
                           checked={draftThemePreference === option.value}
                           onChange={() => {
                             setDraftThemePreference(option.value);
-                            setThemePreference(option.value, { persist: false });
+                            applyThemeToDocument(option.value);
                           }}
                         />
                         <span className="theme-preference-dot" aria-hidden="true" />

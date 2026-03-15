@@ -322,6 +322,22 @@ describe("SettingsPage identity flows", () => {
     });
   });
 
+  it("reverts unsaved theme preview when leaving settings", async () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+
+    const view = renderSettingsPage();
+
+    const lightOption = await screen.findByRole("radio", { name: "themeLight" }) as HTMLInputElement;
+    fireEvent.click(lightOption);
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    view.unmount();
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+  });
+
   it("rolls back theme selection when calendar save fails", async () => {
     vi.mocked(authApi.updateProfile).mockRejectedValue(new Error("theme-save-failed"));
 

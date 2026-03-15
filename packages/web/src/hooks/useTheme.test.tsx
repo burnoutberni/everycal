@@ -11,13 +11,18 @@ function ThemeProbe() {
 }
 
 describe("ThemeProvider", () => {
+  let addEventListener: ReturnType<typeof vi.fn>;
+  let removeEventListener: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    addEventListener = vi.fn();
+    removeEventListener = vi.fn();
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
       matches: false,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
+      addEventListener,
+      removeEventListener,
     }));
   });
 
@@ -43,5 +48,26 @@ describe("ThemeProvider", () => {
     );
 
     expect(screen.getByText("dark")).toBeTruthy();
+  });
+
+  it("does not subscribe to system theme changes for explicit preferences", () => {
+    render(
+      <ThemeProvider initialPreference="light">
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(removeEventListener).not.toHaveBeenCalled();
+  });
+
+  it("subscribes to system theme changes when preference is system", () => {
+    render(
+      <ThemeProvider initialPreference="system">
+        <ThemeProbe />
+      </ThemeProvider>
+    );
+
+    expect(addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
   });
 });
