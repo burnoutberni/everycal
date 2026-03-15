@@ -21,7 +21,7 @@ Reusable, brand-locked embed button for external sites.
 
 ## Supported attributes
 
-- `href` (required): absolute or relative HTTP(S) URL to an EveryCal page **on the same host as the `<script src>`**. Only profile and event URLs are supported:
+- `href` (required): absolute or relative HTTP(S) URL to an EveryCal page **on the same origin as the `<script src>`**. Only profile and event URLs are supported:
   - `/@user` (e.g. `https://YOUR-EVERYCAL-DOMAIN/@alice`)
   - `/@user/event` (e.g. `https://YOUR-EVERYCAL-DOMAIN/@alice/meetup-night`)
   Query strings and hash fragments are not supported; if present, the button will render disabled.
@@ -50,7 +50,7 @@ Reusable, brand-locked embed button for external sites.
 - The component is intentionally style-locked to preserve brand consistency.
 - If `href` is missing or invalid, the button renders disabled. A URL is treated as invalid if:
   - It is not HTTP(S),
-  - Its host does not match the host of the `<script src=".../show-on-everycal.js">`,
+  - Its origin does not match the origin of the `<script src=".../show-on-everycal.js">`,
   - Its path is not `/@user` or `/@user/event`, or
   - It includes a query string (`?…`) or hash fragment (`#…`).
 - Works in modern browsers with Custom Elements support.
