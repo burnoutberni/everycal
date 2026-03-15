@@ -22,6 +22,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(readStoredThemePreference(), getSystemTheme()));
 
   useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      setResolvedTheme(applyThemeToDocument(preference));
+      return;
+    }
+
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onSystemChange = () => {
       if (preference !== "system") return;

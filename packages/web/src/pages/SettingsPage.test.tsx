@@ -93,6 +93,15 @@ vi.mock("../lib/api", () => ({
 
 import { SettingsPage } from "./SettingsPage";
 import { auth as authApi, identities as identitiesApi, uploads } from "../lib/api";
+import { ThemeProvider } from "../hooks/useTheme";
+
+function renderSettingsPage() {
+  return render(
+    <ThemeProvider>
+      <SettingsPage />
+    </ThemeProvider>
+  );
+}
 
 describe("SettingsPage identity flows", () => {
   afterEach(() => {
@@ -129,7 +138,7 @@ describe("SettingsPage identity flows", () => {
   });
 
   it("blocks step progress on invalid handle and invalid website", async () => {
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
@@ -157,7 +166,7 @@ describe("SettingsPage identity flows", () => {
       resolveUpload = resolve;
     }) as Promise<any>);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
     fireEvent.change(screen.getByPlaceholderText("usernamePlaceholder"), { target: { value: "team_one" } });
@@ -185,7 +194,7 @@ describe("SettingsPage identity flows", () => {
       identity: { username: "team_one" },
     } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "createPublishingIdentity" }));
 
     fireEvent.change(screen.getByPlaceholderText("usernamePlaceholder"), { target: { value: "team_one" } });
@@ -219,7 +228,7 @@ describe("SettingsPage identity flows", () => {
       }],
     } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     const settingsButton = await screen.findByRole("button", { name: "identitySettings" });
     settingsButton.focus();
@@ -251,7 +260,7 @@ describe("SettingsPage identity flows", () => {
     } as any);
     vi.mocked(identitiesApi.update).mockResolvedValue({ identity: { username: "team_one" } } as any);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
     fireEvent.click(await screen.findByRole("button", { name: "identitySettings" }));
     const dialog = await screen.findByRole("dialog");
 

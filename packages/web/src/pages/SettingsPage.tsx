@@ -63,6 +63,7 @@ export function SettingsPage() {
   const { user, refreshUser } = useAuth();
   const { preference: themePreference, setPreference: setThemePreference, resolvedTheme } = useTheme();
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
+  const [themeLabelReady, setThemeLabelReady] = useState(false);
   const [activeSection, setActiveSection] = useState<string>("calendar");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -116,6 +117,10 @@ export function SettingsPage() {
   useEffect(() => {
     setDraftThemePreference(themePreference);
   }, [themePreference]);
+
+  useEffect(() => {
+    setThemeLabelReady(true);
+  }, []);
 
   const [identityEditorOpen, setIdentityEditorOpen] = useState<"create" | null>(null);
   const [createIdentityStep, setCreateIdentityStep] = useState<1 | 2 | 3>(1);
@@ -1218,7 +1223,12 @@ export function SettingsPage() {
                 <span className="settings-label">{t("themePreference")}</span>
                 <div className="theme-preference-group" role="radiogroup" aria-label={t("themePreference")}>
                   {([
-                    { value: "system", label: t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) }) },
+                    {
+                      value: "system",
+                      label: themeLabelReady
+                        ? t("themeSystem", { theme: t(`theme${resolvedTheme === "dark" ? "Dark" : "Light"}`) })
+                        : t("themeSystem", { theme: "..." }),
+                    },
                     { value: "light", label: t("themeLight") },
                     { value: "dark", label: t("themeDark") },
                   ] as Array<{ value: ThemePreference; label: string }>).map((option) => (
