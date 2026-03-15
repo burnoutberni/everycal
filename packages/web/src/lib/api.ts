@@ -571,7 +571,7 @@ export const identities = {
 export const feeds = {
   /** Get the iCal feed URL for the current user's calendar (Going/Maybe events). */
   getCalendarUrl() {
-    return request<{ url: string }>("/feeds/calendar-url");
+    return request<{ url: string }>("/private-feeds/calendar-url");
   },
 };
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
 import { feedRoutes } from "../src/routes/feeds.js";
+import { privateFeedRoutes } from "../src/routes/private-feeds.js";
 import { createApiCorsMiddleware } from "../src/middleware/api-cors.js";
 import { authMiddleware } from "../src/middleware/auth.js";
 
@@ -11,6 +12,7 @@ function createApp() {
   app.use("/api/*", createApiCorsMiddleware(["https://app.everycal.test"]));
   app.use("*", authMiddleware(db));
   app.route("/api/v1/feeds", feedRoutes(db));
+  app.route("/api/v1/private-feeds", privateFeedRoutes(db));
   return { app, db };
 }
 
@@ -49,21 +51,42 @@ describe("feed CORS policy", () => {
     expect(res.headers.get("access-control-allow-credentials")).not.toBe("true");
   });
 
+  it("keeps calendar username JSON on wildcard CORS", async () => {
+    const { app } = createApp();
+    const res = await app.request("http://localhost/api/v1/feeds/calendar.json", {
+      headers: { Origin: "https://embedder.example" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-credentials")).not.toBe("true");
+  });
+
   it("keeps private feed endpoints on strict CORS", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
     db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", "tok1");
 
-    const tokenRes = await app.request("http://localhost/api/v1/feeds/calendar.ics?token=tok1", {
+    const tokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
       headers: { Origin: "https://embedder.example" },
     });
     expect(tokenRes.headers.get("access-control-allow-origin")).not.toBe("*");
+    expect(tokenRes.headers.get("access-control-allow-origin")).toBeNull();
+    expect(tokenRes.headers.get("access-control-allow-credentials")).toBeNull();
 
-    const privateRes = await app.request("http://localhost/api/v1/feeds/calendar-url", {
+    const privateRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
       headers: { Origin: "https://embedder.example" },
     });
     expect(privateRes.status).toBe(401);
     expect(privateRes.headers.get("access-control-allow-origin")).not.toBe("*");
+    expect(privateRes.headers.get("access-control-allow-origin")).toBeNull();
+    expect(privateRes.headers.get("access-control-allow-credentials")).toBeNull();
+
+    const allowlistedRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
+      headers: { Origin: "https://app.everycal.test" },
+    });
+    expect(allowlistedRes.headers.get("access-control-allow-origin")).toBe("https://app.everycal.test");
+    expect(allowlistedRes.headers.get("access-control-allow-credentials")).toBe("true");
   });
 });
 

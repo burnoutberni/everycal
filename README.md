@@ -55,7 +55,7 @@ Container behavior:
 - `OG_DIR` - generated Open Graph image directory
 - `CORS_ORIGIN` - comma-separated allowed origins
 - Public feed embeds: `GET /api/v1/feeds/:username.json` (and `.ics`) now use wildcard CORS for browser embeds (`Access-Control-Allow-Origin: *`, no credentials) and short cache headers suitable for shared caches.
-- Authenticated/private feed surfaces (`/api/v1/feeds/calendar-url`, `/api/v1/feeds/calendar.ics?token=...`) remain on strict allowlist CORS from `CORS_ORIGIN` with credentials support for the web UI.
+- Authenticated/private feed surfaces (`/api/v1/private-feeds/calendar-url`, `/api/v1/private-feeds/calendar.ics?token=...`) remain on strict allowlist CORS from `CORS_ORIGIN` with credentials support for the web UI.
 - `RUN_JOBS_INTERNALLY` - run jobs in same container (`true`/`false`)
 - `SCRAPER_API_KEYS_FILE` or `SCRAPER_API_KEYS_JSON` - scraper auth mapping
 
