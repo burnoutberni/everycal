@@ -5,7 +5,7 @@
  * GET /api/v1/private-feeds/calendar.ics?token=xxx — iCal feed for my calendar (Going/Maybe events)
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { nanoid } from "nanoid";
 import type { DB } from "../db.js";
 import { toICalendar, type EveryCalEvent } from "@everycal/core";
@@ -33,11 +33,18 @@ function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
   return row?.account_id ?? null;
 }
 
+function setPrivateNoStoreHeaders(c: Context): void {
+  c.header("Cache-Control", "private, no-store, max-age=0");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+}
+
 export function privateFeedRoutes(db: DB): Hono {
   const router = new Hono();
 
   // Calendar feed URL (authenticated) — returns the iCal subscription URL
   router.get("/calendar-url", requireAuth(), (c) => {
+    setPrivateNoStoreHeaders(c);
     const user = c.get("user")!;
     const token = getOrCreateCalendarFeedToken(db, user.id);
     const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
@@ -47,6 +54,7 @@ export function privateFeedRoutes(db: DB): Hono {
 
   // Calendar feed (token auth) — events user is Going/Maybe to
   router.get("/calendar.ics", (c) => {
+    setPrivateNoStoreHeaders(c);
     const token = c.req.query("token");
     if (!token) {
       return c.json({ error: t(getLocale(c), "feeds.token_required") }, 400);

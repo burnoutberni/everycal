@@ -4,7 +4,7 @@ import { initDatabase } from "../src/db.js";
 import { feedRoutes } from "../src/routes/feeds.js";
 import { privateFeedRoutes } from "../src/routes/private-feeds.js";
 import { createApiCorsMiddleware } from "../src/middleware/api-cors.js";
-import { authMiddleware } from "../src/middleware/auth.js";
+import { authMiddleware, createSession } from "../src/middleware/auth.js";
 
 function createApp() {
   const db = initDatabase(":memory:");
@@ -70,6 +70,10 @@ describe("feed CORS policy", () => {
     const tokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
       headers: { Origin: "https://embedder.example" },
     });
+    expect(tokenRes.status).toBe(200);
+    expect(tokenRes.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(tokenRes.headers.get("pragma")).toBe("no-cache");
+    expect(tokenRes.headers.get("expires")).toBe("0");
     expect(tokenRes.headers.get("access-control-allow-origin")).not.toBe("*");
     expect(tokenRes.headers.get("access-control-allow-origin")).toBeNull();
     expect(tokenRes.headers.get("access-control-allow-credentials")).toBeNull();
@@ -85,8 +89,42 @@ describe("feed CORS policy", () => {
     const allowlistedRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
       headers: { Origin: "https://app.everycal.test" },
     });
+    expect(allowlistedRes.status).toBe(200);
+    expect(allowlistedRes.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(allowlistedRes.headers.get("pragma")).toBe("no-cache");
+    expect(allowlistedRes.headers.get("expires")).toBe("0");
     expect(allowlistedRes.headers.get("access-control-allow-origin")).toBe("https://app.everycal.test");
     expect(allowlistedRes.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
+  it("sets private feed no-store headers on token errors", async () => {
+    const { app } = createApp();
+
+    const missingTokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics");
+    expect(missingTokenRes.status).toBe(400);
+    expect(missingTokenRes.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(missingTokenRes.headers.get("pragma")).toBe("no-cache");
+    expect(missingTokenRes.headers.get("expires")).toBe("0");
+
+    const invalidTokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=not-real");
+    expect(invalidTokenRes.status).toBe(401);
+    expect(invalidTokenRes.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(invalidTokenRes.headers.get("pragma")).toBe("no-cache");
+    expect(invalidTokenRes.headers.get("expires")).toBe("0");
+  });
+
+  it("sets private feed no-store headers on calendar-url success", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const res = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(res.headers.get("pragma")).toBe("no-cache");
+    expect(res.headers.get("expires")).toBe("0");
   });
 });
 
