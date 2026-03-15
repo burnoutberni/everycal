@@ -14,7 +14,6 @@ import { fileURLToPath } from "node:url";
 config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
 config({ quiet: true });
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { secureHeaders } from "hono/secure-headers";
@@ -24,6 +23,7 @@ import { rateLimiter } from "./middleware/rate-limit.js";
 import { authRoutes } from "./routes/auth.js";
 import { eventRoutes } from "./routes/events.js";
 import { feedRoutes } from "./routes/feeds.js";
+import { privateFeedRoutes } from "./routes/private-feeds.js";
 import { identityRoutes } from "./routes/identities.js";
 import { userRoutes } from "./routes/users.js";
 import { uploadRoutes } from "./routes/uploads.js";
@@ -44,6 +44,7 @@ import type { CachedSsrResponse } from "./ssr/cache.js";
 import { resolveBootstrap } from "./lib/bootstrap.js";
 import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
+import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -89,10 +90,7 @@ const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http
 
 app.use(
   "/api/*",
-  cors({
-    origin: (origin) => (allowedOrigins.includes(origin) ? origin : ""),
-    credentials: true,
-  })
+  createApiCorsMiddleware(allowedOrigins)
 );
 
 // Rate limiting on auth endpoints (prevent brute force)
@@ -149,6 +147,7 @@ app.route("/api/v1/auth", authRoutes(db));
 // API routes
 app.route("/api/v1/events", eventRoutes(db));
 app.route("/api/v1/feeds", feedRoutes(db));
+app.route("/api/v1/private-feeds", privateFeedRoutes(db));
 app.route("/api/v1/identities", identityRoutes(db));
 app.route("/api/v1/users", userRoutes(db));
 app.route("/api/v1", directoryRoutes(db));

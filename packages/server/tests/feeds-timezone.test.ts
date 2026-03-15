@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
-import { feedRoutes } from "../src/routes/feeds.js";
+import { privateFeedRoutes } from "../src/routes/private-feeds.js";
 
 describe("calendar feed timezone output", () => {
   it("emits timezone-rich ICS for local and remote events", async () => {
@@ -47,9 +47,9 @@ describe("calendar feed timezone output", () => {
     db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://remote.example/events/r1");
 
     const app = new Hono();
-    app.route("/api/v1/feeds", feedRoutes(db));
+    app.route("/api/v1/private-feeds", privateFeedRoutes(db));
 
-    const res = await app.request("http://localhost/api/v1/feeds/calendar.ics?token=tok1");
+    const res = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1");
     const text = await res.text();
 
     expect(res.status).toBe(200);
