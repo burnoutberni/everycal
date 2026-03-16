@@ -70,6 +70,13 @@ app.use("*", secureHeaders({
   } : undefined,
 }));
 
+// Allow embedding the public web component script on third-party sites.
+app.use("/embed/*", async (c, next) => {
+  await next();
+  c.header("Cross-Origin-Resource-Policy", "cross-origin");
+  c.header("Access-Control-Allow-Origin", "*");
+});
+
 // Request body size limits (before any route parsing)
 app.use("*", async (c, next) => {
   const contentLength = parseInt(c.req.header("content-length") || "0", 10);
