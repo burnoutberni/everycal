@@ -45,6 +45,7 @@ import { resolveBootstrap } from "./lib/bootstrap.js";
 import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
+import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -68,7 +69,11 @@ app.use("*", secureHeaders({
     baseUri: ["'self'"],
     formAction: ["'self'"],
   } : undefined,
+  crossOriginResourcePolicy: false,
 }));
+
+// Keep strict CORP by default, but allow the public embed script cross-origin.
+app.use("*", createEmbedCorpMiddleware());
 
 // Request body size limits (before any route parsing)
 app.use("*", async (c, next) => {
