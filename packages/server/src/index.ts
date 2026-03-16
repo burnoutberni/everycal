@@ -68,13 +68,18 @@ app.use("*", secureHeaders({
     baseUri: ["'self'"],
     formAction: ["'self'"],
   } : undefined,
+  crossOriginResourcePolicy: false,
 }));
 
-// Allow embedding the public web component script on third-party sites.
-app.use("/embed/*", async (c, next) => {
+// Keep strict CORP by default, but allow the public embed script cross-origin.
+app.use("*", async (c, next) => {
   await next();
-  c.header("Cross-Origin-Resource-Policy", "cross-origin");
-  c.header("Access-Control-Allow-Origin", "*");
+  if (c.req.path.startsWith("/embed/")) {
+    c.header("Cross-Origin-Resource-Policy", "cross-origin");
+    c.header("Access-Control-Allow-Origin", "*");
+    return;
+  }
+  c.header("Cross-Origin-Resource-Policy", "same-origin");
 });
 
 // Request body size limits (before any route parsing)
