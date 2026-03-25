@@ -359,7 +359,7 @@ function NavLink({
 }: {
   href: string;
   current: string;
-  children: React.ReactNode;
+  children: Exclude<React.ComponentProps<typeof Link>["children"], undefined>;
 }) {
   const active = href === "/" ? current === "/" : current.startsWith(href);
   return (

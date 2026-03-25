@@ -203,7 +203,7 @@ export function ProfileCard({
 }) {
   const href = getProfileHref(item, profilePath, remoteProfilePath);
   const content = <ProfileCardContent item={item} />;
-  const linkWrap = (children: React.ReactNode) => (
+  const linkWrap = (children: Exclude<React.ComponentProps<typeof Link>["children"], undefined>) => (
     <Link href={href} style={{ display: "block", width: "100%", minWidth: 0, textDecoration: "none", color: "inherit" }}>
       {children}
     </Link>
