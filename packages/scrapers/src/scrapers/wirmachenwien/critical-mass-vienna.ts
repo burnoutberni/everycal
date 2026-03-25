@@ -26,8 +26,8 @@ export class CriticalMassViennaScraper implements Scraper {
   readonly url = RSS_URL;
   readonly website = "https://www.criticalmass.at/category/wien/";
   readonly bio = "Die Critical Mass Vienna rollt seit 2006 für klimafreundlichen Verkehr durch Wien: #MehrPlatzFürsRad";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/09/CM_tallbike_sunset.jpg";
-  readonly defaultEventImageUrl = this.avatarUrl;
+  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/gravity_forms/8-6f0495c3bdde14c74723d5a91acebbcf/2023/09/cm-logo-transp.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/09/CM_tallbike_sunset.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await undiciFetch(this.url, { dispatcher: agent });

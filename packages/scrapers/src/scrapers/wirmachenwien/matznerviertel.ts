@@ -42,8 +42,8 @@ export class MatznerViertelScraper implements Scraper {
   readonly url = "https://matznerviertel.at/veranstaltungen/";
   readonly website = "https://www.matznerviertel.at";
   readonly bio = "Die Grätzlinitiative engagiert sich für einen lebenswerten öffentlichen Raum im Matznerviertel.";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/12/Matznerviertel.jpeg";
-  readonly defaultEventImageUrl = this.avatarUrl;
+  readonly avatarUrl = "https://matznerviertel.at/wp-content/uploads/2016/04/logo1w.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/12/Matznerviertel.jpeg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(`${API_URL}?per_page=50&start_date=2020-01-01`);
