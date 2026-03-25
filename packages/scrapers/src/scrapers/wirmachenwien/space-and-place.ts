@@ -48,7 +48,8 @@ export class SpaceAndPlaceScraper implements Scraper {
   readonly url = "https://spaceandplace.at/termine";
   readonly website = "https://spaceandplace.at/";
   readonly bio = "Die Stadtarbeiter*innen und Stadtforscher*innen schaffen Orte der Begegnung im öffentlichen Raum.";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/space-and-place-20200918-Tag_der_Wohnstrasse-c-Alissar-Najjar-6484.jpg";
+  readonly avatarUrl = "https://spaceandplace.at/static/media/logo.0a01c921.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/space-and-place-20200918-Tag_der_Wohnstrasse-c-Alissar-Najjar-6484.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(GRAPHQL_URL, {

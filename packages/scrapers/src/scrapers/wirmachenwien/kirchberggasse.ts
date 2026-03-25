@@ -18,7 +18,8 @@ export class KirchberggasseScraper implements Scraper {
   readonly url = BASE_URL;
   readonly website = "https://kirchberggasse.at";
   readonly bio = "Die Kirchberggasse zur Wohnstraße machen: begrünt, verkehrsberuhigt und gemeinsam gestaltet!";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/kirchberggasse_fest.jpg";
+  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/gravity_forms/8-6f0495c3bdde14c74723d5a91acebbcf/2023/10/INITIATIVE1.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/kirchberggasse_fest.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     // Try RSS feed first

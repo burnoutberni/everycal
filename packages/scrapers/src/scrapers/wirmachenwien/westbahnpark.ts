@@ -20,7 +20,8 @@ export class WestbahnparkScraper implements Scraper {
   readonly url = CALENDAR_URL;
   readonly website = BASE_URL;
   readonly bio = "Wir unterstützen die Stadt, ihre selbstgesteckten Ziele zu erreichen – RAUS AUS DEM ASPHALT!";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/HL_2023_Westbahnhof_Export-Quer_0-26-scaled.jpg";
+  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/westbahnpark_logo-rot.jpg";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/HL_2023_Westbahnhof_Export-Quer_0-26-scaled.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(CALENDAR_URL);

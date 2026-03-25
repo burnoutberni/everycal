@@ -23,7 +23,8 @@ export class RadlobbyWienScraper implements Scraper {
   readonly url = "https://www.radlobby.at/wien/termine";
   readonly website = "https://www.radlobby.at/wien";
   readonly bio = "Die Radlobby Wien vertritt die Interessen der heute und zukünftig Radfahrenden. Werde Teil davon!";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/RLW_Neubauguertel_Aktion_WmW.jpg";
+  readonly avatarUrl = "https://www.radlobby.at/themes/custom/radlobby_legacy/src/images/radlobby.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/RLW_Neubauguertel_Aktion_WmW.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(ICAL_URL);

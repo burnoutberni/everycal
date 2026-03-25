@@ -5,16 +5,10 @@
  * Events are fetched from the Tribe Events V1 JSON API.
  */
 
-import * as cheerio from "cheerio";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
 
 const API_URL = "https://matznerviertel.at/wp-json/tribe/events/v1/events";
-
-/** Decode HTML entities like &#8218; and &amp; */
-function decodeHtmlEntities(text: string): string {
-  return cheerio.load(`<p>${text}</p>`)("p").text();
-}
 
 interface TribeEvent {
   id: number;
@@ -42,7 +36,8 @@ export class MatznerViertelScraper implements Scraper {
   readonly url = "https://matznerviertel.at/veranstaltungen/";
   readonly website = "https://www.matznerviertel.at";
   readonly bio = "Die Grätzlinitiative engagiert sich für einen lebenswerten öffentlichen Raum im Matznerviertel.";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/12/Matznerviertel.jpeg";
+  readonly avatarUrl = "https://matznerviertel.at/wp-content/uploads/2016/04/logo1w.png";
+  readonly defaultEventImageUrl = "https://wirmachen.wien/wp-content/uploads/2023/12/Matznerviertel.jpeg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(`${API_URL}?per_page=50&start_date=2020-01-01`);
@@ -70,7 +65,7 @@ export class MatznerViertelScraper implements Scraper {
 
       events.push({
         id: `matznerviertel-${ev.id}`,
-        title: decodeHtmlEntities(ev.title.replace(/<[^>]+>/g, "").trim()),
+        title: ev.title.replace(/<[^>]+>/g, "").trim(),
         description: description || undefined,
         startDate: new Date(ev.start_date).toISOString(),
         endDate: ev.end_date ? new Date(ev.end_date).toISOString() : undefined,
