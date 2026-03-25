@@ -6,7 +6,8 @@ export function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent
   return events
     .filter((ev) => ev.title && ev.startDate)
     .map((ev) => {
-      const title = decodeHtmlEntitiesOnce(ev.title!);
+      const rawTitle = ev.title!;
+      const title = decodeHtmlEntitiesOnce(rawTitle);
       const image = ev.image || (scraper.defaultEventImageUrl ? { url: scraper.defaultEventImageUrl } : undefined);
       const location = ev.location
         ? {
@@ -18,7 +19,7 @@ export function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent
       const tags = ev.tags?.map((tag) => decodeHtmlEntitiesOnce(tag));
 
       return {
-        externalId: ev.id || `${scraper.id}-${title}-${ev.startDate}`,
+        externalId: ev.id || `${scraper.id}-${rawTitle}-${ev.startDate}`,
         title,
         description: ev.description || undefined,
         startDate: ev.startDate!,
