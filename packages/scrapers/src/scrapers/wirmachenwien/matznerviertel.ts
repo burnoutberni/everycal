@@ -5,16 +5,10 @@
  * Events are fetched from the Tribe Events V1 JSON API.
  */
 
-import * as cheerio from "cheerio";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
 
 const API_URL = "https://matznerviertel.at/wp-json/tribe/events/v1/events";
-
-/** Decode HTML entities like &#8218; and &amp; */
-function decodeHtmlEntities(text: string): string {
-  return cheerio.load(`<p>${text}</p>`)("p").text();
-}
 
 interface TribeEvent {
   id: number;
@@ -71,7 +65,7 @@ export class MatznerViertelScraper implements Scraper {
 
       events.push({
         id: `matznerviertel-${ev.id}`,
-        title: decodeHtmlEntities(ev.title.replace(/<[^>]+>/g, "").trim()),
+        title: ev.title.replace(/<[^>]+>/g, "").trim(),
         description: description || undefined,
         startDate: new Date(ev.start_date).toISOString(),
         endDate: ev.end_date ? new Date(ev.end_date).toISOString() : undefined,
