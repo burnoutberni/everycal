@@ -23,6 +23,9 @@ export interface Scraper {
   /** URL of the organisation's logo / profile image */
   readonly avatarUrl?: string;
 
+  /** Default event image URL used when a scraped event has no image. */
+  readonly defaultEventImageUrl?: string;
+
   /** Fetch and parse events from the source. */
   scrape(): Promise<Partial<EveryCalEvent>[]>;
 }

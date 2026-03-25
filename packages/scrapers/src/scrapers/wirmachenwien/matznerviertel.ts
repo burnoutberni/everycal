@@ -43,6 +43,7 @@ export class MatznerViertelScraper implements Scraper {
   readonly website = "https://www.matznerviertel.at";
   readonly bio = "Die Grätzlinitiative engagiert sich für einen lebenswerten öffentlichen Raum im Matznerviertel.";
   readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/12/Matznerviertel.jpeg";
+  readonly defaultEventImageUrl = this.avatarUrl;
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(`${API_URL}?per_page=50&start_date=2020-01-01`);

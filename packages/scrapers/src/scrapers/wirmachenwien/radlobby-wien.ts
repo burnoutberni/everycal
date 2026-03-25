@@ -24,6 +24,7 @@ export class RadlobbyWienScraper implements Scraper {
   readonly website = "https://www.radlobby.at/wien";
   readonly bio = "Die Radlobby Wien vertritt die Interessen der heute und zukünftig Radfahrenden. Werde Teil davon!";
   readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2023/10/RLW_Neubauguertel_Aktion_WmW.jpg";
+  readonly defaultEventImageUrl = this.avatarUrl;
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(ICAL_URL);

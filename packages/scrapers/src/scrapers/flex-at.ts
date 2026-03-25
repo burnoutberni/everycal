@@ -39,6 +39,7 @@ export class FlexScraper implements Scraper {
   readonly id = "flex_at";
   readonly name = "Flex Vienna";
   readonly url = "https://flex.at/wp-json/tribe/events/v1/events";
+  readonly defaultEventImageUrl = "https://flex.at/wp-content/uploads/2017/06/FLEX_logo_black.png";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const events: Partial<EveryCalEvent>[] = [];

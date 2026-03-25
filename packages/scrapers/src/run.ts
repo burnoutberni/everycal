@@ -113,19 +113,23 @@ async function updateProfile(
 function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
   return events
     .filter((ev) => ev.title && ev.startDate)
-    .map((ev) => ({
-      externalId: ev.id || `${scraper.id}-${ev.title}-${ev.startDate}`,
-      title: ev.title!,
-      description: ev.description || undefined,
-      startDate: ev.startDate!,
-      endDate: ev.endDate || undefined,
-      allDay: ev.allDay || false,
-      location: ev.location || undefined,
-      image: ev.image || undefined,
-      url: ev.url || undefined,
-      tags: ev.tags || undefined,
-      visibility: ev.visibility || "public",
-    }));
+    .map((ev) => {
+      const image = ev.image || (scraper.defaultEventImageUrl ? { url: scraper.defaultEventImageUrl } : undefined);
+
+      return {
+        externalId: ev.id || `${scraper.id}-${ev.title}-${ev.startDate}`,
+        title: ev.title!,
+        description: ev.description || undefined,
+        startDate: ev.startDate!,
+        endDate: ev.endDate || undefined,
+        allDay: ev.allDay || false,
+        location: ev.location || undefined,
+        image,
+        url: ev.url || undefined,
+        tags: ev.tags || undefined,
+        visibility: ev.visibility || "public",
+      };
+    });
 }
 
 async function main() {

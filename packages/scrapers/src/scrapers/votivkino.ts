@@ -29,6 +29,7 @@ export class VotivkinoScraper implements Scraper {
   readonly id = "votivkino";
   readonly name = "Votiv Kino & De France";
   readonly url = "https://www.votivkino.at/programm/";
+  readonly defaultEventImageUrl = "https://www.votivkino.at/wp-content/uploads/2018/11/votiv-kino-logo.png";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const response = await fetch(this.url);
