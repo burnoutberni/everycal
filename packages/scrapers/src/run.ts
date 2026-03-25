@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { registry } from "./registry.js";
 import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
-import { decodeHtmlEntitiesOnce } from "./lib/text.js";
+import { buildSyncPayload } from "./lib/build-sync-payload.js";
 
 const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
 
@@ -109,37 +109,6 @@ async function updateProfile(
     const text = await res.text();
     throw new Error(`profile update failed: ${res.status} ${text}`);
   }
-}
-
-function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
-  return events
-    .filter((ev) => ev.title && ev.startDate)
-    .map((ev) => {
-      const title = decodeHtmlEntitiesOnce(ev.title!);
-      const image = ev.image || (scraper.defaultEventImageUrl ? { url: scraper.defaultEventImageUrl } : undefined);
-      const location = ev.location
-        ? {
-            ...ev.location,
-            name: decodeHtmlEntitiesOnce(ev.location.name),
-            address: ev.location.address ? decodeHtmlEntitiesOnce(ev.location.address) : undefined,
-          }
-        : undefined;
-      const tags = ev.tags?.map((tag) => decodeHtmlEntitiesOnce(tag));
-
-      return {
-        externalId: ev.id || `${scraper.id}-${title}-${ev.startDate}`,
-        title,
-        description: ev.description || undefined,
-        startDate: ev.startDate!,
-        endDate: ev.endDate || undefined,
-        allDay: ev.allDay || false,
-        location,
-        image,
-        url: ev.url || undefined,
-        tags,
-        visibility: ev.visibility || "public",
-      };
-    });
 }
 
 async function main() {

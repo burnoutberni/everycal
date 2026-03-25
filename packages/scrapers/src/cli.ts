@@ -18,8 +18,8 @@
  */
 
 import { registry, getScraperById } from "./registry.js";
-import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
+import { buildSyncPayload } from "./lib/build-sync-payload.js";
 
 const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
 
@@ -38,24 +38,6 @@ async function mapConcurrent<T, R>(
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
   return results;
-}
-
-function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
-  return events
-    .filter((ev) => ev.title && ev.startDate)  // skip events missing required fields
-    .map((ev) => ({
-      externalId: ev.id || `${scraper.id}-${ev.title}-${ev.startDate}`,
-      title: ev.title!,
-      description: ev.description || undefined,
-      startDate: ev.startDate!,
-      endDate: ev.endDate || undefined,
-      allDay: ev.allDay || false,
-      location: ev.location || undefined,
-      image: ev.image || undefined,
-      url: ev.url || undefined,
-      tags: ev.tags || undefined,
-      visibility: ev.visibility || "public",
-    }));
 }
 
 async function main() {
