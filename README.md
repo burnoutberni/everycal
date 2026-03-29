@@ -27,6 +27,15 @@ pnpm dev
 
 Starts the app at `http://localhost:3000` with Vite mounted in-process for SSR/frontend development.
 
+## API documentation
+
+EveryCal now ships code-first OpenAPI docs from the server runtime:
+
+- Interactive API reference UI: `http://localhost:3000/docs`
+- Machine-readable OpenAPI document: `http://localhost:3000/openapi.yaml`
+
+The generated spec covers REST API (`/api/v1/**`) and federation/public HTTP surfaces (ActivityPub, WebFinger, NodeInfo, media, and health routes).
+
 ## Build and run
 
 ```bash

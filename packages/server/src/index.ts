@@ -46,6 +46,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { buildOpenApiDocument, buildOpenApiYaml } from "./docs-openapi.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -129,6 +130,27 @@ app.use("*", authMiddleware(db));
 
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
+
+app.get("/openapi.json", (c) => c.json(buildOpenApiDocument()));
+app.get("/openapi.yaml", (c) => c.text(buildOpenApiYaml(), 200, { "Content-Type": "application/yaml; charset=utf-8" }));
+app.get("/docs", (c) => c.html(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EveryCal API Docs</title>
+    <style>body{margin:0;padding:0;background:#0f172a;color:#e2e8f0;font-family:Inter,system-ui,sans-serif}main{max-width:900px;margin:32px auto;padding:0 16px}a{color:#93c5fd}</style>
+  </head>
+  <body>
+    <main>
+      <h1>EveryCal API Reference</h1>
+      <p>OpenAPI spec: <a href="/openapi.yaml">/openapi.yaml</a></p>
+      <script id="api-reference" data-url="/openapi.yaml"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+      <noscript>Enable JavaScript to render the Scalar API reference UI.</noscript>
+    </main>
+  </body>
+</html>`));
 
 app.get("/api/v1/bootstrap", (c) => {
   const bootstrap = resolveBootstrap(c, db);
@@ -224,7 +246,10 @@ function shouldBypassViteDevMiddleware(pathname: string): boolean {
     pathname.startsWith("/users") ||
     pathname.startsWith("/events") ||
     pathname.startsWith("/nodeinfo") ||
-    pathname === "/inbox"
+    pathname === "/inbox" ||
+    pathname === "/docs" ||
+    pathname === "/openapi.yaml" ||
+    pathname === "/openapi.json"
   );
 }
 
