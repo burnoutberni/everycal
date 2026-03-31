@@ -255,6 +255,7 @@ function quote(str: string): string {
 
 function toYaml(value: unknown, indent = 0): string {
   const space = "  ".repeat(indent);
+  const isComplex = (v: unknown) => typeof v === "object" && v !== null;
   if (value === null) return "null";
   if (typeof value === "string") return quote(value);
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -263,11 +264,8 @@ function toYaml(value: unknown, indent = 0): string {
     return value
       .map((item) => {
         const rendered = toYaml(item, indent + 1);
-        if (rendered.includes("\n")) {
-          return `${space}-\n${rendered
-            .split("\n")
-            .map((line) => `${space}  ${line}`)
-            .join("\n")}`;
+        if (isComplex(item) && rendered !== "[]" && rendered !== "{}") {
+          return `${space}-\n${rendered}`;
         }
         return `${space}- ${rendered}`;
       })
@@ -279,7 +277,7 @@ function toYaml(value: unknown, indent = 0): string {
     return entries
       .map(([k, v]) => {
         const rendered = toYaml(v, indent + 1);
-        if (rendered.includes("\n")) {
+        if (isComplex(v) && rendered !== "[]" && rendered !== "{}") {
           return `${space}${quote(k)}:\n${rendered}`;
         }
         return `${space}${quote(k)}: ${rendered}`;
