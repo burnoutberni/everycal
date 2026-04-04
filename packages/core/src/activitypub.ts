@@ -80,8 +80,11 @@ function addressingToVisibility(to: string[], cc: string[]): EventVisibility {
 /** Convert an EveryCal event to an ActivityPub Event object. */
 export function toActivityPubEvent(event: EveryCalEvent): APEvent {
   const { to, cc } = visibilityToAddressing(event.visibility, event.organizer);
-  const startTime = event.startAtUtc || toUtcIso(event.startDate) || event.startDate;
-  const endTime = event.endAtUtc || (event.endDate ? toUtcIso(event.endDate) || event.endDate : undefined);
+  const startTime = requireUtcInstant(event.startAtUtc, "startAtUtc", event.id);
+  const endTime =
+    event.endDate !== undefined || event.endAtUtc !== undefined
+      ? requireUtcInstant(event.endAtUtc, "endAtUtc", event.id)
+      : undefined;
   const hasTimezoneExtension = typeof event.eventTimezone === "string" && event.eventTimezone.length > 0;
 
   const ap: APEvent = {
@@ -186,4 +189,17 @@ function toUtcIso(value: string): string | null {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function requireUtcInstant(value: string | undefined, field: "startAtUtc" | "endAtUtc", eventId: string): string {
+  if (!value) {
+    throw new Error(`ActivityPub emission requires ${field} for event ${eventId}`);
+  }
+
+  const normalized = toUtcIso(value);
+  if (normalized === null) {
+    throw new Error(`ActivityPub emission requires valid UTC instant in ${field} for event ${eventId}`);
+  }
+
+  return normalized;
 }
