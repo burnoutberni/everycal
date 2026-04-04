@@ -186,27 +186,21 @@ function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStar
 
   const tzid = getEventTzidForExport(event);
   const utcSource = isStart ? event.startAtUtc : event.endAtUtc;
+  if (!utcSource) {
+    const field = isStart ? "startAtUtc" : "endAtUtc";
+    throw new Error(`toICal requires ${field} for timed events (event ${event.id})`);
+  }
 
   if (tzid) {
-    const wall = toWallTimeBasic(source, utcSource, tzid);
+    const wall = toWallTimeBasic(utcSource, tzid);
     return `${prefix};TZID=${tzid}:${wall}`;
   }
 
-  if (!utcSource) return null;
   return `${prefix}:${toUtcICalDate(utcSource)}`;
 }
 
-function toWallTimeBasic(source: string, utc: string | undefined, tzid: string): string {
-  const utcIso = utc || absoluteIsoToUtcIso(source);
-  if (utcIso) return formatUtcInZone(utcIso, tzid);
-
-  const m = source.match(LOCAL_DATE_TIME);
-  if (m) {
-    return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
-  }
-
-  if (DATE_ONLY.test(source)) return `${source.replace(/-/g, "")}T000000`;
-  return toLocalICalDate(source);
+function toWallTimeBasic(utc: string, tzid: string): string {
+  return formatUtcInZone(utc, tzid);
 }
 
 function formatUtcInZone(utcIso: string, tzid: string): string {
@@ -310,18 +304,6 @@ function parseDateProperty(prop?: ParsedProperty):
 function toUtcICalDate(iso: string): string {
   const parsed = new Date(iso);
   return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-}
-
-function toLocalICalDate(iso: string): string {
-  if (DATE_ONLY.test(iso)) return `${iso.replace(/-/g, "")}T000000`;
-  const m = iso.match(LOCAL_DATE_TIME);
-  if (m) return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
-
-  const parsed = new Date(iso);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "");
-  }
-  return iso.replace(/[-:]/g, "").replace(/\./g, "");
 }
 
 function fromICalUtcOrLocal(value: string): string {
