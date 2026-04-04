@@ -17,6 +17,7 @@ const CALENDAR_URL = `${BASE_URL}/kalender`;
 export class WestbahnparkScraper implements Scraper {
   readonly id = "westbahnpark";
   readonly name = "Westbahnpark Jetzt";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = CALENDAR_URL;
   readonly website = BASE_URL;
   readonly bio = "Wir unterstützen die Stadt, ihre selbstgesteckten Ziele zu erreichen – RAUS AUS DEM ASPHALT!";

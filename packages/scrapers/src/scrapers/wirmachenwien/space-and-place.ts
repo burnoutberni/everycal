@@ -45,6 +45,7 @@ interface GqlPage {
 export class SpaceAndPlaceScraper implements Scraper {
   readonly id = "space_and_place";
   readonly name = "Space and Place";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://spaceandplace.at/termine";
   readonly website = "https://spaceandplace.at/";
   readonly bio = "Die Stadtarbeiter*innen und Stadtforscher*innen schaffen Orte der Begegnung im öffentlichen Raum.";

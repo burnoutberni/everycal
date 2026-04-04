@@ -38,6 +38,7 @@ interface TribeEventsResponse {
 export class FlexScraper implements Scraper {
   readonly id = "flex_at";
   readonly name = "Flex Vienna";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://flex.at/wp-json/tribe/events/v1/events";
   readonly avatarUrl = "https://flex.at/wp-content/uploads/2022/05/Flex-Logo-weiss.svg";
 

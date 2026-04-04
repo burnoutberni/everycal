@@ -216,9 +216,9 @@ export function federationRoutes(db: DB): Hono {
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
-        upsertRemoteEvent(db, fullObj, actor.uri, {
-          temporal: normalizeApTemporal(fullObj),
-        });
+        const temporal = normalizeApTemporal(fullObj);
+        if (!temporal) continue;
+        upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
         imported++;
       }
 
@@ -480,11 +480,11 @@ export function federationRoutes(db: DB): Hono {
       params.push(actorUri);
     }
     if (from) {
-      sql += " AND re.start_date >= ?";
+      sql += " AND re.start_at_utc >= ?";
       params.push(from);
     }
 
-    sql += " ORDER BY re.start_date ASC LIMIT ? OFFSET ?";
+    sql += " ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?";
     params.push(limit, offset);
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];

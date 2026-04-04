@@ -192,10 +192,8 @@ function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStar
     return `${prefix};TZID=${tzid}:${wall}`;
   }
 
-  const utc = utcSource || absoluteIsoToUtcIso(source);
-  if (utc) return `${prefix}:${toUtcICalDate(utc)}`;
-
-  return `${prefix}:${toLocalICalDate(source)}`;
+  if (!utcSource) return null;
+  return `${prefix}:${toUtcICalDate(utcSource)}`;
 }
 
 function toWallTimeBasic(source: string, utc: string | undefined, tzid: string): string {

@@ -33,6 +33,7 @@ interface TribeEvent {
 export class MatznerViertelScraper implements Scraper {
   readonly id = "matznerviertel";
   readonly name = "Lebenswertes Matznerviertel";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://matznerviertel.at/veranstaltungen/";
   readonly website = "https://www.matznerviertel.at";
   readonly bio = "Die Grätzlinitiative engagiert sich für einen lebenswerten öffentlichen Raum im Matznerviertel.";

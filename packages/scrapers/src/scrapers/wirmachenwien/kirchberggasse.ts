@@ -15,6 +15,7 @@ const FEED_URL = "https://kirchberggasse.at/feed/";
 export class KirchberggasseScraper implements Scraper {
   readonly id = "kirchberggasse";
   readonly name = "Initiative Kirchberggasse";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = BASE_URL;
   readonly website = "https://kirchberggasse.at";
   readonly bio = "Die Kirchberggasse zur Wohnstraße machen: begrünt, verkehrsberuhigt und gemeinsam gestaltet!";

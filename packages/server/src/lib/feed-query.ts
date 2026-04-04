@@ -26,7 +26,7 @@ const EVENTS_JOIN = `FROM events e
 export interface FeedQueryOptions {
   userId: string;
   baseUrl: string;
-  /** When set, each branch gets "e.start_date >= ? AND " prepended (for timeline) */
+  /** When set, each branch gets "e.start_at_utc >= ? AND " prepended (for timeline) */
   dateFrom?: string;
 }
 
@@ -46,7 +46,7 @@ export interface FeedQueryResult {
 export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   const { userId, baseUrl, dateFrom } = opts;
   const rfl = remoteFollowLocal();
-  const datePrefix = dateFrom ? "e.start_date >= ? AND " : "";
+  const datePrefix = dateFrom ? "e.start_at_utc >= ? AND " : "";
 
   const params: unknown[] = [];
 

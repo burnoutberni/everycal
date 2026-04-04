@@ -288,7 +288,7 @@ function durationFromStartEnd(
 function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate: string } {
   const loc = event.location;
   const isOnline = !!(loc?.url);
-  const eventTimezone = event.eventTimezone || "Europe/Vienna";
+  const eventTimezone = event.eventTimezone;
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
     : (() => {
@@ -741,7 +741,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   // Detect if material fields (title, time, location) changed — these trigger notifications to RSVPs
   const materialFieldsChanged = useMemo(() => {
     if (!isEdit || !initialEvent) return false;
-    if (eventTimezone !== (initialEvent.eventTimezone || "Europe/Vienna")) return true;
+    if (eventTimezone !== initialEvent.eventTimezone) return true;
     if (title.trim() !== (initialEvent.title || "").trim()) return true;
     const initialTemporal = eventToInitialState(initialEvent);
     const initDuration = initialTemporal.duration || "1h";

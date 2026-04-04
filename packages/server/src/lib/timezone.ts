@@ -7,10 +7,10 @@ export type TimezoneQuality = "exact_tzid" | "offset_only" | "unknown";
 export interface NormalizedRemoteTemporal {
   startDate: string;
   endDate: string | null;
-  startAtUtc: string | null;
+  startAtUtc: string;
   endAtUtc: string | null;
   eventTimezone: string | null;
-  timezoneQuality: TimezoneQuality;
+  timezoneQuality: Exclude<TimezoneQuality, "unknown">;
 }
 
 export function isValidIanaTimezone(tz: string): boolean {
@@ -39,18 +39,15 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
   return asUtc - instant.getTime();
 }
 
-function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {
-  const m = localIso.match(LOCAL_DATE_TIME);
-  if (!m) {
-    const parsed = new Date(localIso);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return parsed.toISOString();
-  }
+export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: string): string | null {
+  if (!isValidIanaTimezone(timeZone)) return null;
+  const normalized = localIso.includes(" ") ? localIso.replace(" ", "T") : localIso;
+  const m = normalized.match(LOCAL_DATE_TIME);
+  if (!m) return null;
 
   const [, y, mo, d, h, mi, s] = m;
   const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
 
-  // Iterative resolution for DST boundaries: offset depends on final instant.
   let candidateMs = naiveUtcMs;
   for (let i = 0; i < 4; i += 1) {
     const offset = getTimeZoneOffsetMs(new Date(candidateMs), timeZone);
@@ -64,70 +61,56 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string | null 
   return parsed.toISOString();
 }
 
-function hasIsoOffset(value: string | null | undefined): boolean {
-  return !!value && ISO_HAS_OFFSET.test(value);
-}
-
-function tryToUtcIso(value: string | null | undefined): string | null {
-  if (!value) return null;
+export function absoluteIsoWithOffsetToUtcIso(value: string): string | null {
+  if (!ISO_HAS_OFFSET.test(value)) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }
 
-function normalizeDateTimeShape(value: string): string {
-  return value.includes(" ") ? value.replace(" ", "T") : value;
-}
-
 function resolveTimezoneHint(object: Record<string, unknown>): string | null {
   const candidates = [object.eventTimezone, object.timezone, object.tzid];
   for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const tz = candidate.trim();
-      if (tz && isValidIanaTimezone(tz)) return tz;
-    }
+    if (typeof candidate !== "string") continue;
+    const tz = candidate.trim();
+    if (tz && isValidIanaTimezone(tz)) return tz;
   }
   return null;
 }
 
-function deriveUtc(value: string | null, eventTimezone: string | null): string | null {
+function deriveUtc(value: string | null, eventTimezone: string | null, allDay: boolean): string | null {
   if (!value) return null;
+  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
 
-  if (hasIsoOffset(value)) {
-    return tryToUtcIso(value);
-  }
-
-  const normalized = normalizeDateTimeShape(value);
+  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
   if (DATE_ONLY.test(normalized)) {
-    if (!eventTimezone) return null;
-    return localInZoneToUtcIso(`${normalized}T00:00:00`, eventTimezone);
+    if (!allDay || !eventTimezone) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${normalized}T00:00:00`, eventTimezone);
   }
 
-  if (LOCAL_DATE_TIME.test(normalized)) {
-    if (!eventTimezone) return null;
-    return localInZoneToUtcIso(normalized, eventTimezone);
-  }
-
-  return null;
+  if (!eventTimezone) return null;
+  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
 }
 
-export function normalizeApTemporal(object: Record<string, unknown>): NormalizedRemoteTemporal {
+export function normalizeApTemporal(object: Record<string, unknown>): NormalizedRemoteTemporal | null {
   const startRaw = typeof (object.startTime ?? object.startDate) === "string"
     ? String(object.startTime ?? object.startDate).trim()
     : "";
+  if (!startRaw) return null;
+
   const endRawSource = object.endTime ?? object.endDate;
   const endRaw = typeof endRawSource === "string" ? String(endRawSource).trim() : null;
+  const allDay = !!object.allDay;
 
   const eventTimezone = resolveTimezoneHint(object);
-  const startAtUtc = deriveUtc(startRaw || null, eventTimezone);
-  const endAtUtc = deriveUtc(endRaw, eventTimezone);
+  const startAtUtc = deriveUtc(startRaw, eventTimezone, allDay);
+  if (!startAtUtc) return null;
 
-  let timezoneQuality: TimezoneQuality = "unknown";
-  if (eventTimezone) {
-    timezoneQuality = "exact_tzid";
-  } else if (hasIsoOffset(startRaw) || hasIsoOffset(endRaw)) {
-    timezoneQuality = "offset_only";
-  }
+  const endAtUtc = deriveUtc(endRaw, eventTimezone, allDay);
+  if (endRaw && !endAtUtc) return null;
+  if (endAtUtc && endAtUtc < startAtUtc) return null;
+
+  const timezoneQuality = eventTimezone ? "exact_tzid" : "offset_only";
 
   return {
     startDate: startRaw,
@@ -137,20 +120,4 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
     eventTimezone,
     timezoneQuality,
   };
-}
-
-export function convertLegacyNaiveToUtcIso(value: string, fallbackTimezone: string): string | null {
-  if (!value) return null;
-
-  if (ISO_HAS_OFFSET.test(value)) {
-    return tryToUtcIso(value);
-  }
-
-  const tz = isValidIanaTimezone(fallbackTimezone) ? fallbackTimezone : "Europe/Vienna";
-
-  if (DATE_ONLY.test(value)) {
-    return localInZoneToUtcIso(`${value}T00:00:00`, tz);
-  }
-
-  return localInZoneToUtcIso(value, tz);
 }

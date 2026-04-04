@@ -23,7 +23,7 @@ import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.j
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
-import { convertLegacyNaiveToUtcIso, normalizeApTemporal } from "../lib/timezone.js";
+import { normalizeApTemporal } from "../lib/timezone.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -619,6 +619,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
 
   const uri = object.id as string;
   const temporal = normalizeApTemporal(object);
+  if (!temporal) return;
   const startDate = temporal.startDate;
   const endDate = temporal.endDate;
   const locationName = loc?.name ? stripHtml(loc.name as string) : null;
@@ -644,7 +645,6 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  if (!startDate) return;
 
   upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
@@ -758,23 +758,16 @@ function rowToAPEvent(
 ): Record<string, unknown> {
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
-  const rowTimezone = typeof row.event_timezone === "string" && row.event_timezone
-    ? row.event_timezone
-    : "Europe/Vienna";
-  const startUtc = toUtcIsoOrUndefined(row.start_at_utc)
-    ?? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.start_date as string, rowTimezone));
-  const endUtc = row.end_at_utc
-    ? toUtcIsoOrUndefined(row.end_at_utc)
-    : row.end_date
-      ? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.end_date as string, rowTimezone))
-      : undefined;
+  const startUtc = toUtcIsoOrUndefined(row.start_at_utc);
+  const endUtc = toUtcIsoOrUndefined(row.end_at_utc);
+  if (!startUtc) throw new Error("Event missing start_at_utc");
 
   const event: Record<string, unknown> = {
     "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
     id: eventUrl,
     type: "Event",
     name: row.title,
-    startTime: startUtc ?? (toISO8601(row.start_date as string) ?? row.start_date),
+    startTime: startUtc,
     published: toISO8601(row.created_at as string) ?? row.created_at,
     updated: toISO8601(row.updated_at as string) ?? row.updated_at,
     url: (row.url as string) || eventUrl,
@@ -784,7 +777,7 @@ function rowToAPEvent(
   };
 
   if (row.description) event.content = row.description;
-  if (row.end_date) event.endTime = endUtc ?? (toISO8601(row.end_date as string) ?? row.end_date);
+  if (endUtc) event.endTime = endUtc;
   if (row.event_timezone) event.eventTimezone = row.event_timezone;
   if (row.location_name) {
     const location: Record<string, unknown> = {

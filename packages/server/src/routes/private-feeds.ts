@@ -92,7 +92,7 @@ export function privateFeedRoutes(db: DB): Hono {
          WHERE er.status IN ('going','maybe')
          AND (e.visibility IN ('public','unlisted') OR e.account_id = ?)
          GROUP BY e.id
-         ORDER BY e.start_date ASC`
+         ORDER BY e.start_at_utc ASC`
       )
       .all(accountId, accountId) as Record<string, unknown>[];
 
@@ -109,13 +109,13 @@ export function privateFeedRoutes(db: DB): Hono {
          FROM remote_events re
          JOIN event_rsvps er ON er.event_uri = re.uri AND er.account_id = ?
          WHERE er.status IN ('going','maybe')
-         ORDER BY re.start_date ASC`
+         ORDER BY re.start_at_utc ASC`
       )
       .all(accountId) as Record<string, unknown>[];
 
     const allRows = [...localRows, ...remoteRows].sort((a, b) => {
-      const aDate = (a.start_date as string) || "";
-      const bDate = (b.start_date as string) || "";
+      const aDate = (a.start_at_utc as string) || "";
+      const bDate = (b.start_at_utc as string) || "";
       return aDate.localeCompare(bDate);
     });
 

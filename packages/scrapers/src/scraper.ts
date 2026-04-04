@@ -26,6 +26,9 @@ export interface Scraper {
   /** Default event image URL used when a scraped event has no image. */
   readonly defaultEventImageUrl?: string;
 
+  /** Declared IANA timezone used for naive/local source datetimes. */
+  readonly eventTimezone: string;
+
   /** Fetch and parse events from the source. */
   scrape(): Promise<Partial<EveryCalEvent>[]>;
 }

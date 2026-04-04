@@ -214,7 +214,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE re.actor_uri = ?
-         ORDER BY re.start_date ASC LIMIT ? OFFSET 0`
+         ORDER BY re.start_at_utc ASC LIMIT ? OFFSET 0`
       )
       .all(remoteActor.uri, limit) as Record<string, unknown>[];
     return rows.map(formatRemoteEvent);
@@ -287,7 +287,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
       AND e.account_id != ?
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     GROUP BY e.id
-    ORDER BY start_date ASC
+    ORDER BY start_at_utc ASC
     LIMIT ? OFFSET 0
   `;
 

@@ -23,6 +23,7 @@ const agent = new Agent({
 export class CriticalMassViennaScraper implements Scraper {
   readonly id = "critical_mass_vienna";
   readonly name = "Critical Mass Vienna";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = RSS_URL;
   readonly website = "https://www.criticalmass.at/category/wien/";
   readonly bio = "Die Critical Mass Vienna rollt seit 2006 für klimafreundlichen Verkehr durch Wien: #MehrPlatzFürsRad";

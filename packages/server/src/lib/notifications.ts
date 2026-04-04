@@ -46,8 +46,8 @@ export async function runSendReminders(db: DB): Promise<void> {
          AND a.email IS NOT NULL AND a.email != ''
          AND a.email_verified = 1
          AND ers.account_id IS NULL
-         AND datetime(rc.start_date) >= datetime('now')
-         AND datetime(rc.start_date) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
+         AND datetime(rc.start_at_utc) >= datetime('now')
+         AND datetime(rc.start_at_utc) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
     )
     .all() as {
     account_id: string;

@@ -28,7 +28,7 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
-import { convertLegacyNaiveToUtcIso, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
+import { absoluteIsoWithOffsetToUtcIso, isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso, normalizeApTemporal } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -86,6 +86,15 @@ function resolveEventUri(id: string): string {
 
 function formatTimeChangeValue(start: string, end: string | null | undefined): string {
   return [start, end || ""].filter(Boolean).join(" – ");
+}
+
+function deriveUtcForEventInput(value: string, eventTimezone: string, allDay: boolean): string | null {
+  if (/(Z|[+-]\d{2}:\d{2})$/i.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (!allDay) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
+  }
+  return localDateTimeWithTimezoneToUtcIso(value, eventTimezone);
 }
 
 /** Check whether a user is allowed to view an event based on its visibility. */
@@ -156,7 +165,7 @@ function mergeByStartDate(
   limit: number,
 ): Record<string, unknown>[] {
   return [...local, ...remote]
-    .sort((a, b) => ((a.startDate as string) || "").localeCompare((b.startDate as string) || ""))
+    .sort((a, b) => ((a.startAtUtc as string) || "").localeCompare((b.startAtUtc as string) || ""))
     .slice(0, limit);
 }
 
@@ -177,7 +186,7 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     endDate: row.end_date,
     startAtUtc: row.start_at_utc ?? undefined,
     endAtUtc: row.end_at_utc ?? undefined,
-    eventTimezone: row.event_timezone || "Europe/Vienna",
+    eventTimezone: row.event_timezone,
     allDay: !!row.all_day,
     location: row.location_name
       ? {
@@ -391,7 +400,7 @@ export function eventRoutes(db: DB): Hono {
           WHERE e.visibility = 'public'`;
       }
 
-      const dateCol = isMineScope ? "combined.start_date" : "e.start_date";
+      const dateCol = isMineScope ? "combined.start_at_utc" : "e.start_at_utc";
       const df = appendDateFilters(dateCol, from, to);
       sql += df.sql;
       params.push(...df.params);
@@ -415,7 +424,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_date", from, to);
+      const df = appendDateFilters("re.start_at_utc", from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -491,7 +500,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(account);
       }
 
-      const df = appendDateFilters(`${col}.start_date`, from, to);
+      const df = appendDateFilters(`${col}.start_at_utc`, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -505,7 +514,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(...tagList);
       }
 
-      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -530,7 +539,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_date", from, to);
+      const df = appendDateFilters("re.start_at_utc", from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -543,7 +552,7 @@ export function eventRoutes(db: DB): Hono {
       sql += tagFilter.sql;
       params.push(...tagFilter.params);
 
-      sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -604,11 +613,11 @@ export function eventRoutes(db: DB): Hono {
       let sql = feed.sql;
       const params = [...feed.params];
 
-      const df = appendDateFilters("combined.start_date", undefined, to);
+      const df = appendDateFilters("combined.start_at_utc", undefined, to);
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` GROUP BY combined.id ORDER BY combined.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` GROUP BY combined.id ORDER BY combined.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -619,18 +628,18 @@ export function eventRoutes(db: DB): Hono {
     let remoteEvents: Record<string, unknown>[];
     {
       let sql = `${REMOTE_EVENT_SELECT}
-        WHERE re.start_date >= ?
+        WHERE re.start_at_utc >= ?
           AND (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
             OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
           )`;
       const params: unknown[] = [from, user.id, user.id];
 
-      const df = appendDateFilters("re.start_date", undefined, to);
+      const df = appendDateFilters("re.start_at_utc", undefined, to);
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -658,6 +667,7 @@ export function eventRoutes(db: DB): Hono {
         description?: string;
         startDate: string;
         endDate?: string;
+        eventTimezone: string;
         allDay?: boolean;
         location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
         image?: { url: string; mediaType?: string; alt?: string };
@@ -672,8 +682,13 @@ export function eventRoutes(db: DB): Hono {
     }
 
     for (const ev of body.events) {
-      if (!ev.externalId || !ev.title || !ev.startDate) {
+      if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
+      }
+      const startAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay);
+      const endAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
+      if (!startAtUtc || (ev.endDate && !endAtUtc) || (endAtUtc && endAtUtc < startAtUtc)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
     }
 
@@ -685,7 +700,7 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
@@ -695,6 +710,8 @@ export function eventRoutes(db: DB): Hono {
       title: string;
       start_date: string;
       end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
       all_day: number;
       location_name: string | null;
       location_address: string | null;
@@ -716,7 +733,7 @@ export function eventRoutes(db: DB): Hono {
 
     function eventHash(ev: (typeof body.events)[number]): string {
       const data = JSON.stringify([
-        ev.title, ev.description || "", ev.startDate, ev.endDate || "",
+        ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
         ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
         ev.location?.latitude ?? "", ev.location?.longitude ?? "",
         ev.location?.url || "", ev.image?.url || "", ev.image?.mediaType || "",
@@ -727,14 +744,14 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const insertEvent = db.prepare(
-      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day,
+      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, start_on, end_on,
         location_name, location_address, location_latitude, location_longitude, location_url,
         image_url, image_media_type, image_alt, url, visibility, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const updateEvent = db.prepare(
-      `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
+      `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, start_on = ?, end_on = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?, location_url = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, url = ?, visibility = ?,
         content_hash = ?, canceled = 0, missing_since = NULL, updated_at = datetime('now')
@@ -765,7 +782,7 @@ export function eventRoutes(db: DB): Hono {
 
       const missingBatch = db.transaction((rows: typeof missingRows) => {
         for (const row of rows) {
-          if (row.start_date < nowIso) {
+          if (row.start_at_utc < nowIso) {
             clearMissingForPast.run(row.id);
             rotatedOutPast++;
             continue;
@@ -788,7 +805,7 @@ export function eventRoutes(db: DB): Hono {
       missingBatch(missingRows);
 
       for (const row of missingRows) {
-        if (row.start_date >= nowIso && row.missing_since && !row.canceled) {
+        if (row.start_at_utc >= nowIso && row.missing_since && !row.canceled) {
           notifyEventCancelled(db, row.id, {
             id: row.id,
             title: row.title,
@@ -835,7 +852,11 @@ export function eventRoutes(db: DB): Hono {
             const newAllDay = !!ev.allDay;
             const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
             const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
-            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "") || oldAllDay !== newAllDay) {
+            const existingEffectiveStart = existingRow.start_date;
+            const existingEffectiveEnd = existingRow.end_date;
+            const nextEffectiveStart = ev.startDate;
+            const nextEffectiveEnd = ev.endDate;
+            if (existingEffectiveStart !== nextEffectiveStart || (existingEffectiveEnd || "") !== (nextEffectiveEnd || "") || oldAllDay !== newAllDay) {
               changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
             }
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
@@ -845,9 +866,12 @@ export function eventRoutes(db: DB): Hono {
             }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
+            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
+            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, ev.startDate.slice(0, 10), ev.endDate ? ev.endDate.slice(0, 10) : null,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -876,10 +900,13 @@ export function eventRoutes(db: DB): Hono {
           } else {
             const id = nanoid(16);
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
+            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
+            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, ev.startDate.slice(0, 10), ev.endDate ? ev.endDate.slice(0, 10) : null,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -1096,9 +1123,9 @@ export function eventRoutes(db: DB): Hono {
       const actor = await resolveRemoteActor(db, actorUri, true);
       if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
 
-      const stored = upsertRemoteEvent(db, object, actor.uri, {
-        temporal: normalizeApTemporal(object),
-      });
+      const temporal = normalizeApTemporal(object);
+      if (!temporal) return c.json({ error: t(locale, "events.invalid_datetime") }, 400);
+      const stored = upsertRemoteEvent(db, object, actor.uri, { temporal });
       const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
       const row = db
         .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
@@ -1173,11 +1200,12 @@ export function eventRoutes(db: DB): Hono {
 
     const startDateInput = body.startDateTime || body.startDate;
     const endDateInput = body.endDateTime || body.endDate;
-    const eventTimezone = body.eventTimezone || "Europe/Vienna";
+    const timedEvent = !body.allDay;
+    const eventTimezone = body.eventTimezone;
     if (!body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
-    if (!isValidIanaTimezone(eventTimezone)) {
+    if (!eventTimezone || !isValidIanaTimezone(eventTimezone) || (timedEvent && !body.eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
 
@@ -1223,12 +1251,15 @@ export function eventRoutes(db: DB): Hono {
     const imageAttributionJson = body.image?.attribution
       ? JSON.stringify(body.image.attribution)
       : null;
-    const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
+    const startAtUtc = deriveUtcForEventInput(startDateInput, eventTimezone, !!body.allDay);
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null;
+    const endAtUtc = endDateInput ? deriveUtcForEventInput(endDateInput, eventTimezone, !!body.allDay) : null;
     if (endDateInput && !endAtUtc) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    if (endAtUtc && endAtUtc < startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
 
@@ -1315,6 +1346,8 @@ export function eventRoutes(db: DB): Hono {
       title: string;
       start_date: string;
       end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
       all_day: number;
       location_name: string | null;
       location_address: string | null;
@@ -1356,20 +1389,25 @@ export function eventRoutes(db: DB): Hono {
     if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
+    const nextAllDay = body.allDay ?? !!existing.all_day;
+    const tzForConvert = nextTimezone ?? existing.event_timezone;
+    if (!tzForConvert) return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
     const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
     const endForUtc = nextEnd !== undefined
       ? nextEnd
       : (shouldRecomputeUtcForTimezoneChange ? existing.end_date : undefined);
-    const nextStartAtUtc = startForUtc !== undefined ? convertLegacyNaiveToUtcIso(startForUtc, tzForConvert) : null;
+    const nextStartAtUtc = startForUtc !== undefined ? deriveUtcForEventInput(startForUtc, tzForConvert, nextAllDay) : null;
     if (startForUtc !== undefined && !nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     const nextEndAtUtc = endForUtc !== undefined && endForUtc !== null
-      ? convertLegacyNaiveToUtcIso(endForUtc, tzForConvert)
+      ? deriveUtcForEventInput(endForUtc, tzForConvert, nextAllDay)
       : null;
     if (endForUtc !== undefined && endForUtc !== null && !nextEndAtUtc) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    if (nextStartAtUtc && nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }

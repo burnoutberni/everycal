@@ -39,6 +39,9 @@ export function upsertRemoteEvent(
         : "";
   const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
   const temporal = options.temporal ?? normalizeApTemporal(object);
+  if (!temporal?.startAtUtc) {
+    throw new Error("Remote event start_at_utc is required");
+  }
   const startDate = temporal.startDate;
   const endDate = temporal.endDate;
 

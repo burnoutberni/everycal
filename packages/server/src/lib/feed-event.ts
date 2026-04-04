@@ -3,6 +3,10 @@ import { isValidVisibility, type EveryCalEvent } from "@everycal/core";
 export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
   const visibility = isValidVisibility(row.visibility) ? row.visibility : "public";
 
+  if (!row.all_day && !row.start_at_utc) {
+    throw new Error("Timed event missing start_at_utc");
+  }
+
   return {
     id: row.id as string,
     title: row.title as string,

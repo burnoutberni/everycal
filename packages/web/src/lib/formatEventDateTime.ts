@@ -83,10 +83,10 @@ export function formatEventDateTime(
   const endDateOnly = event.allDay ? parseDateOnly(event.endDate) : null;
   const startInstant = event.allDay
     ? (startDateOnly ? dateOnlyToUtcDate(startDateOnly).toISOString() : event.startDate)
-    : (event.startAtUtc || event.startDate);
+    : (event.startAtUtc || "");
   const endInstant = event.allDay
     ? (endDateOnly ? dateOnlyToUtcDate(endDateOnly).toISOString() : null)
-    : (event.endAtUtc || event.endDate);
+    : (event.endAtUtc || null);
   const start = new Date(startInstant);
   const end = endInstant ? new Date(endInstant) : null;
   const isCurrentYear = start.getFullYear() === new Date().getFullYear();
@@ -140,7 +140,7 @@ export function hasDifferentTimezoneAtEventTime(
   const eventTz = safeTimeZone(event.eventTimezone);
   const viewerTz = safeTimeZone(viewerTimeZone);
   if (!eventTz || !viewerTz) return false;
-  const startInstant = event.allDay ? event.startDate : (event.startAtUtc || event.startDate);
+  const startInstant = event.allDay ? event.startDate : (event.startAtUtc || "");
   const start = new Date(startInstant);
   return !zonesEquivalent(eventTz, viewerTz, start);
 }
@@ -165,8 +165,8 @@ export function formatViewerTimezoneTooltip(
     return `${city}: ${viewerLabel}`;
   }
 
-  const startInstant = event.startAtUtc || event.startDate;
-  const endInstant = event.endAtUtc || event.endDate;
+  const startInstant = event.startAtUtc || "";
+  const endInstant = event.endAtUtc || null;
   const start = new Date(startInstant);
   const end = endInstant ? new Date(endInstant) : null;
 

@@ -204,9 +204,9 @@ export function userRoutes(db: DB): Hono {
           WHERE re.actor_uri = ?
         `;
         const params: unknown[] = [remoteActor.uri];
-        if (from) { sql += " AND re.start_date >= ?"; params.push(from); }
-        if (to) { sql += buildToCondition("re.start_date"); params.push(...buildToParams(to)); }
-        sql += ` ORDER BY re.start_date ${sort} LIMIT ? OFFSET ?`;
+        if (from) { sql += " AND re.start_at_utc >= ?"; params.push(from); }
+        if (to) { sql += buildToCondition("re.start_at_utc"); params.push(...buildToParams(to)); }
+        sql += ` ORDER BY re.start_at_utc ${sort} LIMIT ? OFFSET ?`;
         params.push(limit, offset);
 
         const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -255,8 +255,8 @@ export function userRoutes(db: DB): Hono {
     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
 
     sql += ` GROUP BY e.id`;
 
@@ -285,8 +285,8 @@ export function userRoutes(db: DB): Hono {
         ${repostVisibilityClause}
     `;
     params.push(account.id, ...repostVisibilityParams);
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
     // Add auto-reposted events (from accounts this user auto-reposts, excluding already explicit reposts)
@@ -315,12 +315,12 @@ export function userRoutes(db: DB): Hono {
         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
     // Wrap in outer query to sort and paginate
-    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_date ${sort} LIMIT ? OFFSET ?`;
+    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_at_utc ${sort} LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const rows = db.prepare(fullSql).all(...params) as Record<string, unknown>[];
