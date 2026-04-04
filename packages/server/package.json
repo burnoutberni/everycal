@@ -10,12 +10,14 @@
     "dev": "cross-env NODE_ENV=development node --watch-path=src --import tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "tsc -b --pretty false"
+    "lint": "tsc -b --pretty false",
+    "openapi:validate": "tsx src/validate-openapi.ts"
   },
   "dependencies": {
     "@everycal/core": "workspace:*",
     "@everycal/og": "workspace:*",
     "@hono/node-server": "^1.19.10",
+    "@scalar/api-reference": "^1.49.8",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.0.0",
     "cross-env": "^10.1.0",
@@ -28,6 +30,7 @@
     "vike": "^0.4.255"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@types/bcrypt": "^5.0.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/nodemailer": "^7.0.11",

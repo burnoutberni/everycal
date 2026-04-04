@@ -46,6 +46,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { getOpenApiEtag, getOpenApiJson, getOpenApiYaml } from "./docs-openapi.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -129,6 +130,76 @@ app.use("*", authMiddleware(db));
 
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
+
+function hasMatchingEtag(ifNoneMatchHeader: string | undefined, etag: string): boolean {
+  if (!ifNoneMatchHeader) return false;
+  if (ifNoneMatchHeader.trim() === "*") return true;
+  return ifNoneMatchHeader.split(",").some((candidate) => candidate.trim() === etag);
+}
+
+app.get("/openapi.json", (c) => {
+  const etag = getOpenApiEtag();
+  const cacheControl = "public, max-age=300";
+
+  if (hasMatchingEtag(c.req.header("if-none-match"), etag)) {
+    return c.body(null, 304, {
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    });
+  }
+
+  return c.body(getOpenApiJson(), 200, {
+    "Cache-Control": cacheControl,
+    ETag: etag,
+    "Content-Type": "application/json; charset=utf-8",
+  });
+});
+
+app.get("/openapi.yaml", (c) => {
+  const etag = getOpenApiEtag();
+  const cacheControl = "public, max-age=300";
+
+  if (hasMatchingEtag(c.req.header("if-none-match"), etag)) {
+    return c.body(null, 304, {
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    });
+  }
+
+  return c.body(getOpenApiYaml(), 200, {
+    "Cache-Control": cacheControl,
+    ETag: etag,
+    "Content-Type": "application/yaml; charset=utf-8",
+  });
+});
+app.use(
+  "/docs-assets/*",
+  serveStatic({
+    root: "./packages/server/node_modules/@scalar/api-reference/dist/browser",
+    rewriteRequestPath: (path) => path.replace(/^\/docs-assets\//, ""),
+  })
+);
+app.use(
+  "/docs-assets/*",
+  serveStatic({
+    root: "./node_modules/@scalar/api-reference/dist/browser",
+    rewriteRequestPath: (path) => path.replace(/^\/docs-assets\//, ""),
+  })
+);
+app.get("/docs", (c) => c.html(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EveryCal API Docs</title>
+    <style>html,body{margin:0;padding:0;height:100%}</style>
+  </head>
+  <body>
+    <script id="api-reference" data-url="/openapi.yaml"></script>
+    <script src="/docs-assets/standalone.js"></script>
+    <noscript>Enable JavaScript to render the Scalar API reference UI.</noscript>
+  </body>
+</html>`));
 
 app.get("/api/v1/bootstrap", (c) => {
   const bootstrap = resolveBootstrap(c, db);
@@ -224,7 +295,11 @@ function shouldBypassViteDevMiddleware(pathname: string): boolean {
     pathname.startsWith("/users") ||
     pathname.startsWith("/events") ||
     pathname.startsWith("/nodeinfo") ||
-    pathname === "/inbox"
+    pathname === "/inbox" ||
+    pathname === "/docs" ||
+    pathname.startsWith("/docs-assets/") ||
+    pathname === "/openapi.yaml" ||
+    pathname === "/openapi.json"
   );
 }
 
