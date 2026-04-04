@@ -4,7 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
-import { absoluteIsoWithOffsetToUtcIso, localDateTimeWithTimezoneToUtcIso } from "./lib/timezone.js";
+import { absoluteIsoWithOffsetToUtcIso, isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -14,6 +14,29 @@ const SYSTEM_THEME_PREFERENCE = "system";
 
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const SQLITE_UTC_DATE_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
+
+function sqliteUtcDateTimeToUtcIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (!SQLITE_UTC_DATE_TIME.test(value)) return null;
+  const parsed = new Date(`${value.replace(" ", "T")}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function canonicalUtcIso(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+  return sqliteUtcDateTimeToUtcIso(value);
+}
+
+function extractDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (DATE_ONLY.test(trimmed)) return trimmed;
+  const prefix = trimmed.slice(0, 10);
+  return DATE_ONLY.test(prefix) ? prefix : null;
+}
 
 function deriveUtcForLegacyEventInput(value: string | null, eventTimezone: string, allDay: boolean): string | null {
   if (!value) return null;
@@ -22,6 +45,24 @@ function deriveUtcForLegacyEventInput(value: string | null, eventTimezone: strin
     if (!allDay) return null;
     return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
   }
+  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
+  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
+}
+
+function deriveUtcForLegacyRemoteInput(
+  value: string | null,
+  eventTimezone: string | null,
+  allDay: boolean,
+): string | null {
+  if (!value) return null;
+  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+
+  if (DATE_ONLY.test(value)) {
+    if (!allDay || !eventTimezone) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
+  }
+
+  if (!eventTimezone) return null;
   const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
   return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
 }
@@ -346,23 +387,24 @@ export function initDatabase(path: string): DB {
 
     const nowIso = new Date().toISOString();
     for (const row of temporalRows) {
-      const timezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : "UTC";
+      const rawTimezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : "UTC";
+      const timezone = isValidIanaTimezone(rawTimezone) ? rawTimezone : "UTC";
       const allDay = !!row.all_day;
       const startDateRaw = row.start_date || "";
       const endDateRaw = row.end_date && row.end_date.trim() ? row.end_date : null;
 
-      const nextStartAtUtc = row.start_at_utc && row.start_at_utc.trim()
-        ? row.start_at_utc
-        : deriveUtcForLegacyEventInput(startDateRaw, timezone, allDay) || row.created_at || nowIso;
+      const nextStartAtUtc = canonicalUtcIso(row.start_at_utc)
+        || deriveUtcForLegacyEventInput(startDateRaw, timezone, allDay)
+        || sqliteUtcDateTimeToUtcIso(row.created_at)
+        || nowIso;
 
-      let nextEndAtUtc = row.end_at_utc && row.end_at_utc.trim()
-        ? row.end_at_utc
-        : (endDateRaw ? deriveUtcForLegacyEventInput(endDateRaw, timezone, allDay) : null);
+      let nextEndAtUtc = canonicalUtcIso(row.end_at_utc)
+        || (endDateRaw ? deriveUtcForLegacyEventInput(endDateRaw, timezone, allDay) : null);
       if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
-      const startOn = startDateRaw ? startDateRaw.slice(0, 10) : nextStartAtUtc.slice(0, 10);
-      const endOn = endDateRaw ? endDateRaw.slice(0, 10) : null;
+      const startOn = extractDatePart(startDateRaw) || nextStartAtUtc.slice(0, 10);
+      const endOn = extractDatePart(endDateRaw);
 
       updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
     }
@@ -442,7 +484,7 @@ export function initDatabase(path: string): DB {
     // Column already exists
   }
   try {
-    db.exec("UPDATE remote_events SET timezone_quality = 'offset_only' WHERE timezone_quality IS NULL OR timezone_quality = ''");
+    db.exec("UPDATE remote_events SET timezone_quality = 'offset_only' WHERE timezone_quality IS NULL OR timezone_quality = '' OR timezone_quality NOT IN ('exact_tzid','offset_only')");
   } catch {
     // Ignore when table not yet initialized
   }
@@ -740,6 +782,55 @@ export function initDatabase(path: string): DB {
       WHERE start_date GLOB '????-??-??'
         AND (end_date IS NULL OR end_date GLOB '????-??-??')
     `);
+  } catch {
+    // Ignore when table not yet initialized
+  }
+
+  // Migration: canonicalize remote temporal fields into strict UTC + timezone contract
+  try {
+    const rows = db.prepare(`
+      SELECT uri, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality, fetched_at
+      FROM remote_events
+    `).all() as Array<{
+      uri: string;
+      start_date: string;
+      end_date: string | null;
+      all_day: number;
+      start_at_utc: string | null;
+      end_at_utc: string | null;
+      event_timezone: string | null;
+      timezone_quality: string | null;
+      fetched_at: string | null;
+    }>;
+
+    const updateTemporal = db.prepare(`
+      UPDATE remote_events
+      SET all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?
+      WHERE uri = ?
+    `);
+
+    const nowIso = new Date().toISOString();
+    for (const row of rows) {
+      const inferredAllDay = DATE_ONLY.test(row.start_date) && (!row.end_date || DATE_ONLY.test(row.end_date));
+      const allDay = !!row.all_day || inferredAllDay;
+
+      const rawTimezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : null;
+      const wantsExactTimezone = row.timezone_quality === "exact_tzid";
+      const timezone = rawTimezone && wantsExactTimezone && isValidIanaTimezone(rawTimezone) ? rawTimezone : null;
+
+      const nextStartAtUtc = deriveUtcForLegacyRemoteInput(row.start_date, timezone, allDay)
+        || canonicalUtcIso(row.start_at_utc)
+        || canonicalUtcIso(row.fetched_at)
+        || nowIso;
+
+      let nextEndAtUtc = deriveUtcForLegacyRemoteInput(row.end_date, timezone, allDay)
+        || canonicalUtcIso(row.end_at_utc);
+      if (row.end_date && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
+      if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
+
+      const nextTimezoneQuality = timezone ? "exact_tzid" : "offset_only";
+      updateTemporal.run(allDay ? 1 : 0, nextStartAtUtc, nextEndAtUtc, timezone, nextTimezoneQuality, row.uri);
+    }
   } catch {
     // Ignore when table not yet initialized
   }

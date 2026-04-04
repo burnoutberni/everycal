@@ -487,4 +487,82 @@ describe("event slug canonical behavior", () => {
     migrated.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("normalizes legacy local events to canonical UTC and valid timezone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-local.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        account_id TEXT,
+        external_id TEXT,
+        visibility TEXT,
+        title TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        event_timezone TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("legacy-1", "not-a-date", null, 0, "Not/AZone", "2024-05-01 10:30:00");
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT start_at_utc, event_timezone, start_on FROM events WHERE id = ?"
+    ).get("legacy-1") as { start_at_utc: string; event_timezone: string; start_on: string };
+
+    expect(row.start_at_utc).toBe("2024-05-01T10:30:00.000Z");
+    expect(row.event_timezone).toBe("UTC");
+    expect(row.start_on).toBe("2024-05-01");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("canonicalizes legacy remote event UTC values from absolute start_date", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-remote.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE remote_events (
+        uri TEXT PRIMARY KEY,
+        actor_uri TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        fetched_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      "INSERT INTO remote_events (uri, actor_uri, title, start_date, fetched_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(
+      "https://remote.example/events/legacy-1",
+      "https://remote.example/users/alice",
+      "Legacy Remote",
+      "2026-03-01T10:00:00+01:00",
+      "2026-01-01 00:00:00"
+    );
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT start_at_utc, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
+    ).get("https://remote.example/events/legacy-1") as {
+      start_at_utc: string;
+      event_timezone: string | null;
+      timezone_quality: string;
+    };
+
+    expect(row.start_at_utc).toBe("2026-03-01T09:00:00.000Z");
+    expect(row.event_timezone).toBeNull();
+    expect(row.timezone_quality).toBe("offset_only");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
