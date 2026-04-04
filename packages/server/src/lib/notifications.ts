@@ -14,62 +14,40 @@ import { fallbackSlugFromUri } from "./event-links.js";
 
 /** Run the reminder job: find events in window, send emails, record sent. */
 export async function runSendReminders(db: DB): Promise<void> {
-  // Local events: account has RSVP, reminder enabled, event in window, not yet sent
-  const localRows = db
+  // Local + remote events: account has RSVP, reminder enabled, event in window, not yet sent, not canceled
+  const rows = db
     .prepare(
-      `SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
-              e.id AS event_uri, e.slug, e.title, e.start_date, e.end_date, e.all_day,
-              e.location_name, e.url, owner.username AS owner_username
-       FROM accounts a
-       JOIN account_notification_prefs anp ON anp.account_id = a.id
-       JOIN event_rsvps er ON er.account_id = a.id
-       JOIN events e ON e.id = er.event_uri
-       JOIN accounts owner ON owner.id = e.account_id
-       LEFT JOIN event_reminder_sent ers ON ers.account_id = a.id AND ers.event_uri = e.id
-         AND ers.reminder_type = CAST(anp.reminder_hours_before AS TEXT)
-       WHERE anp.reminder_enabled = 1
-         AND a.email IS NOT NULL AND a.email != ''
-         AND a.email_verified = 1
-         AND ers.account_id IS NULL
-         AND datetime(e.start_date) >= datetime('now')
-         AND datetime(e.start_date) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
-    )
-    .all() as {
-    account_id: string;
-    email: string;
-    preferred_language: string;
-    reminder_hours_before: number;
-    event_uri: string;
-    slug: string | null;
-    owner_username: string;
-    title: string;
-    start_date: string;
-    end_date: string | null;
-    all_day: number;
-    location_name: string | null;
-    url: string | null;
-    owner_domain?: string | null;
-  }[];
+      `WITH reminder_candidates AS (
+         SELECT er.account_id, e.id AS event_uri, e.slug, e.title, e.start_date, e.end_date, e.all_day,
+                e.location_name, e.url, owner.username AS owner_username, NULL AS owner_domain
+         FROM event_rsvps er
+         JOIN events e ON e.id = er.event_uri
+         JOIN accounts owner ON owner.id = e.account_id
+         WHERE e.canceled = 0
 
-  // Remote events: same logic (exclude canceled)
-  const remoteRows = db
-    .prepare(
-      `SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
-              re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date,
-              0 AS all_day, re.location_name, re.url, ra.preferred_username AS owner_username, ra.domain AS owner_domain
-       FROM accounts a
+         UNION ALL
+
+         SELECT er.account_id, re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date, 0 AS all_day,
+                re.location_name, re.url, ra.preferred_username AS owner_username, ra.domain AS owner_domain
+         FROM event_rsvps er
+         JOIN remote_events re ON re.uri = er.event_uri
+         JOIN remote_actors ra ON ra.uri = re.actor_uri
+         WHERE re.canceled = 0
+       )
+       SELECT a.id AS account_id, a.email, COALESCE(a.preferred_language, 'en') AS preferred_language, anp.reminder_hours_before,
+              rc.event_uri, rc.slug, rc.owner_username, rc.title, rc.start_date, rc.end_date, rc.all_day,
+              rc.location_name, rc.url, rc.owner_domain
+       FROM reminder_candidates rc
+       JOIN accounts a ON a.id = rc.account_id
        JOIN account_notification_prefs anp ON anp.account_id = a.id
-       JOIN event_rsvps er ON er.account_id = a.id
-       JOIN remote_events re ON re.uri = er.event_uri AND re.canceled = 0
-       JOIN remote_actors ra ON ra.uri = re.actor_uri
-       LEFT JOIN event_reminder_sent ers ON ers.account_id = a.id AND ers.event_uri = re.uri
+       LEFT JOIN event_reminder_sent ers ON ers.account_id = a.id AND ers.event_uri = rc.event_uri
          AND ers.reminder_type = CAST(anp.reminder_hours_before AS TEXT)
        WHERE anp.reminder_enabled = 1
          AND a.email IS NOT NULL AND a.email != ''
          AND a.email_verified = 1
          AND ers.account_id IS NULL
-         AND datetime(re.start_date) >= datetime('now')
-         AND datetime(re.start_date) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
+         AND datetime(rc.start_date) >= datetime('now')
+         AND datetime(rc.start_date) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
     )
     .all() as {
     account_id: string;
@@ -92,7 +70,7 @@ export async function runSendReminders(db: DB): Promise<void> {
     `INSERT INTO event_reminder_sent (account_id, event_uri, reminder_type) VALUES (?, ?, ?)`
   );
 
-  for (const row of [...localRows, ...remoteRows]) {
+  for (const row of rows) {
     try {
       await sendEventReminder(
         row.email,
