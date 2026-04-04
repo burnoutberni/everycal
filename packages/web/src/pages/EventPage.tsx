@@ -344,9 +344,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       : undefined;
 
     const title = event.title;
-    const description = event.location?.name
-      ? `${formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone })} • ${event.location.name}`
-      : formatEventDateTime(event, true, { locale: dateTimeLocale, allDayLabel: t("allDay"), viewerTimeZone, displayTimeZone: viewerTimeZone });
+    const dateTimeDescription = formatEventDateTime(event, true, {
+      locale: dateTimeLocale,
+      allDayLabel: t("allDay"),
+      viewerTimeZone,
+      displayTimeZone: viewerTimeZone,
+    });
+    const description = dateTimeDescription
+      ? (event.location?.name ? `${dateTimeDescription} • ${event.location.name}` : dateTimeDescription)
+      : (event.location?.name || "");
 
     document.title = title;
     document.querySelector('meta[property="og:title"]')?.setAttribute("content", title);

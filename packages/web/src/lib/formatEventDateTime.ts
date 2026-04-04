@@ -74,6 +74,8 @@ export function formatEventDateTime(
     displayTimeZone?: string;
   }
 ): string {
+  if (!event.allDay && !event.startAtUtc) return "";
+
   const locale = options?.locale;
   const allDayLabel = options?.allDayLabel ?? i18n.t("events:allDay");
   const eventTz = safeTimeZone(event.eventTimezone);
@@ -137,6 +139,8 @@ export function hasDifferentTimezoneAtEventTime(
   event: { startDate: string; startAtUtc?: string; allDay: boolean; eventTimezone?: string },
   viewerTimeZone?: string
 ): boolean {
+  if (!event.allDay && !event.startAtUtc) return false;
+
   const eventTz = safeTimeZone(event.eventTimezone);
   const viewerTz = safeTimeZone(viewerTimeZone);
   if (!eventTz || !viewerTz) return false;
@@ -149,6 +153,8 @@ export function formatViewerTimezoneTooltip(
   event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
   options?: { locale?: string; allDayLabel?: string; viewerTimeZone?: string }
 ): string {
+  if (!event.allDay && !event.startAtUtc) return "";
+
   const locale = options?.locale;
   const viewerTz = safeTimeZone(options?.viewerTimeZone);
   const eventTz = safeTimeZone(event.eventTimezone);

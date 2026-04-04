@@ -5,12 +5,12 @@ import { formatEventDateTime } from "../../../lib/formatEventDateTime";
 
 type EventPageContext = PageContextServer & { initialData?: SsrInitialData };
 
-type SsrEventModel = Pick<CalEvent, "title" | "startDate" | "endDate" | "allDay" | "location" | "ogImageUrl" | "image">;
+type SsrEventModel = Pick<CalEvent, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "location" | "ogImageUrl" | "image">;
 
 function formatEventDescription(event: SsrEventModel): string {
-  return event.location?.name
-    ? `${formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" })} • ${event.location.name}`
-    : formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" });
+  const dateTime = formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" });
+  if (!dateTime) return event.location?.name || "";
+  return event.location?.name ? `${dateTime} • ${event.location.name}` : dateTime;
 }
 
 export async function data(pageContext: PageContextServer) {
