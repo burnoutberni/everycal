@@ -195,9 +195,9 @@ async function main() {
         syncErrors++;
       } else {
         const r = (await res.json()) as {
-          created: number; updated: number; unchanged: number; deleted: number; canceled?: number; rotatedOutPast?: number;
+          created: number; updated: number; unchanged: number; canceled: number; rotatedOutPast?: number;
         };
-        console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} !${r.canceled || 0} ↺${r.rotatedOutPast || 0}`);
+        console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} !${r.canceled} ↺${r.rotatedOutPast || 0}`);
       }
     } catch (err) {
       console.log(`❌ sync: ${err}`);

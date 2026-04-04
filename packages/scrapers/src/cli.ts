@@ -153,11 +153,11 @@ Examples:
         const result = (await res.json()) as {
           created: number;
           updated: number;
-          deleted: number;
+          canceled: number;
           total: number;
         };
         console.error(
-          `   ✅ Synced: ${result.created} created, ${result.updated} updated, ${result.deleted} deleted`
+          `   ✅ Synced: ${result.created} created, ${result.updated} updated, ${result.canceled} canceled`
         );
       }
     } else {
