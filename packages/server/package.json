@@ -20,9 +20,9 @@
     "better-sqlite3": "^11.0.0",
     "cross-env": "^10.1.0",
     "dotenv": "^17.3.1",
-    "hono": "^4.12.4",
+    "hono": "^4.12.10",
     "nanoid": "^5.1.0",
-    "nodemailer": "^7.0.11",
+    "nodemailer": "^8.0.4",
     "sanitize-html": "^2.17.0",
     "sharp": "^0.34.5",
     "vike": "^0.4.255"
@@ -34,6 +34,6 @@
     "@types/sanitize-html": "^2.16.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.2"
   }
 }

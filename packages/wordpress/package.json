@@ -13,6 +13,6 @@
     "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal"
   },
   "devDependencies": {
-    "@wordpress/scripts": "^31.0.0"
+    "@wordpress/scripts": "^31.8.0"
   }
 }
