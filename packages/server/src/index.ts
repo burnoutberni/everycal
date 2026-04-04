@@ -46,7 +46,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
-import { buildOpenApiDocument, buildOpenApiYaml } from "./docs-openapi.js";
+import { getOpenApiEtag, getOpenApiJson, getOpenApiYaml } from "./docs-openapi.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -131,8 +131,47 @@ app.use("*", authMiddleware(db));
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
-app.get("/openapi.json", (c) => c.json(buildOpenApiDocument()));
-app.get("/openapi.yaml", (c) => c.text(buildOpenApiYaml(), 200, { "Content-Type": "application/yaml; charset=utf-8" }));
+function hasMatchingEtag(ifNoneMatchHeader: string | undefined, etag: string): boolean {
+  if (!ifNoneMatchHeader) return false;
+  if (ifNoneMatchHeader.trim() === "*") return true;
+  return ifNoneMatchHeader.split(",").some((candidate) => candidate.trim() === etag);
+}
+
+app.get("/openapi.json", (c) => {
+  const etag = getOpenApiEtag();
+  const cacheControl = "public, max-age=300";
+
+  if (hasMatchingEtag(c.req.header("if-none-match"), etag)) {
+    return c.body(null, 304, {
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    });
+  }
+
+  return c.body(getOpenApiJson(), 200, {
+    "Cache-Control": cacheControl,
+    ETag: etag,
+    "Content-Type": "application/json; charset=utf-8",
+  });
+});
+
+app.get("/openapi.yaml", (c) => {
+  const etag = getOpenApiEtag();
+  const cacheControl = "public, max-age=300";
+
+  if (hasMatchingEtag(c.req.header("if-none-match"), etag)) {
+    return c.body(null, 304, {
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    });
+  }
+
+  return c.body(getOpenApiYaml(), 200, {
+    "Cache-Control": cacheControl,
+    ETag: etag,
+    "Content-Type": "application/yaml; charset=utf-8",
+  });
+});
 app.use(
   "/docs-assets/*",
   serveStatic({

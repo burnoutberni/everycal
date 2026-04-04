@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 type SchemaObject = Record<string, unknown>;
 type SecuritySchemeObject = Record<string, unknown>;
@@ -291,12 +293,182 @@ export function buildOpenApiYaml(): string {
   return `${toYaml(buildOpenApiDocument())}\n`;
 }
 
-export function validateOpenApiDoc(): { ok: boolean; issues: string[] } {
+type CachedOpenApiSpec = {
+  document: Document;
+  json: string;
+  yaml: string;
+  etag: string;
+};
+
+let cachedOpenApiSpec: CachedOpenApiSpec | null = null;
+
+function getCachedOpenApiSpec(): CachedOpenApiSpec {
+  if (cachedOpenApiSpec) return cachedOpenApiSpec;
+
   const document = buildOpenApiDocument();
+  const json = JSON.stringify(document);
+  const yaml = `${toYaml(document)}\n`;
+  const etag = `W/"${createHash("sha256").update(json).digest("base64url")}"`;
+
+  cachedOpenApiSpec = { document, json, yaml, etag };
+  return cachedOpenApiSpec;
+}
+
+export function getOpenApiDocument(): Document {
+  return getCachedOpenApiSpec().document;
+}
+
+export function getOpenApiJson(): string {
+  return getCachedOpenApiSpec().json;
+}
+
+export function getOpenApiYaml(): string {
+  return getCachedOpenApiSpec().yaml;
+}
+
+export function getOpenApiEtag(): string {
+  return getCachedOpenApiSpec().etag;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function collectSwaggerParserIssues(error: unknown): string[] {
+  if (!isRecord(error)) return [error instanceof Error ? error.message : String(error)];
+
+  const details = error.details;
+  if (!Array.isArray(details) || details.length === 0) {
+    const message = typeof error.message === "string" ? error.message : "OpenAPI semantic validation failed.";
+    return [message];
+  }
+
+  const issues: string[] = [];
+  for (const detail of details) {
+    if (!isRecord(detail)) {
+      issues.push(String(detail));
+      continue;
+    }
+
+    const message = typeof detail.message === "string" ? detail.message : JSON.stringify(detail);
+    const path = Array.isArray(detail.path)
+      ? detail.path.filter((segment): segment is string | number => typeof segment === "string" || typeof segment === "number").join(".")
+      : "";
+    const instancePath = typeof detail.instancePath === "string" ? detail.instancePath : "";
+    const location = path || instancePath;
+    issues.push(location ? `${location}: ${message}` : message);
+  }
+
+  return issues;
+}
+
+function extractPathParams(pathKey: string): Set<string> {
+  const params = new Set<string>();
+  const re = /\{([^}]+)\}/g;
+  let match = re.exec(pathKey);
+  while (match) {
+    params.add(match[1]);
+    match = re.exec(pathKey);
+  }
+  return params;
+}
+
+function collectPathParameterFlags(parameters: unknown): Map<string, boolean> {
+  const flags = new Map<string, boolean>();
+  if (!Array.isArray(parameters)) return flags;
+
+  for (const parameter of parameters) {
+    if (!isRecord(parameter)) continue;
+    if (parameter.in !== "path") continue;
+    if (typeof parameter.name !== "string") continue;
+    flags.set(parameter.name, parameter.required === true);
+  }
+
+  return flags;
+}
+
+function collectCustomSemanticIssues(document: Document): string[] {
+  const issues: string[] = [];
+  if (!isRecord(document.paths)) return issues;
+
+  const operationIds = new Map<string, string>();
+  const operationMethods = new Set(["get", "put", "post", "delete", "options", "head", "patch", "trace"]);
+
+  for (const [pathKey, pathValue] of Object.entries(document.paths)) {
+    if (!isRecord(pathValue)) continue;
+    const expectedPathParams = extractPathParams(pathKey);
+    const pathLevelPathParams = collectPathParameterFlags(pathValue.parameters);
+
+    for (const [method, operationValue] of Object.entries(pathValue)) {
+      if (!operationMethods.has(method) || !isRecord(operationValue)) continue;
+      const operationRef = `${method.toUpperCase()} ${pathKey}`;
+
+      if (typeof operationValue.operationId !== "string" || operationValue.operationId.length === 0) {
+        issues.push(`${operationRef}: missing operationId.`);
+      } else {
+        const existing = operationIds.get(operationValue.operationId);
+        if (existing) {
+          issues.push(`${operationRef}: duplicate operationId '${operationValue.operationId}' already used by ${existing}.`);
+        } else {
+          operationIds.set(operationValue.operationId, operationRef);
+        }
+      }
+
+      if (!isRecord(operationValue.responses) || Object.keys(operationValue.responses).length === 0) {
+        issues.push(`${operationRef}: missing responses object.`);
+      }
+
+      const mergedPathParams = new Map(pathLevelPathParams);
+      for (const [name, required] of collectPathParameterFlags(operationValue.parameters)) {
+        mergedPathParams.set(name, required);
+      }
+
+      for (const param of expectedPathParams) {
+        if (!mergedPathParams.has(param)) {
+          issues.push(`${operationRef}: missing required path parameter definition for '{${param}}'.`);
+          continue;
+        }
+
+        if (mergedPathParams.get(param) !== true) {
+          issues.push(`${operationRef}: path parameter '{${param}}' must set required=true.`);
+        }
+      }
+
+      for (const declared of mergedPathParams.keys()) {
+        if (!expectedPathParams.has(declared)) {
+          issues.push(`${operationRef}: declares path parameter '${declared}' that is not present in the path template.`);
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+export async function validateOpenApiDocument(document: Document): Promise<{ ok: boolean; issues: string[] }> {
   const issues: string[] = [];
   if (document.openapi !== "3.1.0") issues.push(`Expected openapi=3.1.0, got ${document.openapi}`);
   if (!document.paths || Object.keys(document.paths).length === 0) issues.push("No paths declared.");
   if (!document.components?.securitySchemes) issues.push("No security schemes declared.");
   if (!document.tags?.some((t: { name?: string }) => t.name === "ActivityPub")) issues.push("Missing ActivityPub tag.");
+
+  try {
+    const { default: SwaggerParser } = await import("@apidevtools/swagger-parser");
+    await SwaggerParser.validate(document as any, {
+      validate: {
+        schema: true,
+        spec: true,
+      },
+    });
+  } catch (error) {
+    issues.push(...collectSwaggerParserIssues(error));
+  }
+
+  issues.push(...collectCustomSemanticIssues(document));
+
   return { ok: issues.length === 0, issues };
+}
+
+export async function validateOpenApiDoc(): Promise<{ ok: boolean; issues: string[] }> {
+  return validateOpenApiDocument(buildOpenApiDocument());
 }

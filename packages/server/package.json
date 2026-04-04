@@ -30,6 +30,7 @@
     "vike": "^0.4.255"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@types/bcrypt": "^5.0.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/nodemailer": "^7.0.11",
