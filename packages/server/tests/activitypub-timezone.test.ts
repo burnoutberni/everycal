@@ -163,9 +163,7 @@ describe("ActivityPub timezone interoperability", () => {
 
     const unknownRow = db.prepare(
       "SELECT start_at_utc, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
-    ).get("https://remote.example/events/unknown") as { start_at_utc: string | null; event_timezone: string | null; timezone_quality: string };
-    expect(unknownRow.start_at_utc).toBeNull();
-    expect(unknownRow.event_timezone).toBeNull();
-    expect(unknownRow.timezone_quality).toBe("unknown");
+    ).get("https://remote.example/events/unknown");
+    expect(unknownRow).toBeUndefined();
   });
 });
