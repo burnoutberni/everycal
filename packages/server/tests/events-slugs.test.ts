@@ -22,6 +22,12 @@ import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 
+const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+
+function isoFromNow(offsetMs: number): string {
+  return new Date(Date.now() + offsetMs).toISOString();
+}
+
 function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
   app.use("*", async (c, next) => {
@@ -67,14 +73,16 @@ describe("event slug canonical behavior", () => {
 
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
+    const pastStartDate = isoFromNow(-oneYearMs);
+    const futureStartDate = isoFromNow(oneYearMs);
 
     const initialSync = await app.request("http://localhost/api/v1/events/sync", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         events: [
-          { externalId: "past-1", title: "Past Event", startDate: "2025-01-01T10:00:00Z" },
-          { externalId: "future-1", title: "Future Event", startDate: "2027-01-01T10:00:00Z" },
+          { externalId: "past-1", title: "Past Event", startDate: pastStartDate },
+          { externalId: "future-1", title: "Future Event", startDate: futureStartDate },
         ],
       }),
     });
@@ -112,12 +120,13 @@ describe("event slug canonical behavior", () => {
 
   it("sync clears canceled when a previously missing event appears again", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
+    const futureStartDate = isoFromNow(oneYearMs);
 
     await app.request("http://localhost/api/v1/events/sync", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        events: [{ externalId: "future-2", title: "Future Event", startDate: "2027-06-01T10:00:00Z" }],
+        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate }],
       }),
     });
     await app.request("http://localhost/api/v1/events/sync", {
@@ -138,7 +147,7 @@ describe("event slug canonical behavior", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        events: [{ externalId: "future-2", title: "Future Event", startDate: "2027-06-01T10:00:00Z" }],
+        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate }],
       }),
     });
     expect(backAgain.status).toBe(200);
