@@ -1470,31 +1470,33 @@ export function eventRoutes(db: DB): Hono {
 
     if (body.tags !== undefined) replaceTags(id, body.tags);
 
+    const oldAllDay = !!existing.all_day;
+    const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
+    const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
+    const newTime = formatTimeChangeValue(nextStart ?? existing.start_date, nextEnd !== undefined ? (nextEnd || "") : (existing.end_date || ""));
+    const oldTimezone = existing.event_timezone || "";
+    const newTimezone = body.eventTimezone !== undefined ? body.eventTimezone : oldTimezone;
+    const timeChanged = oldTime !== newTime || oldAllDay !== newAllDay || oldTimezone !== newTimezone;
+    const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
+    const newLoc = body.location === undefined
+      ? oldLoc
+      : body.location === null
+        ? ""
+        : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
+    const locationChanged = oldLoc !== newLoc;
+    const titleChanged = body.title !== undefined && existing.title !== body.title;
+
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
       const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
-      if (body.title !== undefined && existing.title !== body.title) {
+      if (titleChanged) {
         changes.push({ field: "title", before: existing.title, after: body.title });
       }
-      if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined) {
-        const newStart = body.startDate ?? existing.start_date;
-        const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
-        const oldAllDay = !!existing.all_day;
-        const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
-        const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
-        const newTime = formatTimeChangeValue(newStart, newEnd);
-        if (oldTime !== newTime || oldAllDay !== newAllDay) {
-          changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
-        }
+      if (timeChanged) {
+        changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
       }
-      if (body.location !== undefined) {
-        const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
-        const newLoc = body.location === null
-          ? ""
-          : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
-        if (oldLoc !== newLoc) {
-          changes.push({ field: "location", before: oldLoc, after: newLoc });
-        }
+      if (locationChanged) {
+        changes.push({ field: "location", before: oldLoc, after: newLoc });
       }
       if (changes.length > 0) {
         const ev = readLocalEventById(id);
@@ -1556,10 +1558,9 @@ export function eventRoutes(db: DB): Hono {
     if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
 
     const ogRelevantFieldsChanged =
-      body.title !== undefined ||
-      body.startDate !== undefined ||
-      body.endDate !== undefined ||
-      body.location !== undefined ||
+      titleChanged ||
+      timeChanged ||
+      locationChanged ||
       body.image !== undefined;
 
     if (ogRelevantFieldsChanged) {

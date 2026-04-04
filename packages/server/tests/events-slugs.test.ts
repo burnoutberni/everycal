@@ -17,10 +17,29 @@ vi.mock("../src/lib/federation.js", async () => {
   };
 });
 
+vi.mock("../src/lib/notifications.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/lib/notifications.js")>("../src/lib/notifications.js");
+  return {
+    ...actual,
+    notifyEventUpdated: vi.fn(),
+    notifyEventCancelled: vi.fn(),
+  };
+});
+
+vi.mock("../src/routes/og-images.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/routes/og-images.js")>("../src/routes/og-images.js");
+  return {
+    ...actual,
+    generateAndSaveOgImage: vi.fn().mockResolvedValue("/og-images/mock.png?v=1"),
+  };
+});
+
 import { eventRoutes } from "../src/routes/events.js";
 import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
+import { notifyEventUpdated } from "../src/lib/notifications.js";
+import { generateAndSaveOgImage } from "../src/routes/og-images.js";
 
 const oneYearMs = 365 * 24 * 60 * 60 * 1000;
 
@@ -49,6 +68,8 @@ describe("event slug canonical behavior", () => {
     vi.mocked(resolveRemoteActor).mockReset();
     vi.mocked(deliverToFollowers).mockResolvedValue(true as any);
     vi.mocked(validateFederationUrl).mockResolvedValue(undefined);
+    vi.mocked(notifyEventUpdated).mockClear();
+    vi.mocked(generateAndSaveOgImage).mockClear();
   });
 
   it("keeps local slug immutable on title update", async () => {
@@ -69,6 +90,41 @@ describe("event slug canonical behavior", () => {
 
     expect(update.status).toBe(200);
     expect(updated.slug).toBe(created.slug);
+  });
+
+  it("detects time change and regenerates OG when PUT uses datetime fields", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Datetime Event",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(notifyEventUpdated).mockClear();
+    vi.mocked(generateAndSaveOgImage).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        startDateTime: "2026-01-01T12:00:00",
+        endDateTime: "2026-01-01T13:00:00",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(notifyEventUpdated).toHaveBeenCalledTimes(1);
+    const changes = vi.mocked(notifyEventUpdated).mock.calls[0]?.[3] as Array<{ field: string }> | undefined;
+    expect(changes?.some((change) => change.field === "time")).toBe(true);
+    expect(generateAndSaveOgImage).toHaveBeenCalledTimes(1);
   });
 
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
