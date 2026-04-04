@@ -10,6 +10,7 @@
 import * as cheerio from "cheerio";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
+import { normalizeEventDateTime } from "../../lib/datetime.js";
 
 const BASE_URL = "https://www.westbahnpark.live";
 const CALENDAR_URL = `${BASE_URL}/kalender`;
@@ -48,8 +49,10 @@ export class WestbahnparkScraper implements Scraper {
 
       if (!title || !startText) return;
 
-      const startDate = new Date(startText);
-      const endDate = endText ? new Date(endText) : undefined;
+      const startDate = normalizeEventDateTime(startText);
+      if (!startDate) return;
+
+      const endDate = normalizeEventDateTime(endText);
 
       // Image from the event item
       const imgSrc = $el.find("img").first().attr("src");
@@ -59,7 +62,7 @@ export class WestbahnparkScraper implements Scraper {
         : CALENDAR_URL;
 
       // Build a unique ID; append a suffix if there are collisions
-      let baseId = `westbahnpark-${startDate.toISOString()}-${title.slice(0, 40).replace(/[^a-z0-9]/gi, "-")}`;
+      let baseId = `westbahnpark-${startDate}-${title.slice(0, 40).replace(/[^a-z0-9]/gi, "-")}`;
       let eventId = baseId;
       let suffix = 2;
       while (seenIds.has(eventId)) {
@@ -71,8 +74,8 @@ export class WestbahnparkScraper implements Scraper {
         id: eventId,
         title,
         description: description || undefined,
-        startDate: startDate.toISOString(),
-        endDate: endDate?.toISOString(),
+        startDate,
+        endDate,
         url: fullUrl,
         image: imgSrc ? { url: imgSrc } : undefined,
         location: locationText

@@ -8,6 +8,7 @@
 
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
+import { normalizeEventDateTime, toUtcIsoFromAbsolute } from "../../lib/datetime.js";
 
 const GRAPHQL_URL = "https://spaceandplace.at/cms/graphql";
 const IMAGE_BASE = "https://spaceandplace.at/cms/wp-content/uploads/";
@@ -73,9 +74,14 @@ export class SpaceAndPlaceScraper implements Scraper {
     for (const { node } of json.data.pages.edges) {
       if (!node.title || !node.eventStart) continue;
 
+      const startDate = normalizeEventDateTime(node.eventStart);
+      if (!startDate) continue;
+
+      const endDate = normalizeEventDateTime(node.eventEnd);
+
       // Skip past events
-      const endDate = node.eventEnd ? new Date(node.eventEnd) : new Date(node.eventStart);
-      if (endDate < now) continue;
+      const endDateUtc = toUtcIsoFromAbsolute(node.eventEnd ?? node.eventStart);
+      if (endDateUtc && new Date(endDateUtc) < now) continue;
 
       const image = node.headerimage
         ? { url: `${IMAGE_BASE}${node.headerimage}` }
@@ -84,8 +90,8 @@ export class SpaceAndPlaceScraper implements Scraper {
       events.push({
         id: `space-and-place-${node.databaseId}`,
         title: node.title.replace(/\s+/g, " ").trim(),
-        startDate: new Date(node.eventStart).toISOString(),
-        endDate: node.eventEnd ? new Date(node.eventEnd).toISOString() : undefined,
+        startDate,
+        endDate,
         url: `https://spaceandplace.at${node.uri}`,
         image,
         organizer: "Space and Place",

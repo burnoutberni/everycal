@@ -7,6 +7,7 @@
 
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../scraper.js";
+import { normalizeEventDateTime, normalizeUtcDateTime } from "../lib/datetime.js";
 
 interface TribeCategory {
   name: string;
@@ -89,12 +90,15 @@ export class FlexScraper implements Scraper {
 }
 
 function fromTribeEvent(raw: TribeEvent): Partial<EveryCalEvent> {
+  const startDate = raw.utc_start_date ? normalizeUtcDateTime(raw.utc_start_date) : normalizeEventDateTime(raw.start_date);
+  const endDate = raw.utc_end_date ? normalizeUtcDateTime(raw.utc_end_date) : normalizeEventDateTime(raw.end_date);
+
   const event: Partial<EveryCalEvent> = {
     id: `flex-at-${raw.id}`,
     title: raw.title,
     description: raw.description || undefined,
-    startDate: toIsoDate(raw.utc_start_date || raw.start_date),
-    endDate: toIsoDate(raw.utc_end_date || raw.end_date),
+    startDate,
+    endDate,
     allDay: Boolean(raw.all_day),
     url: raw.url,
     visibility: "public",
@@ -118,12 +122,6 @@ function toTribeDate(date: Date): string {
   const minute = String(date.getUTCMinutes()).padStart(2, "0");
   const second = String(date.getUTCSeconds()).padStart(2, "0");
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-}
-
-function toIsoDate(value?: string): string | undefined {
-  if (!value) return undefined;
-  const normalized = value.replace(" ", "T");
-  return normalized.endsWith("Z") ? normalized : `${normalized}Z`;
 }
 
 function inferMediaType(url: string): string | undefined {

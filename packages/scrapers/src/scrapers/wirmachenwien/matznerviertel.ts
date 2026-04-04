@@ -7,6 +7,7 @@
 
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
+import { normalizeEventDateTime } from "../../lib/datetime.js";
 
 const API_URL = "https://matznerviertel.at/wp-json/tribe/events/v1/events";
 
@@ -52,6 +53,11 @@ export class MatznerViertelScraper implements Scraper {
     for (const ev of json.events) {
       if (!ev.title || !ev.start_date) continue;
 
+      const startDate = normalizeEventDateTime(ev.start_date);
+      if (!startDate) continue;
+
+      const endDate = normalizeEventDateTime(ev.end_date);
+
       // Strip HTML tags from description
       const description = ev.description
         ? ev.description.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()
@@ -68,8 +74,8 @@ export class MatznerViertelScraper implements Scraper {
         id: `matznerviertel-${ev.id}`,
         title: ev.title.replace(/<[^>]+>/g, "").trim(),
         description: description || undefined,
-        startDate: new Date(ev.start_date).toISOString(),
-        endDate: ev.end_date ? new Date(ev.end_date).toISOString() : undefined,
+        startDate,
+        endDate,
         allDay: ev.all_day,
         url: ev.url,
         location,

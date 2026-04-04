@@ -90,7 +90,7 @@ describe("FlexScraper", () => {
             {
               id: 3,
               title: "Second page event",
-              utc_start_date: "2026-07-02 20:00:00",
+              start_date: "2026-07-02 20:00:00",
             },
             {
               id: 4,
@@ -112,5 +112,7 @@ describe("FlexScraper", () => {
     );
 
     expect(events.map((e) => e.id)).toEqual(["flex-at-1", "flex-at-3"]);
+    expect(events[0]?.startDate).toBe("2026-07-01T18:00:00Z");
+    expect(events[1]?.startDate).toBe("2026-07-02T20:00:00");
   });
 });
