@@ -76,6 +76,7 @@ function buildEvent(overrides: Partial<EveryCalEvent> = {}): EveryCalEvent {
     title: "Community Picnic",
     startDate: "2026-08-15T18:00:00.000Z",
     endDate: "2026-08-15T20:00:00.000Z",
+    startAtUtc: "2026-08-15T18:00:00.000Z",
     visibility: "public",
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-01T10:00:00.000Z",

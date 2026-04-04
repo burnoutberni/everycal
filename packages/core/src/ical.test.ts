@@ -8,6 +8,7 @@ function baseEvent(overrides: Partial<EveryCalEvent> = {}): EveryCalEvent {
     title: "Test Event",
     startDate: "2026-03-01T10:00:00",
     endDate: "2026-03-01T11:00:00",
+    startAtUtc: "2026-03-01T09:00:00.000Z",
     visibility: "public",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -55,11 +56,13 @@ describe("ical timezone export/import", () => {
   });
 
   it("throws when timed UTC export is missing startAtUtc", () => {
-    const event = baseEvent({
+    const event = {
+      ...baseEvent({
+        endAtUtc: "2026-03-01T10:00:00.000Z",
+        eventTimezone: undefined,
+      }),
       startAtUtc: undefined,
-      endAtUtc: "2026-03-01T10:00:00.000Z",
-      eventTimezone: undefined,
-    });
+    } as unknown as EveryCalEvent;
 
     expect(() => toICal(event)).toThrow(/startAtUtc/);
   });

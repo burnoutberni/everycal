@@ -68,7 +68,7 @@ export interface EventImage {
  *
  * Field naming follows iCalendar where possible.
  */
-export interface EveryCalEvent {
+type EveryCalEventBase = {
   /** Globally unique ID (URI). For federated events this is the ActivityPub id. */
   id: string;
 
@@ -85,7 +85,7 @@ export interface EveryCalEvent {
   endDate?: string;
 
   /** Absolute UTC instant for start when known/derivable. */
-  startAtUtc?: string;
+  startAtUtc: string;
 
   /** Absolute UTC instant for end when known/derivable. */
   endAtUtc?: string;
@@ -120,4 +120,16 @@ export interface EveryCalEvent {
   /** ISO 8601 timestamps. */
   createdAt: string;
   updatedAt: string;
-}
+};
+
+type EveryCalTimedEvent = EveryCalEventBase & {
+  allDay?: false;
+  startAtUtc: string;
+};
+
+type EveryCalAllDayEvent = Omit<EveryCalEventBase, "startAtUtc"> & {
+  allDay: true;
+  startAtUtc?: string;
+};
+
+export type EveryCalEvent = EveryCalTimedEvent | EveryCalAllDayEvent;

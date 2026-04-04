@@ -29,13 +29,15 @@ describe("toActivityPubEvent", () => {
   });
 
   it("throws when startAtUtc is missing instead of falling back to startDate", () => {
+    const invalidEvent = {
+      ...baseEvent({
+        startDate: "2026-03-01T18:00:00+01:00",
+      }),
+      startAtUtc: undefined,
+    } as unknown as EveryCalEvent;
+
     expect(() =>
-      toActivityPubEvent(
-        baseEvent({
-          startAtUtc: undefined,
-          startDate: "2026-03-01T18:00:00+01:00",
-        })
-      )
+      toActivityPubEvent(invalidEvent)
     ).toThrow(/startAtUtc/);
   });
 

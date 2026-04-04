@@ -5,7 +5,9 @@ import { formatEventDateTime } from "../../../lib/formatEventDateTime";
 
 type EventPageContext = PageContextServer & { initialData?: SsrInitialData };
 
-type SsrEventModel = Pick<CalEvent, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "location" | "ogImageUrl" | "image">;
+type SsrTimedEventModel = Pick<Extract<CalEvent, { allDay: false }>, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "location" | "ogImageUrl" | "image">;
+type SsrAllDayEventModel = Pick<Extract<CalEvent, { allDay: true }>, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "location" | "ogImageUrl" | "image">;
+type SsrEventModel = SsrTimedEventModel | SsrAllDayEventModel;
 
 function formatEventDescription(event: SsrEventModel): string {
   const dateTime = formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" });

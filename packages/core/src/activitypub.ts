@@ -143,6 +143,7 @@ export function toActivityPubEvent(event: EveryCalEvent): APEvent {
 
 /** Convert an ActivityPub Event object back to an EveryCal event. */
 export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
+  const startAtUtc = requireUtcInstant(toUtcIso(ap.startTime) ?? undefined, "startAtUtc", ap.id);
   const visibility = addressingToVisibility(ap.to ?? [], ap.cc ?? []);
   const image = ap.attachment?.find((a) => a.type === "Image");
   const location = ap.location
@@ -168,7 +169,8 @@ export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
     id: ap.id,
     title: ap.name,
     startDate: ap.startTime,
-    ...(toUtcIso(ap.startTime) !== null ? { startAtUtc: toUtcIso(ap.startTime)! } : {}),
+    startAtUtc,
+    allDay: false,
     ...(ap.content !== undefined ? { description: ap.content } : {}),
     ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
     ...(ap.endTime !== undefined && toUtcIso(ap.endTime) !== null ? { endAtUtc: toUtcIso(ap.endTime)! } : {}),

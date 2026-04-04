@@ -21,6 +21,7 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     id: string;
     title: string;
     start_date: string;
+    start_at_utc: string | null;
     end_date: string | null;
     all_day: number;
     location_name: string | null;
@@ -39,12 +40,11 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     return null;
   }
 
-  const eventData = {
+  const baseEventData = {
     id: event.id,
     title: event.title,
     startDate: event.start_date,
     endDate: event.end_date || undefined,
-    allDay: !!event.all_day,
     location: event.location_name
       ? {
           name: event.location_name,
@@ -65,6 +65,21 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     createdAt: "",
     updatedAt: "",
   };
+  const eventData = event.all_day
+    ? {
+      ...baseEventData,
+      allDay: true as const,
+      ...(event.start_at_utc ? { startAtUtc: event.start_at_utc } : {}),
+    }
+    : {
+      ...baseEventData,
+      allDay: false as const,
+      startAtUtc: event.start_at_utc as string,
+    };
+
+  if (!event.all_day && !event.start_at_utc) {
+    throw new Error(`Timed event ${event.id} missing start_at_utc for OG generation`);
+  }
 
   const locale = event.preferred_language || "en";
 

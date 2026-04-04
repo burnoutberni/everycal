@@ -1,5 +1,25 @@
 import i18n from "i18next";
 
+type FormattableTimedEvent = {
+  startDate: string;
+  endDate: string | null;
+  startAtUtc: string;
+  endAtUtc?: string | null;
+  allDay: false;
+  eventTimezone?: string;
+};
+
+type FormattableAllDayEvent = {
+  startDate: string;
+  endDate: string | null;
+  startAtUtc?: string;
+  endAtUtc?: string | null;
+  allDay: true;
+  eventTimezone?: string;
+};
+
+type FormattableEvent = FormattableTimedEvent | FormattableAllDayEvent;
+
 function safeTimeZone(tz?: string): string | undefined {
   if (!tz) return undefined;
   try {
@@ -65,7 +85,7 @@ function dateOnlyToUtcDate(dateOnly: { year: number; month: number; day: number 
 
 /** Format event start/end for display. Handles all-day, end time, and multi-day. */
 export function formatEventDateTime(
-  event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
+  event: FormattableEvent,
   long = false,
   options?: {
     locale?: string;
@@ -136,7 +156,7 @@ export function formatEventDateTime(
 }
 
 export function hasDifferentTimezoneAtEventTime(
-  event: { startDate: string; startAtUtc?: string; allDay: boolean; eventTimezone?: string },
+  event: Pick<FormattableEvent, "startDate" | "startAtUtc" | "allDay" | "eventTimezone">,
   viewerTimeZone?: string
 ): boolean {
   if (!event.allDay && !event.startAtUtc) return false;
@@ -150,7 +170,7 @@ export function hasDifferentTimezoneAtEventTime(
 }
 
 export function formatViewerTimezoneTooltip(
-  event: { startDate: string; endDate: string | null; startAtUtc?: string; endAtUtc?: string | null; allDay: boolean; eventTimezone?: string },
+  event: FormattableEvent,
   options?: { locale?: string; allDayLabel?: string; viewerTimeZone?: string }
 ): string {
   if (!event.allDay && !event.startAtUtc) return "";

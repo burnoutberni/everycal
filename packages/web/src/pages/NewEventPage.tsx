@@ -1239,32 +1239,37 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const previewStartAtUtc = !allDay ? localDateTimeToUtcMillis(startDate, eventTimezone) : null;
   const previewEndAtUtc = !allDay && endDate ? localDateTimeToUtcMillis(endDate, eventTimezone) : null;
+  const previewEvent = startDate
+    ? (allDay
+      ? {
+        startDate: startDate.slice(0, 10),
+        endDate: endDate ? endDate.slice(0, 10) : null,
+        allDay: true as const,
+        eventTimezone,
+      }
+      : (previewStartAtUtc != null
+        ? {
+          startDate,
+          endDate: endDate || null,
+          startAtUtc: new Date(previewStartAtUtc).toISOString(),
+          endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
+          allDay: false as const,
+          eventTimezone,
+        }
+        : null))
+    : null;
   const startTimezoneReferenceMs = timezoneReferenceMillis(startDate, allDay, eventTimezone);
   const endTimezoneReferenceMs = timezoneReferenceMillis(customEnd || startDate, allDay, eventTimezone);
-  const showPreviewTimezoneTooltip = startDate
+  const showPreviewTimezoneTooltip = previewEvent
     ? hasDifferentTimezoneAtEventTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        allDay,
-        eventTimezone,
-      },
+      previewEvent,
       viewerTimeZone,
     )
     : false;
 
-  const previewDateStr = startDate
+  const previewDateStr = previewEvent
     ? formatEventDateTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : endDate
-          : null,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
-        allDay,
-        eventTimezone,
-      },
+      previewEvent,
       true,
       {
         locale: dateTimeLocale,
@@ -1275,18 +1280,9 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     )
     : null;
 
-  const previewDateInEventTimezone = showPreviewTimezoneTooltip && startDate
+  const previewDateInEventTimezone = showPreviewTimezoneTooltip && previewEvent
     ? `${t("common:localTimeLabel")}: ${formatEventDateTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : endDate
-          : null,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
-        allDay,
-        eventTimezone,
-      },
+      previewEvent,
       true,
       {
         locale: dateTimeLocale,
