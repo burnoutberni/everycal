@@ -58,6 +58,13 @@ function toUtcIsoOrUndefined(value: unknown): string | undefined {
   return parsed.toISOString();
 }
 
+function toEpochMillisOrZero(value: unknown): number {
+  const iso = toUtcIsoOrUndefined(value);
+  if (!iso) return 0;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
   const row = db
     .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
@@ -247,7 +254,7 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: rowToAPEvent(row, actorUrl, baseUrl),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
 
     const repostAnnounceItems = repostRows.map((row) => ({
@@ -258,7 +265,7 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
       id: `${actorUrl}/announce/${row.id}`,
@@ -268,12 +275,12 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
 
     // Merge and sort by event start date (desc = newest first)
-    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort((a, b) =>
-      (b._sort || "").localeCompare(a._sort || "")
+    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort(
+      (a, b) => b._sortMs - a._sortMs
     );
 
     // Paginate
@@ -282,7 +289,7 @@ export function activityPubRoutes(db: DB): Hono {
     const offset = (pageNum - 1) * limit;
     const pageItems = allItems.slice(offset, offset + limit);
 
-    const orderedItems = pageItems.map(({ _sort, ...item }) => item);
+    const orderedItems = pageItems.map(({ _sortMs, ...item }) => item);
 
     const result: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
