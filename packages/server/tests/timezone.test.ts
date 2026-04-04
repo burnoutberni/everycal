@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convertLegacyNaiveToUtcIso, isValidIanaTimezone, normalizeApTemporal } from "../src/lib/timezone.js";
+import { isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso, normalizeApTemporal } from "../src/lib/timezone.js";
 
 describe("timezone conversion utilities", () => {
   it("validates IANA timezones", () => {
@@ -8,16 +8,23 @@ describe("timezone conversion utilities", () => {
   });
 
   it("converts local datetime in Vienna to UTC", () => {
-    expect(convertLegacyNaiveToUtcIso("2024-01-15T10:00", "Europe/Vienna")).toBe("2024-01-15T09:00:00.000Z");
+    expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00", "Europe/Vienna")).toBe("2024-01-15T09:00:00.000Z");
   });
 
-  it("treats date-only values as local midnight in fallback timezone", () => {
-    expect(convertLegacyNaiveToUtcIso("2024-01-15", "Europe/Vienna")).toBe("2024-01-14T23:00:00.000Z");
+  it("treats all-day date-only values as local midnight when timezone is known", () => {
+    const normalized = normalizeApTemporal({
+      startDate: "2024-01-15",
+      endDate: "2024-01-16",
+      eventTimezone: "Europe/Vienna",
+      allDay: true,
+    });
+
+    expect(normalized?.startAtUtc).toBe("2024-01-14T23:00:00.000Z");
   });
 
   it("handles DST edge local times deterministically", () => {
-    expect(convertLegacyNaiveToUtcIso("2024-03-31T02:30", "Europe/Vienna")).toBe("2024-03-31T01:30:00.000Z");
-    expect(convertLegacyNaiveToUtcIso("2024-10-27T02:30", "Europe/Vienna")).toBe("2024-10-27T01:30:00.000Z");
+    expect(localDateTimeWithTimezoneToUtcIso("2024-03-31T02:30", "Europe/Vienna")).toBe("2024-03-31T01:30:00.000Z");
+    expect(localDateTimeWithTimezoneToUtcIso("2024-10-27T02:30", "Europe/Vienna")).toBe("2024-10-27T01:30:00.000Z");
   });
 
   it("normalizes AP temporal data with eventTimezone", () => {
@@ -43,16 +50,15 @@ describe("timezone conversion utilities", () => {
     expect(normalized.timezoneQuality).toBe("offset_only");
   });
 
-  it("keeps naive AP datetimes unknown without timezone hint", () => {
+  it("returns null for naive AP datetimes without timezone hint", () => {
     const normalized = normalizeApTemporal({
       startTime: "2026-03-01T10:00:00",
     });
 
-    expect(normalized.startAtUtc).toBeNull();
-    expect(normalized.timezoneQuality).toBe("unknown");
+    expect(normalized).toBeNull();
   });
 
-  it("returns null for invalid legacy date strings", () => {
-    expect(convertLegacyNaiveToUtcIso("not-a-date", "Europe/Vienna")).toBeNull();
+  it("returns null for invalid local datetime strings", () => {
+    expect(localDateTimeWithTimezoneToUtcIso("not-a-date", "Europe/Vienna")).toBeNull();
   });
 });
