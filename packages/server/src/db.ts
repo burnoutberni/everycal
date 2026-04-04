@@ -82,6 +82,8 @@ export function initDatabase(path: string): DB {
       image_alt TEXT,
       url TEXT,
       visibility TEXT NOT NULL DEFAULT 'public',
+      canceled INTEGER NOT NULL DEFAULT 0,
+      missing_since TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -423,6 +425,18 @@ export function initDatabase(path: string): DB {
   // Migration: add content_hash to events for change detection during sync
   try {
     db.exec("ALTER TABLE events ADD COLUMN content_hash TEXT");
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: local event cancellation state for scraper sync (never hard-delete missing events)
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN canceled INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE events ADD COLUMN missing_since TEXT");
   } catch {
     // Column already exists
   }
