@@ -14,6 +14,15 @@ const SYSTEM_THEME_PREFERENCE = "system";
 export function initDatabase(path: string): DB {
   const db = new Database(path);
 
+  const tableHasColumn = (table: string, column: string): boolean => {
+    try {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      return columns.some((col) => col.name === column);
+    } catch {
+      return false;
+    }
+  };
+
   // Enable WAL mode for better concurrent read performance
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -122,7 +131,6 @@ export function initDatabase(path: string): DB {
     CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
 
     CREATE INDEX IF NOT EXISTS idx_events_account ON events(account_id);
-    CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at_utc);
     CREATE INDEX IF NOT EXISTS idx_events_visibility ON events(visibility);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external ON events(account_id, external_id) WHERE external_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
@@ -171,8 +179,6 @@ export function initDatabase(path: string): DB {
       end_at_utc TEXT,
       event_timezone TEXT,
       timezone_quality TEXT NOT NULL CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown')),
-      CHECK((timezone_quality = 'exact_tzid' AND event_timezone IS NOT NULL) OR (timezone_quality != 'exact_tzid' AND event_timezone IS NULL)),
-      CHECK(end_at_utc IS NULL OR end_at_utc >= start_at_utc),
       location_name TEXT,
       location_address TEXT,
       location_latitude REAL,
@@ -185,11 +191,12 @@ export function initDatabase(path: string): DB {
       raw_json TEXT,
       published TEXT,
       updated TEXT,
-      fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+      fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+      CHECK((timezone_quality = 'exact_tzid' AND event_timezone IS NOT NULL) OR (timezone_quality != 'exact_tzid' AND event_timezone IS NULL)),
+      CHECK(end_at_utc IS NULL OR end_at_utc >= start_at_utc)
     );
 
     CREATE INDEX IF NOT EXISTS idx_remote_events_actor ON remote_events(actor_uri);
-    CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_at_utc);
 
     -- Track which remote actors local users follow
     CREATE TABLE IF NOT EXISTS remote_following (
@@ -281,6 +288,53 @@ export function initDatabase(path: string): DB {
       last_attempt TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migration guard: legacy schemas may miss start_at_utc
+  try {
+    if (!tableHasColumn("events", "start_at_utc")) {
+      db.exec("BEGIN");
+      try {
+        db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
+        db.exec(`
+          UPDATE events
+          SET start_at_utc = COALESCE(NULLIF(start_date, ''), created_at, datetime('now'))
+          WHERE start_at_utc IS NULL OR trim(start_at_utc) = ''
+        `);
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    }
+    if (tableHasColumn("events", "start_at_utc")) {
+      db.exec("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at_utc)");
+    }
+  } catch {
+    // Ignore partial/legacy states where events table is not fully initialized
+  }
+
+  try {
+    if (!tableHasColumn("remote_events", "start_at_utc")) {
+      db.exec("BEGIN");
+      try {
+        db.exec("ALTER TABLE remote_events ADD COLUMN start_at_utc TEXT");
+        db.exec(`
+          UPDATE remote_events
+          SET start_at_utc = COALESCE(NULLIF(start_date, ''), fetched_at, datetime('now'))
+          WHERE start_at_utc IS NULL OR trim(start_at_utc) = ''
+        `);
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    }
+    if (tableHasColumn("remote_events", "start_at_utc")) {
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_at_utc)");
+    }
+  } catch {
+    // Ignore partial/legacy states where remote_events table is not fully initialized
+  }
 
   // Migration: add follower_shared_inbox to remote_follows if missing
   try {
