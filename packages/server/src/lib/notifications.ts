@@ -27,7 +27,7 @@ export async function runSendReminders(db: DB): Promise<void> {
 
          UNION ALL
 
-         SELECT er.account_id, re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date, re.start_at_utc, 0 AS all_day,
+         SELECT er.account_id, re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date, re.start_at_utc, re.all_day AS all_day,
                 re.location_name, re.url, ra.preferred_username AS owner_username, ra.domain AS owner_domain
          FROM event_rsvps er
          JOIN remote_events re ON re.uri = er.event_uri

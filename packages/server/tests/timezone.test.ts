@@ -20,6 +20,18 @@ describe("timezone conversion utilities", () => {
     });
 
     expect(normalized?.startAtUtc).toBe("2024-01-14T23:00:00.000Z");
+    expect(normalized?.allDay).toBe(true);
+  });
+
+  it("infers all-day for date-only AP temporal payloads", () => {
+    const normalized = normalizeApTemporal({
+      startDate: "2026-08-10",
+      endDate: "2026-08-11",
+      eventTimezone: "Europe/Vienna",
+    });
+
+    expect(normalized?.allDay).toBe(true);
+    expect(normalized?.startAtUtc).toBe("2026-08-09T22:00:00.000Z");
   });
 
   it("handles DST edge local times deterministically", () => {

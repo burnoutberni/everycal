@@ -699,7 +699,7 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
-    allDay: false,
+    allDay: !!row.all_day,
     location: row.location_name
       ? {
           name: row.location_name,

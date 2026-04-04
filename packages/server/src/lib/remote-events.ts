@@ -66,7 +66,7 @@ export function upsertRemoteEvent(
     db.prepare(
       `UPDATE remote_events SET
         slug = ?,
-        title = ?, description = ?, start_date = ?, end_date = ?,
+        title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
         start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
@@ -78,6 +78,7 @@ export function upsertRemoteEvent(
       description,
       startDate,
       endDate,
+      temporal.allDay ? 1 : 0,
       temporal.startAtUtc,
       temporal.endAtUtc,
       temporal.eventTimezone,
@@ -103,10 +104,10 @@ export function upsertRemoteEvent(
   const slug = uniqueRemoteEventSlug(db, actorUri, title);
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
-      start_at_utc, end_at_utc, event_timezone, timezone_quality,
+      all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality,
       location_name, location_address, location_latitude, location_longitude,
       image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -115,6 +116,7 @@ export function upsertRemoteEvent(
     description,
     startDate,
     endDate,
+    temporal.allDay ? 1 : 0,
     temporal.startAtUtc,
     temporal.endAtUtc,
     temporal.eventTimezone,

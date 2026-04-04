@@ -7,6 +7,7 @@ export type TimezoneQuality = "exact_tzid" | "offset_only";
 export interface NormalizedRemoteTemporal {
   startDate: string;
   endDate: string | null;
+  allDay: boolean;
   startAtUtc: string;
   endAtUtc: string | null;
   eventTimezone: string | null;
@@ -100,7 +101,9 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
 
   const endRawSource = object.endTime ?? object.endDate;
   const endRaw = typeof endRawSource === "string" ? String(endRawSource).trim() : null;
-  const allDay = !!object.allDay;
+  const explicitAllDay = typeof object.allDay === "boolean" ? object.allDay : null;
+  const inferredAllDay = DATE_ONLY.test(startRaw) && (!endRaw || DATE_ONLY.test(endRaw));
+  const allDay = explicitAllDay ?? inferredAllDay;
 
   const eventTimezone = resolveTimezoneHint(object);
   const startAtUtc = deriveUtc(startRaw, eventTimezone, allDay);
@@ -115,6 +118,7 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
   return {
     startDate: startRaw,
     endDate: endRaw,
+    allDay,
     startAtUtc,
     endAtUtc,
     eventTimezone,

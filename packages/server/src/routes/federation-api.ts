@@ -510,7 +510,7 @@ export function federationRoutes(db: DB): Hono {
         endAtUtc: row.end_at_utc,
         eventTimezone: row.event_timezone,
         timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only",
-        allDay: false,
+        allDay: !!row.all_day,
         location: row.location_name
           ? {
               name: row.location_name,

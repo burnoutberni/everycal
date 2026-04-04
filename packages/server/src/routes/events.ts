@@ -242,7 +242,7 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     endAtUtc: row.end_at_utc,
     eventTimezone: row.event_timezone,
     timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only",
-    allDay: false,
+    allDay: !!row.all_day,
     location: row.location_name
       ? {
           name: row.location_name,
@@ -813,7 +813,7 @@ export function eventRoutes(db: DB): Hono {
             account: { username: user.username },
             startDate: row.start_date,
             endDate: row.end_date,
-            allDay: false,
+            allDay: !!row.all_day,
             location: row.location_name ? { name: row.location_name } : null,
             url: row.url,
           });

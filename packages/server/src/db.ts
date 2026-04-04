@@ -175,6 +175,7 @@ export function initDatabase(path: string): DB {
       description TEXT,
       start_date TEXT NOT NULL,
       end_date TEXT,
+      all_day INTEGER NOT NULL DEFAULT 0,
       start_at_utc TEXT NOT NULL,
       end_at_utc TEXT,
       event_timezone TEXT,
@@ -315,12 +316,15 @@ export function initDatabase(path: string): DB {
 
   try {
     if (!tableHasColumn("remote_events", "start_at_utc")) {
+      const remoteFallbackExpr = tableHasColumn("remote_events", "fetched_at")
+        ? "COALESCE(NULLIF(fetched_at, ''), datetime('now'))"
+        : "datetime('now')";
       db.exec("BEGIN");
       try {
         db.exec("ALTER TABLE remote_events ADD COLUMN start_at_utc TEXT");
         db.exec(`
           UPDATE remote_events
-          SET start_at_utc = COALESCE(NULLIF(start_date, ''), fetched_at, datetime('now'))
+          SET start_at_utc = COALESCE(NULLIF(start_date, ''), ${remoteFallbackExpr})
           WHERE start_at_utc IS NULL OR trim(start_at_utc) = ''
         `);
         db.exec("COMMIT");
@@ -334,6 +338,27 @@ export function initDatabase(path: string): DB {
     }
   } catch {
     // Ignore partial/legacy states where remote_events table is not fully initialized
+  }
+
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN end_at_utc TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN event_timezone TEXT");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN timezone_quality TEXT NOT NULL DEFAULT 'offset_only'");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec("UPDATE remote_events SET timezone_quality = 'offset_only' WHERE timezone_quality IS NULL OR timezone_quality = ''");
+  } catch {
+    // Ignore when table not yet initialized
   }
 
   // Migration: add follower_shared_inbox to remote_follows if missing
@@ -614,6 +639,23 @@ export function initDatabase(path: string): DB {
     db.exec("ALTER TABLE remote_events ADD COLUMN canceled INTEGER NOT NULL DEFAULT 0");
   } catch {
     // Column already exists
+  }
+
+  // Migration: store all-day semantic for remote events
+  try {
+    db.exec("ALTER TABLE remote_events ADD COLUMN all_day INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`
+      UPDATE remote_events
+      SET all_day = 1
+      WHERE start_date GLOB '????-??-??'
+        AND (end_date IS NULL OR end_date GLOB '????-??-??')
+    `);
+  } catch {
+    // Ignore when table not yet initialized
   }
 
   // Migration: immutable slug for remote event canonical URLs

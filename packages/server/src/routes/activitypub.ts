@@ -637,13 +637,15 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   let changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
   if (activityType === "Update") {
     const existing = db.prepare(
-      "SELECT title, start_date, end_date, location_name, location_address FROM remote_events WHERE uri = ?"
-    ).get(uri) as { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
+      "SELECT title, start_date, end_date, all_day, location_name, location_address FROM remote_events WHERE uri = ?"
+    ).get(uri) as { title: string; start_date: string; end_date: string | null; all_day: number; location_name: string | null; location_address: string | null } | undefined;
     if (existing) {
       if (existing.title !== title) changes.push({ field: "title", before: existing.title, after: title });
-      if (existing.start_date !== startDate || existing.end_date !== endDate) {
-        const oldTime = [existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ");
-        const newTime = [startDate, endDate || ""].filter(Boolean).join(" – ");
+      if (existing.start_date !== startDate || existing.end_date !== endDate || !!existing.all_day !== temporal.allDay) {
+        const oldMode = existing.all_day ? "all-day" : "timed";
+        const newMode = temporal.allDay ? "all-day" : "timed";
+        const oldTime = `${[existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ")} (${oldMode})`;
+        const newTime = `${[startDate, endDate || ""].filter(Boolean).join(" – ")} (${newMode})`;
         changes.push({ field: "time", before: oldTime, after: newTime });
       }
       const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
@@ -676,7 +678,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
         : { username: fallbackAccount.username, domain: fallbackAccount.domain },
       startDate,
       endDate,
-      allDay: false,
+      allDay: temporal.allDay,
       location: locationName ? { name: locationName } : null,
       url: (object.url as string) || null,
     }, changes);
@@ -696,9 +698,9 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
   if (objectUri && actorUri) {
     // Only mark canceled if the event belongs to the actor sending the Delete
     const existing = db.prepare(
-      "SELECT actor_uri, slug, title, start_date, end_date, location_name, url FROM remote_events WHERE uri = ?"
+      "SELECT actor_uri, slug, title, start_date, end_date, all_day, location_name, url FROM remote_events WHERE uri = ?"
     ).get(objectUri) as
-      | { actor_uri: string; slug: string | null; title: string; start_date: string; end_date: string | null; location_name: string | null; url: string | null }
+      | { actor_uri: string; slug: string | null; title: string; start_date: string; end_date: string | null; all_day: number; location_name: string | null; url: string | null }
       | undefined;
     if (existing && existing.actor_uri === actorUri) {
       db.prepare("UPDATE remote_events SET canceled = 1 WHERE uri = ?").run(objectUri);
@@ -715,7 +717,7 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
           : { username: fallbackAccount.username, domain: fallbackAccount.domain },
         startDate: existing.start_date,
         endDate: existing.end_date,
-        allDay: false,
+        allDay: !!existing.all_day,
         location: existing.location_name ? { name: existing.location_name } : null,
         url: existing.url,
       });

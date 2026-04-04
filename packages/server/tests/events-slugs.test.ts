@@ -285,6 +285,27 @@ describe("event slug canonical behavior", () => {
     expect(cleared.canceled).toBe(0);
   });
 
+  it("stores inferred all-day semantics for remote date-only events", () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+
+    upsertRemoteEvent(db, {
+      id: "https://remote.example/events/day-1",
+      type: "Event",
+      name: "Date Only",
+      startDate: "2026-08-10",
+      endDate: "2026-08-11",
+      eventTimezone: "Europe/Vienna",
+    }, "https://remote.example/users/alice");
+
+    const row = db.prepare("SELECT all_day, start_at_utc FROM remote_events WHERE uri = ?").get("https://remote.example/events/day-1") as {
+      all_day: number;
+      start_at_utc: string;
+    };
+    expect(row.all_day).toBe(1);
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+  });
+
   it("handles remote slug collisions per actor", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
@@ -320,16 +341,17 @@ describe("event slug canonical behavior", () => {
   it("/users/:username/events returns remote slug when available", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "offset_only");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, all_day, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01", 1, "2026-01-01T00:00:00Z", "offset_only");
 
     const app = makeApp(db, { id: "u1", username: "alice" });
     const res = await app.request("http://localhost/api/v1/users/alice@remote.example/events");
-    const body = await res.json() as { events: Array<{ source: string; slug?: string }> };
+    const body = await res.json() as { events: Array<{ source: string; slug?: string; allDay?: boolean }> };
 
     expect(res.status).toBe(200);
     expect(body.events[0]?.source).toBe("remote");
     expect(body.events[0]?.slug).toBe("remote-slug");
+    expect(body.events[0]?.allDay).toBe(true);
   });
 
   it("resolver bootstraps unfetched remote event and returns canonical path", async () => {
