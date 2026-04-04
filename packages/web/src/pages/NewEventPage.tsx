@@ -288,7 +288,7 @@ function durationFromStartEnd(
 function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate: string } {
   const loc = event.location;
   const isOnline = !!(loc?.url);
-  const eventTimezone = event.eventTimezone;
+  const eventTimezone = event.eventTimezone ?? resolveUserTimezone(undefined);
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
     : (() => {
