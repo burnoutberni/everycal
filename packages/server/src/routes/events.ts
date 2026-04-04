@@ -202,6 +202,7 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: row.visibility,
+    canceled: !!row.canceled,
     repostedBy: row.repost_username
       ? { username: row.repost_username as string, displayName: row.repost_display_name as string | null }
       : undefined,
@@ -684,7 +685,7 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, all_day, location_name, location_address, url, description FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
@@ -700,6 +701,8 @@ export function eventRoutes(db: DB): Hono {
       event_timezone: string | null;
       url: string | null;
       description: string | null;
+      canceled: number;
+      missing_since: string | null;
     }[];
 
     const existingByExtId = new Map(existing.map((r) => [r.external_id, r]));
@@ -708,6 +711,8 @@ export function eventRoutes(db: DB): Hono {
     let created = 0;
     let updated = 0;
     let deleted = 0;
+    let canceled = 0;
+    let rotatedOutPast = 0;
     let unchanged = 0;
 
     function eventHash(ev: (typeof body.events)[number]): string {
@@ -733,7 +738,7 @@ export function eventRoutes(db: DB): Hono {
       `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?, location_url = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, url = ?, visibility = ?,
-        content_hash = ?, updated_at = datetime('now')
+        content_hash = ?, canceled = 0, missing_since = NULL, updated_at = datetime('now')
        WHERE id = ?`
     );
 
@@ -742,32 +747,58 @@ export function eventRoutes(db: DB): Hono {
 
     const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
 
-    // Batch 1: Delete events no longer in the scraped set
-    const toDelete = existing.filter((r) => !incomingExtIds.has(r.external_id));
-    if (toDelete.length > 0) {
-      for (const row of toDelete) {
-        notifyEventCancelled(db, row.id, {
-          id: row.id,
-          title: row.title,
-          slug: row.slug || row.id,
-          account: { username: user.username },
-          startDate: row.start_date,
-          endDate: row.end_date,
-          allDay: false,
-          location: row.location_name ? { name: row.location_name } : null,
-          url: row.url,
-        });
-      }
-      const deleteBatch = db.transaction((rows: typeof toDelete) => {
-        const delTags = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
-        const delEvent = db.prepare("DELETE FROM events WHERE id = ?");
+    // Batch 1: Handle events no longer present in the scraped set.
+    // Policy:
+    // - Past events are kept as-is (rotated out of source listing).
+    // - Future events are marked canceled (never deleted), but only after
+    //   they are missing in two consecutive syncs to avoid accidental cancels
+    //   from transient scrape issues.
+    const nowIso = new Date().toISOString();
+    const missingRows = existing.filter((r) => !incomingExtIds.has(r.external_id));
+    if (missingRows.length > 0) {
+      const markMissingSeen = db.prepare("UPDATE events SET missing_since = COALESCE(missing_since, datetime('now')) WHERE id = ?");
+      const markCanceled = db.prepare("UPDATE events SET canceled = 1, missing_since = datetime('now'), updated_at = datetime('now') WHERE id = ?");
+      const clearMissingForPast = db.prepare("UPDATE events SET missing_since = NULL WHERE id = ?");
+
+      const missingBatch = db.transaction((rows: typeof missingRows) => {
         for (const row of rows) {
-          delTags.run(row.id);
-          delEvent.run(row.id);
+          if (row.start_date < nowIso) {
+            clearMissingForPast.run(row.id);
+            rotatedOutPast++;
+            continue;
+          }
+
+          if (!row.missing_since) {
+            markMissingSeen.run(row.id);
+            continue;
+          }
+
+          if (!row.canceled) {
+            markCanceled.run(row.id);
+            canceled++;
+          } else {
+            markMissingSeen.run(row.id);
+          }
         }
       });
-      deleteBatch(toDelete);
-      deleted = toDelete.length;
+
+      missingBatch(missingRows);
+
+      for (const row of missingRows) {
+        if (row.start_date >= nowIso && row.missing_since && !row.canceled) {
+          notifyEventCancelled(db, row.id, {
+            id: row.id,
+            title: row.title,
+            slug: row.slug || row.id,
+            account: { username: user.username },
+            startDate: row.start_date,
+            endDate: row.end_date,
+            allDay: false,
+            location: row.location_name ? { name: row.location_name } : null,
+            url: row.url,
+          });
+        }
+      }
       await yieldToEventLoop();
     }
 
@@ -865,7 +896,7 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    return c.json({ ok: true, created, updated, unchanged, deleted, total: deduped.length });
+    return c.json({ ok: true, created, updated, unchanged, deleted, canceled, rotatedOutPast, total: deduped.length });
   });
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────

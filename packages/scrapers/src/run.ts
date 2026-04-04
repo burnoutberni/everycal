@@ -194,8 +194,10 @@ async function main() {
         console.log(`❌ ${res.status} ${body}`);
         syncErrors++;
       } else {
-        const r = (await res.json()) as { created: number; updated: number; unchanged: number; deleted: number };
-        console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} -${r.deleted}`);
+        const r = (await res.json()) as {
+          created: number; updated: number; unchanged: number; deleted: number; canceled?: number; rotatedOutPast?: number;
+        };
+        console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} !${r.canceled || 0} ↺${r.rotatedOutPast || 0}`);
       }
     } catch (err) {
       console.log(`❌ sync: ${err}`);

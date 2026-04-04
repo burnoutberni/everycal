@@ -65,6 +65,92 @@ describe("event slug canonical behavior", () => {
     expect(updated.slug).toBe(created.slug);
   });
 
+  it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const initialSync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          { externalId: "past-1", title: "Past Event", startDate: "2025-01-01T10:00:00Z" },
+          { externalId: "future-1", title: "Future Event", startDate: "2027-01-01T10:00:00Z" },
+        ],
+      }),
+    });
+    expect(initialSync.status).toBe(200);
+
+    const firstMissing = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [] }),
+    });
+    const firstBody = await firstMissing.json() as { canceled: number; rotatedOutPast: number };
+    expect(firstMissing.status).toBe(200);
+    expect(firstBody.canceled).toBe(0);
+    expect(firstBody.rotatedOutPast).toBe(1);
+
+    const secondMissing = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [] }),
+    });
+    const secondBody = await secondMissing.json() as { canceled: number; rotatedOutPast: number };
+    expect(secondMissing.status).toBe(200);
+    expect(secondBody.canceled).toBe(1);
+    expect(secondBody.rotatedOutPast).toBe(1);
+
+    const rows = db.prepare("SELECT external_id, canceled FROM events WHERE account_id = ? ORDER BY external_id").all("u1") as Array<{
+      external_id: string;
+      canceled: number;
+    }>;
+    expect(rows).toEqual([
+      { external_id: "future-1", canceled: 1 },
+      { external_id: "past-1", canceled: 0 },
+    ]);
+  });
+
+  it("sync clears canceled when a previously missing event appears again", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [{ externalId: "future-2", title: "Future Event", startDate: "2027-06-01T10:00:00Z" }],
+      }),
+    });
+    await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [] }),
+    });
+    await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [] }),
+    });
+
+    const canceledRow = db.prepare("SELECT canceled FROM events WHERE external_id = ?").get("future-2") as { canceled: number };
+    expect(canceledRow.canceled).toBe(1);
+
+    const backAgain = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [{ externalId: "future-2", title: "Future Event", startDate: "2027-06-01T10:00:00Z" }],
+      }),
+    });
+    expect(backAgain.status).toBe(200);
+
+    const restoredRow = db.prepare("SELECT canceled, missing_since FROM events WHERE external_id = ?").get("future-2") as {
+      canceled: number;
+      missing_since: string | null;
+    };
+    expect(restoredRow.canceled).toBe(0);
+    expect(restoredRow.missing_since).toBeNull();
+  });
+
   it("creates remote slug once and keeps it immutable on update", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
