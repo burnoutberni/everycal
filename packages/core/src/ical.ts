@@ -185,7 +185,7 @@ function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStar
   }
 
   const tzid = getEventTzidForExport(event);
-  const utcSource = isStart ? event.startAtUtc : event.endAtUtc;
+  const utcSource = resolveTimedUtcForExport(event, isStart);
   if (!utcSource) {
     const field = isStart ? "startAtUtc" : "endAtUtc";
     throw new Error(`toICal requires ${field} for timed events (event ${event.id})`);
@@ -197,6 +197,23 @@ function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStar
   }
 
   return `${prefix}:${toUtcICalDate(utcSource)}`;
+}
+
+function resolveTimedUtcForExport(event: EveryCalEvent, isStart: boolean): string | null {
+  const explicitUtc = isStart ? event.startAtUtc : event.endAtUtc;
+  if (explicitUtc) return explicitUtc;
+
+  const source = isStart ? event.startDate : event.endDate;
+  if (!source) return null;
+  if (ISO_HAS_OFFSET.test(source)) return absoluteIsoToUtcIso(source);
+
+  const tzid = event.eventTimezone;
+  if (!tzid || !isValidIanaTimezone(tzid)) return null;
+
+  if (DATE_ONLY.test(source)) return null;
+  const normalized = source.includes(" ") ? source.replace(" ", "T") : source;
+  if (!LOCAL_DATE_TIME.test(normalized)) return null;
+  return localInZoneToUtcIso(normalized, tzid);
 }
 
 function toWallTimeBasic(utc: string, tzid: string): string {

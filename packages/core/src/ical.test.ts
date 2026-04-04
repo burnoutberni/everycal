@@ -30,14 +30,16 @@ describe("ical timezone export/import", () => {
     expect(ical).toContain("DTEND;TZID=Europe/Vienna:20260301T110000");
   });
 
-  it("throws when timed TZID export is missing startAtUtc", () => {
+  it("derives timed TZID export when UTC fields are missing", () => {
     const event = baseEvent({
       eventTimezone: "Europe/Vienna",
       startAtUtc: undefined,
-      endAtUtc: "2026-03-01T10:00:00.000Z",
+      endAtUtc: undefined,
     });
 
-    expect(() => toICal(event)).toThrow(/startAtUtc/);
+    const vevent = toICal(event);
+    expect(vevent).toContain("DTSTART;TZID=Europe/Vienna:20260301T100000");
+    expect(vevent).toContain("DTEND;TZID=Europe/Vienna:20260301T110000");
   });
 
   it("exports UTC fallback when timezone is unknown", () => {
@@ -70,6 +72,19 @@ describe("ical timezone export/import", () => {
     });
 
     expect(() => toICal(event)).toThrow(/endAtUtc/);
+  });
+
+  it("derives endAtUtc from offset endDate when missing", () => {
+    const event = baseEvent({
+      startDate: "2026-03-01T10:00:00+01:00",
+      endDate: "2026-03-01T11:00:00+01:00",
+      startAtUtc: "2026-03-01T09:00:00.000Z",
+      endAtUtc: undefined,
+      eventTimezone: undefined,
+    });
+
+    const vevent = toICal(event);
+    expect(vevent).toContain("DTEND:20260301T100000Z");
   });
 
   it("exports all-day events with DATE values and end-exclusive DTEND", () => {

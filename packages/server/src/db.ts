@@ -4,12 +4,27 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
+import { absoluteIsoWithOffsetToUtcIso, localDateTimeWithTimezoneToUtcIso } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
 const SYSTEM_THEME_PREFERENCE = "system";
+
+const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function deriveUtcForLegacyEventInput(value: string | null, eventTimezone: string, allDay: boolean): string | null {
+  if (!value) return null;
+  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+  if (DATE_ONLY.test(value)) {
+    if (!allDay) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
+  }
+  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
+  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
+}
 
 export function initDatabase(path: string): DB {
   const db = new Database(path);
@@ -290,28 +305,99 @@ export function initDatabase(path: string): DB {
     );
   `);
 
-  // Migration guard: legacy schemas may miss start_at_utc
+  // Migration guard: legacy schemas may miss temporal columns expected at runtime.
   try {
-    if (!tableHasColumn("events", "start_at_utc")) {
-      db.exec("BEGIN");
-      try {
-        db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
-        db.exec(`
-          UPDATE events
-          SET start_at_utc = COALESCE(NULLIF(start_date, ''), created_at, datetime('now'))
-          WHERE start_at_utc IS NULL OR trim(start_at_utc) = ''
-        `);
-        db.exec("COMMIT");
-      } catch (e) {
-        db.exec("ROLLBACK");
-        throw e;
-      }
+    if (!tableHasColumn("events", "start_at_utc")) db.exec("ALTER TABLE events ADD COLUMN start_at_utc TEXT");
+    if (!tableHasColumn("events", "end_at_utc")) db.exec("ALTER TABLE events ADD COLUMN end_at_utc TEXT");
+    if (!tableHasColumn("events", "event_timezone")) db.exec("ALTER TABLE events ADD COLUMN event_timezone TEXT");
+    if (!tableHasColumn("events", "start_on")) db.exec("ALTER TABLE events ADD COLUMN start_on TEXT");
+    if (!tableHasColumn("events", "end_on")) db.exec("ALTER TABLE events ADD COLUMN end_on TEXT");
+
+    db.exec("UPDATE events SET event_timezone = 'UTC' WHERE event_timezone IS NULL OR trim(event_timezone) = ''");
+    db.exec("UPDATE events SET start_on = substr(start_date, 1, 10) WHERE (start_on IS NULL OR trim(start_on) = '') AND start_date IS NOT NULL AND trim(start_date) != ''");
+    db.exec("UPDATE events SET end_on = substr(end_date, 1, 10) WHERE (end_on IS NULL OR trim(end_on) = '') AND end_date IS NOT NULL AND trim(end_date) != ''");
+
+    const temporalRows = db.prepare(`
+      SELECT id, start_date, end_date, all_day, event_timezone, start_at_utc, end_at_utc, created_at
+      FROM events
+      WHERE start_at_utc IS NULL
+         OR trim(start_at_utc) = ''
+         OR (
+           end_date IS NOT NULL
+           AND trim(end_date) != ''
+           AND (end_at_utc IS NULL OR trim(end_at_utc) = '')
+         )
+    `).all() as Array<{
+      id: string;
+      start_date: string;
+      end_date: string | null;
+      all_day: number;
+      event_timezone: string;
+      start_at_utc: string | null;
+      end_at_utc: string | null;
+      created_at: string | null;
+    }>;
+
+    const updateTemporal = db.prepare(`
+      UPDATE events
+      SET start_at_utc = ?, end_at_utc = ?, event_timezone = ?, start_on = ?, end_on = ?
+      WHERE id = ?
+    `);
+
+    const nowIso = new Date().toISOString();
+    for (const row of temporalRows) {
+      const timezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : "UTC";
+      const allDay = !!row.all_day;
+      const startDateRaw = row.start_date || "";
+      const endDateRaw = row.end_date && row.end_date.trim() ? row.end_date : null;
+
+      const nextStartAtUtc = row.start_at_utc && row.start_at_utc.trim()
+        ? row.start_at_utc
+        : deriveUtcForLegacyEventInput(startDateRaw, timezone, allDay) || row.created_at || nowIso;
+
+      let nextEndAtUtc = row.end_at_utc && row.end_at_utc.trim()
+        ? row.end_at_utc
+        : (endDateRaw ? deriveUtcForLegacyEventInput(endDateRaw, timezone, allDay) : null);
+      if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
+      if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
+
+      const startOn = startDateRaw ? startDateRaw.slice(0, 10) : nextStartAtUtc.slice(0, 10);
+      const endOn = endDateRaw ? endDateRaw.slice(0, 10) : null;
+
+      updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
     }
+
+    const unresolvedTemporalRows = db.prepare(`
+      SELECT COUNT(*) AS total
+      FROM events
+      WHERE start_at_utc IS NULL
+         OR trim(start_at_utc) = ''
+         OR event_timezone IS NULL
+         OR trim(event_timezone) = ''
+         OR start_on IS NULL
+         OR trim(start_on) = ''
+         OR (
+           end_date IS NOT NULL
+           AND trim(end_date) != ''
+           AND (
+             end_at_utc IS NULL
+             OR trim(end_at_utc) = ''
+             OR end_on IS NULL
+             OR trim(end_on) = ''
+           )
+         )
+    `).get() as { total: number };
+
+    if (unresolvedTemporalRows.total > 0) {
+      throw new Error(`events temporal migration left ${unresolvedTemporalRows.total} invalid rows`);
+    }
+
     if (tableHasColumn("events", "start_at_utc")) {
       db.exec("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at_utc)");
     }
-  } catch {
-    // Ignore partial/legacy states where events table is not fully initialized
+  } catch (e) {
+    if (tableHasColumn("events", "id")) throw e;
+    // Ignore partial/legacy states where events table is not fully initialized.
   }
 
   try {
