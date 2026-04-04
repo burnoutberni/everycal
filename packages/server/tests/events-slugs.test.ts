@@ -216,6 +216,59 @@ describe("event slug canonical behavior", () => {
     expect(restoredRow.missing_since).toBeNull();
   });
 
+  it("treats timezone-only sync updates as time changes", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const firstSync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "tz-shift-1",
+            title: "Timezone Shift",
+            startDate: "2026-06-01T10:00:00",
+            endDate: "2026-06-01T11:00:00",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+    expect(firstSync.status).toBe(200);
+
+    vi.mocked(notifyEventUpdated).mockClear();
+
+    const secondSync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "tz-shift-1",
+            title: "Timezone Shift",
+            startDate: "2026-06-01T10:00:00",
+            endDate: "2026-06-01T11:00:00",
+            eventTimezone: "Europe/Vienna",
+          },
+        ],
+      }),
+    });
+
+    expect(secondSync.status).toBe(200);
+    expect(notifyEventUpdated).toHaveBeenCalledTimes(1);
+    const changes = vi.mocked(notifyEventUpdated).mock.calls[0]?.[3] as Array<{ field: string }> | undefined;
+    expect(changes?.some((change) => change.field === "time")).toBe(true);
+
+    const row = db.prepare("SELECT event_timezone, start_at_utc, end_at_utc FROM events WHERE external_id = ?").get("tz-shift-1") as {
+      event_timezone: string;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.event_timezone).toBe("Europe/Vienna");
+    expect(row.start_at_utc).toBe("2026-06-01T08:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-06-01T09:00:00.000Z");
+  });
+
   it("creates remote slug once and keeps it immutable on update", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");

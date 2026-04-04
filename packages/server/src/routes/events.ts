@@ -852,11 +852,26 @@ export function eventRoutes(db: DB): Hono {
             const newAllDay = !!ev.allDay;
             const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
             const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
+            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
+            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
             const existingEffectiveStart = existingRow.start_date;
             const existingEffectiveEnd = existingRow.end_date;
             const nextEffectiveStart = ev.startDate;
             const nextEffectiveEnd = ev.endDate;
-            if (existingEffectiveStart !== nextEffectiveStart || (existingEffectiveEnd || "") !== (nextEffectiveEnd || "") || oldAllDay !== newAllDay) {
+            const oldTimezone = existingRow.event_timezone || "";
+            const newTimezone = ev.eventTimezone || "";
+            const oldStartAtUtc = existingRow.start_at_utc || "";
+            const oldEndAtUtc = existingRow.end_at_utc || "";
+            const newStartAtUtc = nextStartAtUtc || "";
+            const newEndAtUtc = nextEndAtUtc || "";
+            if (
+              existingEffectiveStart !== nextEffectiveStart
+              || (existingEffectiveEnd || "") !== (nextEffectiveEnd || "")
+              || oldAllDay !== newAllDay
+              || oldTimezone !== newTimezone
+              || oldStartAtUtc !== newStartAtUtc
+              || oldEndAtUtc !== newEndAtUtc
+            ) {
               changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
             }
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
@@ -866,8 +881,6 @@ export function eventRoutes(db: DB): Hono {
             }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
-            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
-            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
