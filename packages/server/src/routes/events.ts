@@ -742,6 +742,10 @@ export function eventRoutes(db: DB): Hono {
        WHERE id = ?`
     );
 
+    const restoreEventState = db.prepare(
+      "UPDATE events SET canceled = 0, missing_since = NULL, updated_at = datetime('now') WHERE id = ?"
+    );
+
     const deleteTagsStmt = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
     const insertTagStmt = db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?)");
 
@@ -816,6 +820,9 @@ export function eventRoutes(db: DB): Hono {
 
           if (existingRow) {
             if (existingRow.content_hash === hash) {
+              if (existingRow.canceled || existingRow.missing_since) {
+                restoreEventState.run(existingRow.id);
+              }
               unchanged++;
               continue;
             }
