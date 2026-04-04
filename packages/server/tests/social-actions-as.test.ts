@@ -108,8 +108,8 @@ describe("social actions as identity", () => {
 
   it("replaces repost actors with desired chips", async () => {
     db.prepare(
-      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "public");
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
     db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run("owner", "ev1");
 
     const app = makeApp(db);
@@ -133,8 +133,8 @@ describe("social actions as identity", () => {
 
   it("returns 400 for malformed repost actor payload", async () => {
     db.prepare(
-      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "public");
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/ev1/repost", {
@@ -188,8 +188,8 @@ describe("social actions as identity", () => {
 
   it("reports partial failure for repost actor updates", async () => {
     db.prepare(
-      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run("ev-self", "identity1", "owner", "event-self", "Event Self", "2026-03-03T10:00:00.000Z", "public");
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-self", "identity1", "owner", "event-self", "Event Self", "2026-03-03T10:00:00.000Z", "2026-03-03T10:00:00.000Z", "UTC", "public");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/ev-self/repost", {

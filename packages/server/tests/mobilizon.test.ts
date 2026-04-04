@@ -210,11 +210,12 @@ describe("Mobilizon federation (events.htu.at)", () => {
 
         db.prepare(
           `INSERT INTO remote_events (uri, actor_uri, title, description, start_date, end_date,
+            start_at_utc, end_at_utc, timezone_quality,
             location_name, location_address, location_latitude, location_longitude,
             image_url, image_media_type, image_alt, url, tags, raw_json, published, updated)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(uri) DO UPDATE SET
-            title=excluded.title, start_date=excluded.start_date, fetched_at=datetime('now')`
+            title=excluded.title, start_date=excluded.start_date, start_at_utc=excluded.start_at_utc, fetched_at=datetime('now')`
         ).run(
           object.id,
           actorUri,
@@ -222,6 +223,9 @@ describe("Mobilizon federation (events.htu.at)", () => {
           (object.content as string) || null,
           object.startTime,
           (object.endTime as string) || null,
+          object.startTime,
+          (object.endTime as string) || null,
+          "offset_only",
           (loc?.name as string) || null,
           locationAddress,
           (loc?.latitude as number) ?? null,

@@ -53,12 +53,12 @@ describe("account deletion", () => {
     ).run("identity1", "coowner");
 
     db.prepare(
-      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run("ev_identity", "identity1", "owner", "identity-event", "Identity Event", "2026-03-01T10:00:00.000Z", "public");
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev_identity", "identity1", "owner", "identity-event", "Identity Event", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
 
     db.prepare(
-      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run("ev_personal", "owner", "owner", "personal-event", "Personal Event", "2026-03-02T10:00:00.000Z", "public");
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev_personal", "owner", "owner", "personal-event", "Personal Event", "2026-03-02T10:00:00.000Z", "2026-03-02T10:00:00.000Z", "UTC", "public");
 
     const app = makeApp(db, "owner");
     const res = await app.request("http://localhost/api/v1/auth/me", { method: "DELETE" });

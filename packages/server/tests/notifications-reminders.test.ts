@@ -35,14 +35,16 @@ describe("notification reminders", () => {
       "INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before) VALUES (?, 1, 24)"
     ).run("user-1");
 
+    const upcomingStart = isoHoursFromNow(2);
+
     db.prepare(
-      `INSERT INTO events (id, account_id, title, start_date, canceled)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run("event-live", "owner-1", "Live Event", isoHoursFromNow(2), 0);
+      `INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, canceled)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("event-live", "owner-1", "Live Event", upcomingStart, upcomingStart, "UTC", 0);
     db.prepare(
-      `INSERT INTO events (id, account_id, title, start_date, canceled)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run("event-canceled", "owner-1", "Canceled Event", isoHoursFromNow(2), 1);
+      `INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, canceled)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("event-canceled", "owner-1", "Canceled Event", upcomingStart, upcomingStart, "UTC", 1);
 
     db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("user-1", "event-live");
     db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("user-1", "event-canceled");

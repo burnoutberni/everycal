@@ -56,7 +56,7 @@ describe("event slug canonical behavior", () => {
     const create = await app.request("http://localhost/api/v1/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Original Title", startDate: "2026-01-01T10:00:00Z" }),
+      body: JSON.stringify({ title: "Original Title", startDate: "2026-01-01T10:00:00Z", eventTimezone: "UTC" }),
     });
     const created = await create.json() as { id: string; slug: string };
 
@@ -81,8 +81,8 @@ describe("event slug canonical behavior", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         events: [
-          { externalId: "past-1", title: "Past Event", startDate: pastStartDate },
-          { externalId: "future-1", title: "Future Event", startDate: futureStartDate },
+          { externalId: "past-1", title: "Past Event", startDate: pastStartDate, eventTimezone: "UTC" },
+          { externalId: "future-1", title: "Future Event", startDate: futureStartDate, eventTimezone: "UTC" },
         ],
       }),
     });
@@ -126,7 +126,7 @@ describe("event slug canonical behavior", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate }],
+        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate, eventTimezone: "UTC" }],
       }),
     });
     await app.request("http://localhost/api/v1/events/sync", {
@@ -147,7 +147,7 @@ describe("event slug canonical behavior", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate }],
+        events: [{ externalId: "future-2", title: "Future Event", startDate: futureStartDate, eventTimezone: "UTC" }],
       }),
     });
     expect(backAgain.status).toBe(200);
@@ -185,10 +185,10 @@ describe("event slug canonical behavior", () => {
   it("persists missing slug on remote update with actor-scoped uniqueness", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/other", "https://remote.example/users/alice", "same-event", "Same Event", "2026-01-02T10:00:00Z");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date) VALUES (?, ?, ?, ?)")
-      .run("https://remote.example/events/target", "https://remote.example/users/alice", "Same Event", "2026-01-02T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/other", "https://remote.example/users/alice", "same-event", "Same Event", "2026-01-02T10:00:00Z", "2026-01-02T10:00:00Z", "offset_only");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/target", "https://remote.example/users/alice", "Same Event", "2026-01-02T10:00:00Z", "2026-01-02T10:00:00Z", "offset_only");
 
     const updated = upsertRemoteEvent(db, {
       id: "https://remote.example/events/target",
@@ -205,8 +205,8 @@ describe("event slug canonical behavior", () => {
   it("preserves canceled flag on generic remote refresh, but allows explicit clear", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, canceled) VALUES (?, ?, ?, ?, ?, 1)")
-      .run("https://remote.example/events/c1", "https://remote.example/users/alice", "cancelled-event", "Cancelled Event", "2026-01-02T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, canceled) VALUES (?, ?, ?, ?, ?, ?, ?, 1)")
+      .run("https://remote.example/events/c1", "https://remote.example/users/alice", "cancelled-event", "Cancelled Event", "2026-01-02T10:00:00Z", "2026-01-02T10:00:00Z", "offset_only");
 
     upsertRemoteEvent(db, {
       id: "https://remote.example/events/c1",
@@ -245,12 +245,12 @@ describe("event slug canonical behavior", () => {
   });
 
   it("/events/by-slug/:username/:slug resolves local and remote", async () => {
-    db.prepare("INSERT INTO events (id, account_id, slug, title, start_date, visibility) VALUES (?, ?, ?, ?, ?, 'public')")
-      .run("e-local", "u1", "local-slug", "Local", "2026-01-01T10:00:00Z");
+    db.prepare("INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, 'public')")
+      .run("e-local", "u1", "local-slug", "Local", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "UTC");
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "offset_only");
 
     const app = makeApp(db, { id: "u1", username: "alice" });
     const localRes = await app.request("http://localhost/api/v1/events/by-slug/alice/local-slug");
@@ -264,8 +264,8 @@ describe("event slug canonical behavior", () => {
   it("/users/:username/events returns remote slug when available", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "offset_only");
 
     const app = makeApp(db, { id: "u1", username: "alice" });
     const res = await app.request("http://localhost/api/v1/users/alice@remote.example/events");
@@ -351,12 +351,14 @@ describe("event slug canonical behavior", () => {
   it("resolver assigns slug for existing cached remote event without slug", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://events.htu.at/users/htu", "htu", "https://events.htu.at/inbox", "events.htu.at");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date) VALUES (?, ?, ?, ?)")
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?)")
       .run(
         "https://events.htu.at/events/13064e2e-f644-4b7d-8421-c280ad93b066",
         "https://events.htu.at/users/htu",
         "HTU Event",
         "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
       );
 
     const app = makeApp(db);
@@ -373,8 +375,8 @@ describe("event slug canonical behavior", () => {
   it("old base64 remote route is no longer supported", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date) VALUES (?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01T10:00:00Z", "2026-01-01T10:00:00Z", "offset_only");
 
     const oldId = Buffer.from("https://remote.example/events/1").toString("base64url");
     const app = makeApp(db);

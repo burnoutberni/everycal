@@ -6,6 +6,8 @@ describe("rowToEvent", () => {
     id: "e1",
     title: "Event",
     start_date: "2026-03-15",
+    start_at_utc: "2026-03-15T00:00:00.000Z",
+    event_timezone: "UTC",
     created_at: "2026-03-01T00:00:00.000Z",
     updated_at: "2026-03-02T00:00:00.000Z",
   };
