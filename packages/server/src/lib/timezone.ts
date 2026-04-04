@@ -2,7 +2,7 @@ const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 
-export type TimezoneQuality = "exact_tzid" | "offset_only" | "unknown";
+export type TimezoneQuality = "exact_tzid" | "offset_only";
 
 export interface NormalizedRemoteTemporal {
   startDate: string;
@@ -10,7 +10,7 @@ export interface NormalizedRemoteTemporal {
   startAtUtc: string;
   endAtUtc: string | null;
   eventTimezone: string | null;
-  timezoneQuality: Exclude<TimezoneQuality, "unknown">;
+  timezoneQuality: TimezoneQuality;
 }
 
 export function isValidIanaTimezone(tz: string): boolean {

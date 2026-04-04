@@ -16,7 +16,7 @@ export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
     startAtUtc: row.start_at_utc as string | undefined,
     endAtUtc: row.end_at_utc as string | undefined,
     eventTimezone: row.event_timezone as string | undefined,
-    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | "unknown" | undefined,
+    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | undefined,
     allDay: !!row.all_day,
     location: row.location_name
       ? {

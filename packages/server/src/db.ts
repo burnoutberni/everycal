@@ -178,7 +178,7 @@ export function initDatabase(path: string): DB {
       start_at_utc TEXT NOT NULL,
       end_at_utc TEXT,
       event_timezone TEXT,
-      timezone_quality TEXT NOT NULL CHECK(timezone_quality IN ('exact_tzid','offset_only','unknown')),
+      timezone_quality TEXT NOT NULL CHECK(timezone_quality IN ('exact_tzid','offset_only')),
       location_name TEXT,
       location_address TEXT,
       location_latitude REAL,

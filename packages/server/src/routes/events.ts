@@ -241,7 +241,7 @@ function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown
     startAtUtc: row.start_at_utc,
     endAtUtc: row.end_at_utc,
     eventTimezone: row.event_timezone,
-    timezoneQuality: row.timezone_quality || "unknown",
+    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only",
     allDay: false,
     location: row.location_name
       ? {
