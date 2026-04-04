@@ -710,7 +710,6 @@ export function eventRoutes(db: DB): Hono {
 
     let created = 0;
     let updated = 0;
-    let deleted = 0;
     let canceled = 0;
     let rotatedOutPast = 0;
     let unchanged = 0;
@@ -903,7 +902,7 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    return c.json({ ok: true, created, updated, unchanged, deleted, canceled, rotatedOutPast, total: deduped.length });
+    return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
   });
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────
