@@ -93,8 +93,8 @@ export function formatEventDateTime(
     viewerTimeZone?: string;
     displayTimeZone?: string;
   }
-): string {
-  if (!event.allDay && !event.startAtUtc) return "";
+): string | null {
+  if (!event.allDay && !event.startAtUtc) return null;
 
   const locale = options?.locale;
   const allDayLabel = options?.allDayLabel ?? i18n.t("events:allDay");
@@ -188,6 +188,7 @@ export function formatViewerTimezoneTooltip(
       allDayLabel: options?.allDayLabel,
       viewerTimeZone: viewerTz,
     });
+    if (!viewerLabel) return "";
     return `${city}: ${viewerLabel}`;
   }
 

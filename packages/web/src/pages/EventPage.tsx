@@ -400,6 +400,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         viewerTimeZone,
         displayTimeZone: eventTz,
       });
+      if (!localDateTime) return "";
       return `${t("common:localTimeLabel")}: ${localDateTime}`;
     })()
     : "";
@@ -450,16 +451,18 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col gap-1">
             <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-              <span
-                className={showViewerTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
-                tabIndex={showViewerTimezoneTooltip ? 0 : undefined}
-                aria-describedby={showViewerTimezoneTooltip && viewerTimezoneDateLabel ? viewerTimezoneTooltipId : undefined}
-              >
-                {eventDateLabel}
-                {showViewerTimezoneTooltip && (
-                  <span id={viewerTimezoneTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>
-                )}
-              </span>
+              {eventDateLabel && (
+                <span
+                  className={showViewerTimezoneTooltip ? "inline-time-tooltip-anchor" : undefined}
+                  tabIndex={showViewerTimezoneTooltip ? 0 : undefined}
+                  aria-describedby={showViewerTimezoneTooltip && viewerTimezoneDateLabel ? viewerTimezoneTooltipId : undefined}
+                >
+                  {eventDateLabel}
+                  {showViewerTimezoneTooltip && (
+                    <span id={viewerTimezoneTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{viewerTimezoneDateLabel}</span>
+                  )}
+                </span>
+              )}
             </span>
             {event.visibility !== "public" && (
               <span className={`visibility-badge ${event.visibility}`} style={{ alignSelf: "flex-start" }}>

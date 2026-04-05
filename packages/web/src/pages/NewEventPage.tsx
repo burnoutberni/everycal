@@ -1281,16 +1281,20 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     : null;
 
   const previewDateInEventTimezone = showPreviewTimezoneTooltip && previewEvent
-    ? `${t("common:localTimeLabel")}: ${formatEventDateTime(
-      previewEvent,
-      true,
-      {
-        locale: dateTimeLocale,
-        allDayLabel: t("events:allDay"),
-        viewerTimeZone,
-        displayTimeZone: eventTimezone,
-      },
-    )}`
+    ? (() => {
+      const localDateTime = formatEventDateTime(
+        previewEvent,
+        true,
+        {
+          locale: dateTimeLocale,
+          allDayLabel: t("events:allDay"),
+          viewerTimeZone,
+          displayTimeZone: eventTimezone,
+        },
+      );
+      if (!localDateTime) return "";
+      return `${t("common:localTimeLabel")}: ${localDateTime}`;
+    })()
     : "";
 
   const hasPreviewLocation =
