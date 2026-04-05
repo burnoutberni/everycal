@@ -24,16 +24,12 @@ import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
+import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
   "application/ld+json",
 ];
-
-const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
-const EVERYCAL_CONTEXT = {
-  eventTimezone: "https://everycal.org/ns#eventTimezone",
-};
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
@@ -49,20 +45,6 @@ function toISO8601(dt: string | null | undefined): string | undefined {
   if (dt.includes("T")) return dt.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dt) ? dt : dt + "Z";
   const normalized = dt.replace(" ", "T");
   return normalized.includes(".") ? normalized + "Z" : normalized + ".000Z";
-}
-
-function toUtcIsoOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value) return undefined;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed.toISOString();
-}
-
-function toDateOnlyOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})(?:T|\s)/);
-  return match ? match[1] : undefined;
 }
 
 function toEpochMillisOrZero(value: unknown): number {
@@ -775,34 +757,25 @@ function rowToAPEvent(
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
-  const startDateOnly = toDateOnlyOrUndefined(row.start_date);
-  const endDateOnly = toDateOnlyOrUndefined(row.end_date);
-  const startUtc = toUtcIsoOrUndefined(row.start_at_utc);
-  const endUtc = toUtcIsoOrUndefined(row.end_at_utc);
-  if (isAllDay && !startDateOnly) throw new Error("All-day event missing date-only start_date");
-  if (!isAllDay && !startUtc) throw new Error("Event missing start_at_utc");
-
-  const event: Record<string, unknown> = {
-    "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
+  const event = buildApEventObject({
     id: eventUrl,
-    type: "Event",
-    name: row.title,
-    startTime: isAllDay ? startDateOnly : startUtc,
-    published: toISO8601(row.created_at as string) ?? row.created_at,
-    updated: toISO8601(row.updated_at as string) ?? row.updated_at,
-    url: (row.url as string) || eventUrl,
+    name: row.title as string,
     attributedTo: actorUrl,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     cc: [`${actorUrl}/followers`],
-  };
+    allDay: isAllDay,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    startAtUtc: row.start_at_utc,
+    endAtUtc: row.end_at_utc,
+    content: row.description as string | undefined,
+    published: toISO8601(row.created_at as string) ?? (row.created_at as string | undefined),
+    updated: toISO8601(row.updated_at as string) ?? (row.updated_at as string | undefined),
+    url: (row.url as string) || eventUrl,
+    eventTimezone: row.event_timezone as string | null,
+    includeContext: true,
+  });
 
-  if (row.description) event.content = row.description;
-  if (isAllDay) {
-    if (endDateOnly) event.endTime = endDateOnly;
-  } else if (endUtc) {
-    event.endTime = endUtc;
-  }
-  if (row.event_timezone) event.eventTimezone = row.event_timezone;
   if (row.location_name) {
     const location: Record<string, unknown> = {
       type: "Place",

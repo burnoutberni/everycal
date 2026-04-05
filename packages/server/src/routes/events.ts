@@ -42,6 +42,7 @@ import {
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "../lib/event-serializers.js";
+import { AP_CONTEXT, EVERYCAL_CONTEXT, buildApEventObject } from "../lib/activitypub-event.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -58,10 +59,6 @@ const REMOTE_EVENT_SELECT = `
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
 
-const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
-const EVERYCAL_CONTEXT = {
-  eventTimezone: "https://everycal.org/ns#eventTimezone",
-};
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 // ─── Pure utility functions ─────────────────────────────────────────────────
@@ -1273,29 +1270,32 @@ export function eventRoutes(db: DB): Hono {
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
+      const publishedAt = new Date().toISOString();
       const createActivity = {
         "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
         id: `${baseUrl}/events/${id}/activity`,
         type: "Create",
         actor: actorUrl,
-        published: new Date().toISOString(),
+        published: publishedAt,
         to: ["https://www.w3.org/ns/activitystreams#Public"],
         cc: [`${actorUrl}/followers`],
-        object: {
+        object: buildApEventObject({
           id: `${baseUrl}/events/${id}`,
-          type: "Event",
           name: body.title,
-          content: body.description || undefined,
-          startTime: startAtUtc,
-          endTime: endAtUtc || undefined,
-          eventTimezone,
-          url: `${baseUrl}/@${postingAccount.username}/${slug}`,
           attributedTo: actorUrl,
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
-          published: new Date().toISOString(),
-          updated: new Date().toISOString(),
-        },
+          allDay: !!body.allDay,
+          startDate: startDateInput,
+          endDate: endDateInput || undefined,
+          startAtUtc,
+          endAtUtc,
+          content: body.description || undefined,
+          eventTimezone,
+          url: `${baseUrl}/@${postingAccount.username}/${slug}`,
+          published: publishedAt,
+          updated: publishedAt,
+        }),
       };
       deliverToFollowers(db, postingAccount.id, createActivity).catch(() => {});
     }
@@ -1517,28 +1517,31 @@ export function eventRoutes(db: DB): Hono {
           .get(existing.account_id) as { username: string } | undefined;
         if (actorAccount) {
           const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
+          const updatedAt = new Date().toISOString();
           const updateActivity = {
             "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
             id: `${baseUrl}/events/${id}/update`,
             type: "Update",
             actor: actorUrl,
-            published: new Date().toISOString(),
+            published: updatedAt,
             to: ["https://www.w3.org/ns/activitystreams#Public"],
             cc: [`${actorUrl}/followers`],
-            object: {
+            object: buildApEventObject({
               id: `${baseUrl}/events/${id}`,
-              type: "Event",
-              name: updated.title,
-              content: updated.description as string | undefined,
-              startTime: updated.startAtUtc,
-              endTime: updated.endAtUtc,
-              eventTimezone: updated.eventTimezone,
-              url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
+              name: updated.title as string,
               attributedTo: actorUrl,
               to: ["https://www.w3.org/ns/activitystreams#Public"],
               cc: [`${actorUrl}/followers`],
-              updated: new Date().toISOString(),
-            },
+              allDay: !!updated.allDay,
+              startDate: updated.startDate,
+              endDate: updated.endDate,
+              startAtUtc: updated.startAtUtc,
+              endAtUtc: updated.endAtUtc,
+              content: updated.description as string | undefined,
+              eventTimezone: updated.eventTimezone as string | undefined,
+              url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
+              updated: updatedAt,
+            }),
           };
           deliverToFollowers(db, existing.account_id, updateActivity).catch(() => {});
         }

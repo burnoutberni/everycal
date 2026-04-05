@@ -62,6 +62,68 @@ describe("ActivityPub timezone interoperability", () => {
     expect(Array.isArray(payload["@context"])).toBe(true);
   });
 
+  it("emits Create payload date-only times and allDay flag for all-day events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All-day outbound",
+        startDate: "2026-03-10",
+        endDate: "2026-03-11",
+        allDay: true,
+        eventTimezone: "Europe/Vienna",
+        visibility: "public",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as Record<string, any>;
+    expect(payload.object.startTime).toBe("2026-03-10");
+    expect(payload.object.endTime).toBe("2026-03-11");
+    expect(payload.object.allDay).toBe(true);
+    expect(payload.object.eventTimezone).toBe("Europe/Vienna");
+  });
+
+  it("emits Update payload date-only times and allDay flag for all-day events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const created = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Will become all-day",
+        startDate: "2026-03-01T10:00:00",
+        endDate: "2026-03-01T11:00:00",
+        eventTimezone: "Europe/Vienna",
+        visibility: "public",
+      }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as Record<string, any>;
+    const eventId = createdBody.id as string;
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const updated = await app.request(`http://localhost/api/v1/events/${eventId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allDay: true,
+        startDate: "2026-03-12",
+        endDate: "2026-03-13",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+    expect(updated.status).toBe(200);
+
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as Record<string, any>;
+    expect(payload.type).toBe("Update");
+    expect(payload.object.startTime).toBe("2026-03-12");
+    expect(payload.object.endTime).toBe("2026-03-13");
+    expect(payload.object.allDay).toBe(true);
+    expect(payload.object.eventTimezone).toBe("Europe/Vienna");
+  });
+
   it("serves federated Event objects with UTC times and context extension", async () => {
     db.prepare(
       `INSERT INTO events (id, account_id, slug, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, visibility)
