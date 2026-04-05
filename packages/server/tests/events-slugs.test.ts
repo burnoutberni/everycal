@@ -391,20 +391,86 @@ describe("event slug canonical behavior", () => {
     expect((await remoteRes.json() as { source: string }).source).toBe("remote");
   });
 
-  it("/users/:username/events returns remote slug when available", async () => {
+  it("/users/:username/events returns remote canonical temporal fields", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, all_day, start_at_utc, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run("https://remote.example/events/1", "https://remote.example/users/alice", "remote-slug", "Remote", "2026-01-01", 1, "2026-01-01T00:00:00Z", "offset_only");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/1",
+        "https://remote.example/users/alice",
+        "remote-slug",
+        "Remote",
+        "2026-01-01T11:00:00+01:00",
+        "2026-01-01T12:30:00+01:00",
+        0,
+        "2026-01-01T10:00:00.000Z",
+        "2026-01-01T11:30:00.000Z",
+        "Europe/Vienna",
+        "exact_tzid"
+      );
 
     const app = makeApp(db, { id: "u1", username: "alice" });
     const res = await app.request("http://localhost/api/v1/users/alice@remote.example/events");
-    const body = await res.json() as { events: Array<{ source: string; slug?: string; allDay?: boolean }> };
+    const body = await res.json() as {
+      events: Array<{
+        source: string;
+        slug?: string;
+        allDay?: boolean;
+        startAtUtc?: string;
+        endAtUtc?: string | null;
+        eventTimezone?: string;
+        timezoneQuality?: "exact_tzid" | "offset_only";
+      }>;
+    };
 
     expect(res.status).toBe(200);
     expect(body.events[0]?.source).toBe("remote");
     expect(body.events[0]?.slug).toBe("remote-slug");
-    expect(body.events[0]?.allDay).toBe(true);
+    expect(body.events[0]?.allDay).toBe(false);
+    expect(body.events[0]?.startAtUtc).toBe("2026-01-01T10:00:00.000Z");
+    expect(body.events[0]?.endAtUtc).toBe("2026-01-01T11:30:00.000Z");
+    expect(body.events[0]?.eventTimezone).toBe("Europe/Vienna");
+    expect(body.events[0]?.timezoneQuality).toBe("exact_tzid");
+  });
+
+  it("/users/:username/events returns local canonical temporal fields", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'public')"
+    ).run(
+      "e-local-canonical",
+      "u1",
+      "local-canonical",
+      "Local Timed",
+      "2026-02-15T18:00:00",
+      "2026-02-15T19:15:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "2026-02-15T18:15:00.000Z",
+      "Europe/Vienna"
+    );
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/users/alice/events");
+    const body = await res.json() as {
+      events: Array<{
+        source?: string;
+        slug?: string;
+        allDay?: boolean;
+        startAtUtc?: string;
+        endAtUtc?: string | null;
+        eventTimezone?: string;
+        timezoneQuality?: "exact_tzid" | "offset_only";
+      }>;
+    };
+
+    expect(res.status).toBe(200);
+    const event = body.events.find((e) => e.slug === "local-canonical");
+    expect(event?.source).toBeUndefined();
+    expect(event?.allDay).toBe(false);
+    expect(event?.startAtUtc).toBe("2026-02-15T17:00:00.000Z");
+    expect(event?.endAtUtc).toBe("2026-02-15T18:15:00.000Z");
+    expect(event?.eventTimezone).toBe("Europe/Vienna");
+    expect(event?.timezoneQuality).toBe("exact_tzid");
   });
 
   it("resolver bootstraps unfetched remote event and returns canonical path", async () => {

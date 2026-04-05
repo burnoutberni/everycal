@@ -699,6 +699,10 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
+    startAtUtc: row.start_at_utc ?? undefined,
+    endAtUtc: row.end_at_utc ?? undefined,
+    eventTimezone: row.event_timezone ?? undefined,
+    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | undefined,
     allDay: !!row.all_day,
     location: row.location_name
       ? {
@@ -798,6 +802,7 @@ function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unk
 }
 
 function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
+  const eventTimezone = row.event_timezone as string | null | undefined;
   return {
     id: row.id,
     slug: row.slug,
@@ -809,6 +814,10 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
+    startAtUtc: row.start_at_utc ?? undefined,
+    endAtUtc: row.end_at_utc ?? undefined,
+    eventTimezone: eventTimezone ?? undefined,
+    timezoneQuality: eventTimezone ? "exact_tzid" : undefined,
     allDay: !!row.all_day,
     location: row.location_name
       ? {

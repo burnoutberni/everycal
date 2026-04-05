@@ -346,6 +346,7 @@ type CalEventBase = {
   startDate: string;
   endDate: string | null;
   eventTimezone?: string;
+  timezoneQuality?: "exact_tzid" | "offset_only";
   location: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
   image: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution } | null;
   ogImageUrl?: string | null;
