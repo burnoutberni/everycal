@@ -343,7 +343,7 @@ export function initDatabase(path: string): DB {
       id: string;
       start_date: string;
       end_date: string | null;
-      all_day: number;
+      all_day: number | null;
       event_timezone: string;
       start_at_utc: string | null;
       end_at_utc: string | null;
@@ -764,6 +764,36 @@ export function initDatabase(path: string): DB {
     const rows = db.prepare(`
       SELECT uri, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality, fetched_at
       FROM remote_events
+      WHERE start_at_utc IS NULL
+         OR trim(start_at_utc) = ''
+         OR start_at_utc NOT GLOB '????-??-??T??:??:??*Z'
+         OR (
+           end_date IS NOT NULL
+           AND trim(end_date) != ''
+           AND (
+             end_at_utc IS NULL
+             OR trim(end_at_utc) = ''
+             OR end_at_utc NOT GLOB '????-??-??T??:??:??*Z'
+           )
+         )
+         OR timezone_quality IS NULL
+         OR trim(timezone_quality) = ''
+         OR timezone_quality NOT IN ('exact_tzid','offset_only')
+         OR (timezone_quality = 'exact_tzid' AND (event_timezone IS NULL OR trim(event_timezone) = ''))
+         OR (timezone_quality != 'exact_tzid' AND event_timezone IS NOT NULL AND trim(event_timezone) != '')
+         OR all_day IS NULL
+         OR (
+           COALESCE(all_day, 0) = 0
+           AND start_date GLOB '????-??-??'
+           AND (end_date IS NULL OR end_date GLOB '????-??-??')
+         )
+         OR (
+           start_at_utc IS NOT NULL
+           AND trim(start_at_utc) != ''
+           AND end_at_utc IS NOT NULL
+           AND trim(end_at_utc) != ''
+           AND end_at_utc < start_at_utc
+         )
     `).all() as Array<{
       uri: string;
       start_date: string;
@@ -808,7 +838,18 @@ export function initDatabase(path: string): DB {
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
       const nextTimezoneQuality = timezone ? "exact_tzid" : "offset_only";
-      updateTemporal.run(allDay ? 1 : 0, nextStartAtUtc, nextEndAtUtc, timezone, nextTimezoneQuality, row.uri);
+      const nextAllDay = allDay ? 1 : 0;
+      const needsUpdate =
+        row.all_day === null
+        || (row.all_day ? 1 : 0) !== nextAllDay
+        || row.start_at_utc !== nextStartAtUtc
+        || row.end_at_utc !== nextEndAtUtc
+        || row.event_timezone !== timezone
+        || row.timezone_quality !== nextTimezoneQuality;
+
+      if (needsUpdate) {
+        updateTemporal.run(nextAllDay, nextStartAtUtc, nextEndAtUtc, timezone, nextTimezoneQuality, row.uri);
+      }
     }
   } catch {
     // Ignore when table not yet initialized
