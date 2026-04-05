@@ -4,7 +4,7 @@ import { decodeHtmlEntitiesOnce } from "./text.js";
 
 export function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent>[]) {
   return events
-     .filter((ev) => ev.title && ev.startDate)
+    .filter((ev) => ev.title && ev.startDate)
     .map((ev) => {
       const rawTitle = ev.title!;
       const title = decodeHtmlEntitiesOnce(rawTitle);
