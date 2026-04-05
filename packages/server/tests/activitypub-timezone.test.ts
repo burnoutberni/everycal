@@ -91,6 +91,36 @@ describe("ActivityPub timezone interoperability", () => {
     expect(Array.isArray(body["@context"])).toBe(true);
   });
 
+  it("serves all-day federated Event objects with date-only times", async () => {
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'public')`
+    ).run(
+      "e2",
+      "u1",
+      "event-two",
+      "All Day Event",
+      "2026-03-01",
+      "2026-03-02",
+      1,
+      "2026-02-28T23:00:00.000Z",
+      "2026-03-01T23:00:00.000Z",
+      "Europe/Vienna",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/events/e2", {
+      headers: { accept: "application/activity+json" },
+    });
+    const body = await res.json() as Record<string, any>;
+
+    expect(res.status).toBe(200);
+    expect(body.startTime).toBe("2026-03-01");
+    expect(body.endTime).toBe("2026-03-02");
+    expect(body.eventTimezone).toBe("Europe/Vienna");
+    expect(Array.isArray(body["@context"])).toBe(true);
+  });
+
   it("ingests inbound AP timezone quality variants", async () => {
     const app = makeApp(db);
     const actor = "https://remote.example/users/a";

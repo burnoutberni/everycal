@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EveryCalEvent } from "./event.js";
-import { toActivityPubEvent } from "./activitypub.js";
+import { fromActivityPubEvent, toActivityPubEvent } from "./activitypub.js";
 
 function baseEvent(overrides: Partial<EveryCalEvent> = {}): EveryCalEvent {
   return {
@@ -50,5 +50,43 @@ describe("toActivityPubEvent", () => {
         })
       )
     ).toThrow(/endAtUtc/);
+  });
+
+  it("emits date-only values for all-day events", () => {
+    const ap = toActivityPubEvent(
+      baseEvent({
+        allDay: true,
+        startDate: "2026-03-01",
+        endDate: "2026-03-02",
+        startAtUtc: undefined,
+        endAtUtc: undefined,
+      } as unknown as EveryCalEvent)
+    );
+
+    expect(ap.startTime).toBe("2026-03-01");
+    expect(ap.endTime).toBe("2026-03-02");
+  });
+});
+
+describe("fromActivityPubEvent", () => {
+  it("marks date-only AP events as all-day", () => {
+    const ev = fromActivityPubEvent({
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: "https://remote.example/events/day-1",
+      type: "Event",
+      name: "All Day",
+      startTime: "2026-03-01",
+      endTime: "2026-03-02",
+      to: [],
+      cc: [],
+      published: "2026-02-01T10:00:00.000Z",
+      updated: "2026-02-01T10:00:00.000Z",
+    });
+
+    expect(ev.allDay).toBe(true);
+    expect(ev.startDate).toBe("2026-03-01");
+    expect(ev.endDate).toBe("2026-03-02");
+    expect(ev.startAtUtc).toBeUndefined();
+    expect(ev.endAtUtc).toBeUndefined();
   });
 });

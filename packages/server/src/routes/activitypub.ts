@@ -58,6 +58,13 @@ function toUtcIsoOrUndefined(value: unknown): string | undefined {
   return parsed.toISOString();
 }
 
+function toDateOnlyOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})(?:T|\s)/);
+  return match ? match[1] : undefined;
+}
+
 function toEpochMillisOrZero(value: unknown): number {
   const iso = toUtcIsoOrUndefined(value);
   if (!iso) return 0;
@@ -767,16 +774,20 @@ function rowToAPEvent(
 ): Record<string, unknown> {
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
+  const isAllDay = !!row.all_day;
+  const startDateOnly = toDateOnlyOrUndefined(row.start_date);
+  const endDateOnly = toDateOnlyOrUndefined(row.end_date);
   const startUtc = toUtcIsoOrUndefined(row.start_at_utc);
   const endUtc = toUtcIsoOrUndefined(row.end_at_utc);
-  if (!startUtc) throw new Error("Event missing start_at_utc");
+  if (isAllDay && !startDateOnly) throw new Error("All-day event missing date-only start_date");
+  if (!isAllDay && !startUtc) throw new Error("Event missing start_at_utc");
 
   const event: Record<string, unknown> = {
     "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
     id: eventUrl,
     type: "Event",
     name: row.title,
-    startTime: startUtc,
+    startTime: isAllDay ? startDateOnly : startUtc,
     published: toISO8601(row.created_at as string) ?? row.created_at,
     updated: toISO8601(row.updated_at as string) ?? row.updated_at,
     url: (row.url as string) || eventUrl,
@@ -786,7 +797,11 @@ function rowToAPEvent(
   };
 
   if (row.description) event.content = row.description;
-  if (endUtc) event.endTime = endUtc;
+  if (isAllDay) {
+    if (endDateOnly) event.endTime = endDateOnly;
+  } else if (endUtc) {
+    event.endTime = endUtc;
+  }
   if (row.event_timezone) event.eventTimezone = row.event_timezone;
   if (row.location_name) {
     const location: Record<string, unknown> = {
