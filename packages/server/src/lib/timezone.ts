@@ -14,6 +14,11 @@ export interface NormalizedRemoteTemporal {
   timezoneQuality: TimezoneQuality;
 }
 
+export interface DeriveUtcFromTemporalInputOptions {
+  allDay: boolean;
+  eventTimezone: string | null;
+}
+
 export function isValidIanaTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
@@ -70,6 +75,22 @@ export function absoluteIsoWithOffsetToUtcIso(value: string): string | null {
   return parsed.toISOString();
 }
 
+export function deriveUtcFromTemporalInput(
+  value: string | null | undefined,
+  options: DeriveUtcFromTemporalInputOptions,
+): string | null {
+  if (!value) return null;
+  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+
+  if (DATE_ONLY.test(value)) {
+    if (!options.allDay || !options.eventTimezone) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, options.eventTimezone);
+  }
+
+  if (!options.eventTimezone) return null;
+  return localDateTimeWithTimezoneToUtcIso(value, options.eventTimezone);
+}
+
 function resolveTimezoneHint(object: Record<string, unknown>): string | null {
   const candidates = [object.eventTimezone, object.timezone, object.tzid];
   for (const candidate of candidates) {
@@ -78,20 +99,6 @@ function resolveTimezoneHint(object: Record<string, unknown>): string | null {
     if (tz && isValidIanaTimezone(tz)) return tz;
   }
   return null;
-}
-
-function deriveUtc(value: string | null, eventTimezone: string | null, allDay: boolean): string | null {
-  if (!value) return null;
-  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
-
-  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
-  if (DATE_ONLY.test(normalized)) {
-    if (!allDay || !eventTimezone) return null;
-    return localDateTimeWithTimezoneToUtcIso(`${normalized}T00:00:00`, eventTimezone);
-  }
-
-  if (!eventTimezone) return null;
-  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
 }
 
 export function normalizeApTemporal(object: Record<string, unknown>): NormalizedRemoteTemporal | null {
@@ -107,10 +114,10 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
   const allDay = explicitAllDay ?? inferredAllDay;
 
   const eventTimezone = resolveTimezoneHint(object);
-  const startAtUtc = deriveUtc(startRaw, eventTimezone, allDay);
+  const startAtUtc = deriveUtcFromTemporalInput(startRaw, { allDay, eventTimezone });
   if (!startAtUtc) return null;
 
-  const endAtUtc = deriveUtc(endRaw, eventTimezone, allDay);
+  const endAtUtc = deriveUtcFromTemporalInput(endRaw, { allDay, eventTimezone });
   if (endRaw && !endAtUtc) return null;
   if (endAtUtc && endAtUtc < startAtUtc) return null;
 

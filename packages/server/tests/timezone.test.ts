@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso, normalizeApTemporal } from "../src/lib/timezone.js";
+import {
+  deriveUtcFromTemporalInput,
+  isValidIanaTimezone,
+  localDateTimeWithTimezoneToUtcIso,
+  normalizeApTemporal,
+} from "../src/lib/timezone.js";
 
 describe("timezone conversion utilities", () => {
   it("validates IANA timezones", () => {
@@ -77,5 +82,41 @@ describe("timezone conversion utilities", () => {
 
   it("returns null for invalid local datetime strings", () => {
     expect(localDateTimeWithTimezoneToUtcIso("not-a-date", "Europe/Vienna")).toBeNull();
+  });
+
+  it("derives UTC from absolute timestamps with offsets", () => {
+    expect(
+      deriveUtcFromTemporalInput("2026-03-01T10:00:00+01:00", {
+        allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBe("2026-03-01T09:00:00.000Z");
+  });
+
+  it("returns null for date-only temporal input when all-day is false", () => {
+    expect(
+      deriveUtcFromTemporalInput("2026-03-01", {
+        allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for naive local datetime without timezone", () => {
+    expect(
+      deriveUtcFromTemporalInput("2026-03-01T10:00:00", {
+        allDay: false,
+        eventTimezone: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts legacy space-separated local datetimes", () => {
+    expect(
+      deriveUtcFromTemporalInput("2026-03-01 10:00:00", {
+        allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBe("2026-03-01T09:00:00.000Z");
   });
 });

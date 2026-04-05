@@ -4,7 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
-import { absoluteIsoWithOffsetToUtcIso, isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso } from "./lib/timezone.js";
+import { absoluteIsoWithOffsetToUtcIso, deriveUtcFromTemporalInput, isValidIanaTimezone } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -36,35 +36,6 @@ function extractDatePart(value: string | null | undefined): string | null {
   if (DATE_ONLY.test(trimmed)) return trimmed;
   const prefix = trimmed.slice(0, 10);
   return DATE_ONLY.test(prefix) ? prefix : null;
-}
-
-function deriveUtcForLegacyEventInput(value: string | null, eventTimezone: string, allDay: boolean): string | null {
-  if (!value) return null;
-  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
-  if (DATE_ONLY.test(value)) {
-    if (!allDay) return null;
-    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
-  }
-  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
-  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
-}
-
-function deriveUtcForLegacyRemoteInput(
-  value: string | null,
-  eventTimezone: string | null,
-  allDay: boolean,
-): string | null {
-  if (!value) return null;
-  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
-
-  if (DATE_ONLY.test(value)) {
-    if (!allDay || !eventTimezone) return null;
-    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
-  }
-
-  if (!eventTimezone) return null;
-  const normalized = value.includes(" ") ? value.replace(" ", "T") : value;
-  return localDateTimeWithTimezoneToUtcIso(normalized, eventTimezone);
 }
 
 export function initDatabase(path: string): DB {
@@ -394,12 +365,14 @@ export function initDatabase(path: string): DB {
       const endDateRaw = row.end_date && row.end_date.trim() ? row.end_date : null;
 
       const nextStartAtUtc = canonicalUtcIso(row.start_at_utc)
-        || deriveUtcForLegacyEventInput(startDateRaw, timezone, allDay)
+        || deriveUtcFromTemporalInput(startDateRaw, { allDay, eventTimezone: timezone })
         || sqliteUtcDateTimeToUtcIso(row.created_at)
         || nowIso;
 
       let nextEndAtUtc = canonicalUtcIso(row.end_at_utc)
-        || (endDateRaw ? deriveUtcForLegacyEventInput(endDateRaw, timezone, allDay) : null);
+        || (endDateRaw
+          ? deriveUtcFromTemporalInput(endDateRaw, { allDay, eventTimezone: timezone })
+          : null);
       if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
@@ -818,12 +791,18 @@ export function initDatabase(path: string): DB {
       const wantsExactTimezone = row.timezone_quality === "exact_tzid";
       const timezone = rawTimezone && wantsExactTimezone && isValidIanaTimezone(rawTimezone) ? rawTimezone : null;
 
-      const nextStartAtUtc = deriveUtcForLegacyRemoteInput(row.start_date, timezone, allDay)
+      const nextStartAtUtc = deriveUtcFromTemporalInput(
+        row.start_date,
+        { allDay, eventTimezone: timezone },
+      )
         || canonicalUtcIso(row.start_at_utc)
         || canonicalUtcIso(row.fetched_at)
         || nowIso;
 
-      let nextEndAtUtc = deriveUtcForLegacyRemoteInput(row.end_date, timezone, allDay)
+      let nextEndAtUtc = deriveUtcFromTemporalInput(
+        row.end_date,
+        { allDay, eventTimezone: timezone },
+      )
         || canonicalUtcIso(row.end_at_utc);
       if (row.end_date && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;

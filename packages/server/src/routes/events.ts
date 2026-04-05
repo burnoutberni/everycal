@@ -28,7 +28,7 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
-import { absoluteIsoWithOffsetToUtcIso, isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso, normalizeApTemporal } from "../lib/timezone.js";
+import { deriveUtcFromTemporalInput, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -87,15 +87,6 @@ function resolveEventUri(id: string): string {
 
 function formatTimeChangeValue(start: string, end: string | null | undefined): string {
   return [start, end || ""].filter(Boolean).join(" – ");
-}
-
-function deriveUtcForEventInput(value: string, eventTimezone: string, allDay: boolean): string | null {
-  if (/(Z|[+-]\d{2}:\d{2})$/i.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    if (!allDay) return null;
-    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, eventTimezone);
-  }
-  return localDateTimeWithTimezoneToUtcIso(value, eventTimezone);
 }
 
 /** Check whether a user is allowed to view an event based on its visibility. */
@@ -595,8 +586,10 @@ export function eventRoutes(db: DB): Hono {
       if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
       }
-      const startAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay);
-      const endAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
+      const startAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone });
+      const endAtUtc = ev.endDate
+        ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
+        : null;
       if (!startAtUtc || (ev.endDate && !endAtUtc) || (endAtUtc && endAtUtc < startAtUtc)) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
@@ -762,8 +755,10 @@ export function eventRoutes(db: DB): Hono {
             const newAllDay = !!ev.allDay;
             const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
             const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
-            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
-            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
+            const nextStartAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })!;
+            const nextEndAtUtc = ev.endDate
+              ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
+              : null;
             const existingEffectiveStart = existingRow.start_date;
             const existingEffectiveEnd = existingRow.end_date;
             const nextEffectiveStart = ev.startDate;
@@ -823,8 +818,10 @@ export function eventRoutes(db: DB): Hono {
           } else {
             const id = nanoid(16);
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
-            const nextStartAtUtc = deriveUtcForEventInput(ev.startDate, ev.eventTimezone, !!ev.allDay)!;
-            const nextEndAtUtc = ev.endDate ? deriveUtcForEventInput(ev.endDate, ev.eventTimezone, !!ev.allDay) : null;
+            const nextStartAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })!;
+            const nextEndAtUtc = ev.endDate
+              ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
+              : null;
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
@@ -1174,11 +1171,13 @@ export function eventRoutes(db: DB): Hono {
     const imageAttributionJson = body.image?.attribution
       ? JSON.stringify(body.image.attribution)
       : null;
-    const startAtUtc = deriveUtcForEventInput(startDateInput, eventTimezone, !!body.allDay);
+    const startAtUtc = deriveUtcFromTemporalInput(startDateInput, { allDay: !!body.allDay, eventTimezone });
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    const endAtUtc = endDateInput ? deriveUtcForEventInput(endDateInput, eventTimezone, !!body.allDay) : null;
+    const endAtUtc = endDateInput
+      ? deriveUtcFromTemporalInput(endDateInput, { allDay: !!body.allDay, eventTimezone })
+      : null;
     if (endDateInput && !endAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
@@ -1320,12 +1319,14 @@ export function eventRoutes(db: DB): Hono {
     const endForUtc = nextEnd !== undefined
       ? nextEnd
       : (shouldRecomputeUtcForTimezoneChange ? existing.end_date : undefined);
-    const nextStartAtUtc = startForUtc !== undefined ? deriveUtcForEventInput(startForUtc, tzForConvert, nextAllDay) : null;
+    const nextStartAtUtc = startForUtc !== undefined
+      ? deriveUtcFromTemporalInput(startForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
+      : null;
     if (startForUtc !== undefined && !nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     const nextEndAtUtc = endForUtc !== undefined && endForUtc !== null
-      ? deriveUtcForEventInput(endForUtc, tzForConvert, nextAllDay)
+      ? deriveUtcFromTemporalInput(endForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
       : null;
     if (endForUtc !== undefined && endForUtc !== null && !nextEndAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
