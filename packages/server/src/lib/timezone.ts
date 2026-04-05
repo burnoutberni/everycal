@@ -148,15 +148,17 @@ export function deriveUtcFromTemporalInput(
   options: DeriveUtcFromTemporalInputOptions,
 ): string | null {
   if (!value) return null;
-  if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (ISO_HAS_OFFSET.test(normalized)) return absoluteIsoWithOffsetToUtcIso(normalized);
 
-  if (DATE_ONLY.test(value)) {
+  if (DATE_ONLY.test(normalized)) {
     if (!options.allDay || !options.eventTimezone) return null;
-    return localDateTimeWithTimezoneToUtcIso(`${value}T00:00:00`, options.eventTimezone);
+    return localDateTimeWithTimezoneToUtcIso(`${normalized}T00:00:00`, options.eventTimezone);
   }
 
   if (!options.eventTimezone) return null;
-  return localDateTimeWithTimezoneToUtcIso(value, options.eventTimezone);
+  return localDateTimeWithTimezoneToUtcIso(normalized, options.eventTimezone);
 }
 
 export function deriveAllDayEndAtUtc(

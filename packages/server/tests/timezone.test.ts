@@ -140,6 +140,15 @@ describe("timezone conversion utilities", () => {
     ).toBe("2026-03-01T09:00:00.000Z");
   });
 
+  it("trims surrounding whitespace for absolute temporal input", () => {
+    expect(
+      deriveUtcFromTemporalInput(" 2026-03-01T10:00:00+01:00 ", {
+        allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBe("2026-03-01T09:00:00.000Z");
+  });
+
   it("returns null for date-only temporal input when all-day is false", () => {
     expect(
       deriveUtcFromTemporalInput("2026-03-01", {
@@ -158,6 +167,15 @@ describe("timezone conversion utilities", () => {
     ).toBeNull();
   });
 
+  it("trims surrounding whitespace for all-day date-only temporal input", () => {
+    expect(
+      deriveUtcFromTemporalInput(" 2026-03-01 ", {
+        allDay: true,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBe("2026-02-28T23:00:00.000Z");
+  });
+
   it("returns null for naive local datetime without timezone", () => {
     expect(
       deriveUtcFromTemporalInput("2026-03-01T10:00:00", {
@@ -174,5 +192,14 @@ describe("timezone conversion utilities", () => {
         eventTimezone: "Europe/Vienna",
       }),
     ).toBe("2026-03-01T09:00:00.000Z");
+  });
+
+  it("returns null for temporal input that is only whitespace", () => {
+    expect(
+      deriveUtcFromTemporalInput("   ", {
+        allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBeNull();
   });
 });
