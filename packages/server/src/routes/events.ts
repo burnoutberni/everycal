@@ -122,9 +122,15 @@ function canViewEvent(
   return false;
 }
 
-/** Build SQL + params for optional date-range filters on a column. */
-function appendDateFilters(
-  columns: { instantColumn: string; dateColumn: string },
+type DateRangeColumns = { instantColumn: string; dateColumn: string };
+
+/**
+ * Build SQL + params for optional date-range filters across paired columns.
+ * `instantColumn` is used for timestamp bounds; `dateColumn` is used for
+ * date-only bounds.
+ */
+function appendDateRangeFilters(
+  columns: DateRangeColumns,
   from?: string,
   to?: string,
 ): { sql: string; params: unknown[] } {
@@ -307,7 +313,7 @@ export function eventRoutes(db: DB): Hono {
           WHERE e.visibility = 'public'`;
       }
 
-      const df = appendDateFilters(
+      const df = appendDateRangeFilters(
         {
           instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
           dateColumn: isMineScope ? "combined.start_on" : "e.start_on",
@@ -337,7 +343,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -419,7 +425,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(account);
       }
 
-      const df = appendDateFilters(
+      const df = appendDateRangeFilters(
         { instantColumn: `${col}.start_at_utc`, dateColumn: `${col}.start_on` },
         from,
         to,
@@ -462,7 +468,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -542,7 +548,7 @@ export function eventRoutes(db: DB): Hono {
       let sql = feed.sql;
       const params = [...feed.params];
 
-      const df = appendDateFilters(
+      const df = appendDateRangeFilters(
         { instantColumn: "combined.start_at_utc", dateColumn: "combined.start_on" },
         from,
         to,
@@ -567,7 +573,7 @@ export function eventRoutes(db: DB): Hono {
           )`;
       const params: unknown[] = [user.id, user.id];
 
-      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
