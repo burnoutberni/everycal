@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { generateOgImage, getOgImageFilename } from "@everycal/og";
 import type { DB } from "../db.js";
 import { OG_DIR } from "../lib/paths.js";
+import { normalizeEventTimezone } from "../lib/event-timezone.js";
 
 export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<string | null> {
   const { writeFile } = await import("node:fs/promises");
@@ -47,7 +48,7 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     title: event.title,
     startDate: event.start_date,
     endDate: event.end_date || undefined,
-    eventTimezone: event.event_timezone,
+    eventTimezone: normalizeEventTimezone(event.event_timezone),
     location: event.location_name
       ? {
           name: event.location_name,

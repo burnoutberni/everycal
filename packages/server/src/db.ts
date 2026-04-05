@@ -384,6 +384,17 @@ export function initDatabase(path: string): DB {
       updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
     }
 
+    const timezoneRows = db.prepare("SELECT id, event_timezone FROM events WHERE event_timezone IS NOT NULL AND trim(event_timezone) != ''").all() as Array<{
+      id: string;
+      event_timezone: string;
+    }>;
+    const normalizeTimezone = db.prepare("UPDATE events SET event_timezone = ? WHERE id = ?");
+    for (const row of timezoneRows) {
+      const timezone = row.event_timezone.trim();
+      if (isValidIanaTimezone(timezone)) continue;
+      normalizeTimezone.run("UTC", row.id);
+    }
+
     const unresolvedTemporalRows = db.prepare(`
       SELECT COUNT(*) AS total
       FROM events

@@ -24,6 +24,7 @@ import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
+import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
 
 const AP_CONTENT_TYPES = [
@@ -772,7 +773,7 @@ function rowToAPEvent(
     published: toISO8601(row.created_at as string) ?? (row.created_at as string | undefined),
     updated: toISO8601(row.updated_at as string) ?? (row.updated_at as string | undefined),
     url: (row.url as string) || eventUrl,
-    eventTimezone: row.event_timezone as string | null,
+    eventTimezone: normalizeEventTimezone(row.event_timezone),
     includeContext: true,
   });
 

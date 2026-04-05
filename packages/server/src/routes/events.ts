@@ -1368,6 +1368,9 @@ export function eventRoutes(db: DB): Hono {
     if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
+    const existingTimezone = isValidIanaTimezone(existing.event_timezone || "")
+      ? (existing.event_timezone as string)
+      : "UTC";
     const nextAllDay = body.allDay ?? !!existing.all_day;
     if (nextAllDay) {
       if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
@@ -1379,8 +1382,7 @@ export function eventRoutes(db: DB): Hono {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
     }
-    const tzForConvert = nextTimezone ?? existing.event_timezone;
-    if (!tzForConvert) return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
+    const tzForConvert = nextTimezone ?? existingTimezone;
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
     const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
     const endForUtc = nextEnd !== undefined
@@ -1405,6 +1407,8 @@ export function eventRoutes(db: DB): Hono {
     if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
     if (nextTimezone !== undefined) {
       fields.push("event_timezone = ?"); values.push(nextTimezone);
+    } else if (existingTimezone !== existing.event_timezone) {
+      fields.push("event_timezone = ?"); values.push(existingTimezone);
     }
     if (startForUtc !== undefined) {
       fields.push("start_at_utc = ?");
@@ -1465,7 +1469,7 @@ export function eventRoutes(db: DB): Hono {
     const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
     const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
     const newTime = formatTimeChangeValue(nextStart ?? existing.start_date, nextEnd !== undefined ? (nextEnd || "") : (existing.end_date || ""));
-    const oldTimezone = existing.event_timezone || "";
+    const oldTimezone = existingTimezone;
     const newTimezone = body.eventTimezone !== undefined ? body.eventTimezone : oldTimezone;
     const timeChanged = oldTime !== newTime || oldAllDay !== newAllDay || oldTimezone !== newTimezone;
     const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");

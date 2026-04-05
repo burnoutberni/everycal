@@ -27,6 +27,7 @@ import {
   readActorSelectionPayload,
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
+import { normalizeEventTimezone } from "../lib/event-timezone.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -838,7 +839,7 @@ function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unk
 }
 
 function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const eventTimezone = row.event_timezone as string | null | undefined;
+  const eventTimezone = normalizeEventTimezone(row.event_timezone);
   return {
     id: row.id,
     slug: row.slug,
@@ -852,8 +853,8 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     endDate: row.end_date,
     startAtUtc: row.start_at_utc ?? undefined,
     endAtUtc: row.end_at_utc ?? undefined,
-    eventTimezone: eventTimezone ?? undefined,
-    timezoneQuality: eventTimezone ? "exact_tzid" : undefined,
+    eventTimezone,
+    timezoneQuality: "exact_tzid",
     allDay: !!row.all_day,
     location: row.location_name
       ? {

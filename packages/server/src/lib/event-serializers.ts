@@ -1,4 +1,5 @@
 import { formatRemoteActorAccount } from "./federation.js";
+import { normalizeEventTimezone } from "./event-timezone.js";
 
 function parseImageAttribution(value: unknown): unknown | undefined {
   if (!value) return undefined;
@@ -15,6 +16,7 @@ function localTimezoneQuality(eventTimezone: unknown): "exact_tzid" | undefined 
 }
 
 export function serializeLocalEvent(row: Record<string, unknown>): Record<string, unknown> {
+  const eventTimezone = normalizeEventTimezone(row.event_timezone);
   return {
     id: row.id,
     slug: row.slug,
@@ -29,8 +31,8 @@ export function serializeLocalEvent(row: Record<string, unknown>): Record<string
     endDate: row.end_date,
     startAtUtc: row.start_at_utc ?? undefined,
     endAtUtc: row.end_at_utc ?? undefined,
-    eventTimezone: row.event_timezone ?? undefined,
-    timezoneQuality: localTimezoneQuality(row.event_timezone),
+    eventTimezone,
+    timezoneQuality: localTimezoneQuality(eventTimezone),
     allDay: !!row.all_day,
     location: row.location_name
       ? {

@@ -1,9 +1,14 @@
 import { isValidVisibility, type EveryCalEvent } from "@everycal/core";
+import { normalizeEventTimezone } from "./event-timezone.js";
 
 export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
   const visibility = isValidVisibility(row.visibility) ? row.visibility : "public";
   const allDay = !!row.all_day;
   const startAtUtc = row.start_at_utc as string | undefined;
+  const timezoneQuality = row.timezone_quality as "exact_tzid" | "offset_only" | undefined;
+  const eventTimezone = timezoneQuality === "offset_only"
+    ? undefined
+    : normalizeEventTimezone(row.event_timezone);
 
   if (!allDay && !startAtUtc) {
     throw new Error("Timed event missing start_at_utc");
@@ -16,8 +21,8 @@ export function rowToEvent(row: Record<string, unknown>): EveryCalEvent {
     startDate: row.start_date as string,
     endDate: row.end_date as string | undefined,
     endAtUtc: row.end_at_utc as string | undefined,
-    eventTimezone: row.event_timezone as string | undefined,
-    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | undefined,
+    eventTimezone,
+    timezoneQuality,
     location: row.location_name
       ? {
           name: row.location_name as string,

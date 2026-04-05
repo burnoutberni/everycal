@@ -657,6 +657,57 @@ describe("event slug canonical behavior", () => {
     expect(event?.timezoneQuality).toBe("exact_tzid");
   });
 
+  it("normalizes local eventTimezone in API responses when legacy row has invalid timezone", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
+    ).run(
+      "e-invalid-timezone",
+      "u1",
+      "invalid-timezone",
+      "Legacy Invalid TZ",
+      "2026-02-15T18:00:00",
+      0,
+      "2026-02-15T18:00:00.000Z",
+      "Not/AZone"
+    );
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/events/e-invalid-timezone");
+    const body = await res.json() as { eventTimezone?: string; timezoneQuality?: string };
+
+    expect(res.status).toBe(200);
+    expect(body.eventTimezone).toBe("UTC");
+    expect(body.timezoneQuality).toBe("exact_tzid");
+  });
+
+  it("heals invalid stored timezone to UTC on write when eventTimezone is omitted", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
+    ).run(
+      "e-heal-timezone",
+      "u1",
+      "heal-timezone",
+      "Legacy Invalid TZ",
+      "2026-02-15T18:00:00",
+      0,
+      "2026-02-15T18:00:00.000Z",
+      "Not/AZone"
+    );
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/events/e-heal-timezone", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Renamed" }),
+    });
+    const body = await res.json() as { eventTimezone?: string };
+    const row = db.prepare("SELECT event_timezone FROM events WHERE id = ?").get("e-heal-timezone") as { event_timezone: string };
+
+    expect(res.status).toBe(200);
+    expect(body.eventTimezone).toBe("UTC");
+    expect(row.event_timezone).toBe("UTC");
+  });
+
   it("resolver bootstraps unfetched remote event and returns canonical path", async () => {
     vi.mocked(fetchAP).mockResolvedValue({
       id: "https://remote.example/events/99",
@@ -822,6 +873,51 @@ describe("event slug canonical behavior", () => {
     expect(row.start_at_utc).toBe("2024-05-01T10:30:00.000Z");
     expect(row.event_timezone).toBe("UTC");
     expect(row.start_on).toBe("2024-05-01");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("backfills invalid legacy timezone even when UTC columns already exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-local-invalid-tz.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        account_id TEXT,
+        external_id TEXT,
+        visibility TEXT,
+        title TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        start_at_utc TEXT,
+        end_at_utc TEXT,
+        event_timezone TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      "INSERT INTO events (id, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      "legacy-invalid-tz",
+      "2024-05-01T09:00:00",
+      null,
+      0,
+      "2024-05-01T09:00:00.000Z",
+      null,
+      "Not/AZone",
+      "2024-05-01 10:30:00"
+    );
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT event_timezone FROM events WHERE id = ?"
+    ).get("legacy-invalid-tz") as { event_timezone: string };
+
+    expect(row.event_timezone).toBe("UTC");
 
     migrated.close();
     rmSync(dir, { recursive: true, force: true });
