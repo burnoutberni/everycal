@@ -336,6 +336,89 @@ describe("event slug canonical behavior", () => {
     expect(sync.status).toBe(400);
   });
 
+  it("stores all-day sync end_at_utc using end-exclusive boundary", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "all-day-sync-exclusive",
+            title: "All Day Sync",
+            startDate: "2026-08-10",
+            endDate: "2026-08-11",
+            eventTimezone: "Europe/Vienna",
+            allDay: true,
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(200);
+
+    const row = db
+      .prepare("SELECT all_day, start_at_utc, end_at_utc FROM events WHERE external_id = ?")
+      .get("all-day-sync-exclusive") as {
+      all_day: number;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.all_day).toBe(1);
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
+  });
+
+  it("recomputes all-day sync end_at_utc when inclusive endDate changes", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const firstSync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "all-day-sync-update",
+            title: "All Day Sync Update",
+            startDate: "2026-08-10",
+            endDate: "2026-08-11",
+            eventTimezone: "Europe/Vienna",
+            allDay: true,
+          },
+        ],
+      }),
+    });
+    expect(firstSync.status).toBe(200);
+
+    const secondSync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "all-day-sync-update",
+            title: "All Day Sync Update",
+            startDate: "2026-08-10",
+            endDate: "2026-08-12",
+            eventTimezone: "Europe/Vienna",
+            allDay: true,
+          },
+        ],
+      }),
+    });
+    expect(secondSync.status).toBe(200);
+
+    const row = db
+      .prepare("SELECT start_at_utc, end_at_utc FROM events WHERE external_id = ?")
+      .get("all-day-sync-update") as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-12T22:00:00.000Z");
+  });
+
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
     const pastStartDate = isoFromNow(-oneYearMs);
@@ -980,6 +1063,48 @@ describe("event slug canonical behavior", () => {
 
     expect(row.end_at_utc).toBe(row.start_at_utc);
     expect(row.end_on).toBe("2024-05-01");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("backfills legacy all-day local events with end-exclusive UTC boundary", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-local-all-day.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        account_id TEXT,
+        external_id TEXT,
+        visibility TEXT,
+        title TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        event_timezone TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("legacy-all-day", "2026-08-10", "2026-08-11", 1, "Europe/Vienna", "2026-01-01 10:30:00");
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT start_at_utc, end_at_utc, start_on, end_on FROM events WHERE id = ?"
+    ).get("legacy-all-day") as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+      start_on: string;
+      end_on: string;
+    };
+
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
+    expect(row.start_on).toBe("2026-08-10");
+    expect(row.end_on).toBe("2026-08-11");
 
     migrated.close();
     rmSync(dir, { recursive: true, force: true });
