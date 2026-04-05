@@ -11,6 +11,11 @@ describe("timezone conversion utilities", () => {
     expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00", "Europe/Vienna")).toBe("2024-01-15T09:00:00.000Z");
   });
 
+  it("converts local datetime with fractional seconds in Vienna to UTC", () => {
+    expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00:00.123", "Europe/Vienna")).toBe("2024-01-15T09:00:00.123Z");
+    expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00:00.1", "Europe/Vienna")).toBe("2024-01-15T09:00:00.100Z");
+  });
+
   it("treats all-day date-only values as local midnight when timezone is known", () => {
     const normalized = normalizeApTemporal({
       startDate: "2024-01-15",

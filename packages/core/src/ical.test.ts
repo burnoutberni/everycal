@@ -43,6 +43,20 @@ describe("ical timezone export/import", () => {
     expect(vevent).toContain("DTEND;TZID=Europe/Vienna:20260301T110000");
   });
 
+  it("derives timed TZID export when local source includes fractional seconds", () => {
+    const event = baseEvent({
+      eventTimezone: "Europe/Vienna",
+      startDate: "2026-03-01T10:00:00.123",
+      endDate: "2026-03-01T11:00:00.123",
+      startAtUtc: undefined,
+      endAtUtc: undefined,
+    });
+
+    const vevent = toICal(event);
+    expect(vevent).toContain("DTSTART;TZID=Europe/Vienna:20260301T100000");
+    expect(vevent).toContain("DTEND;TZID=Europe/Vienna:20260301T110000");
+  });
+
   it("exports UTC fallback when timezone is unknown", () => {
     const event = baseEvent({
       startAtUtc: "2026-03-01T09:00:00.000Z",

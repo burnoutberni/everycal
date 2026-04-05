@@ -1,6 +1,6 @@
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
 export type TimezoneQuality = "exact_tzid" | "offset_only";
 
@@ -46,7 +46,8 @@ export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: st
   const m = normalized.match(LOCAL_DATE_TIME);
   if (!m) return null;
 
-  const [, y, mo, d, h, mi, s] = m;
+  const [, y, mo, d, h, mi, s, frac] = m;
+  const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
   const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
 
   let candidateMs = naiveUtcMs;
@@ -57,7 +58,7 @@ export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: st
     candidateMs = next;
   }
 
-  const parsed = new Date(candidateMs);
+  const parsed = new Date(candidateMs + milliseconds);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }

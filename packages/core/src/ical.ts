@@ -22,7 +22,7 @@ interface ParsedProperty {
 
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
 export function toICalendar(entries: CalendarEntry[], options?: ToICalendarOptions): string {
   const normalized = entries.map((entry) => ("event" in entry ? entry : { event: entry }));
@@ -389,7 +389,8 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string {
     return Number.isNaN(parsed.getTime()) ? localIso : parsed.toISOString();
   }
 
-  const [, y, mo, d, h, mi, s] = m;
+  const [, y, mo, d, h, mi, s, frac] = m;
+  const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
   const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
 
   let candidateMs = naiveUtcMs;
@@ -400,7 +401,7 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string {
     candidateMs = next;
   }
 
-  return new Date(candidateMs).toISOString();
+  return new Date(candidateMs + milliseconds).toISOString();
 }
 
 function escapeICalText(text: string): string {
