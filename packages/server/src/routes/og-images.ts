@@ -23,6 +23,8 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     start_date: string;
     start_at_utc: string | null;
     end_date: string | null;
+    end_at_utc: string | null;
+    event_timezone: string;
     all_day: number;
     location_name: string | null;
     location_address: string | null;
@@ -45,6 +47,7 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     title: event.title,
     startDate: event.start_date,
     endDate: event.end_date || undefined,
+    eventTimezone: event.event_timezone,
     location: event.location_name
       ? {
           name: event.location_name,
@@ -74,11 +77,17 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     : {
       ...baseEventData,
       allDay: false as const,
+      startDate: event.start_at_utc as string,
+      endDate: event.end_at_utc || undefined,
       startAtUtc: event.start_at_utc as string,
+      ...(event.end_at_utc ? { endAtUtc: event.end_at_utc } : {}),
     };
 
   if (!event.all_day && !event.start_at_utc) {
     throw new Error(`Timed event ${event.id} missing start_at_utc for OG generation`);
+  }
+  if (!event.all_day && event.end_date && !event.end_at_utc) {
+    throw new Error(`Timed event ${event.id} missing end_at_utc for OG generation`);
   }
 
   const locale = event.preferred_language || "en";
