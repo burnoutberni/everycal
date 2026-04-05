@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveEventEndAtUtc,
+  deriveEventUtcRange,
   deriveUtcFromTemporalInput,
   isValidIanaTimezone,
   localDateTimeWithTimezoneToUtcIso,
@@ -54,6 +56,25 @@ describe("timezone conversion utilities", () => {
     expect(normalized?.allDay).toBe(true);
     expect(normalized?.startAtUtc).toBe("2026-08-09T22:00:00.000Z");
     expect(normalized?.endAtUtc).toBe("2026-08-10T22:00:00.000Z");
+  });
+
+  it("derives all-day end UTC as end-exclusive boundary", () => {
+    expect(
+      deriveEventEndAtUtc("2026-08-11", {
+        allDay: true,
+        eventTimezone: "Europe/Vienna",
+        startValueForAllDay: "2026-08-10",
+      }),
+    ).toBe("2026-08-11T22:00:00.000Z");
+  });
+
+  it("derives all-day UTC range consistently for write paths", () => {
+    const range = deriveEventUtcRange("2026-08-10", "2026-08-11", {
+      allDay: true,
+      eventTimezone: "Europe/Vienna",
+    });
+    expect(range.startAtUtc).toBe("2026-08-09T22:00:00.000Z");
+    expect(range.endAtUtc).toBe("2026-08-11T22:00:00.000Z");
   });
 
   it("handles DST edge local times deterministically", () => {

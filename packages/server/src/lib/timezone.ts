@@ -21,6 +21,15 @@ export interface DeriveUtcFromTemporalInputOptions {
   eventTimezone: string | null;
 }
 
+export interface DeriveEventEndAtUtcOptions extends DeriveUtcFromTemporalInputOptions {
+  startValueForAllDay: string;
+}
+
+export interface DerivedEventUtcRange {
+  startAtUtc: string | null;
+  endAtUtc: string | null;
+}
+
 function parseDateOnlyParts(value: string): { year: number; month: number; day: number } | null {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -156,6 +165,33 @@ export function deriveAllDayEndAtUtc(
   return deriveUtcFromTemporalInput(inclusiveEnd, { allDay: true, eventTimezone });
 }
 
+export function deriveEventEndAtUtc(
+  endValue: string | null | undefined,
+  options: DeriveEventEndAtUtcOptions,
+): string | null {
+  if (options.allDay) {
+    return deriveAllDayEndAtUtc(options.startValueForAllDay, endValue ?? null, options.eventTimezone);
+  }
+  if (!endValue) return null;
+  return deriveUtcFromTemporalInput(endValue, { allDay: false, eventTimezone: options.eventTimezone });
+}
+
+export function deriveEventUtcRange(
+  startValue: string | null | undefined,
+  endValue: string | null | undefined,
+  options: DeriveUtcFromTemporalInputOptions,
+): DerivedEventUtcRange {
+  if (!startValue) return { startAtUtc: null, endAtUtc: null };
+  return {
+    startAtUtc: deriveUtcFromTemporalInput(startValue, options),
+    endAtUtc: deriveEventEndAtUtc(endValue, {
+      allDay: options.allDay,
+      eventTimezone: options.eventTimezone,
+      startValueForAllDay: startValue,
+    }),
+  };
+}
+
 function resolveTimezoneHint(object: Record<string, unknown>): string | null {
   const candidates = [object.eventTimezone, object.timezone, object.tzid];
   for (const candidate of candidates) {
@@ -182,9 +218,11 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
   const startAtUtc = deriveUtcFromTemporalInput(startRaw, { allDay, eventTimezone });
   if (!startAtUtc) return null;
 
-  const endAtUtc = allDay
-    ? deriveAllDayEndAtUtc(startRaw, endRaw, eventTimezone)
-    : deriveUtcFromTemporalInput(endRaw, { allDay, eventTimezone });
+  const endAtUtc = deriveEventEndAtUtc(endRaw, {
+    allDay,
+    eventTimezone,
+    startValueForAllDay: startRaw,
+  });
   if ((allDay || endRaw) && !endAtUtc) return null;
   if (endAtUtc && endAtUtc < startAtUtc) return null;
 

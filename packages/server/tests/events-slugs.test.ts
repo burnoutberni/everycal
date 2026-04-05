@@ -314,6 +314,38 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-03-02T23:00:00.000Z");
   });
 
+  it("keeps all-day update end_at_utc end-exclusive when only endDate changes", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All Day Update Boundary",
+        allDay: true,
+        startDate: "2026-08-10",
+        endDate: "2026-08-11",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endDate: "2026-08-12" }),
+    });
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT start_at_utc, end_at_utc FROM events WHERE id = ?").get(created.id) as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-12T22:00:00.000Z");
+  });
+
   it("rejects all-day sync payloads with datetime-shaped startDate", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
