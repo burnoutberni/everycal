@@ -127,6 +127,190 @@ describe("event slug canonical behavior", () => {
     expect(generateAndSaveOgImage).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects all-day create when datetime fields are provided", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Bad All Day",
+        allDay: true,
+        startDate: "2026-01-01",
+        startDateTime: "2026-01-01T12:00:00",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+  });
+
+  it("rejects all-day create when startDate is not date-only", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Bad All Day",
+        allDay: true,
+        startDate: "2026-01-01T12:00:00",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+  });
+
+  it("stores all-day create as timezone-local midnight UTC instant", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Good All Day",
+        allDay: true,
+        startDate: "2026-08-10",
+        endDate: "2026-08-11",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc, all_day FROM events WHERE id = ?").get(body.id) as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+      all_day: number;
+    };
+    expect(row.start_date).toBe("2026-08-10");
+    expect(row.end_date).toBe("2026-08-11");
+    expect(row.all_day).toBe(1);
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-10T22:00:00.000Z");
+  });
+
+  it("rejects switching a timed event to all-day without date-only fields", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Timed Event",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ allDay: true }),
+    });
+
+    expect(update.status).toBe(400);
+  });
+
+  it("rejects all-day update when datetime fields are provided", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All Day",
+        allDay: true,
+        startDate: "2026-01-01",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allDay: true,
+        startDateTime: "2026-01-02T12:00:00",
+      }),
+    });
+
+    expect(update.status).toBe(400);
+  });
+
+  it("accepts switching to all-day when date-only fields are provided", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Timed Event",
+        startDate: "2026-03-01T10:00:00",
+        endDate: "2026-03-01T12:00:00",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allDay: true,
+        startDate: "2026-03-01",
+        endDate: "2026-03-02",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc, all_day FROM events WHERE id = ?").get(created.id) as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+      all_day: number;
+    };
+    expect(row.start_date).toBe("2026-03-01");
+    expect(row.end_date).toBe("2026-03-02");
+    expect(row.all_day).toBe(1);
+    expect(row.start_at_utc).toBe("2026-02-28T23:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-03-01T23:00:00.000Z");
+  });
+
+  it("rejects all-day sync payloads with datetime-shaped startDate", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "all-day-invalid-sync",
+            title: "Invalid Sync",
+            startDate: "2026-01-01T12:00:00",
+            eventTimezone: "UTC",
+            allDay: true,
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(400);
+  });
+
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
     const pastStartDate = isoFromNow(-oneYearMs);

@@ -62,6 +62,7 @@ const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
 const EVERYCAL_CONTEXT = {
   eventTimezone: "https://everycal.org/ns#eventTimezone",
 };
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 // ─── Pure utility functions ─────────────────────────────────────────────────
 
@@ -91,6 +92,10 @@ function resolveEventUri(id: string): string {
 
 function formatTimeChangeValue(start: string, end: string | null | undefined): string {
   return [start, end || ""].filter(Boolean).join(" – ");
+}
+
+function isDateOnly(value: string): boolean {
+  return DATE_ONLY.test(value);
 }
 
 /** Check whether a user is allowed to view an event based on its visibility. */
@@ -622,6 +627,11 @@ export function eventRoutes(db: DB): Hono {
     for (const ev of body.events) {
       if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
+      }
+      if (ev.allDay) {
+        if (!isDateOnly(ev.startDate) || (ev.endDate !== undefined && !isDateOnly(ev.endDate))) {
+          return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+        }
       }
       const startAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone });
       const endAtUtc = ev.endDate
@@ -1164,6 +1174,17 @@ export function eventRoutes(db: DB): Hono {
     if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
+    if (body.allDay) {
+      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      if (!body.startDate || !isDateOnly(body.startDate)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      if (body.endDate !== undefined && !isDateOnly(body.endDate)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+    }
 
     sanitizeEventFields(body as Record<string, unknown>);
 
@@ -1348,6 +1369,16 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     const nextAllDay = body.allDay ?? !!existing.all_day;
+    if (nextAllDay) {
+      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      const candidateStart = body.startDate ?? existing.start_date;
+      const candidateEnd = body.endDate !== undefined ? body.endDate : existing.end_date;
+      if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+    }
     const tzForConvert = nextTimezone ?? existing.event_timezone;
     if (!tzForConvert) return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
