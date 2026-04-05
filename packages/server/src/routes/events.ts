@@ -1151,12 +1151,11 @@ export function eventRoutes(db: DB): Hono {
 
     const startDateInput = body.startDateTime || body.startDate;
     const endDateInput = body.endDateTime || body.endDate;
-    const timedEvent = !body.allDay;
     const eventTimezone = body.eventTimezone;
     if (!body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
-    if (!eventTimezone || !isValidIanaTimezone(eventTimezone) || (timedEvent && !body.eventTimezone)) {
+    if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
 
