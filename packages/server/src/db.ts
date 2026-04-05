@@ -328,8 +328,8 @@ export function initDatabase(path: string): DB {
     if (!tableHasColumn("events", "end_on")) db.exec("ALTER TABLE events ADD COLUMN end_on TEXT");
 
     db.exec("UPDATE events SET event_timezone = 'UTC' WHERE event_timezone IS NULL OR trim(event_timezone) = ''");
-    db.exec("UPDATE events SET start_on = substr(start_date, 1, 10) WHERE (start_on IS NULL OR trim(start_on) = '') AND start_date IS NOT NULL AND trim(start_date) != ''");
-    db.exec("UPDATE events SET end_on = substr(end_date, 1, 10) WHERE (end_on IS NULL OR trim(end_on) = '') AND end_date IS NOT NULL AND trim(end_date) != ''");
+    db.exec("UPDATE events SET start_on = substr(trim(start_date), 1, 10) WHERE (start_on IS NULL OR trim(start_on) = '') AND start_date IS NOT NULL AND trim(start_date) GLOB '????-??-??*' AND date(substr(trim(start_date), 1, 10)) IS NOT NULL");
+    db.exec("UPDATE events SET end_on = substr(trim(end_date), 1, 10) WHERE (end_on IS NULL OR trim(end_on) = '') AND end_date IS NOT NULL AND trim(end_date) GLOB '????-??-??*' AND date(substr(trim(end_date), 1, 10)) IS NOT NULL");
 
     const temporalRows = db.prepare(`
       SELECT id, start_date, end_date, all_day, event_timezone, start_at_utc, end_at_utc, created_at
@@ -453,10 +453,26 @@ export function initDatabase(path: string): DB {
       db.exec(`
         UPDATE remote_events
         SET start_on = COALESCE(
-          NULLIF(substr(start_date, 1, 10), ''),
-          NULLIF(substr(start_at_utc, 1, 10), '')
+          CASE
+            WHEN start_date IS NOT NULL
+              AND trim(start_date) GLOB '????-??-??*'
+              AND date(substr(trim(start_date), 1, 10)) IS NOT NULL
+            THEN substr(trim(start_date), 1, 10)
+            ELSE NULL
+          END,
+          CASE
+            WHEN start_at_utc IS NOT NULL
+              AND trim(start_at_utc) GLOB '????-??-??*'
+              AND date(substr(trim(start_at_utc), 1, 10)) IS NOT NULL
+            THEN substr(trim(start_at_utc), 1, 10)
+            ELSE NULL
+          END
         )
-        WHERE start_on IS NULL OR trim(start_on) = ''
+        WHERE (start_on IS NULL OR trim(start_on) = '')
+          AND (
+            (start_date IS NOT NULL AND trim(start_date) GLOB '????-??-??*' AND date(substr(trim(start_date), 1, 10)) IS NOT NULL)
+            OR (start_at_utc IS NOT NULL AND trim(start_at_utc) GLOB '????-??-??*' AND date(substr(trim(start_at_utc), 1, 10)) IS NOT NULL)
+          )
       `);
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on)");
     }
@@ -464,10 +480,26 @@ export function initDatabase(path: string): DB {
       db.exec(`
         UPDATE remote_events
         SET end_on = COALESCE(
-          NULLIF(substr(end_date, 1, 10), ''),
-          NULLIF(substr(end_at_utc, 1, 10), '')
+          CASE
+            WHEN end_date IS NOT NULL
+              AND trim(end_date) GLOB '????-??-??*'
+              AND date(substr(trim(end_date), 1, 10)) IS NOT NULL
+            THEN substr(trim(end_date), 1, 10)
+            ELSE NULL
+          END,
+          CASE
+            WHEN end_at_utc IS NOT NULL
+              AND trim(end_at_utc) GLOB '????-??-??*'
+              AND date(substr(trim(end_at_utc), 1, 10)) IS NOT NULL
+            THEN substr(trim(end_at_utc), 1, 10)
+            ELSE NULL
+          END
         )
-        WHERE end_on IS NULL OR trim(end_on) = ''
+        WHERE (end_on IS NULL OR trim(end_on) = '')
+          AND (
+            (end_date IS NOT NULL AND trim(end_date) GLOB '????-??-??*' AND date(substr(trim(end_date), 1, 10)) IS NOT NULL)
+            OR (end_at_utc IS NOT NULL AND trim(end_at_utc) GLOB '????-??-??*' AND date(substr(trim(end_at_utc), 1, 10)) IS NOT NULL)
+          )
       `);
     }
   } catch {
