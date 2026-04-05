@@ -16,7 +16,7 @@ import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { deliverToFollowers, formatRemoteActorAccount } from "../lib/federation.js";
+import { deliverToFollowers } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
 import { buildToCondition, buildToParams } from "../lib/date-query.js";
@@ -37,6 +37,7 @@ import {
   readActorSelectionPayload,
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
+import { serializeLocalEvent, serializeRemoteEvent } from "../lib/event-serializers.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -172,102 +173,11 @@ function mergeByStartDate(
 // ─── Response formatters ────────────────────────────────────────────────────
 
 function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: row.id,
-    slug: row.slug,
-    source: "local",
-    accountId: row.account_id,
-    account: row.account_username
-      ? { username: row.account_username, displayName: row.account_display_name }
-      : undefined,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    startAtUtc: row.start_at_utc ?? undefined,
-    endAtUtc: row.end_at_utc ?? undefined,
-    eventTimezone: row.event_timezone,
-    allDay: !!row.all_day,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-          url: row.location_url,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => { try { return JSON.parse(row.image_attribution as string); } catch { return undefined; } })()
-            : undefined,
-        }
-      : null,
-    ogImageUrl: row.og_image_url || null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: row.visibility,
-    canceled: !!row.canceled,
-    repostedBy: row.repost_username
-      ? { username: row.repost_username as string, displayName: row.repost_display_name as string | null }
-      : undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return serializeLocalEvent(row);
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const account = formatRemoteActorAccount({
-    status: row.actor_fetch_status as string | null,
-    preferredUsername: row.preferred_username as string | null,
-    displayName: row.actor_display_name as string | null,
-    domain: row.domain as string | null,
-    iconUrl: row.actor_icon_url as string | null,
-  });
-  return {
-    id: row.uri,
-    slug: row.slug,
-    source: "remote",
-    actorUri: row.actor_uri,
-    account,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    startAtUtc: row.start_at_utc,
-    endAtUtc: row.end_at_utc,
-    eventTimezone: row.event_timezone,
-    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only",
-    allDay: !!row.all_day,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => { try { return JSON.parse(row.image_attribution as string); } catch { return undefined; } })()
-            : undefined,
-        }
-      : null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: "public",
-    canceled: !!row.canceled,
-    createdAt: row.published,
-    updatedAt: row.updated,
-  };
+  return serializeRemoteEvent(row);
 }
 
 // ─── Route definitions ──────────────────────────────────────────────────────
