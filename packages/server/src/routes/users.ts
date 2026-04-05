@@ -5,12 +5,9 @@
 import { Hono } from "hono";
 import type { DB } from "../db.js";
 import {
-  buildFromCondition,
-  buildFromParams,
-  buildToCondition,
-  buildToParams,
+  buildDateRangeFilter,
   DateQueryParamError,
-  normalizeDateRangeParams,
+  parseDateRangeParams,
 } from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -185,12 +182,10 @@ export function userRoutes(db: DB): Hono {
   router.get("/:username/events", (c) => {
     const username = c.req.param("username");
     const currentUser = c.get("user");
-    const fromRaw = c.req.query("from");
-    const toRaw = c.req.query("to");
-    let from: string | undefined;
-    let to: string | undefined;
+    const from = c.req.query("from");
+    const to = c.req.query("to");
     try {
-      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+      parseDateRangeParams(from, to);
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
       throw error;
@@ -219,8 +214,13 @@ export function userRoutes(db: DB): Hono {
           WHERE re.actor_uri = ?
         `;
         const params: unknown[] = [remoteActor.uri];
-        if (from) { sql += buildFromCondition("re.start_at_utc"); params.push(...buildFromParams(from)); }
-        if (to) { sql += buildToCondition("re.start_at_utc"); params.push(...buildToParams(to)); }
+        const range = buildDateRangeFilter(
+          { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
+          from,
+          to,
+        );
+        sql += range.sql;
+        params.push(...range.params);
         sql += ` ORDER BY re.start_at_utc ${sort} LIMIT ? OFFSET ?`;
         params.push(limit, offset);
 
@@ -270,8 +270,15 @@ export function userRoutes(db: DB): Hono {
     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
-    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
-    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
 
     sql += ` GROUP BY e.id`;
 
@@ -300,8 +307,15 @@ export function userRoutes(db: DB): Hono {
         ${repostVisibilityClause}
     `;
     params.push(account.id, ...repostVisibilityParams);
-    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
-    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
     sql += ` GROUP BY e.id`;
 
     // Add auto-reposted events (from accounts this user auto-reposts, excluding already explicit reposts)
@@ -330,8 +344,15 @@ export function userRoutes(db: DB): Hono {
         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
-    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
-    if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
     sql += ` GROUP BY e.id`;
 
     // Wrap in outer query to sort and paginate

@@ -3,6 +3,16 @@ import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 import { normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function extractDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (DATE_ONLY.test(trimmed)) return trimmed;
+  const prefix = trimmed.slice(0, 10);
+  return DATE_ONLY.test(prefix) ? prefix : null;
+}
+
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
   temporal?: NormalizedRemoteTemporal;
@@ -67,6 +77,7 @@ export function upsertRemoteEvent(
       `UPDATE remote_events SET
         slug = ?,
         title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
+        start_on = ?, end_on = ?,
         start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
@@ -79,6 +90,8 @@ export function upsertRemoteEvent(
       startDate,
       endDate,
       temporal.allDay ? 1 : 0,
+      extractDatePart(startDate),
+      extractDatePart(endDate),
       temporal.startAtUtc,
       temporal.endAtUtc,
       temporal.eventTimezone,
@@ -104,10 +117,10 @@ export function upsertRemoteEvent(
   const slug = uniqueRemoteEventSlug(db, actorUri, title);
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
-      all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality,
+      all_day, start_on, end_on, start_at_utc, end_at_utc, event_timezone, timezone_quality,
       location_name, location_address, location_latitude, location_longitude,
       image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -117,6 +130,8 @@ export function upsertRemoteEvent(
     startDate,
     endDate,
     temporal.allDay ? 1 : 0,
+    extractDatePart(startDate),
+    extractDatePart(endDate),
     temporal.startAtUtc,
     temporal.endAtUtc,
     temporal.eventTimezone,

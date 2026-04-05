@@ -20,12 +20,9 @@ import { deliverToFollowers } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
 import {
-  buildFromCondition,
-  buildFromParams,
-  buildToCondition,
-  buildToParams,
+  buildDateRangeFilter,
   DateQueryParamError,
-  normalizeDateRangeParams,
+  parseDateRangeParams,
 } from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
@@ -127,15 +124,11 @@ function canViewEvent(
 
 /** Build SQL + params for optional date-range filters on a column. */
 function appendDateFilters(
-  column: string,
+  columns: { instantColumn: string; dateColumn: string },
   from?: string,
   to?: string,
 ): { sql: string; params: unknown[] } {
-  let sql = "";
-  const params: unknown[] = [];
-  if (from) { sql += buildFromCondition(column); params.push(...buildFromParams(from)); }
-  if (to) { sql += buildToCondition(column); params.push(...buildToParams(to)); }
-  return { sql, params };
+  return buildDateRangeFilter(columns, from, to);
 }
 
 /**
@@ -269,12 +262,10 @@ export function eventRoutes(db: DB): Hono {
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
   router.get("/tags", (c) => {
-    const fromRaw = c.req.query("from");
-    const toRaw = c.req.query("to");
-    let from: string | undefined;
-    let to: string | undefined;
+    const from = c.req.query("from");
+    const to = c.req.query("to");
     try {
-      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+      parseDateRangeParams(from, to);
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
       throw error;
@@ -316,8 +307,14 @@ export function eventRoutes(db: DB): Hono {
           WHERE e.visibility = 'public'`;
       }
 
-      const dateCol = isMineScope ? "combined.start_at_utc" : "e.start_at_utc";
-      const df = appendDateFilters(dateCol, from, to);
+      const df = appendDateFilters(
+        {
+          instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
+          dateColumn: isMineScope ? "combined.start_on" : "e.start_on",
+        },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
@@ -340,7 +337,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_at_utc", from, to);
+      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -360,12 +357,10 @@ export function eventRoutes(db: DB): Hono {
 
   router.get("/", (c) => {
     const account = c.req.query("account");
-    const fromRaw = c.req.query("from");
-    const toRaw = c.req.query("to");
-    let from: string | undefined;
-    let to: string | undefined;
+    const from = c.req.query("from");
+    const to = c.req.query("to");
     try {
-      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+      parseDateRangeParams(from, to);
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
       throw error;
@@ -424,7 +419,11 @@ export function eventRoutes(db: DB): Hono {
         params.push(account);
       }
 
-      const df = appendDateFilters(`${col}.start_at_utc`, from, to);
+      const df = appendDateFilters(
+        { instantColumn: `${col}.start_at_utc`, dateColumn: `${col}.start_on` },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
@@ -463,7 +462,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_at_utc", from, to);
+      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -524,14 +523,10 @@ export function eventRoutes(db: DB): Hono {
 
   router.get("/timeline", requireAuth(), (c) => {
     const user = c.get("user")!;
-    const fromRaw = c.req.query("from") || new Date().toISOString();
-    const toRaw = c.req.query("to");
-    let from: string;
-    let to: string | undefined;
+    const from = c.req.query("from") || new Date().toISOString();
+    const to = c.req.query("to");
     try {
-      const normalized = normalizeDateRangeParams(fromRaw, toRaw);
-      from = normalized.from!;
-      to = normalized.to;
+      parseDateRangeParams(from, to);
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
       throw error;
@@ -543,11 +538,15 @@ export function eventRoutes(db: DB): Hono {
     let localEvents: Record<string, unknown>[];
     {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const feed = buildFeedQuery({ userId: user.id, baseUrl, dateFrom: from });
+      const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
       const params = [...feed.params];
 
-      const df = appendDateFilters("combined.start_at_utc", undefined, to);
+      const df = appendDateFilters(
+        { instantColumn: "combined.start_at_utc", dateColumn: "combined.start_on" },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
@@ -562,14 +561,13 @@ export function eventRoutes(db: DB): Hono {
     let remoteEvents: Record<string, unknown>[];
     {
       let sql = `${REMOTE_EVENT_SELECT}
-        WHERE re.start_at_utc >= ?
-          AND (
+        WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
             OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
           )`;
-      const params: unknown[] = [from, user.id, user.id];
+      const params: unknown[] = [user.id, user.id];
 
-      const df = appendDateFilters("re.start_at_utc", undefined, to);
+      const df = appendDateFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 

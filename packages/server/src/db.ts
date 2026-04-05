@@ -205,6 +205,8 @@ export function initDatabase(path: string): DB {
       all_day INTEGER NOT NULL DEFAULT 0,
       start_at_utc TEXT NOT NULL,
       end_at_utc TEXT,
+      start_on TEXT,
+      end_on TEXT,
       event_timezone TEXT,
       timezone_quality TEXT NOT NULL CHECK(timezone_quality IN ('exact_tzid','offset_only')),
       location_name TEXT,
@@ -410,6 +412,9 @@ export function initDatabase(path: string): DB {
     if (tableHasColumn("events", "start_at_utc")) {
       db.exec("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at_utc)");
     }
+    if (tableHasColumn("events", "start_on")) {
+      db.exec("CREATE INDEX IF NOT EXISTS idx_events_start_on ON events(start_on)");
+    }
   } catch (e) {
     if (tableHasColumn("events", "id")) throw e;
     // Ignore partial/legacy states where events table is not fully initialized.
@@ -436,6 +441,34 @@ export function initDatabase(path: string): DB {
     }
     if (tableHasColumn("remote_events", "start_at_utc")) {
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_at_utc)");
+    }
+
+    if (!tableHasColumn("remote_events", "start_on")) {
+      db.exec("ALTER TABLE remote_events ADD COLUMN start_on TEXT");
+    }
+    if (!tableHasColumn("remote_events", "end_on")) {
+      db.exec("ALTER TABLE remote_events ADD COLUMN end_on TEXT");
+    }
+    if (tableHasColumn("remote_events", "start_on")) {
+      db.exec(`
+        UPDATE remote_events
+        SET start_on = COALESCE(
+          NULLIF(substr(start_date, 1, 10), ''),
+          NULLIF(substr(start_at_utc, 1, 10), '')
+        )
+        WHERE start_on IS NULL OR trim(start_on) = ''
+      `);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on)");
+    }
+    if (tableHasColumn("remote_events", "end_on")) {
+      db.exec(`
+        UPDATE remote_events
+        SET end_on = COALESCE(
+          NULLIF(substr(end_date, 1, 10), ''),
+          NULLIF(substr(end_at_utc, 1, 10), '')
+        )
+        WHERE end_on IS NULL OR trim(end_on) = ''
+      `);
     }
   } catch {
     // Ignore partial/legacy states where remote_events table is not fully initialized
@@ -762,11 +795,23 @@ export function initDatabase(path: string): DB {
   // Migration: canonicalize remote temporal fields into strict UTC + timezone contract
   try {
     const rows = db.prepare(`
-      SELECT uri, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, timezone_quality, fetched_at
+      SELECT uri, start_date, end_date, all_day, start_at_utc, end_at_utc, start_on, end_on, event_timezone, timezone_quality, fetched_at
       FROM remote_events
       WHERE start_at_utc IS NULL
          OR trim(start_at_utc) = ''
          OR start_at_utc NOT GLOB '????-??-??T??:??:??*Z'
+         OR start_on IS NULL
+         OR trim(start_on) = ''
+         OR start_on NOT GLOB '????-??-??'
+         OR (
+           end_date IS NOT NULL
+           AND trim(end_date) != ''
+           AND (
+             end_on IS NULL
+             OR trim(end_on) = ''
+             OR end_on NOT GLOB '????-??-??'
+           )
+         )
          OR (
            end_date IS NOT NULL
            AND trim(end_date) != ''
@@ -801,6 +846,8 @@ export function initDatabase(path: string): DB {
       all_day: number;
       start_at_utc: string | null;
       end_at_utc: string | null;
+      start_on: string | null;
+      end_on: string | null;
       event_timezone: string | null;
       timezone_quality: string | null;
       fetched_at: string | null;
@@ -808,7 +855,7 @@ export function initDatabase(path: string): DB {
 
     const updateTemporal = db.prepare(`
       UPDATE remote_events
-      SET all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?
+      SET all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?, start_on = ?, end_on = ?
       WHERE uri = ?
     `);
 
@@ -837,6 +884,9 @@ export function initDatabase(path: string): DB {
       if (row.end_date && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
+      const nextStartOn = extractDatePart(row.start_date) || extractDatePart(nextStartAtUtc);
+      const nextEndOn = extractDatePart(row.end_date) || extractDatePart(nextEndAtUtc);
+
       const nextTimezoneQuality = timezone ? "exact_tzid" : "offset_only";
       const nextAllDay = allDay ? 1 : 0;
       const needsUpdate =
@@ -844,11 +894,13 @@ export function initDatabase(path: string): DB {
         || (row.all_day ? 1 : 0) !== nextAllDay
         || row.start_at_utc !== nextStartAtUtc
         || row.end_at_utc !== nextEndAtUtc
+        || row.start_on !== nextStartOn
+        || row.end_on !== nextEndOn
         || row.event_timezone !== timezone
         || row.timezone_quality !== nextTimezoneQuality;
 
       if (needsUpdate) {
-        updateTemporal.run(nextAllDay, nextStartAtUtc, nextEndAtUtc, timezone, nextTimezoneQuality, row.uri);
+        updateTemporal.run(nextAllDay, nextStartAtUtc, nextEndAtUtc, timezone, nextTimezoneQuality, nextStartOn, nextEndOn, row.uri);
       }
     }
   } catch {

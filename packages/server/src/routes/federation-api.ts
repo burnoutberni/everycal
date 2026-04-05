@@ -28,7 +28,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
-import { DateQueryParamError, normalizeDateRangeParams } from "../lib/date-query.js";
+import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -463,10 +463,9 @@ export function federationRoutes(db: DB): Hono {
   // List remote events
   router.get("/remote-events", (c) => {
     const actorUri = c.req.query("actor");
-    const fromRaw = c.req.query("from");
-    let from: string | undefined;
+    const from = c.req.query("from");
     try {
-      ({ from } = normalizeDateRangeParams(fromRaw));
+      parseDateRangeParams(from);
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
       throw error;
@@ -487,10 +486,13 @@ export function federationRoutes(db: DB): Hono {
       sql += " AND re.actor_uri = ?";
       params.push(actorUri);
     }
-    if (from) {
-      sql += " AND re.start_at_utc >= ?";
-      params.push(from);
-    }
+    const range = buildDateRangeFilter(
+      { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
+      from,
+      undefined,
+    );
+    sql += range.sql;
+    params.push(...range.params);
 
     sql += " ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?";
     params.push(limit, offset);
