@@ -1,17 +1,7 @@
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
-import { normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
-
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
-function extractDatePart(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (DATE_ONLY.test(trimmed)) return trimmed;
-  const prefix = trimmed.slice(0, 10);
-  return DATE_ONLY.test(prefix) ? prefix : null;
-}
+import { extractDatePart, normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
 
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;

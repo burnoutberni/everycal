@@ -3,6 +3,7 @@ import {
   deriveEventEndAtUtc,
   deriveEventUtcRange,
   deriveUtcFromTemporalInput,
+  extractDatePart,
   isValidIanaTimezone,
   localDateTimeWithTimezoneToUtcIso,
   normalizeApTemporal,
@@ -21,6 +22,13 @@ describe("timezone conversion utilities", () => {
   it("converts local datetime with fractional seconds in Vienna to UTC", () => {
     expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00:00.123", "Europe/Vienna")).toBe("2024-01-15T09:00:00.123Z");
     expect(localDateTimeWithTimezoneToUtcIso("2024-01-15T10:00:00.1", "Europe/Vienna")).toBe("2024-01-15T09:00:00.100Z");
+  });
+
+  it("extracts date-only prefix from temporal strings", () => {
+    expect(extractDatePart("2026-03-01")).toBe("2026-03-01");
+    expect(extractDatePart(" 2026-03-01T10:00:00Z ")).toBe("2026-03-01");
+    expect(extractDatePart("invalid")).toBeNull();
+    expect(extractDatePart(null)).toBeNull();
   });
 
   it("treats all-day date-only values as local midnight when timezone is known", () => {

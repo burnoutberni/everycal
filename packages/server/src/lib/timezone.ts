@@ -4,6 +4,14 @@ const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
+export function extractDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (DATE_ONLY.test(trimmed)) return trimmed;
+  const prefix = trimmed.slice(0, 10);
+  return DATE_ONLY.test(prefix) ? prefix : null;
+}
+
 export type TimezoneQuality = "exact_tzid" | "offset_only";
 
 export interface NormalizedRemoteTemporal {

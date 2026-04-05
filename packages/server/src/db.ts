@@ -4,7 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
-import { absoluteIsoWithOffsetToUtcIso, deriveAllDayEndAtUtc, deriveUtcFromTemporalInput, isValidIanaTimezone } from "./lib/timezone.js";
+import { absoluteIsoWithOffsetToUtcIso, deriveAllDayEndAtUtc, deriveUtcFromTemporalInput, extractDatePart, isValidIanaTimezone } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -28,14 +28,6 @@ function canonicalUtcIso(value: string | null | undefined): string | null {
   if (!value) return null;
   if (ISO_HAS_OFFSET.test(value)) return absoluteIsoWithOffsetToUtcIso(value);
   return sqliteUtcDateTimeToUtcIso(value);
-}
-
-function extractDatePart(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (DATE_ONLY.test(trimmed)) return trimmed;
-  const prefix = trimmed.slice(0, 10);
-  return DATE_ONLY.test(prefix) ? prefix : null;
 }
 
 export function initDatabase(path: string): DB {
