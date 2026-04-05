@@ -31,7 +31,7 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
-import { deriveUtcFromTemporalInput, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
+import { deriveAllDayEndAtUtc, deriveUtcFromTemporalInput, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -630,10 +630,12 @@ export function eventRoutes(db: DB): Hono {
         }
       }
       const startAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone });
-      const endAtUtc = ev.endDate
-        ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
-        : null;
-      if (!startAtUtc || (ev.endDate && !endAtUtc) || (endAtUtc && endAtUtc < startAtUtc)) {
+      const endAtUtc = ev.allDay
+        ? deriveAllDayEndAtUtc(ev.startDate, ev.endDate ?? null, ev.eventTimezone)
+        : (ev.endDate
+          ? deriveUtcFromTemporalInput(ev.endDate, { allDay: false, eventTimezone: ev.eventTimezone })
+          : null);
+      if (!startAtUtc || (ev.allDay ? !endAtUtc : (ev.endDate && !endAtUtc)) || (endAtUtc && endAtUtc < startAtUtc)) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
     }
@@ -799,9 +801,11 @@ export function eventRoutes(db: DB): Hono {
             const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
             const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
             const nextStartAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })!;
-            const nextEndAtUtc = ev.endDate
-              ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
-              : null;
+            const nextEndAtUtc = ev.allDay
+              ? deriveAllDayEndAtUtc(ev.startDate, ev.endDate ?? null, ev.eventTimezone)
+              : (ev.endDate
+                ? deriveUtcFromTemporalInput(ev.endDate, { allDay: false, eventTimezone: ev.eventTimezone })
+                : null);
             const existingEffectiveStart = existingRow.start_date;
             const existingEffectiveEnd = existingRow.end_date;
             const nextEffectiveStart = ev.startDate;
@@ -862,9 +866,11 @@ export function eventRoutes(db: DB): Hono {
             const id = nanoid(16);
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
             const nextStartAtUtc = deriveUtcFromTemporalInput(ev.startDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })!;
-            const nextEndAtUtc = ev.endDate
-              ? deriveUtcFromTemporalInput(ev.endDate, { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone })
-              : null;
+            const nextEndAtUtc = ev.allDay
+              ? deriveAllDayEndAtUtc(ev.startDate, ev.endDate ?? null, ev.eventTimezone)
+              : (ev.endDate
+                ? deriveUtcFromTemporalInput(ev.endDate, { allDay: false, eventTimezone: ev.eventTimezone })
+                : null);
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
@@ -1228,10 +1234,12 @@ export function eventRoutes(db: DB): Hono {
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    const endAtUtc = endDateInput
-      ? deriveUtcFromTemporalInput(endDateInput, { allDay: !!body.allDay, eventTimezone })
-      : null;
-    if (endDateInput && !endAtUtc) {
+    const endAtUtc = body.allDay
+      ? deriveAllDayEndAtUtc(startDateInput, endDateInput ?? null, eventTimezone)
+      : (endDateInput
+        ? deriveUtcFromTemporalInput(endDateInput, { allDay: false, eventTimezone })
+        : null);
+    if ((body.allDay || endDateInput) && !endAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
     if (endAtUtc && endAtUtc < startAtUtc) {
@@ -1384,19 +1392,25 @@ export function eventRoutes(db: DB): Hono {
     const tzForConvert = nextTimezone ?? existingTimezone;
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
     const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
+    const shouldRecomputeAllDayEndBoundary = nextAllDay && (nextStart !== undefined || body.allDay !== undefined);
     const endForUtc = nextEnd !== undefined
       ? nextEnd
-      : (shouldRecomputeUtcForTimezoneChange ? existing.end_date : undefined);
+      : ((shouldRecomputeUtcForTimezoneChange || shouldRecomputeAllDayEndBoundary) ? existing.end_date : undefined);
     const nextStartAtUtc = startForUtc !== undefined
       ? deriveUtcFromTemporalInput(startForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
       : null;
     if (startForUtc !== undefined && !nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const nextEndAtUtc = endForUtc !== undefined && endForUtc !== null
-      ? deriveUtcFromTemporalInput(endForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
+    const baseStartForAllDayEnd = nextStart ?? existing.start_date;
+    const nextEndAtUtc = endForUtc !== undefined
+      ? (nextAllDay
+        ? deriveAllDayEndAtUtc(baseStartForAllDayEnd, endForUtc, tzForConvert)
+        : (endForUtc !== null
+          ? deriveUtcFromTemporalInput(endForUtc, { allDay: false, eventTimezone: tzForConvert })
+          : null))
       : null;
-    if (endForUtc !== undefined && endForUtc !== null && !nextEndAtUtc) {
+    if (endForUtc !== undefined && (nextAllDay ? !nextEndAtUtc : (endForUtc !== null && !nextEndAtUtc))) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     if (nextStartAtUtc && nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) {
@@ -1418,7 +1432,7 @@ export function eventRoutes(db: DB): Hono {
     }
     if (endForUtc !== undefined) {
       fields.push("end_at_utc = ?");
-      values.push(endForUtc ? nextEndAtUtc : null);
+      values.push(endForUtc === null ? null : nextEndAtUtc);
       const endForDateParts = nextEnd !== undefined ? nextEnd : existing.end_date;
       fields.push("end_on = ?");
       values.push(endForDateParts ? endForDateParts.slice(0, 10) : null);

@@ -191,6 +191,31 @@ describe("event slug canonical behavior", () => {
     expect(row.end_date).toBe("2026-08-11");
     expect(row.all_day).toBe(1);
     expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
+  });
+
+  it("derives all-day create end_at_utc from next day when endDate is omitted", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Single Day All Day",
+        allDay: true,
+        startDate: "2026-08-10",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_at_utc, end_at_utc FROM events WHERE id = ?").get(body.id) as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
     expect(row.end_at_utc).toBe("2026-08-10T22:00:00.000Z");
   });
 
@@ -286,7 +311,7 @@ describe("event slug canonical behavior", () => {
     expect(row.end_date).toBe("2026-03-02");
     expect(row.all_day).toBe(1);
     expect(row.start_at_utc).toBe("2026-02-28T23:00:00.000Z");
-    expect(row.end_at_utc).toBe("2026-03-01T23:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-03-02T23:00:00.000Z");
   });
 
   it("rejects all-day sync payloads with datetime-shaped startDate", async () => {
@@ -535,12 +560,14 @@ describe("event slug canonical behavior", () => {
       eventTimezone: "Europe/Vienna",
     }, "https://remote.example/users/alice");
 
-    const row = db.prepare("SELECT all_day, start_at_utc FROM remote_events WHERE uri = ?").get("https://remote.example/events/day-1") as {
+    const row = db.prepare("SELECT all_day, start_at_utc, end_at_utc FROM remote_events WHERE uri = ?").get("https://remote.example/events/day-1") as {
       all_day: number;
       start_at_utc: string;
+      end_at_utc: string | null;
     };
     expect(row.all_day).toBe(1);
     expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
+    expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
   });
 
   it("handles remote slug collisions per actor", () => {

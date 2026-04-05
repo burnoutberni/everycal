@@ -4,7 +4,7 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
-import { absoluteIsoWithOffsetToUtcIso, deriveUtcFromTemporalInput, isValidIanaTimezone } from "./lib/timezone.js";
+import { absoluteIsoWithOffsetToUtcIso, deriveAllDayEndAtUtc, deriveUtcFromTemporalInput, isValidIanaTimezone } from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -378,10 +378,12 @@ export function initDatabase(path: string): DB {
             || nowIso;
 
           let nextEndAtUtc = canonicalUtcIso(row.end_at_utc)
-            || (endDateRaw
-              ? deriveUtcFromTemporalInput(endDateRaw, { allDay, eventTimezone: timezone })
-              : null);
-          if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
+            || (allDay
+              ? deriveAllDayEndAtUtc(startDateRaw, endDateRaw, timezone)
+              : (endDateRaw
+                ? deriveUtcFromTemporalInput(endDateRaw, { allDay: false, eventTimezone: timezone })
+                : null));
+          if ((allDay || endDateRaw) && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
           if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
           const startOn = extractDatePart(startDateRaw) || nextStartAtUtc.slice(0, 10);
@@ -937,12 +939,14 @@ export function initDatabase(path: string): DB {
         || canonicalUtcIso(row.fetched_at)
         || nowIso;
 
-      let nextEndAtUtc = deriveUtcFromTemporalInput(
-        row.end_date,
-        { allDay, eventTimezone: timezone },
-      )
+      let nextEndAtUtc = (allDay
+        ? deriveAllDayEndAtUtc(row.start_date, row.end_date, timezone)
+        : deriveUtcFromTemporalInput(
+          row.end_date,
+          { allDay: false, eventTimezone: timezone },
+        ))
         || canonicalUtcIso(row.end_at_utc);
-      if (row.end_date && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
+      if ((allDay || row.end_date) && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
       const nextStartOn = extractDatePart(row.start_date) || extractDatePart(nextStartAtUtc);

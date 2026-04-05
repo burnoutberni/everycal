@@ -21,6 +21,39 @@ export interface DeriveUtcFromTemporalInputOptions {
   eventTimezone: string | null;
 }
 
+function parseDateOnlyParts(value: string): { year: number; month: number; day: number } | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const strict = buildStrictUtcDate({
+    year,
+    month,
+    day,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    millisecond: 0,
+  });
+  if (!strict) return null;
+  return { year, month, day };
+}
+
+function formatDateOnlyUtc(instant: Date): string {
+  const year = instant.getUTCFullYear();
+  const month = String(instant.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(instant.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDaysToDateOnly(value: string, days: number): string | null {
+  const parsed = parseDateOnlyParts(value);
+  if (!parsed) return null;
+  const shifted = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + days));
+  return formatDateOnlyUtc(shifted);
+}
+
 export function isValidIanaTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
@@ -109,6 +142,20 @@ export function deriveUtcFromTemporalInput(
   return localDateTimeWithTimezoneToUtcIso(value, options.eventTimezone);
 }
 
+export function deriveAllDayEndAtUtc(
+  startDate: string,
+  endDate: string | null | undefined,
+  eventTimezone: string | null,
+): string | null {
+  const inclusiveEnd = endDate || startDate;
+  if (DATE_ONLY.test(inclusiveEnd)) {
+    const exclusiveEnd = addDaysToDateOnly(inclusiveEnd, 1);
+    if (!exclusiveEnd) return null;
+    return deriveUtcFromTemporalInput(exclusiveEnd, { allDay: true, eventTimezone });
+  }
+  return deriveUtcFromTemporalInput(inclusiveEnd, { allDay: true, eventTimezone });
+}
+
 function resolveTimezoneHint(object: Record<string, unknown>): string | null {
   const candidates = [object.eventTimezone, object.timezone, object.tzid];
   for (const candidate of candidates) {
@@ -135,8 +182,10 @@ export function normalizeApTemporal(object: Record<string, unknown>): Normalized
   const startAtUtc = deriveUtcFromTemporalInput(startRaw, { allDay, eventTimezone });
   if (!startAtUtc) return null;
 
-  const endAtUtc = deriveUtcFromTemporalInput(endRaw, { allDay, eventTimezone });
-  if (endRaw && !endAtUtc) return null;
+  const endAtUtc = allDay
+    ? deriveAllDayEndAtUtc(startRaw, endRaw, eventTimezone)
+    : deriveUtcFromTemporalInput(endRaw, { allDay, eventTimezone });
+  if ((allDay || endRaw) && !endAtUtc) return null;
   if (endAtUtc && endAtUtc < startAtUtc) return null;
 
   const timezoneQuality = eventTimezone ? "exact_tzid" : "offset_only";
