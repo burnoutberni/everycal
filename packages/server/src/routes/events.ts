@@ -156,8 +156,8 @@ function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown
   return { sql: ` AND (${conditions})`, params };
 }
 
-/** Merge local + remote events by start date, capped at `limit`. */
-function mergeByStartDate(
+/** Merge local + remote events by canonical UTC start instant, capped at `limit`. */
+function mergeByStartAtUtc(
   local: Record<string, unknown>[],
   remote: Record<string, unknown>[],
   limit: number,
@@ -488,7 +488,7 @@ export function eventRoutes(db: DB): Hono {
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartDate(localEvents, remoteEvents, limit);
+    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
     if (user) events = attachUserContext(events, user.id);
 
     return c.json({ events });
@@ -584,7 +584,7 @@ export function eventRoutes(db: DB): Hono {
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartDate(localEvents, remoteEvents, limit);
+    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
 
     // Timeline only attaches RSVPs (no repost flags)
     const uris = events.map((e) => e.id as string);
