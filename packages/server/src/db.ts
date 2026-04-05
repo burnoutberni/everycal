@@ -334,23 +334,65 @@ export function initDatabase(path: string): DB {
     const temporalRows = db.prepare(`
       SELECT id, start_date, end_date, all_day, event_timezone, start_at_utc, end_at_utc, created_at
       FROM events
-      WHERE start_at_utc IS NULL
-         OR trim(start_at_utc) = ''
-         OR (
-           end_date IS NOT NULL
-           AND trim(end_date) != ''
-           AND (end_at_utc IS NULL OR trim(end_at_utc) = '')
-         )
-    `).all() as Array<{
-      id: string;
-      start_date: string;
-      end_date: string | null;
-      all_day: number | null;
-      event_timezone: string;
-      start_at_utc: string | null;
-      end_at_utc: string | null;
-      created_at: string | null;
-    }>;
+      WHERE id > ?
+        AND (
+          start_at_utc IS NULL
+          OR trim(start_at_utc) = ''
+          OR (
+            end_date IS NOT NULL
+            AND trim(end_date) != ''
+            AND (end_at_utc IS NULL OR trim(end_at_utc) = '')
+          )
+        )
+      ORDER BY id ASC
+      LIMIT ?
+    `);
+
+    const updateTemporalRows = db.transaction(() => {
+      const batchSize = 500;
+      let lastId = "";
+      const nowIso = new Date().toISOString();
+      while (true) {
+        const batch = temporalRows.all(lastId, batchSize) as Array<{
+          id: string;
+          start_date: string;
+          end_date: string | null;
+          all_day: number | null;
+          event_timezone: string;
+          start_at_utc: string | null;
+          end_at_utc: string | null;
+          created_at: string | null;
+        }>;
+        if (batch.length === 0) break;
+
+        for (const row of batch) {
+          const rawTimezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : "UTC";
+          const timezone = isValidIanaTimezone(rawTimezone) ? rawTimezone : "UTC";
+          const allDay = !!row.all_day;
+          const startDateRaw = row.start_date || "";
+          const endDateRaw = row.end_date && row.end_date.trim() ? row.end_date : null;
+
+          const nextStartAtUtc = canonicalUtcIso(row.start_at_utc)
+            || deriveUtcFromTemporalInput(startDateRaw, { allDay, eventTimezone: timezone })
+            || sqliteUtcDateTimeToUtcIso(row.created_at)
+            || nowIso;
+
+          let nextEndAtUtc = canonicalUtcIso(row.end_at_utc)
+            || (endDateRaw
+              ? deriveUtcFromTemporalInput(endDateRaw, { allDay, eventTimezone: timezone })
+              : null);
+          if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
+          if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
+
+          const startOn = extractDatePart(startDateRaw) || nextStartAtUtc.slice(0, 10);
+          const endOn = extractDatePart(endDateRaw) || (endDateRaw ? nextEndAtUtc?.slice(0, 10) || nextStartAtUtc.slice(0, 10) : null);
+
+          updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
+        }
+
+        lastId = batch[batch.length - 1]?.id || lastId;
+      }
+    });
 
     const updateTemporal = db.prepare(`
       UPDATE events
@@ -358,31 +400,7 @@ export function initDatabase(path: string): DB {
       WHERE id = ?
     `);
 
-    const nowIso = new Date().toISOString();
-    for (const row of temporalRows) {
-      const rawTimezone = row.event_timezone && row.event_timezone.trim() ? row.event_timezone.trim() : "UTC";
-      const timezone = isValidIanaTimezone(rawTimezone) ? rawTimezone : "UTC";
-      const allDay = !!row.all_day;
-      const startDateRaw = row.start_date || "";
-      const endDateRaw = row.end_date && row.end_date.trim() ? row.end_date : null;
-
-      const nextStartAtUtc = canonicalUtcIso(row.start_at_utc)
-        || deriveUtcFromTemporalInput(startDateRaw, { allDay, eventTimezone: timezone })
-        || sqliteUtcDateTimeToUtcIso(row.created_at)
-        || nowIso;
-
-      let nextEndAtUtc = canonicalUtcIso(row.end_at_utc)
-        || (endDateRaw
-          ? deriveUtcFromTemporalInput(endDateRaw, { allDay, eventTimezone: timezone })
-          : null);
-      if (endDateRaw && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
-      if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
-
-      const startOn = extractDatePart(startDateRaw) || nextStartAtUtc.slice(0, 10);
-      const endOn = extractDatePart(endDateRaw) || (endDateRaw ? nextEndAtUtc?.slice(0, 10) || nextStartAtUtc.slice(0, 10) : null);
-
-      updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
-    }
+    updateTemporalRows();
 
     const timezoneRows = db.prepare("SELECT id, event_timezone FROM events WHERE event_timezone IS NOT NULL AND trim(event_timezone) != ''").all() as Array<{
       id: string;
