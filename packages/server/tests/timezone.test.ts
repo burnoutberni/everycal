@@ -84,6 +84,12 @@ describe("timezone conversion utilities", () => {
     expect(localDateTimeWithTimezoneToUtcIso("not-a-date", "Europe/Vienna")).toBeNull();
   });
 
+  it("returns null for local datetime values that overflow calendar components", () => {
+    expect(localDateTimeWithTimezoneToUtcIso("2026-02-30T10:00:00", "Europe/Vienna")).toBeNull();
+    expect(localDateTimeWithTimezoneToUtcIso("2026-13-01T10:00:00", "Europe/Vienna")).toBeNull();
+    expect(localDateTimeWithTimezoneToUtcIso("2026-01-15T24:00:00", "Europe/Vienna")).toBeNull();
+  });
+
   it("derives UTC from absolute timestamps with offsets", () => {
     expect(
       deriveUtcFromTemporalInput("2026-03-01T10:00:00+01:00", {
@@ -97,6 +103,15 @@ describe("timezone conversion utilities", () => {
     expect(
       deriveUtcFromTemporalInput("2026-03-01", {
         allDay: false,
+        eventTimezone: "Europe/Vienna",
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for date-only temporal input with invalid calendar date", () => {
+    expect(
+      deriveUtcFromTemporalInput("2026-02-30", {
+        allDay: true,
         eventTimezone: "Europe/Vienna",
       }),
     ).toBeNull();

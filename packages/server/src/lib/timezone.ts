@@ -1,3 +1,5 @@
+import { buildStrictUtcDate } from "./utc-date.js";
+
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
@@ -52,8 +54,24 @@ export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: st
   if (!m) return null;
 
   const [, y, mo, d, h, mi, s, frac] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(mi);
+  const second = Number(s || "0");
   const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
-  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+  const naiveUtc = buildStrictUtcDate({
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond: 0,
+  });
+  if (!naiveUtc) return null;
+  const naiveUtcMs = naiveUtc.getTime();
 
   let candidateMs = naiveUtcMs;
   for (let i = 0; i < 4; i += 1) {

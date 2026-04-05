@@ -1,3 +1,5 @@
+import { buildStrictUtcDate } from "./utc-date.js";
+
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const LOCAL_DATE_TIME_NO_OFFSET =
@@ -38,14 +40,16 @@ function parseDateOnlyUtc(value: string, endOfDay: boolean): string | null {
   const second = endOfDay ? 59 : 0;
   const millisecond = endOfDay ? 999 : 0;
 
-  const instant = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
-  if (
-    instant.getUTCFullYear() !== year
-    || instant.getUTCMonth() !== month - 1
-    || instant.getUTCDate() !== day
-  ) {
-    return null;
-  }
+  const instant = buildStrictUtcDate({
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond,
+  });
+  if (!instant) return null;
   return instant.toISOString();
 }
 

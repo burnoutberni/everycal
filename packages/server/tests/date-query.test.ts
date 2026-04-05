@@ -25,6 +25,11 @@ describe("date query normalization", () => {
     expect(() => buildFromParams("2026-04-13T10:30:00")).toThrow(DateQueryParamError);
   });
 
+  it("rejects invalid date-only calendar values", () => {
+    expect(() => buildFromParams("2026-02-30")).toThrow(DateQueryParamError);
+    expect(() => buildToParams("2026-13-01")).toThrow(DateQueryParamError);
+  });
+
   it("rejects invalid ranges where from is after to", () => {
     expect(() => normalizeDateRangeParams("2026-04-14", "2026-04-13")).toThrow(DateQueryParamError);
   });
