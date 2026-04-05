@@ -4,7 +4,14 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { buildToCondition, buildToParams } from "../lib/date-query.js";
+import {
+  buildFromCondition,
+  buildFromParams,
+  buildToCondition,
+  buildToParams,
+  DateQueryParamError,
+  normalizeDateRangeParams,
+} from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   formatRemoteActorAccount,
@@ -178,8 +185,16 @@ export function userRoutes(db: DB): Hono {
   router.get("/:username/events", (c) => {
     const username = c.req.param("username");
     const currentUser = c.get("user");
-    const from = c.req.query("from");
-    const to = c.req.query("to");
+    const fromRaw = c.req.query("from");
+    const toRaw = c.req.query("to");
+    let from: string | undefined;
+    let to: string | undefined;
+    try {
+      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const sort = c.req.query("sort")?.toLowerCase() === "desc" ? "DESC" : "ASC";
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
@@ -204,7 +219,7 @@ export function userRoutes(db: DB): Hono {
           WHERE re.actor_uri = ?
         `;
         const params: unknown[] = [remoteActor.uri];
-        if (from) { sql += " AND re.start_at_utc >= ?"; params.push(from); }
+        if (from) { sql += buildFromCondition("re.start_at_utc"); params.push(...buildFromParams(from)); }
         if (to) { sql += buildToCondition("re.start_at_utc"); params.push(...buildToParams(to)); }
         sql += ` ORDER BY re.start_at_utc ${sort} LIMIT ? OFFSET ?`;
         params.push(limit, offset);
@@ -255,7 +270,7 @@ export function userRoutes(db: DB): Hono {
     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
-    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
     if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
 
     sql += ` GROUP BY e.id`;
@@ -285,7 +300,7 @@ export function userRoutes(db: DB): Hono {
         ${repostVisibilityClause}
     `;
     params.push(account.id, ...repostVisibilityParams);
-    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
     if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 
@@ -315,7 +330,7 @@ export function userRoutes(db: DB): Hono {
         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
-    if (from) { sql += ` AND e.start_at_utc >= ?`; params.push(from); }
+    if (from) { sql += buildFromCondition("e.start_at_utc"); params.push(...buildFromParams(from)); }
     if (to) { sql += buildToCondition("e.start_at_utc"); params.push(...buildToParams(to)); }
     sql += ` GROUP BY e.id`;
 

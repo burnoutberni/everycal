@@ -28,6 +28,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
+import { DateQueryParamError, normalizeDateRangeParams } from "../lib/date-query.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -462,7 +463,14 @@ export function federationRoutes(db: DB): Hono {
   // List remote events
   router.get("/remote-events", (c) => {
     const actorUri = c.req.query("actor");
-    const from = c.req.query("from");
+    const fromRaw = c.req.query("from");
+    let from: string | undefined;
+    try {
+      ({ from } = normalizeDateRangeParams(fromRaw));
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 

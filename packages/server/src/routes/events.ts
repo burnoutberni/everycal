@@ -19,7 +19,14 @@ import { requireAuth } from "../middleware/auth.js";
 import { deliverToFollowers } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
-import { buildToCondition, buildToParams } from "../lib/date-query.js";
+import {
+  buildFromCondition,
+  buildFromParams,
+  buildToCondition,
+  buildToParams,
+  DateQueryParamError,
+  normalizeDateRangeParams,
+} from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
@@ -126,7 +133,7 @@ function appendDateFilters(
 ): { sql: string; params: unknown[] } {
   let sql = "";
   const params: unknown[] = [];
-  if (from) { sql += ` AND ${column} >= ?`; params.push(from); }
+  if (from) { sql += buildFromCondition(column); params.push(...buildFromParams(from)); }
   if (to) { sql += buildToCondition(column); params.push(...buildToParams(to)); }
   return { sql, params };
 }
@@ -262,8 +269,16 @@ export function eventRoutes(db: DB): Hono {
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
   router.get("/tags", (c) => {
-    const from = c.req.query("from");
-    const to = c.req.query("to");
+    const fromRaw = c.req.query("from");
+    const toRaw = c.req.query("to");
+    let from: string | undefined;
+    let to: string | undefined;
+    try {
+      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const scope = c.req.query("scope");
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
@@ -345,8 +360,16 @@ export function eventRoutes(db: DB): Hono {
 
   router.get("/", (c) => {
     const account = c.req.query("account");
-    const from = c.req.query("from");
-    const to = c.req.query("to");
+    const fromRaw = c.req.query("from");
+    const toRaw = c.req.query("to");
+    let from: string | undefined;
+    let to: string | undefined;
+    try {
+      ({ from, to } = normalizeDateRangeParams(fromRaw, toRaw));
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const q = c.req.query("q");
     const source = c.req.query("source");
     const scope = c.req.query("scope");
@@ -501,8 +524,18 @@ export function eventRoutes(db: DB): Hono {
 
   router.get("/timeline", requireAuth(), (c) => {
     const user = c.get("user")!;
-    const from = c.req.query("from") || new Date().toISOString();
-    const to = c.req.query("to");
+    const fromRaw = c.req.query("from") || new Date().toISOString();
+    const toRaw = c.req.query("to");
+    let from: string;
+    let to: string | undefined;
+    try {
+      const normalized = normalizeDateRangeParams(fromRaw, toRaw);
+      from = normalized.from!;
+      to = normalized.to;
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
