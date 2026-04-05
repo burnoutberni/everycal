@@ -22,7 +22,6 @@ import { buildFeedQuery } from "../lib/feed-query.js";
 import {
   buildDateRangeFilter,
   DateQueryParamError,
-  parseDateRangeParams,
 } from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
@@ -272,18 +271,14 @@ export function eventRoutes(db: DB): Hono {
   router.get("/tags", (c) => {
     const from = c.req.query("from");
     const to = c.req.query("to");
-    try {
-      parseDateRangeParams(from, to);
-    } catch (error) {
-      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
-      throw error;
-    }
     const scope = c.req.query("scope");
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
     const isCalendarScope = scope === "calendar" && !!user;
 
     const allTags = new Set<string>();
+
+    try {
 
     // Local event tags
     {
@@ -358,7 +353,11 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    return c.json({ tags: [...allTags].sort() });
+      return c.json({ tags: [...allTags].sort() });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── GET / — list events ───────────────────────────────────────────────
@@ -367,12 +366,6 @@ export function eventRoutes(db: DB): Hono {
     const account = c.req.query("account");
     const from = c.req.query("from");
     const to = c.req.query("to");
-    try {
-      parseDateRangeParams(from, to);
-    } catch (error) {
-      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
-      throw error;
-    }
     const q = c.req.query("q");
     const source = c.req.query("source");
     const scope = c.req.query("scope");
@@ -387,6 +380,8 @@ export function eventRoutes(db: DB): Hono {
 
     let localEvents: Record<string, unknown>[] = [];
     let remoteEvents: Record<string, unknown>[] = [];
+
+    try {
 
     // Fetch local events (unless source=remote)
     if (source !== "remote") {
@@ -490,10 +485,14 @@ export function eventRoutes(db: DB): Hono {
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
-    if (user) events = attachUserContext(events, user.id);
+      let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
+      if (user) events = attachUserContext(events, user.id);
 
-    return c.json({ events });
+      return c.json({ events });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── POST /rsvp ────────────────────────────────────────────────────────
@@ -533,14 +532,10 @@ export function eventRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const from = c.req.query("from") || new Date().toISOString();
     const to = c.req.query("to");
-    try {
-      parseDateRangeParams(from, to);
-    } catch (error) {
-      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
-      throw error;
-    }
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
+
+    try {
 
     // Local: feed events (own + followed + reposted)
     let localEvents: Record<string, unknown>[];
@@ -593,7 +588,11 @@ export function eventRoutes(db: DB): Hono {
     const rsvps = getUserRsvps(user.id, uris);
     events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
 
-    return c.json({ events });
+      return c.json({ events });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── POST /sync — full replace for scraper accounts ─────────────────────

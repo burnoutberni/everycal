@@ -4,8 +4,12 @@ import { initDatabase, type DB } from "../src/db.js";
 import { eventRoutes } from "../src/routes/events.js";
 import { userRoutes } from "../src/routes/users.js";
 
-function makeApp(db: DB) {
+function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
+  app.use("*", async (c, next) => {
+    if (user) c.set("user", { ...user, displayName: user.username });
+    await next();
+  });
   app.route("/api/v1/events", eventRoutes(db));
   app.route("/api/v1/users", userRoutes(db));
   return app;
@@ -39,6 +43,29 @@ describe("date-query route normalization", () => {
     const app = makeApp(db);
 
     const res = await app.request("http://localhost/api/v1/events?to=2026-04-13T10:00:00");
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error?: string };
+    expect(body.error).toMatch(/offset or Z suffix/i);
+  });
+
+  it("rejects local datetime bounds without offset on tags route", async () => {
+    const db = initDatabase(":memory:");
+    const app = makeApp(db);
+
+    const res = await app.request("http://localhost/api/v1/events/tags?from=2026-04-13T10:00:00");
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as { error?: string };
+    expect(body.error).toMatch(/offset or Z suffix/i);
+  });
+
+  it("rejects local datetime bounds without offset on timeline route", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const res = await app.request("http://localhost/api/v1/events/timeline?to=2026-04-13T10:00:00");
     expect(res.status).toBe(400);
 
     const body = await res.json() as { error?: string };
