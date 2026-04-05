@@ -643,6 +643,41 @@ describe("event slug canonical behavior", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("backfills end_on from derived UTC when legacy end_date is invalid", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-local-invalid-end.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        account_id TEXT,
+        external_id TEXT,
+        visibility TEXT,
+        title TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        event_timezone TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("legacy-invalid-end", "2024-05-01T09:00:00Z", "not-a-date", 0, "UTC", "2024-05-01 10:30:00");
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT start_at_utc, end_at_utc, end_on FROM events WHERE id = ?"
+    ).get("legacy-invalid-end") as { start_at_utc: string; end_at_utc: string | null; end_on: string | null };
+
+    expect(row.end_at_utc).toBe(row.start_at_utc);
+    expect(row.end_on).toBe("2024-05-01");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("canonicalizes legacy remote event UTC values from absolute start_date", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-remote.sqlite");

@@ -404,7 +404,7 @@ export function initDatabase(path: string): DB {
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
       const startOn = extractDatePart(startDateRaw) || nextStartAtUtc.slice(0, 10);
-      const endOn = extractDatePart(endDateRaw);
+      const endOn = extractDatePart(endDateRaw) || (endDateRaw ? nextEndAtUtc?.slice(0, 10) || nextStartAtUtc.slice(0, 10) : null);
 
       updateTemporal.run(nextStartAtUtc, nextEndAtUtc, timezone, startOn, endOn, row.id);
     }
