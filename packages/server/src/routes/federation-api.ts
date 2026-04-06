@@ -14,7 +14,6 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
-  formatRemoteActorAccount,
   formatRemoteActorIdentity,
   fetchAP,
   resolveRemoteActor,
@@ -29,6 +28,7 @@ import { listActingAccounts } from "../lib/identities.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
+import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -499,46 +499,7 @@ export function federationRoutes(db: DB): Hono {
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
-      events: rows.map((row) => ({
-        id: row.uri,
-        uri: row.uri,
-        slug: row.slug,
-        source: "remote",
-        actorUri: row.actor_uri,
-        account: formatRemoteActorAccount({
-          status: row.actor_fetch_status as string | null,
-          preferredUsername: row.preferred_username as string | null,
-          displayName: row.actor_display_name as string | null,
-          domain: row.domain as string | null,
-          iconUrl: row.actor_icon_url as string | null,
-        }),
-        title: row.title,
-        description: row.description,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        startAtUtc: row.start_at_utc,
-        endAtUtc: row.end_at_utc,
-        eventTimezone: row.event_timezone,
-        timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only",
-        allDay: !!row.all_day,
-        location: row.location_name
-          ? {
-              name: row.location_name,
-              address: row.location_address,
-              latitude: row.location_latitude,
-              longitude: row.location_longitude,
-            }
-          : null,
-        image: row.image_url
-          ? { url: row.image_url, mediaType: row.image_media_type, alt: row.image_alt }
-          : null,
-        url: row.url,
-        tags: row.tags ? (row.tags as string).split(",") : [],
-        visibility: "public",
-        canceled: !!row.canceled,
-        createdAt: row.published,
-        updatedAt: row.updated,
-      })),
+      events: rows.map((row) => serializeRemoteEvent(row)),
     });
   });
 
