@@ -9,7 +9,7 @@ import {
   identities as identitiesApi,
   ApiError,
   type EventInput,
-  type CalEvent,
+  type LocalCalEvent,
   type SavedLocation,
   type ImageAttribution,
   type PublishingIdentity,
@@ -284,11 +284,11 @@ function durationFromStartEnd(
   };
 }
 
-/** Map CalEvent to form initial state for edit mode. */
-function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate: string } {
+/** Map local event to form initial state for edit mode. */
+function eventToInitialState(event: LocalCalEvent): Partial<EventDraft> & { startDate: string } {
   const loc = event.location;
   const isOnline = !!(loc?.url);
-  const eventTimezone = event.eventTimezone ?? resolveUserTimezone(undefined);
+  const eventTimezone = event.eventTimezone;
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
     : (() => {
@@ -451,7 +451,7 @@ function removeTagFromTags(current: string, tag: string): string {
 
 interface NewEventPageProps {
   /** When provided, renders in edit mode (load from event, call update on submit). */
-  initialEvent?: CalEvent | null;
+  initialEvent?: LocalCalEvent | null;
 }
 
 export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {

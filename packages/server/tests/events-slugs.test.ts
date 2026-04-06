@@ -822,6 +822,30 @@ describe("event slug canonical behavior", () => {
     expect(body.timezoneQuality).toBe("exact_tzid");
   });
 
+  it("normalizes local eventTimezone in editable by-slug responses when legacy row has blank timezone", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
+    ).run(
+      "e-missing-timezone",
+      "u1",
+      "missing-timezone",
+      "Legacy Missing TZ",
+      "2026-03-20T18:00:00",
+      0,
+      "2026-03-20T18:00:00.000Z",
+      ""
+    );
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/events/by-slug/alice/missing-timezone");
+    const body = await res.json() as { source?: string; eventTimezone?: string; timezoneQuality?: string };
+
+    expect(res.status).toBe(200);
+    expect(body.source).toBe("local");
+    expect(body.eventTimezone).toBe("UTC");
+    expect(body.timezoneQuality).toBe("exact_tzid");
+  });
+
   it("heals invalid stored timezone to UTC on write when eventTimezone is omitted", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
