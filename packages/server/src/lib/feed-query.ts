@@ -26,8 +26,6 @@ const EVENTS_JOIN = `FROM events e
 export interface FeedQueryOptions {
   userId: string;
   baseUrl: string;
-  /** When set, each branch gets "e.start_at_utc >= ? AND " prepended (for timeline) */
-  dateFrom?: string;
 }
 
 export interface FeedQueryResult {
@@ -44,9 +42,8 @@ export interface FeedQueryResult {
  * repost label only when that's why we see the event).
  */
 export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
-  const { userId, baseUrl, dateFrom } = opts;
+  const { userId, baseUrl } = opts;
   const rfl = remoteFollowLocal();
-  const datePrefix = dateFrom ? "e.start_at_utc >= ? AND " : "";
 
   const params: unknown[] = [];
 
@@ -55,43 +52,36 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   }
 
   // Branch 1: Own events
-  const b1Where = `${datePrefix}e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private')`;
-  if (dateFrom) push(dateFrom);
+  const b1Where = `e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private')`;
   push(userId);
 
   // Branch 2: Managed identities
-  const b2Where = `${datePrefix}e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private')`;
-  if (dateFrom) push(dateFrom);
+  const b2Where = `e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private')`;
   push(userId);
 
   // Branch 3: Direct follows
-  const b3Where = `${datePrefix}e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only')`;
-  if (dateFrom) push(dateFrom);
+  const b3Where = `e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only')`;
   push(userId);
 
   // Branch 4: Local accounts we follow via remote_following (Federation)
-  const b4Where = `${datePrefix}e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only')`;
-  if (dateFrom) push(dateFrom);
+  const b4Where = `e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only')`;
   push(baseUrl, userId);
 
   // Branch 5: Events we've RSVP'd to
-  const b5Where = `${datePrefix}e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted')`;
-  if (dateFrom) push(dateFrom);
+  const b5Where = `e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted')`;
   push(userId);
 
   // Branch 6: Explicit reposts (only when creator not followed)
-  const b6Where = `${datePrefix}(r.account_id IN ${FOLLOW_LIST} OR r.account_id IN ${rfl})
+  const b6Where = `(r.account_id IN ${FOLLOW_LIST} OR r.account_id IN ${rfl})
       AND e.visibility IN ('public','unlisted')
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}`;
-  if (dateFrom) push(dateFrom);
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);
 
   // Branch 7: Auto-reposts (only when creator not followed)
-  const b7Where = `${datePrefix}(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
+  const b7Where = `(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
       AND e.visibility = 'public'
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ar.account_id)`;
-  if (dateFrom) push(dateFrom);
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);
 
   const sql = `
