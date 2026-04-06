@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromICal, toICal, toICalendar } from "./ical.js";
+import { fromICal, localInZoneToUtcIso, toICal, toICalendar } from "./ical.js";
 import type { EveryCalEvent } from "./event.js";
 
 function baseEvent(overrides: Partial<EveryCalEvent> = {}): EveryCalEvent {
@@ -55,6 +55,16 @@ describe("ical timezone export/import", () => {
     const vevent = toICal(event);
     expect(vevent).toContain("DTSTART;TZID=Europe/Vienna:20260301T100000");
     expect(vevent).toContain("DTEND;TZID=Europe/Vienna:20260301T110000");
+  });
+
+  it("converts local TZID datetimes with fractional seconds to precise UTC", () => {
+    expect(localInZoneToUtcIso("2024-01-15T10:00:00.123", "Europe/Vienna")).toBe("2024-01-15T09:00:00.123Z");
+    expect(localInZoneToUtcIso("2024-01-15T10:00:00.1", "Europe/Vienna")).toBe("2024-01-15T09:00:00.100Z");
+  });
+
+  it("keeps fractional-second precision on DST-edge local times", () => {
+    expect(localInZoneToUtcIso("2024-03-31T02:30:00.500", "Europe/Vienna")).toBe("2024-03-31T01:30:00.500Z");
+    expect(localInZoneToUtcIso("2024-10-27T02:30:00.500", "Europe/Vienna")).toBe("2024-10-27T01:30:00.500Z");
   });
 
   it("exports UTC fallback when timezone is unknown", () => {

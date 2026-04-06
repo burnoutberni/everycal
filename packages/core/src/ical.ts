@@ -379,10 +379,18 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
     Number(map.minute),
     Number(map.second),
   );
-  return asUtc - instant.getTime();
+  const instantUtcSecond = Date.UTC(
+    instant.getUTCFullYear(),
+    instant.getUTCMonth(),
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  );
+  return asUtc - instantUtcSecond;
 }
 
-function localInZoneToUtcIso(localIso: string, timeZone: string): string {
+export function localInZoneToUtcIso(localIso: string, timeZone: string): string {
   const m = localIso.match(LOCAL_DATE_TIME);
   if (!m) {
     const parsed = new Date(localIso);
@@ -391,7 +399,7 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string {
 
   const [, y, mo, d, h, mi, s, frac] = m;
   const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
-  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"), milliseconds);
 
   let candidateMs = naiveUtcMs;
   for (let i = 0; i < 4; i += 1) {
@@ -401,7 +409,7 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string {
     candidateMs = next;
   }
 
-  return new Date(candidateMs + milliseconds).toISOString();
+  return new Date(candidateMs).toISOString();
 }
 
 function escapeICalText(text: string): string {
