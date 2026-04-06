@@ -1334,8 +1334,6 @@ export function eventRoutes(db: DB): Hono {
       title: string;
       start_date: string;
       end_date: string | null;
-      start_at_utc: string;
-      end_at_utc: string | null;
       all_day: number;
       location_name: string | null;
       location_address: string | null;
