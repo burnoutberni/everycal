@@ -32,6 +32,7 @@ import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/feder
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
+  datePartFromUtcInstantInTimezone,
   deriveEventEndAtUtc,
   deriveEventUtcRange,
   deriveUtcFromTemporalInput,
@@ -98,6 +99,18 @@ function formatTimeChangeValue(start: string, end: string | null | undefined): s
 
 function isDateOnly(value: string): boolean {
   return DATE_ONLY.test(value);
+}
+
+function deriveStoredDatePart(
+  rawValue: string | null | undefined,
+  utcValue: string | null | undefined,
+  options: { allDay: boolean; eventTimezone: string },
+): string | null {
+  if (!rawValue) return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  if (options.allDay || isDateOnly(trimmed)) return trimmed.slice(0, 10);
+  return datePartFromUtcInstantInTimezone(utcValue, options.eventTimezone) || trimmed.slice(0, 10);
 }
 
 /** Check whether a user is allowed to view an event based on its visibility. */
@@ -837,10 +850,18 @@ export function eventRoutes(db: DB): Hono {
             }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
+            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            }) || ev.startDate.slice(0, 10);
+            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
-              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, ev.startDate.slice(0, 10), ev.endDate ? ev.endDate.slice(0, 10) : null,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -874,11 +895,19 @@ export function eventRoutes(db: DB): Hono {
               ev.endDate,
               { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
             );
+            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            }) || ev.startDate.slice(0, 10);
+            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
-              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, ev.startDate.slice(0, 10), ev.endDate ? ev.endDate.slice(0, 10) : null,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -1247,6 +1276,14 @@ export function eventRoutes(db: DB): Hono {
     if (endAtUtc && endAtUtc < startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
+    const startOn = deriveStoredDatePart(startDateInput, startAtUtc, {
+      allDay: !!body.allDay,
+      eventTimezone,
+    }) || startDateInput.slice(0, 10);
+    const endOn = deriveStoredDatePart(endDateInput || null, endAtUtc, {
+      allDay: !!body.allDay,
+      eventTimezone,
+    });
 
     db.prepare(
       `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
@@ -1260,8 +1297,8 @@ export function eventRoutes(db: DB): Hono {
       startAtUtc,
       endAtUtc,
       eventTimezone,
-      startDateInput.slice(0, 10),
-      endDateInput ? endDateInput.slice(0, 10) : null,
+      startOn,
+      endOn,
       body.location?.name || null, body.location?.address || null,
       body.location?.latitude ?? null, body.location?.longitude ?? null,
       body.location?.url || null,
@@ -1428,14 +1465,22 @@ export function eventRoutes(db: DB): Hono {
       values.push(nextStartAtUtc);
       const startForDateParts = nextStart ?? existing.start_date;
       fields.push("start_on = ?");
-      values.push(startForDateParts.slice(0, 10));
+      values.push(
+        deriveStoredDatePart(startForDateParts, nextStartAtUtc, {
+          allDay: nextAllDay,
+          eventTimezone: tzForConvert,
+        }) || startForDateParts.slice(0, 10),
+      );
     }
     if (endForUtc !== undefined) {
       fields.push("end_at_utc = ?");
       values.push(endForUtc === null && !nextAllDay ? null : nextEndAtUtc);
       const endForDateParts = nextEnd !== undefined ? nextEnd : existing.end_date;
       fields.push("end_on = ?");
-      values.push(endForDateParts ? endForDateParts.slice(0, 10) : null);
+      values.push(deriveStoredDatePart(endForDateParts, nextEndAtUtc, {
+        allDay: nextAllDay,
+        eventTimezone: tzForConvert,
+      }));
     }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {

@@ -219,6 +219,37 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-08-10T22:00:00.000Z");
   });
 
+  it("stores timed create start_on/end_on using event local date for absolute instants", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Absolute Instant Create",
+        startDate: "2026-01-01T00:30:00Z",
+        endDate: "2026-01-01T02:00:00Z",
+        eventTimezone: "America/Los_Angeles",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare(
+      "SELECT start_at_utc, end_at_utc, start_on, end_on FROM events WHERE id = ?",
+    ).get(body.id) as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+      start_on: string;
+      end_on: string | null;
+    };
+    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
+    expect(row.end_at_utc).toBe("2026-01-01T02:00:00.000Z");
+    expect(row.start_on).toBe("2025-12-31");
+    expect(row.end_on).toBe("2025-12-31");
+  });
+
   it("rejects switching a timed event to all-day without date-only fields", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -378,6 +409,46 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-08-10T22:00:00.000Z");
   });
 
+  it("recomputes timed update start_on/end_on from event timezone when only timezone changes", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Absolute Instant Update",
+        startDate: "2026-01-01T00:30:00Z",
+        endDate: "2026-01-01T02:00:00Z",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventTimezone: "America/Los_Angeles" }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare(
+      "SELECT event_timezone, start_at_utc, end_at_utc, start_on, end_on FROM events WHERE id = ?",
+    ).get(created.id) as {
+      event_timezone: string;
+      start_at_utc: string;
+      end_at_utc: string | null;
+      start_on: string;
+      end_on: string | null;
+    };
+    expect(row.event_timezone).toBe("America/Los_Angeles");
+    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
+    expect(row.end_at_utc).toBe("2026-01-01T02:00:00.000Z");
+    expect(row.start_on).toBe("2025-12-31");
+    expect(row.end_on).toBe("2025-12-31");
+  });
+
   it("rejects all-day sync payloads with datetime-shaped startDate", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -481,6 +552,41 @@ describe("event slug canonical behavior", () => {
     };
     expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
     expect(row.end_at_utc).toBe("2026-08-12T22:00:00.000Z");
+  });
+
+  it("stores timed sync start_on/end_on using event local date for absolute instants", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "timed-sync-abs-local-day",
+            title: "Timed Sync Absolute",
+            startDate: "2026-01-01T00:30:00Z",
+            endDate: "2026-01-01T02:00:00Z",
+            eventTimezone: "America/Los_Angeles",
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(200);
+
+    const row = db
+      .prepare("SELECT start_at_utc, end_at_utc, start_on, end_on FROM events WHERE external_id = ?")
+      .get("timed-sync-abs-local-day") as {
+      start_at_utc: string;
+      end_at_utc: string | null;
+      start_on: string;
+      end_on: string | null;
+    };
+    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
+    expect(row.end_at_utc).toBe("2026-01-01T02:00:00.000Z");
+    expect(row.start_on).toBe("2025-12-31");
+    expect(row.end_on).toBe("2025-12-31");
   });
 
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {

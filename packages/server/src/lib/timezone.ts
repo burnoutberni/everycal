@@ -151,6 +151,28 @@ export function absoluteIsoWithOffsetToUtcIso(value: string): string | null {
   return parsed.toISOString();
 }
 
+export function datePartFromUtcInstantInTimezone(
+  utcIso: string | null | undefined,
+  timeZone: string | null | undefined,
+): string | null {
+  if (!utcIso || !timeZone || !isValidIanaTimezone(timeZone)) return null;
+  const parsed = new Date(utcIso);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  const year = map.year;
+  const month = map.month;
+  const day = map.day;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
 export function deriveUtcFromTemporalInput(
   value: string | null | undefined,
   options: DeriveUtcFromTemporalInputOptions,

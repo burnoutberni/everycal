@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  datePartFromUtcInstantInTimezone,
   deriveEventEndAtUtc,
   deriveEventUtcRange,
   deriveUtcFromTemporalInput,
@@ -32,6 +33,16 @@ describe("timezone conversion utilities", () => {
     expect(extractDatePart(" 2026-02-30T10:00:00Z ")).toBeNull();
     expect(extractDatePart("invalid")).toBeNull();
     expect(extractDatePart(null)).toBeNull();
+  });
+
+  it("derives timezone-local date part from UTC instant", () => {
+    expect(datePartFromUtcInstantInTimezone("2026-01-01T00:30:00.000Z", "America/Los_Angeles")).toBe("2025-12-31");
+    expect(datePartFromUtcInstantInTimezone("2026-01-01T00:30:00.000Z", "UTC")).toBe("2026-01-01");
+  });
+
+  it("returns null when deriving timezone-local date part from invalid inputs", () => {
+    expect(datePartFromUtcInstantInTimezone("not-an-iso", "UTC")).toBeNull();
+    expect(datePartFromUtcInstantInTimezone("2026-01-01T00:30:00.000Z", "Not/AZone")).toBeNull();
   });
 
   it("treats all-day date-only values as local midnight when timezone is known", () => {
