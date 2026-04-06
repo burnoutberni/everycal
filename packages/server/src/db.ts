@@ -433,7 +433,7 @@ export function initDatabase(path: string): DB {
     }
 
     if (tableHasColumn("events", "start_at_utc")) {
-      db.exec("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at_utc)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_events_start_at_utc ON events(start_at_utc)");
     }
     if (tableHasColumn("events", "start_on")) {
       db.exec("CREATE INDEX IF NOT EXISTS idx_events_start_on ON events(start_on)");
@@ -463,7 +463,7 @@ export function initDatabase(path: string): DB {
       }
     }
     if (tableHasColumn("remote_events", "start_at_utc")) {
-      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start ON remote_events(start_at_utc)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_start_at_utc ON remote_events(start_at_utc)");
     }
 
     if (!tableHasColumn("remote_events", "start_on")) {
