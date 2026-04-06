@@ -21,4 +21,33 @@ describe("rowToEvent", () => {
     const event = rowToEvent({ ...baseRow, visibility: "friends_only" });
     expect(event.visibility).toBe("public");
   });
+
+  it("normalizes nullable optional DB fields to undefined", () => {
+    const event = rowToEvent({
+      ...baseRow,
+      description: null,
+      end_date: null,
+      end_at_utc: null,
+      url: null,
+      location_name: "Venue",
+      location_address: null,
+      location_latitude: null,
+      location_longitude: null,
+      location_url: null,
+      image_url: "https://example.com/image.jpg",
+      image_media_type: null,
+      image_alt: null,
+    });
+
+    expect(event.description).toBeUndefined();
+    expect(event.endDate).toBeUndefined();
+    expect(event.endAtUtc).toBeUndefined();
+    expect(event.url).toBeUndefined();
+    expect(event.location?.address).toBeUndefined();
+    expect(event.location?.latitude).toBeUndefined();
+    expect(event.location?.longitude).toBeUndefined();
+    expect(event.location?.url).toBeUndefined();
+    expect(event.image?.mediaType).toBeUndefined();
+    expect(event.image?.alt).toBeUndefined();
+  });
 });
