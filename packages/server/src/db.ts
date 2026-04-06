@@ -4,7 +4,14 @@
 
 import Database from "better-sqlite3";
 import { uniqueRemoteEventSlug } from "./lib/slugs.js";
-import { absoluteIsoWithOffsetToUtcIso, deriveAllDayEndAtUtc, deriveUtcFromTemporalInput, extractDatePart, isValidIanaTimezone } from "./lib/timezone.js";
+import {
+  absoluteIsoWithOffsetToUtcIso,
+  datePartFromUtcInstantInTimezone,
+  deriveAllDayEndAtUtc,
+  deriveUtcFromTemporalInput,
+  extractDatePart,
+  isValidIanaTimezone,
+} from "./lib/timezone.js";
 
 export type DB = Database.Database;
 
@@ -15,6 +22,26 @@ const SYSTEM_THEME_PREFERENCE = "system";
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const SQLITE_UTC_DATE_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
+
+function deriveStoredDatePartForTemporal(
+  rawValue: string | null | undefined,
+  utcValue: string | null | undefined,
+  options: { allDay: boolean; timezone: string | null },
+): string | null {
+  const rawDatePart = extractDatePart(rawValue);
+  const trimmed = typeof rawValue === "string" ? rawValue.trim() : "";
+  if (options.allDay || (trimmed && DATE_ONLY.test(trimmed))) {
+    return rawDatePart;
+  }
+
+  if (options.timezone) {
+    return datePartFromUtcInstantInTimezone(utcValue, options.timezone)
+      || rawDatePart
+      || extractDatePart(utcValue);
+  }
+
+  return rawDatePart || extractDatePart(utcValue);
+}
 
 function sqliteUtcDateTimeToUtcIso(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -941,8 +968,14 @@ export function initDatabase(path: string): DB {
       if ((allDay || row.end_date) && !nextEndAtUtc) nextEndAtUtc = nextStartAtUtc;
       if (nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) nextEndAtUtc = nextStartAtUtc;
 
-      const nextStartOn = extractDatePart(row.start_date) || extractDatePart(nextStartAtUtc);
-      const nextEndOn = extractDatePart(row.end_date) || extractDatePart(nextEndAtUtc);
+      const nextStartOn = deriveStoredDatePartForTemporal(row.start_date, nextStartAtUtc, {
+        allDay,
+        timezone,
+      });
+      const nextEndOn = deriveStoredDatePartForTemporal(row.end_date, nextEndAtUtc, {
+        allDay,
+        timezone,
+      });
 
       const nextTimezoneQuality = timezone ? "exact_tzid" : "offset_only";
       const nextAllDay = allDay ? 1 : 0;

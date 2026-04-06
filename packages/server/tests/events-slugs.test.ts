@@ -1377,4 +1377,71 @@ describe("event slug canonical behavior", () => {
     migrated.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("recomputes legacy remote start_on/end_on in event timezone during canonicalization", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-remote-timezone-dateparts.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE remote_events (
+        uri TEXT PRIMARY KEY,
+        actor_uri TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        all_day INTEGER NOT NULL DEFAULT 0,
+        start_at_utc TEXT,
+        end_at_utc TEXT,
+        start_on TEXT,
+        end_on TEXT,
+        event_timezone TEXT,
+        timezone_quality TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      );
+    `);
+    legacy.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, end_date, all_day,
+        start_at_utc, end_at_utc, start_on, end_on,
+        event_timezone, timezone_quality, fetched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/legacy-tz-dateparts",
+      "https://remote.example/users/alice",
+      "Legacy TZ Date Parts",
+      "2026-01-01T00:30:00.000Z",
+      "2026-01-01T01:30:00.000Z",
+      0,
+      "2026-01-01T00:30:00.000Z",
+      "2025-12-31T23:30:00.000Z",
+      "2026-01-01",
+      "2026-01-01",
+      "America/Los_Angeles",
+      "exact_tzid",
+      "2026-01-01 00:00:00"
+    );
+    legacy.close();
+
+    const migrated = initDatabase(dbPath);
+    const row = migrated.prepare(
+      "SELECT start_at_utc, end_at_utc, start_on, end_on, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
+    ).get("https://remote.example/events/legacy-tz-dateparts") as {
+      start_at_utc: string;
+      end_at_utc: string;
+      start_on: string;
+      end_on: string;
+      event_timezone: string | null;
+      timezone_quality: string;
+    };
+
+    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
+    expect(row.end_at_utc).toBe("2026-01-01T01:30:00.000Z");
+    expect(row.event_timezone).toBe("America/Los_Angeles");
+    expect(row.timezone_quality).toBe("exact_tzid");
+    expect(row.start_on).toBe("2025-12-31");
+    expect(row.end_on).toBe("2025-12-31");
+
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
