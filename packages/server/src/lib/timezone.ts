@@ -94,7 +94,15 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
 
   const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
   const asUtc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
-  return asUtc - instant.getTime();
+  const instantUtcSecond = Date.UTC(
+    instant.getUTCFullYear(),
+    instant.getUTCMonth(),
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  );
+  return asUtc - instantUtcSecond;
 }
 
 export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: string): string | null {
@@ -118,7 +126,7 @@ export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: st
     hour,
     minute,
     second,
-    millisecond: 0,
+    millisecond: milliseconds,
   });
   if (!naiveUtc) return null;
   const naiveUtcMs = naiveUtc.getTime();
@@ -131,7 +139,7 @@ export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: st
     candidateMs = next;
   }
 
-  const parsed = new Date(candidateMs + milliseconds);
+  const parsed = new Date(candidateMs);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }

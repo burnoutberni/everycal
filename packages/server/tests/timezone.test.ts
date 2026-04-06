@@ -93,6 +93,11 @@ describe("timezone conversion utilities", () => {
     expect(localDateTimeWithTimezoneToUtcIso("2024-10-27T02:30", "Europe/Vienna")).toBe("2024-10-27T01:30:00.000Z");
   });
 
+  it("handles fractional milliseconds for DST edge local times", () => {
+    expect(localDateTimeWithTimezoneToUtcIso("2024-03-31T02:30:00.500", "Europe/Vienna")).toBe("2024-03-31T01:30:00.500Z");
+    expect(localDateTimeWithTimezoneToUtcIso("2024-10-27T02:30:00.500", "Europe/Vienna")).toBe("2024-10-27T01:30:00.500Z");
+  });
+
   it("normalizes AP temporal data with eventTimezone", () => {
     const normalized = normalizeApTemporal({
       startTime: "2026-03-01T09:00:00Z",
