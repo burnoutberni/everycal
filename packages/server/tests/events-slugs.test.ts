@@ -823,6 +823,38 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
   });
 
+  it("stores remote start_on/end_on using event local date for exact timezone absolute instants", () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+
+    upsertRemoteEvent(db, {
+      id: "https://remote.example/events/exact-date-parts",
+      type: "Event",
+      name: "Exact TZ Date Parts",
+      startTime: "2026-01-01T00:30:00.000Z",
+      endTime: "2026-01-01T01:30:00.000Z",
+      eventTimezone: "America/Los_Angeles",
+    }, "https://remote.example/users/alice");
+
+    const row = db.prepare(
+      "SELECT start_on, end_on, start_at_utc, end_at_utc, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
+    ).get("https://remote.example/events/exact-date-parts") as {
+      start_on: string;
+      end_on: string;
+      start_at_utc: string;
+      end_at_utc: string | null;
+      event_timezone: string | null;
+      timezone_quality: string;
+    };
+
+    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
+    expect(row.end_at_utc).toBe("2026-01-01T01:30:00.000Z");
+    expect(row.event_timezone).toBe("America/Los_Angeles");
+    expect(row.timezone_quality).toBe("exact_tzid");
+    expect(row.start_on).toBe("2025-12-31");
+    expect(row.end_on).toBe("2025-12-31");
+  });
+
   it("handles remote slug collisions per actor", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");

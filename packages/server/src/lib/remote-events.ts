@@ -1,11 +1,37 @@
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
-import { extractDatePart, normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
+import {
+  datePartFromUtcInstantInTimezone,
+  extractDatePart,
+  normalizeApTemporal,
+  type NormalizedRemoteTemporal,
+} from "./timezone.js";
 
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
   temporal?: NormalizedRemoteTemporal;
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function deriveRemoteStoredDatePart(
+  rawValue: string | null | undefined,
+  utcValue: string | null | undefined,
+  temporal: NormalizedRemoteTemporal,
+): string | null {
+  const rawDatePart = extractDatePart(rawValue);
+  const trimmedRaw = typeof rawValue === "string" ? rawValue.trim() : "";
+
+  if (temporal.allDay || (trimmedRaw && DATE_ONLY.test(trimmedRaw))) {
+    return rawDatePart;
+  }
+
+  if (temporal.timezoneQuality === "exact_tzid" && temporal.eventTimezone) {
+    return datePartFromUtcInstantInTimezone(utcValue, temporal.eventTimezone) || extractDatePart(utcValue);
+  }
+
+  return rawDatePart || extractDatePart(utcValue);
 }
 
 function extractLocationAddress(location?: Record<string, unknown>): string | null {
@@ -44,6 +70,8 @@ export function upsertRemoteEvent(
   }
   const startDate = temporal.startDate;
   const endDate = temporal.endDate;
+  const startOn = deriveRemoteStoredDatePart(startDate, temporal.startAtUtc, temporal);
+  const endOn = deriveRemoteStoredDatePart(endDate, temporal.endAtUtc, temporal);
 
   const loc = object.location as Record<string, unknown> | undefined;
   const locationAddress = extractLocationAddress(loc);
@@ -80,8 +108,8 @@ export function upsertRemoteEvent(
       startDate,
       endDate,
       temporal.allDay ? 1 : 0,
-      extractDatePart(startDate),
-      extractDatePart(endDate),
+      startOn,
+      endOn,
       temporal.startAtUtc,
       temporal.endAtUtc,
       temporal.eventTimezone,
@@ -120,8 +148,8 @@ export function upsertRemoteEvent(
     startDate,
     endDate,
     temporal.allDay ? 1 : 0,
-    extractDatePart(startDate),
-    extractDatePart(endDate),
+    startOn,
+    endOn,
     temporal.startAtUtc,
     temporal.endAtUtc,
     temporal.eventTimezone,
