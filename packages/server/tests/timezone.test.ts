@@ -27,6 +27,9 @@ describe("timezone conversion utilities", () => {
   it("extracts date-only prefix from temporal strings", () => {
     expect(extractDatePart("2026-03-01")).toBe("2026-03-01");
     expect(extractDatePart(" 2026-03-01T10:00:00Z ")).toBe("2026-03-01");
+    expect(extractDatePart("2026-02-30")).toBeNull();
+    expect(extractDatePart("2026-13-01")).toBeNull();
+    expect(extractDatePart(" 2026-02-30T10:00:00Z ")).toBeNull();
     expect(extractDatePart("invalid")).toBeNull();
     expect(extractDatePart(null)).toBeNull();
   });
