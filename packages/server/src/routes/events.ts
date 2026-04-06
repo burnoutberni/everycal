@@ -1432,7 +1432,7 @@ export function eventRoutes(db: DB): Hono {
     }
     if (endForUtc !== undefined) {
       fields.push("end_at_utc = ?");
-      values.push(endForUtc === null ? null : nextEndAtUtc);
+      values.push(endForUtc === null && !nextAllDay ? null : nextEndAtUtc);
       const endForDateParts = nextEnd !== undefined ? nextEnd : existing.end_date;
       fields.push("end_on = ?");
       values.push(endForDateParts ? endForDateParts.slice(0, 10) : null);

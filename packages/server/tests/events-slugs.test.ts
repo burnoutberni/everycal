@@ -346,6 +346,38 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-08-12T22:00:00.000Z");
   });
 
+  it("keeps derived all-day end_at_utc when endDate is explicitly cleared", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All Day Explicit Clear",
+        allDay: true,
+        startDate: "2026-08-10",
+        endDate: "2026-08-11",
+        eventTimezone: "Europe/Vienna",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endDate: null }),
+    });
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT end_date, end_at_utc FROM events WHERE id = ?").get(created.id) as {
+      end_date: string | null;
+      end_at_utc: string | null;
+    };
+    expect(row.end_date).toBeNull();
+    expect(row.end_at_utc).toBe("2026-08-10T22:00:00.000Z");
+  });
+
   it("rejects all-day sync payloads with datetime-shaped startDate", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
