@@ -30,9 +30,30 @@
 			"default": "list",
 			"enum": ["list", "grid", "compact"]
 		},
+		"gridColumns": {
+			"type": "number",
+			"default": 3
+		},
+		"descriptionLengthMode": {
+			"type": "string",
+			"default": "words",
+			"enum": ["full", "words", "chars"]
+		},
+		"descriptionWordCount": {
+			"type": "number",
+			"default": 30
+		},
+		"descriptionCharCount": {
+			"type": "number",
+			"default": 220
+		},
+		"excerptLength": {
+			"type": "number",
+			"default": 30
+		},
 		"cacheTtl": {
 			"type": "number",
-			"default": 300
+			"default": 1440
 		}
 	},
 	"textdomain": "everycal",
