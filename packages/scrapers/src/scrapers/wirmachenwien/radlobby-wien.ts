@@ -20,6 +20,7 @@ const ICAL_URL = `https://calendar.google.com/calendar/ical/${encodeURIComponent
 export class RadlobbyWienScraper implements Scraper {
   readonly id = "radlobby_wien";
   readonly name = "Radlobby Wien";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://www.radlobby.at/wien/termine";
   readonly website = "https://www.radlobby.at/wien";
   readonly bio = "Die Radlobby Wien vertritt die Interessen der heute und zukünftig Radfahrenden. Werde Teil davon!";

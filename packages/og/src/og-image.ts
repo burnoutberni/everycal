@@ -49,19 +49,30 @@ function getLocaleForDate(locale: string): string {
   return locale === "de" ? "de-AT" : "en";
 }
 
-function formatTimeOnly(dateStr: string, localeTag: string): string {
+function formatTimeOnly(dateStr: string, localeTag: string, timeZone: string): string {
   const date = new Date(dateStr);
   return date.toLocaleTimeString(localeTag, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
+}
+
+function getDayKey(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 function formatDateTimeRange(
   startDateStr: string,
   endDateStr: string | undefined,
   allDay: boolean,
-  locale: string
+  locale: string,
+  timeZone: string
 ): string {
   const localeTag = getLocaleForDate(locale);
   const startDate = new Date(startDateStr);
@@ -73,6 +84,7 @@ function formatDateTimeRange(
         month: "long",
         day: "numeric",
         year: "numeric",
+        timeZone,
       });
     }
     const endDate = new Date(endDateStr);
@@ -81,11 +93,13 @@ function formatDateTimeRange(
       month: "long",
       day: "numeric",
       year: "numeric",
+      timeZone,
     })} – ${endDate.toLocaleDateString(localeTag, {
       weekday: "long",
       month: "long",
       day: "numeric",
       year: "numeric",
+      timeZone,
     })}`;
   }
 
@@ -95,14 +109,15 @@ function formatDateTimeRange(
       month: "long",
       day: "numeric",
       year: "numeric",
+      timeZone,
     });
-    const timePart = formatTimeOnly(startDateStr, localeTag);
+    const timePart = formatTimeOnly(startDateStr, localeTag, timeZone);
     return `${datePart} · ${timePart}`;
   }
 
   const endDate = new Date(endDateStr);
-  const startDay = startDate.toDateString();
-  const endDay = endDate.toDateString();
+  const startDay = getDayKey(startDate, timeZone);
+  const endDay = getDayKey(endDate, timeZone);
 
   if (startDay === endDay) {
     const datePart = startDate.toLocaleDateString(localeTag, {
@@ -110,9 +125,10 @@ function formatDateTimeRange(
       month: "long",
       day: "numeric",
       year: "numeric",
+      timeZone,
     });
-    const startTime = formatTimeOnly(startDateStr, localeTag);
-    const endTime = formatTimeOnly(endDateStr, localeTag);
+    const startTime = formatTimeOnly(startDateStr, localeTag, timeZone);
+    const endTime = formatTimeOnly(endDateStr, localeTag, timeZone);
     return `${datePart} · ${startTime} – ${endTime}`;
   }
 
@@ -121,13 +137,15 @@ function formatDateTimeRange(
     month: "long",
     day: "numeric",
     year: "numeric",
-  })} · ${formatTimeOnly(startDateStr, localeTag)}`;
+    timeZone,
+  })} · ${formatTimeOnly(startDateStr, localeTag, timeZone)}`;
   const endDateTime = `${endDate.toLocaleDateString(localeTag, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-  })} · ${formatTimeOnly(endDateStr, localeTag)}`;
+    timeZone,
+  })} · ${formatTimeOnly(endDateStr, localeTag, timeZone)}`;
 
   return `${startDateTime} – ${endDateTime}`;
 }
@@ -146,7 +164,8 @@ export async function generateOgImage({
     event.startDate,
     event.endDate,
     event.allDay ?? false,
-    locale
+    locale,
+    event.allDay ? "UTC" : (event.eventTimezone || "UTC")
   );
   const title = event.title || "Event";
   const hasLocation = !!event.location;

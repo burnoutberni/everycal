@@ -9,6 +9,7 @@
 import * as cheerio from "cheerio";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../scraper.js";
+import { toUtcIsoFromAbsolute } from "../lib/datetime.js";
 
 const VENUES: Record<string, { name: string; address: string; lat: number; lng: number }> = {
   kino_votiv: {
@@ -28,6 +29,7 @@ const VENUES: Record<string, { name: string; address: string; lat: number; lng: 
 export class VotivkinoScraper implements Scraper {
   readonly id = "votivkino";
   readonly name = "Votiv Kino & De France";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://www.votivkino.at/programm/";
   readonly avatarUrl = "https://www.votivkino.at/votivdefrance/wp-content/uploads/2020/07/VotivKinoAussen-469x720.jpg";
 
@@ -87,8 +89,11 @@ export class VotivkinoScraper implements Scraper {
         let endDate: string | undefined;
         const durationMatch = lengthText.match(/(\d+)\s*min/);
         if (durationMatch) {
-          const startMs = new Date(datetime).getTime();
-          endDate = new Date(startMs + parseInt(durationMatch[1], 10) * 60 * 1000).toISOString();
+          const absoluteStart = toUtcIsoFromAbsolute(datetime);
+          if (absoluteStart) {
+            const startMs = new Date(absoluteStart).getTime();
+            endDate = new Date(startMs + parseInt(durationMatch[1], 10) * 60 * 1000).toISOString();
+          }
         }
 
         const tags = ["wien", "cinema"];

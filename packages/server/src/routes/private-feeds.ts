@@ -92,16 +92,16 @@ export function privateFeedRoutes(db: DB): Hono {
          WHERE er.status IN ('going','maybe')
          AND (e.visibility IN ('public','unlisted') OR e.account_id = ?)
          GROUP BY e.id
-         ORDER BY e.start_date ASC`
+         ORDER BY e.start_at_utc ASC`
       )
       .all(accountId, accountId) as Record<string, unknown>[];
 
     // Remote events: Going/Maybe (include rsvp_status for tentative; include canceled)
     const remoteRows = db
       .prepare(
-        `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
+         `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
                 re.start_at_utc, re.end_at_utc, re.event_timezone, re.timezone_quality,
-                0 AS all_day, re.location_name, re.location_address, re.location_latitude,
+                re.all_day AS all_day, re.location_name, re.location_address, re.location_latitude,
                 re.location_longitude, re.image_url, re.image_media_type, re.image_alt,
                 re.url, re.tags, re.published AS created_at,
                 COALESCE(re.updated, re.published, datetime('now')) AS updated_at,
@@ -109,13 +109,13 @@ export function privateFeedRoutes(db: DB): Hono {
          FROM remote_events re
          JOIN event_rsvps er ON er.event_uri = re.uri AND er.account_id = ?
          WHERE er.status IN ('going','maybe')
-         ORDER BY re.start_date ASC`
+         ORDER BY re.start_at_utc ASC`
       )
       .all(accountId) as Record<string, unknown>[];
 
     const allRows = [...localRows, ...remoteRows].sort((a, b) => {
-      const aDate = (a.start_date as string) || "";
-      const bDate = (b.start_date as string) || "";
+      const aDate = (a.start_at_utc as string) || "";
+      const bDate = (b.start_at_utc as string) || "";
       return aDate.localeCompare(bDate);
     });
 

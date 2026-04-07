@@ -2,6 +2,7 @@ import type { DB } from "../db.js";
 import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
 import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federation.js";
+import { serializeLocalEvent, serializeRemoteEvent } from "./event-serializers.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -214,7 +215,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE re.actor_uri = ?
-         ORDER BY re.start_date ASC LIMIT ? OFFSET 0`
+         ORDER BY re.start_at_utc ASC LIMIT ? OFFSET 0`
       )
       .all(remoteActor.uri, limit) as Record<string, unknown>[];
     return rows.map(formatRemoteEvent);
@@ -287,7 +288,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
       AND e.account_id != ?
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     GROUP BY e.id
-    ORDER BY start_date ASC
+    ORDER BY start_at_utc ASC
     LIMIT ? OFFSET 0
   `;
 
@@ -370,104 +371,9 @@ function canViewEvent(db: DB, visibility: string, ownerId: string, currentUser: 
 }
 
 function formatLocalEvent(row: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: row.id,
-    slug: row.slug,
-    source: "local",
-    accountId: row.account_id,
-    account: row.account_username
-      ? { username: row.account_username, displayName: row.account_display_name }
-      : undefined,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    allDay: !!row.all_day,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-          url: row.location_url,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => {
-                try {
-                  return JSON.parse(row.image_attribution as string);
-                } catch {
-                  return undefined;
-                }
-              })()
-            : undefined,
-        }
-      : null,
-    ogImageUrl: row.og_image_url || null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: row.visibility,
-    repostedBy: row.repost_username
-      ? { username: row.repost_username as string, displayName: row.repost_display_name as string | null }
-      : undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return serializeLocalEvent(row);
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const account = formatRemoteActorAccount({
-    status: row.actor_fetch_status as string | null,
-    preferredUsername: row.preferred_username as string | null,
-    displayName: row.actor_display_name as string | null,
-    domain: row.domain as string | null,
-    iconUrl: row.actor_icon_url as string | null,
-  });
-  return {
-    id: row.uri,
-    slug: row.slug,
-    source: "remote",
-    actorUri: row.actor_uri,
-    account,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    allDay: false,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => {
-                try {
-                  return JSON.parse(row.image_attribution as string);
-                } catch {
-                  return undefined;
-                }
-              })()
-            : undefined,
-        }
-      : null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: "public",
-    canceled: !!row.canceled,
-    createdAt: row.published,
-    updatedAt: row.updated,
-  };
+  return serializeRemoteEvent(row);
 }

@@ -9,7 +9,7 @@ import {
   identities as identitiesApi,
   ApiError,
   type EventInput,
-  type CalEvent,
+  type LocalCalEvent,
   type SavedLocation,
   type ImageAttribution,
   type PublishingIdentity,
@@ -284,11 +284,11 @@ function durationFromStartEnd(
   };
 }
 
-/** Map CalEvent to form initial state for edit mode. */
-function eventToInitialState(event: CalEvent): Partial<EventDraft> & { startDate: string } {
+/** Map local event to form initial state for edit mode. */
+function eventToInitialState(event: LocalCalEvent): Partial<EventDraft> & { startDate: string } {
   const loc = event.location;
   const isOnline = !!(loc?.url);
-  const eventTimezone = event.eventTimezone || "Europe/Vienna";
+  const eventTimezone = event.eventTimezone;
   const startDate = event.allDay
     ? event.startDate.slice(0, 10)
     : (() => {
@@ -451,7 +451,7 @@ function removeTagFromTags(current: string, tag: string): string {
 
 interface NewEventPageProps {
   /** When provided, renders in edit mode (load from event, call update on submit). */
-  initialEvent?: CalEvent | null;
+  initialEvent?: LocalCalEvent | null;
 }
 
 export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
@@ -741,7 +741,7 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   // Detect if material fields (title, time, location) changed — these trigger notifications to RSVPs
   const materialFieldsChanged = useMemo(() => {
     if (!isEdit || !initialEvent) return false;
-    if (eventTimezone !== (initialEvent.eventTimezone || "Europe/Vienna")) return true;
+    if (eventTimezone !== initialEvent.eventTimezone) return true;
     if (title.trim() !== (initialEvent.title || "").trim()) return true;
     const initialTemporal = eventToInitialState(initialEvent);
     const initDuration = initialTemporal.duration || "1h";
@@ -1239,32 +1239,37 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const previewStartAtUtc = !allDay ? localDateTimeToUtcMillis(startDate, eventTimezone) : null;
   const previewEndAtUtc = !allDay && endDate ? localDateTimeToUtcMillis(endDate, eventTimezone) : null;
+  const previewEvent = startDate
+    ? (allDay
+      ? {
+        startDate: startDate.slice(0, 10),
+        endDate: endDate ? endDate.slice(0, 10) : null,
+        allDay: true as const,
+        eventTimezone,
+      }
+      : (previewStartAtUtc != null
+        ? {
+          startDate,
+          endDate: endDate || null,
+          startAtUtc: new Date(previewStartAtUtc).toISOString(),
+          endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
+          allDay: false as const,
+          eventTimezone,
+        }
+        : null))
+    : null;
   const startTimezoneReferenceMs = timezoneReferenceMillis(startDate, allDay, eventTimezone);
   const endTimezoneReferenceMs = timezoneReferenceMillis(customEnd || startDate, allDay, eventTimezone);
-  const showPreviewTimezoneTooltip = startDate
+  const showPreviewTimezoneTooltip = previewEvent
     ? hasDifferentTimezoneAtEventTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        allDay,
-        eventTimezone,
-      },
+      previewEvent,
       viewerTimeZone,
     )
     : false;
 
-  const previewDateStr = startDate
+  const previewDateStr = previewEvent
     ? formatEventDateTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : endDate
-          : null,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
-        allDay,
-        eventTimezone,
-      },
+      previewEvent,
       true,
       {
         locale: dateTimeLocale,
@@ -1275,26 +1280,21 @@ export function NewEventPage({ initialEvent }: NewEventPageProps = {}) {
     )
     : null;
 
-  const previewDateInEventTimezone = showPreviewTimezoneTooltip && startDate
-    ? `${t("common:localTimeLabel")}: ${formatEventDateTime(
-      {
-        startDate: allDay ? startDate.slice(0, 10) : startDate,
-        endDate: endDate
-          ? allDay ? endDate.slice(0, 10) : endDate
-          : null,
-        startAtUtc: previewStartAtUtc != null ? new Date(previewStartAtUtc).toISOString() : undefined,
-        endAtUtc: previewEndAtUtc != null ? new Date(previewEndAtUtc).toISOString() : null,
-        allDay,
-        eventTimezone,
-      },
-      true,
-      {
-        locale: dateTimeLocale,
-        allDayLabel: t("events:allDay"),
-        viewerTimeZone,
-        displayTimeZone: eventTimezone,
-      },
-    )}`
+  const previewDateInEventTimezone = showPreviewTimezoneTooltip && previewEvent
+    ? (() => {
+      const localDateTime = formatEventDateTime(
+        previewEvent,
+        true,
+        {
+          locale: dateTimeLocale,
+          allDayLabel: t("events:allDay"),
+          viewerTimeZone,
+          displayTimeZone: eventTimezone,
+        },
+      );
+      if (!localDateTime) return "";
+      return `${t("common:localTimeLabel")}: ${localDateTime}`;
+    })()
     : "";
 
   const hasPreviewLocation =

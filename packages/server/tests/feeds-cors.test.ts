@@ -21,9 +21,9 @@ describe("feed CORS policy", () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, start_date, all_day, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, 'public')`
-    ).run("e1", "u1", "event-1", "Event 1", "2026-03-01", 1);
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')`
+    ).run("e1", "u1", "event-1", "Event 1", "2026-03-01", "2026-03-01T00:00:00.000Z", "UTC", 1);
 
     const res = await app.request("http://localhost/api/v1/feeds/alice.json", {
       headers: { Origin: "https://embedder.example" },
@@ -161,24 +161,24 @@ describe("public feed visibility", () => {
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("bob-id", "bob");
 
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, start_date, all_day, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run("alice-public", "alice-id", "alice-public", "Alice Public", "2026-03-01", 1, "public");
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-public", "alice-id", "alice-public", "Alice Public", "2026-03-01", "2026-03-01T00:00:00.000Z", "UTC", 1, "public");
 
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, start_date, all_day, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run("alice-unlisted", "alice-id", "alice-unlisted", "Alice Unlisted", "2026-03-02", 1, "unlisted");
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-unlisted", "alice-id", "alice-unlisted", "Alice Unlisted", "2026-03-02", "2026-03-02T00:00:00.000Z", "UTC", 1, "unlisted");
 
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, start_date, all_day, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run("bob-unlisted-reposted", "bob-id", "bob-u1", "Bob Unlisted Reposted", "2026-03-03", 1, "unlisted");
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("bob-unlisted-reposted", "bob-id", "bob-u1", "Bob Unlisted Reposted", "2026-03-03", "2026-03-03T00:00:00.000Z", "UTC", 1, "unlisted");
 
     db.prepare(
-      `INSERT INTO events (id, account_id, slug, title, start_date, all_day, visibility)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run("bob-unlisted-hidden", "bob-id", "bob-u2", "Bob Unlisted Hidden", "2026-03-04", 1, "unlisted");
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("bob-unlisted-hidden", "bob-id", "bob-u2", "Bob Unlisted Hidden", "2026-03-04", "2026-03-04T00:00:00.000Z", "UTC", 1, "unlisted");
 
     db.prepare("INSERT INTO reposts (account_id, event_id) VALUES (?, ?)").run("alice-id", "bob-unlisted-reposted");
 

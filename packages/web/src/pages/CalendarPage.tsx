@@ -135,7 +135,7 @@ export function CalendarPage() {
         displayTimeZone: viewerTimeZone,
       });
       const byLabel = t("events:by");
-      const parts: string[] = [dateStr];
+      const parts: string[] = dateStr ? [dateStr] : [];
       if (ev.location?.name) parts.push(ev.location.name);
       if (ev.account?.displayName || ev.account?.username) {
         parts.push(`${byLabel} ${ev.account.displayName || ev.account.username}`);

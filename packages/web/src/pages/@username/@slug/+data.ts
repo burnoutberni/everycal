@@ -5,12 +5,18 @@ import { formatEventDateTime } from "../../../lib/formatEventDateTime";
 
 type EventPageContext = PageContextServer & { initialData?: SsrInitialData };
 
-type SsrEventModel = Pick<CalEvent, "title" | "startDate" | "endDate" | "allDay" | "location" | "ogImageUrl" | "image">;
+type SsrTimedEventModel = Pick<Extract<CalEvent, { allDay: false }>, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "eventTimezone" | "location" | "ogImageUrl" | "image">;
+type SsrAllDayEventModel = Pick<Extract<CalEvent, { allDay: true }>, "title" | "startDate" | "endDate" | "startAtUtc" | "endAtUtc" | "allDay" | "eventTimezone" | "location" | "ogImageUrl" | "image">;
+type SsrEventModel = SsrTimedEventModel | SsrAllDayEventModel;
 
 function formatEventDescription(event: SsrEventModel): string {
-  return event.location?.name
-    ? `${formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" })} • ${event.location.name}`
-    : formatEventDateTime(event, true, { locale: "en", allDayLabel: "All day" });
+  const dateTime = formatEventDateTime(event, true, {
+    locale: "en",
+    allDayLabel: "All day",
+    displayTimeZone: event.eventTimezone ?? "UTC",
+  });
+  if (!dateTime) return event.location?.name || "";
+  return event.location?.name ? `${dateTime} • ${event.location.name}` : dateTime;
 }
 
 export async function data(pageContext: PageContextServer) {

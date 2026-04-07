@@ -14,7 +14,6 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
-  formatRemoteActorAccount,
   formatRemoteActorIdentity,
   fetchAP,
   resolveRemoteActor,
@@ -28,6 +27,8 @@ import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
+import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
+import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -216,9 +217,9 @@ export function federationRoutes(db: DB): Hono {
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
-        upsertRemoteEvent(db, fullObj, actor.uri, {
-          temporal: normalizeApTemporal(fullObj),
-        });
+        const temporal = normalizeApTemporal(fullObj);
+        if (!temporal) continue;
+        upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
         imported++;
       }
 
@@ -463,6 +464,12 @@ export function federationRoutes(db: DB): Hono {
   router.get("/remote-events", (c) => {
     const actorUri = c.req.query("actor");
     const from = c.req.query("from");
+    try {
+      parseDateRangeParams(from);
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
@@ -479,56 +486,20 @@ export function federationRoutes(db: DB): Hono {
       sql += " AND re.actor_uri = ?";
       params.push(actorUri);
     }
-    if (from) {
-      sql += " AND re.start_date >= ?";
-      params.push(from);
-    }
+    const range = buildDateRangeFilter(
+      { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
+      from,
+      undefined,
+    );
+    sql += range.sql;
+    params.push(...range.params);
 
-    sql += " ORDER BY re.start_date ASC LIMIT ? OFFSET ?";
+    sql += " ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?";
     params.push(limit, offset);
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
     return c.json({
-      events: rows.map((row) => ({
-        id: row.uri,
-        uri: row.uri,
-        slug: row.slug,
-        source: "remote",
-        actorUri: row.actor_uri,
-        account: formatRemoteActorAccount({
-          status: row.actor_fetch_status as string | null,
-          preferredUsername: row.preferred_username as string | null,
-          displayName: row.actor_display_name as string | null,
-          domain: row.domain as string | null,
-          iconUrl: row.actor_icon_url as string | null,
-        }),
-        title: row.title,
-        description: row.description,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        startAtUtc: row.start_at_utc,
-        endAtUtc: row.end_at_utc,
-        eventTimezone: row.event_timezone,
-        timezoneQuality: row.timezone_quality || "unknown",
-        allDay: false,
-        location: row.location_name
-          ? {
-              name: row.location_name,
-              address: row.location_address,
-              latitude: row.location_latitude,
-              longitude: row.location_longitude,
-            }
-          : null,
-        image: row.image_url
-          ? { url: row.image_url, mediaType: row.image_media_type, alt: row.image_alt }
-          : null,
-        url: row.url,
-        tags: row.tags ? (row.tags as string).split(",") : [],
-        visibility: "public",
-        canceled: !!row.canceled,
-        createdAt: row.published,
-        updatedAt: row.updated,
-      })),
+      events: rows.map((row) => serializeRemoteEvent(row)),
     });
   });
 

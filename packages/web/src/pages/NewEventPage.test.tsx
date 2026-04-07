@@ -89,7 +89,7 @@ vi.mock("../lib/api", () => ({
 }));
 
 import { NewEventPage } from "./NewEventPage";
-import { events as eventsApi, type CalEvent } from "../lib/api";
+import { events as eventsApi, type CalEvent, type LocalCalEvent } from "../lib/api";
 
 describe("NewEventPage edit timezone behavior", () => {
   beforeEach(() => {
@@ -116,9 +116,10 @@ describe("NewEventPage edit timezone behavior", () => {
   });
 
   it("submits unchanged wall time in event timezone", async () => {
-    const initialEvent: CalEvent = {
+    const initialEvent: LocalCalEvent = {
       id: "e1",
       slug: "global-meeting",
+      source: "local",
       accountId: "user-1",
       account: { username: "alice", displayName: "Alice" },
       title: "Global meeting",

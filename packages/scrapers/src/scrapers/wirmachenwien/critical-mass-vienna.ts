@@ -13,6 +13,7 @@ import * as cheerio from "cheerio";
 import { Agent, fetch as undiciFetch } from "undici";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
+import { toUtcIsoFromAbsolute } from "../../lib/datetime.js";
 
 const RSS_URL = "https://www.criticalmass.at/category/wien/feed/";
 
@@ -23,6 +24,7 @@ const agent = new Agent({
 export class CriticalMassViennaScraper implements Scraper {
   readonly id = "critical_mass_vienna";
   readonly name = "Critical Mass Vienna";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = RSS_URL;
   readonly website = "https://www.criticalmass.at/category/wien/";
   readonly bio = "Die Critical Mass Vienna rollt seit 2006 für klimafreundlichen Verkehr durch Wien: #MehrPlatzFürsRad";
@@ -45,14 +47,15 @@ export class CriticalMassViennaScraper implements Scraper {
       const link = $item.find("link").text().trim();
       const pubDate = $item.find("pubDate").text().trim();
       const description = $item.find("description").text().trim();
+      const startDate = toUtcIsoFromAbsolute(pubDate);
 
-      if (!title) return;
+      if (!title || !startDate) return;
 
       events.push({
         id: `cm-vienna-${link.replace(/[^a-z0-9]/gi, "-")}`,
         title,
         description,
-        startDate: pubDate ? new Date(pubDate).toISOString() : undefined,
+        startDate,
         url: link || undefined,
         location: {
           name: "Schwarzenbergplatz",

@@ -8,6 +8,7 @@
 import * as cheerio from "cheerio";
 import type { EveryCalEvent } from "@everycal/core";
 import type { Scraper } from "../../scraper.js";
+import { normalizeEventDateTime, toUtcIsoFromAbsolute } from "../../lib/datetime.js";
 
 const BASE_URL = "https://kirchberggasse.at";
 const FEED_URL = "https://kirchberggasse.at/feed/";
@@ -15,6 +16,7 @@ const FEED_URL = "https://kirchberggasse.at/feed/";
 export class KirchberggasseScraper implements Scraper {
   readonly id = "kirchberggasse";
   readonly name = "Initiative Kirchberggasse";
+  readonly eventTimezone = "Europe/Vienna";
   readonly url = BASE_URL;
   readonly website = "https://kirchberggasse.at";
   readonly bio = "Die Kirchberggasse zur Wohnstraße machen: begrünt, verkehrsberuhigt und gemeinsam gestaltet!";
@@ -55,14 +57,15 @@ export class KirchberggasseScraper implements Scraper {
       const link = $item.find("link").text().trim();
       const pubDate = $item.find("pubDate").text().trim();
       const description = $item.find("description").text().trim();
+      const startDate = toUtcIsoFromAbsolute(pubDate);
 
-      if (!title) return;
+      if (!title || !startDate) return;
 
       events.push({
         id: `kirchberggasse-${link.replace(/[^a-z0-9]/gi, "-")}`,
         title,
         description: description.slice(0, 500),
-        startDate: pubDate ? new Date(pubDate).toISOString() : undefined,
+        startDate,
         url: link || undefined,
         location: {
           name: "Kirchberggasse, 1070 Wien",
@@ -87,13 +90,14 @@ export class KirchberggasseScraper implements Scraper {
       const title = $el.find(".entry-title a, h2 a").first().text().trim();
       const link = $el.find(".entry-title a, h2 a").first().attr("href");
       const dateText = $el.find("time").attr("datetime");
+      const startDate = normalizeEventDateTime(dateText);
 
-      if (!title) return;
+      if (!title || !startDate) return;
 
       events.push({
         id: `kirchberggasse-${link?.replace(/[^a-z0-9]/gi, "-") || title.replace(/[^a-z0-9]/gi, "-")}`,
         title,
-        startDate: dateText ? new Date(dateText).toISOString() : undefined,
+        startDate,
         url: link || undefined,
         location: {
           name: "Kirchberggasse, 1070 Wien",

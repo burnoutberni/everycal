@@ -8,6 +8,7 @@ function makeScraper(defaultEventImageUrl?: string): Scraper {
     name: "Test Source",
     url: "https://example.com",
     defaultEventImageUrl,
+    eventTimezone: "Europe/Vienna",
     async scrape() {
       return [];
     },

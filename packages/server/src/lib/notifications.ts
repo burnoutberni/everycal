@@ -18,7 +18,7 @@ export async function runSendReminders(db: DB): Promise<void> {
   const rows = db
     .prepare(
       `WITH reminder_candidates AS (
-         SELECT er.account_id, e.id AS event_uri, e.slug, e.title, e.start_date, e.end_date, e.all_day,
+         SELECT er.account_id, e.id AS event_uri, e.slug, e.title, e.start_date, e.end_date, e.start_at_utc, e.all_day,
                 e.location_name, e.url, owner.username AS owner_username, NULL AS owner_domain
          FROM event_rsvps er
          JOIN events e ON e.id = er.event_uri
@@ -27,7 +27,7 @@ export async function runSendReminders(db: DB): Promise<void> {
 
          UNION ALL
 
-         SELECT er.account_id, re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date, 0 AS all_day,
+         SELECT er.account_id, re.uri AS event_uri, re.slug, re.title, re.start_date, re.end_date, re.start_at_utc, re.all_day AS all_day,
                 re.location_name, re.url, ra.preferred_username AS owner_username, ra.domain AS owner_domain
          FROM event_rsvps er
          JOIN remote_events re ON re.uri = er.event_uri
@@ -46,8 +46,8 @@ export async function runSendReminders(db: DB): Promise<void> {
          AND a.email IS NOT NULL AND a.email != ''
          AND a.email_verified = 1
          AND ers.account_id IS NULL
-         AND datetime(rc.start_date) >= datetime('now')
-         AND datetime(rc.start_date) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
+         AND datetime(rc.start_at_utc) >= datetime('now')
+         AND datetime(rc.start_at_utc) <= datetime('now', '+' || anp.reminder_hours_before || ' hours')`
     )
     .all() as {
     account_id: string;

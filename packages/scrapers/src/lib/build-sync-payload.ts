@@ -24,6 +24,7 @@ export function buildSyncPayload(scraper: Scraper, events: Partial<EveryCalEvent
         description: ev.description || undefined,
         startDate: ev.startDate!,
         endDate: ev.endDate || undefined,
+        eventTimezone: ev.eventTimezone || scraper.eventTimezone,
         allDay: ev.allDay || false,
         location,
         image,

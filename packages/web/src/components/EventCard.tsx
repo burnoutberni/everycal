@@ -82,6 +82,7 @@ export function EventCard({
         viewerTimeZone,
         displayTimeZone: eventTz,
       });
+      if (!localDateTime) return "";
       return `${t("common:localTimeLabel")}: ${localDateTime}`;
     })()
     : "";
@@ -216,16 +217,18 @@ export function EventCard({
               className="text-sm"
               style={{ color: "var(--accent)" }}
             >
-              <span
-                className={showEventLocalTime ? "inline-time-tooltip-anchor" : undefined}
-                tabIndex={showEventLocalTime ? 0 : undefined}
-                aria-describedby={showEventLocalTime && eventLocalTimeTooltip ? eventLocalTimeTooltipId : undefined}
-              >
-                {dateTimeStr}
-                {showEventLocalTime && (
-                  <span id={eventLocalTimeTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{eventLocalTimeTooltip}</span>
-                )}
-              </span>
+              {dateTimeStr && (
+                <span
+                  className={showEventLocalTime ? "inline-time-tooltip-anchor" : undefined}
+                  tabIndex={showEventLocalTime ? 0 : undefined}
+                  aria-describedby={showEventLocalTime && eventLocalTimeTooltip ? eventLocalTimeTooltipId : undefined}
+                >
+                  {dateTimeStr}
+                  {showEventLocalTime && (
+                    <span id={eventLocalTimeTooltipId} role="tooltip" className="inline-time-tooltip-bubble">{eventLocalTimeTooltip}</span>
+                  )}
+                </span>
+              )}
             </span>
             {isCanceled && (
               <span className="canceled-badge" style={{ fontSize: "0.7rem", fontWeight: 600 }}>

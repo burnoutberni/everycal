@@ -80,8 +80,16 @@ function addressingToVisibility(to: string[], cc: string[]): EventVisibility {
 /** Convert an EveryCal event to an ActivityPub Event object. */
 export function toActivityPubEvent(event: EveryCalEvent): APEvent {
   const { to, cc } = visibilityToAddressing(event.visibility, event.organizer);
-  const startTime = event.startAtUtc || toUtcIso(event.startDate) || event.startDate;
-  const endTime = event.endAtUtc || (event.endDate ? toUtcIso(event.endDate) || event.endDate : undefined);
+  const isAllDay = event.allDay === true;
+  const startTime = isAllDay
+    ? requireDateOnly(event.startDate, "startDate", event.id)
+    : requireUtcInstant(event.startAtUtc, "startAtUtc", event.id);
+  const endTime =
+    event.endDate !== undefined
+      ? (isAllDay
+          ? requireDateOnly(event.endDate, "endDate", event.id)
+          : requireUtcInstant(event.endAtUtc, "endAtUtc", event.id))
+      : undefined;
   const hasTimezoneExtension = typeof event.eventTimezone === "string" && event.eventTimezone.length > 0;
 
   const ap: APEvent = {
@@ -140,6 +148,7 @@ export function toActivityPubEvent(event: EveryCalEvent): APEvent {
 
 /** Convert an ActivityPub Event object back to an EveryCal event. */
 export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
+  const allDay = isDateOnly(ap.startTime) && (ap.endTime === undefined || isDateOnly(ap.endTime));
   const visibility = addressingToVisibility(ap.to ?? [], ap.cc ?? []);
   const image = ap.attachment?.find((a) => a.type === "Image");
   const location = ap.location
@@ -161,14 +170,10 @@ export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
       }
     : undefined;
 
-  return {
+  const shared = {
     id: ap.id,
     title: ap.name,
-    startDate: ap.startTime,
-    ...(toUtcIso(ap.startTime) !== null ? { startAtUtc: toUtcIso(ap.startTime)! } : {}),
     ...(ap.content !== undefined ? { description: ap.content } : {}),
-    ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
-    ...(ap.endTime !== undefined && toUtcIso(ap.endTime) !== null ? { endAtUtc: toUtcIso(ap.endTime)! } : {}),
     ...(ap.eventTimezone !== undefined ? { eventTimezone: ap.eventTimezone } : {}),
     ...(location !== undefined ? { location } : {}),
     ...(eventImage !== undefined ? { image: eventImage } : {}),
@@ -179,6 +184,50 @@ export function fromActivityPubEvent(ap: APEvent): EveryCalEvent {
     createdAt: ap.published,
     updatedAt: ap.updated,
   };
+
+  if (allDay) {
+    return {
+      ...shared,
+      startDate: ap.startTime,
+      ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
+      allDay: true,
+    };
+  }
+
+  const startAtUtc = requireUtcInstant(toUtcIso(ap.startTime) ?? undefined, "startAtUtc", ap.id);
+  const endAtUtc = ap.endTime !== undefined ? toUtcIso(ap.endTime) : null;
+
+  return {
+    ...shared,
+    startDate: ap.startTime,
+    startAtUtc,
+    allDay: false,
+    ...(ap.endTime !== undefined ? { endDate: ap.endTime } : {}),
+    ...(endAtUtc !== null ? { endAtUtc } : {}),
+  };
+}
+
+function isDateOnly(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function toDateOnly(value: string): string | null {
+  if (isDateOnly(value)) return value;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})(?:T|\s)/);
+  return match ? match[1] : null;
+}
+
+function requireDateOnly(value: string | undefined, field: "startDate" | "endDate", eventId: string): string {
+  if (!value) {
+    throw new Error(`ActivityPub emission requires ${field} for event ${eventId}`);
+  }
+
+  const dateOnly = toDateOnly(value);
+  if (!dateOnly) {
+    throw new Error(`ActivityPub emission requires date-only value in ${field} for event ${eventId}`);
+  }
+
+  return dateOnly;
 }
 
 function toUtcIso(value: string): string | null {
@@ -186,4 +235,17 @@ function toUtcIso(value: string): string | null {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function requireUtcInstant(value: string | undefined, field: "startAtUtc" | "endAtUtc", eventId: string): string {
+  if (!value) {
+    throw new Error(`ActivityPub emission requires ${field} for event ${eventId}`);
+  }
+
+  const normalized = toUtcIso(value);
+  if (normalized === null) {
+    throw new Error(`ActivityPub emission requires valid UTC instant in ${field} for event ${eventId}`);
+  }
+
+  return normalized;
 }

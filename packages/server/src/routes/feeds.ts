@@ -87,7 +87,7 @@ export function feedRoutes(db: DB): Hono {
             AND e.account_id != ?
             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
           GROUP BY e.id
-        ) ORDER BY start_date ASC`
+        ) ORDER BY start_at_utc ASC`
       )
       .all(account.id, account.id, account.id, account.id, account.id);
 

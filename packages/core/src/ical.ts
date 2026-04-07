@@ -22,7 +22,7 @@ interface ParsedProperty {
 
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
 export function toICalendar(entries: CalendarEntry[], options?: ToICalendarOptions): string {
   const normalized = entries.map((entry) => ("event" in entry ? entry : { event: entry }));
@@ -185,30 +185,39 @@ function buildDateLine(prefix: "DTSTART" | "DTEND", event: EveryCalEvent, isStar
   }
 
   const tzid = getEventTzidForExport(event);
-  const utcSource = isStart ? event.startAtUtc : event.endAtUtc;
+  const utcSource = resolveTimedUtcForExport(event, isStart);
+  if (!utcSource) {
+    const field = isStart ? "startAtUtc" : "endAtUtc";
+    throw new Error(`toICal requires ${field} for timed events (event ${event.id})`);
+  }
 
   if (tzid) {
-    const wall = toWallTimeBasic(source, utcSource, tzid);
+    const wall = toWallTimeBasic(utcSource, tzid);
     return `${prefix};TZID=${tzid}:${wall}`;
   }
 
-  const utc = utcSource || absoluteIsoToUtcIso(source);
-  if (utc) return `${prefix}:${toUtcICalDate(utc)}`;
-
-  return `${prefix}:${toLocalICalDate(source)}`;
+  return `${prefix}:${toUtcICalDate(utcSource)}`;
 }
 
-function toWallTimeBasic(source: string, utc: string | undefined, tzid: string): string {
-  const utcIso = utc || absoluteIsoToUtcIso(source);
-  if (utcIso) return formatUtcInZone(utcIso, tzid);
+function resolveTimedUtcForExport(event: EveryCalEvent, isStart: boolean): string | null {
+  const explicitUtc = isStart ? event.startAtUtc : event.endAtUtc;
+  if (explicitUtc) return explicitUtc;
 
-  const m = source.match(LOCAL_DATE_TIME);
-  if (m) {
-    return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
-  }
+  const source = isStart ? event.startDate : event.endDate;
+  if (!source) return null;
+  if (ISO_HAS_OFFSET.test(source)) return absoluteIsoToUtcIso(source);
 
-  if (DATE_ONLY.test(source)) return `${source.replace(/-/g, "")}T000000`;
-  return toLocalICalDate(source);
+  const tzid = event.eventTimezone;
+  if (!tzid || !isValidIanaTimezone(tzid)) return null;
+
+  if (DATE_ONLY.test(source)) return null;
+  const normalized = source.includes(" ") ? source.replace(" ", "T") : source;
+  if (!LOCAL_DATE_TIME.test(normalized)) return null;
+  return localInZoneToUtcIso(normalized, tzid);
+}
+
+function toWallTimeBasic(utc: string, tzid: string): string {
+  return formatUtcInZone(utc, tzid);
 }
 
 function formatUtcInZone(utcIso: string, tzid: string): string {
@@ -314,18 +323,6 @@ function toUtcICalDate(iso: string): string {
   return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
-function toLocalICalDate(iso: string): string {
-  if (DATE_ONLY.test(iso)) return `${iso.replace(/-/g, "")}T000000`;
-  const m = iso.match(LOCAL_DATE_TIME);
-  if (m) return `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}${m[6] || "00"}`;
-
-  const parsed = new Date(iso);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "");
-  }
-  return iso.replace(/[-:]/g, "").replace(/\./g, "");
-}
-
 function fromICalUtcOrLocal(value: string): string {
   const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] || ""}`;
@@ -382,18 +379,27 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
     Number(map.minute),
     Number(map.second),
   );
-  return asUtc - instant.getTime();
+  const instantUtcSecond = Date.UTC(
+    instant.getUTCFullYear(),
+    instant.getUTCMonth(),
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  );
+  return asUtc - instantUtcSecond;
 }
 
-function localInZoneToUtcIso(localIso: string, timeZone: string): string {
+export function localInZoneToUtcIso(localIso: string, timeZone: string): string {
   const m = localIso.match(LOCAL_DATE_TIME);
   if (!m) {
     const parsed = new Date(localIso);
     return Number.isNaN(parsed.getTime()) ? localIso : parsed.toISOString();
   }
 
-  const [, y, mo, d, h, mi, s] = m;
-  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+  const [, y, mo, d, h, mi, s, frac] = m;
+  const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
+  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"), milliseconds);
 
   let candidateMs = naiveUtcMs;
   for (let i = 0; i < 4; i += 1) {

@@ -1,16 +1,74 @@
+import { buildStrictUtcDate } from "./utc-date.js";
+
 const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
-export type TimezoneQuality = "exact_tzid" | "offset_only" | "unknown";
+export function extractDatePart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (DATE_ONLY.test(trimmed)) return parseDateOnlyParts(trimmed) ? trimmed : null;
+  const prefix = trimmed.slice(0, 10);
+  return DATE_ONLY.test(prefix) && parseDateOnlyParts(prefix) ? prefix : null;
+}
+
+export type TimezoneQuality = "exact_tzid" | "offset_only";
 
 export interface NormalizedRemoteTemporal {
   startDate: string;
   endDate: string | null;
-  startAtUtc: string | null;
+  allDay: boolean;
+  startAtUtc: string;
   endAtUtc: string | null;
   eventTimezone: string | null;
   timezoneQuality: TimezoneQuality;
+}
+
+export interface DeriveUtcFromTemporalInputOptions {
+  allDay: boolean;
+  eventTimezone: string | null;
+}
+
+export interface DeriveEventEndAtUtcOptions extends DeriveUtcFromTemporalInputOptions {
+  startValueForAllDay: string;
+}
+
+export interface DerivedEventUtcRange {
+  startAtUtc: string | null;
+  endAtUtc: string | null;
+}
+
+function parseDateOnlyParts(value: string): { year: number; month: number; day: number } | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const strict = buildStrictUtcDate({
+    year,
+    month,
+    day,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    millisecond: 0,
+  });
+  if (!strict) return null;
+  return { year, month, day };
+}
+
+function formatDateOnlyUtc(instant: Date): string {
+  const year = instant.getUTCFullYear();
+  const month = String(instant.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(instant.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDaysToDateOnly(value: string, days: number): string | null {
+  const parsed = parseDateOnlyParts(value);
+  if (!parsed) return null;
+  const shifted = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + days));
+  return formatDateOnlyUtc(shifted);
 }
 
 export function isValidIanaTimezone(tz: string): boolean {
@@ -36,21 +94,43 @@ function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
 
   const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
   const asUtc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
-  return asUtc - instant.getTime();
+  const instantUtcSecond = Date.UTC(
+    instant.getUTCFullYear(),
+    instant.getUTCMonth(),
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  );
+  return asUtc - instantUtcSecond;
 }
 
-function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {
-  const m = localIso.match(LOCAL_DATE_TIME);
-  if (!m) {
-    const parsed = new Date(localIso);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return parsed.toISOString();
-  }
+export function localDateTimeWithTimezoneToUtcIso(localIso: string, timeZone: string): string | null {
+  if (!isValidIanaTimezone(timeZone)) return null;
+  const normalized = localIso.includes(" ") ? localIso.replace(" ", "T") : localIso;
+  const m = normalized.match(LOCAL_DATE_TIME);
+  if (!m) return null;
 
-  const [, y, mo, d, h, mi, s] = m;
-  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"));
+  const [, y, mo, d, h, mi, s, frac] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(mi);
+  const second = Number(s || "0");
+  const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
+  const naiveUtc = buildStrictUtcDate({
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond: milliseconds,
+  });
+  if (!naiveUtc) return null;
+  const naiveUtcMs = naiveUtc.getTime();
 
-  // Iterative resolution for DST boundaries: offset depends on final instant.
   let candidateMs = naiveUtcMs;
   for (let i = 0; i < 4; i += 1) {
     const offset = getTimeZoneOffsetMs(new Date(candidateMs), timeZone);
@@ -64,93 +144,137 @@ function localInZoneToUtcIso(localIso: string, timeZone: string): string | null 
   return parsed.toISOString();
 }
 
-function hasIsoOffset(value: string | null | undefined): boolean {
-  return !!value && ISO_HAS_OFFSET.test(value);
-}
-
-function tryToUtcIso(value: string | null | undefined): string | null {
-  if (!value) return null;
+export function absoluteIsoWithOffsetToUtcIso(value: string): string | null {
+  if (!ISO_HAS_OFFSET.test(value)) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }
 
-function normalizeDateTimeShape(value: string): string {
-  return value.includes(" ") ? value.replace(" ", "T") : value;
+export function datePartFromUtcInstantInTimezone(
+  utcIso: string | null | undefined,
+  timeZone: string | null | undefined,
+): string | null {
+  if (!utcIso || !timeZone || !isValidIanaTimezone(timeZone)) return null;
+  const parsed = new Date(utcIso);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
+  const year = map.year;
+  const month = map.month;
+  const day = map.day;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
+export function deriveUtcFromTemporalInput(
+  value: string | null | undefined,
+  options: DeriveUtcFromTemporalInputOptions,
+): string | null {
+  if (!value) return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (ISO_HAS_OFFSET.test(normalized)) return absoluteIsoWithOffsetToUtcIso(normalized);
+
+  if (DATE_ONLY.test(normalized)) {
+    if (!options.allDay || !options.eventTimezone) return null;
+    return localDateTimeWithTimezoneToUtcIso(`${normalized}T00:00:00`, options.eventTimezone);
+  }
+
+  if (!options.eventTimezone) return null;
+  return localDateTimeWithTimezoneToUtcIso(normalized, options.eventTimezone);
+}
+
+export function deriveAllDayEndAtUtc(
+  startDate: string,
+  endDate: string | null | undefined,
+  eventTimezone: string | null,
+): string | null {
+  const inclusiveEnd = endDate || startDate;
+  if (DATE_ONLY.test(inclusiveEnd)) {
+    const exclusiveEnd = addDaysToDateOnly(inclusiveEnd, 1);
+    if (!exclusiveEnd) return null;
+    return deriveUtcFromTemporalInput(exclusiveEnd, { allDay: true, eventTimezone });
+  }
+  return deriveUtcFromTemporalInput(inclusiveEnd, { allDay: true, eventTimezone });
+}
+
+export function deriveEventEndAtUtc(
+  endValue: string | null | undefined,
+  options: DeriveEventEndAtUtcOptions,
+): string | null {
+  if (options.allDay) {
+    return deriveAllDayEndAtUtc(options.startValueForAllDay, endValue ?? null, options.eventTimezone);
+  }
+  if (!endValue) return null;
+  return deriveUtcFromTemporalInput(endValue, { allDay: false, eventTimezone: options.eventTimezone });
+}
+
+export function deriveEventUtcRange(
+  startValue: string | null | undefined,
+  endValue: string | null | undefined,
+  options: DeriveUtcFromTemporalInputOptions,
+): DerivedEventUtcRange {
+  if (!startValue) return { startAtUtc: null, endAtUtc: null };
+  return {
+    startAtUtc: deriveUtcFromTemporalInput(startValue, options),
+    endAtUtc: deriveEventEndAtUtc(endValue, {
+      allDay: options.allDay,
+      eventTimezone: options.eventTimezone,
+      startValueForAllDay: startValue,
+    }),
+  };
 }
 
 function resolveTimezoneHint(object: Record<string, unknown>): string | null {
   const candidates = [object.eventTimezone, object.timezone, object.tzid];
   for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const tz = candidate.trim();
-      if (tz && isValidIanaTimezone(tz)) return tz;
-    }
+    if (typeof candidate !== "string") continue;
+    const tz = candidate.trim();
+    if (tz && isValidIanaTimezone(tz)) return tz;
   }
   return null;
 }
 
-function deriveUtc(value: string | null, eventTimezone: string | null): string | null {
-  if (!value) return null;
-
-  if (hasIsoOffset(value)) {
-    return tryToUtcIso(value);
-  }
-
-  const normalized = normalizeDateTimeShape(value);
-  if (DATE_ONLY.test(normalized)) {
-    if (!eventTimezone) return null;
-    return localInZoneToUtcIso(`${normalized}T00:00:00`, eventTimezone);
-  }
-
-  if (LOCAL_DATE_TIME.test(normalized)) {
-    if (!eventTimezone) return null;
-    return localInZoneToUtcIso(normalized, eventTimezone);
-  }
-
-  return null;
-}
-
-export function normalizeApTemporal(object: Record<string, unknown>): NormalizedRemoteTemporal {
+export function normalizeApTemporal(object: Record<string, unknown>): NormalizedRemoteTemporal | null {
   const startRaw = typeof (object.startTime ?? object.startDate) === "string"
     ? String(object.startTime ?? object.startDate).trim()
     : "";
+  if (!startRaw) return null;
+
   const endRawSource = object.endTime ?? object.endDate;
   const endRaw = typeof endRawSource === "string" ? String(endRawSource).trim() : null;
+  const explicitAllDay = typeof object.allDay === "boolean" ? object.allDay : null;
+  const inferredAllDay = DATE_ONLY.test(startRaw) && (!endRaw || DATE_ONLY.test(endRaw));
+  const allDay = explicitAllDay ?? inferredAllDay;
 
   const eventTimezone = resolveTimezoneHint(object);
-  const startAtUtc = deriveUtc(startRaw || null, eventTimezone);
-  const endAtUtc = deriveUtc(endRaw, eventTimezone);
+  const startAtUtc = deriveUtcFromTemporalInput(startRaw, { allDay, eventTimezone });
+  if (!startAtUtc) return null;
 
-  let timezoneQuality: TimezoneQuality = "unknown";
-  if (eventTimezone) {
-    timezoneQuality = "exact_tzid";
-  } else if (hasIsoOffset(startRaw) || hasIsoOffset(endRaw)) {
-    timezoneQuality = "offset_only";
-  }
+  const endAtUtc = deriveEventEndAtUtc(endRaw, {
+    allDay,
+    eventTimezone,
+    startValueForAllDay: startRaw,
+  });
+  if ((allDay || endRaw) && !endAtUtc) return null;
+  if (endAtUtc && endAtUtc < startAtUtc) return null;
+
+  const timezoneQuality = eventTimezone ? "exact_tzid" : "offset_only";
 
   return {
     startDate: startRaw,
     endDate: endRaw,
+    allDay,
     startAtUtc,
     endAtUtc,
     eventTimezone,
     timezoneQuality,
   };
-}
-
-export function convertLegacyNaiveToUtcIso(value: string, fallbackTimezone: string): string | null {
-  if (!value) return null;
-
-  if (ISO_HAS_OFFSET.test(value)) {
-    return tryToUtcIso(value);
-  }
-
-  const tz = isValidIanaTimezone(fallbackTimezone) ? fallbackTimezone : "Europe/Vienna";
-
-  if (DATE_ONLY.test(value)) {
-    return localInZoneToUtcIso(`${value}T00:00:00`, tz);
-  }
-
-  return localInZoneToUtcIso(value, tz);
 }

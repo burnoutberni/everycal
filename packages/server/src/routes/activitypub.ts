@@ -23,17 +23,14 @@ import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.j
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
-import { convertLegacyNaiveToUtcIso, normalizeApTemporal } from "../lib/timezone.js";
+import { normalizeApTemporal } from "../lib/timezone.js";
+import { normalizeEventTimezone } from "../lib/event-timezone.js";
+import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
   "application/ld+json",
 ];
-
-const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
-const EVERYCAL_CONTEXT = {
-  eventTimezone: "https://everycal.org/ns#eventTimezone",
-};
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
@@ -51,11 +48,11 @@ function toISO8601(dt: string | null | undefined): string | undefined {
   return normalized.includes(".") ? normalized + "Z" : normalized + ".000Z";
 }
 
-function toUtcIsoOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value) return undefined;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed.toISOString();
+function toEpochMillisOrZero(value: unknown): number {
+  const iso = toUtcIsoOrUndefined(value);
+  if (!iso) return 0;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
@@ -247,7 +244,7 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: rowToAPEvent(row, actorUrl, baseUrl),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
 
     const repostAnnounceItems = repostRows.map((row) => ({
@@ -258,7 +255,7 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
       id: `${actorUrl}/announce/${row.id}`,
@@ -268,12 +265,12 @@ export function activityPubRoutes(db: DB): Hono {
       to: ["https://www.w3.org/ns/activitystreams#Public"],
       cc: [`${actorUrl}/followers`],
       object: eventUrl(row.id as string),
-      _sort: row.start_date as string,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
 
     // Merge and sort by event start date (desc = newest first)
-    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort((a, b) =>
-      (b._sort || "").localeCompare(a._sort || "")
+    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort(
+      (a, b) => b._sortMs - a._sortMs
     );
 
     // Paginate
@@ -282,7 +279,7 @@ export function activityPubRoutes(db: DB): Hono {
     const offset = (pageNum - 1) * limit;
     const pageItems = allItems.slice(offset, offset + limit);
 
-    const orderedItems = pageItems.map(({ _sort, ...item }) => item);
+    const orderedItems = pageItems.map(({ _sortMs, ...item }) => item);
 
     const result: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -619,6 +616,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
 
   const uri = object.id as string;
   const temporal = normalizeApTemporal(object);
+  if (!temporal) return;
   const startDate = temporal.startDate;
   const endDate = temporal.endDate;
   const locationName = loc?.name ? stripHtml(loc.name as string) : null;
@@ -629,13 +627,15 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   let changes: { field: "title" | "time" | "location"; before?: string; after?: string }[] = [];
   if (activityType === "Update") {
     const existing = db.prepare(
-      "SELECT title, start_date, end_date, location_name, location_address FROM remote_events WHERE uri = ?"
-    ).get(uri) as { title: string; start_date: string; end_date: string | null; location_name: string | null; location_address: string | null } | undefined;
+      "SELECT title, start_date, end_date, all_day, location_name, location_address FROM remote_events WHERE uri = ?"
+    ).get(uri) as { title: string; start_date: string; end_date: string | null; all_day: number; location_name: string | null; location_address: string | null } | undefined;
     if (existing) {
       if (existing.title !== title) changes.push({ field: "title", before: existing.title, after: title });
-      if (existing.start_date !== startDate || existing.end_date !== endDate) {
-        const oldTime = [existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ");
-        const newTime = [startDate, endDate || ""].filter(Boolean).join(" – ");
+      if (existing.start_date !== startDate || existing.end_date !== endDate || !!existing.all_day !== temporal.allDay) {
+        const oldMode = existing.all_day ? "all-day" : "timed";
+        const newMode = temporal.allDay ? "all-day" : "timed";
+        const oldTime = `${[existing.start_date, existing.end_date || ""].filter(Boolean).join(" – ")} (${oldMode})`;
+        const newTime = `${[startDate, endDate || ""].filter(Boolean).join(" – ")} (${newMode})`;
         changes.push({ field: "time", before: oldTime, after: newTime });
       }
       const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
@@ -644,7 +644,6 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  if (!startDate) return;
 
   upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
@@ -669,7 +668,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
         : { username: fallbackAccount.username, domain: fallbackAccount.domain },
       startDate,
       endDate,
-      allDay: false,
+      allDay: temporal.allDay,
       location: locationName ? { name: locationName } : null,
       url: (object.url as string) || null,
     }, changes);
@@ -689,9 +688,9 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
   if (objectUri && actorUri) {
     // Only mark canceled if the event belongs to the actor sending the Delete
     const existing = db.prepare(
-      "SELECT actor_uri, slug, title, start_date, end_date, location_name, url FROM remote_events WHERE uri = ?"
+      "SELECT actor_uri, slug, title, start_date, end_date, all_day, location_name, url FROM remote_events WHERE uri = ?"
     ).get(objectUri) as
-      | { actor_uri: string; slug: string | null; title: string; start_date: string; end_date: string | null; location_name: string | null; url: string | null }
+      | { actor_uri: string; slug: string | null; title: string; start_date: string; end_date: string | null; all_day: number; location_name: string | null; url: string | null }
       | undefined;
     if (existing && existing.actor_uri === actorUri) {
       db.prepare("UPDATE remote_events SET canceled = 1 WHERE uri = ?").run(objectUri);
@@ -708,7 +707,7 @@ function handleDelete(db: DB, activity: Record<string, unknown>) {
           : { username: fallbackAccount.username, domain: fallbackAccount.domain },
         startDate: existing.start_date,
         endDate: existing.end_date,
-        allDay: false,
+        allDay: !!existing.all_day,
         location: existing.location_name ? { name: existing.location_name } : null,
         url: existing.url,
       });
@@ -758,34 +757,26 @@ function rowToAPEvent(
 ): Record<string, unknown> {
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
-  const rowTimezone = typeof row.event_timezone === "string" && row.event_timezone
-    ? row.event_timezone
-    : "Europe/Vienna";
-  const startUtc = toUtcIsoOrUndefined(row.start_at_utc)
-    ?? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.start_date as string, rowTimezone));
-  const endUtc = row.end_at_utc
-    ? toUtcIsoOrUndefined(row.end_at_utc)
-    : row.end_date
-      ? toUtcIsoOrUndefined(convertLegacyNaiveToUtcIso(row.end_date as string, rowTimezone))
-      : undefined;
-
-  const event: Record<string, unknown> = {
-    "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
+  const isAllDay = !!row.all_day;
+  const event = buildApEventObject({
     id: eventUrl,
-    type: "Event",
-    name: row.title,
-    startTime: startUtc ?? (toISO8601(row.start_date as string) ?? row.start_date),
-    published: toISO8601(row.created_at as string) ?? row.created_at,
-    updated: toISO8601(row.updated_at as string) ?? row.updated_at,
-    url: (row.url as string) || eventUrl,
+    name: row.title as string,
     attributedTo: actorUrl,
     to: ["https://www.w3.org/ns/activitystreams#Public"],
     cc: [`${actorUrl}/followers`],
-  };
+    allDay: isAllDay,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    startAtUtc: row.start_at_utc,
+    endAtUtc: row.end_at_utc,
+    content: row.description as string | undefined,
+    published: toISO8601(row.created_at as string) ?? (row.created_at as string | undefined),
+    updated: toISO8601(row.updated_at as string) ?? (row.updated_at as string | undefined),
+    url: (row.url as string) || eventUrl,
+    eventTimezone: normalizeEventTimezone(row.event_timezone),
+    includeContext: true,
+  });
 
-  if (row.description) event.content = row.description;
-  if (row.end_date) event.endTime = endUtc ?? (toISO8601(row.end_date as string) ?? row.end_date);
-  if (row.event_timezone) event.eventTimezone = row.event_timezone;
   if (row.location_name) {
     const location: Record<string, unknown> = {
       type: "Place",

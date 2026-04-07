@@ -4,7 +4,11 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { buildToCondition, buildToParams } from "../lib/date-query.js";
+import {
+  buildDateRangeFilter,
+  DateQueryParamError,
+  parseDateRangeParams,
+} from "../lib/date-query.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   formatRemoteActorAccount,
@@ -23,6 +27,7 @@ import {
   readActorSelectionPayload,
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
+import { normalizeEventTimezone } from "../lib/event-timezone.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -180,6 +185,12 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user");
     const from = c.req.query("from");
     const to = c.req.query("to");
+    try {
+      parseDateRangeParams(from, to);
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const sort = c.req.query("sort")?.toLowerCase() === "desc" ? "DESC" : "ASC";
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
@@ -204,9 +215,14 @@ export function userRoutes(db: DB): Hono {
           WHERE re.actor_uri = ?
         `;
         const params: unknown[] = [remoteActor.uri];
-        if (from) { sql += " AND re.start_date >= ?"; params.push(from); }
-        if (to) { sql += buildToCondition("re.start_date"); params.push(...buildToParams(to)); }
-        sql += ` ORDER BY re.start_date ${sort} LIMIT ? OFFSET ?`;
+        const range = buildDateRangeFilter(
+          { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
+          from,
+          to,
+        );
+        sql += range.sql;
+        params.push(...range.params);
+        sql += ` ORDER BY re.start_at_utc ${sort} LIMIT ? OFFSET ?`;
         params.push(limit, offset);
 
         const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -255,8 +271,15 @@ export function userRoutes(db: DB): Hono {
     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
 
     sql += ` GROUP BY e.id`;
 
@@ -285,8 +308,15 @@ export function userRoutes(db: DB): Hono {
         ${repostVisibilityClause}
     `;
     params.push(account.id, ...repostVisibilityParams);
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
     sql += ` GROUP BY e.id`;
 
     // Add auto-reposted events (from accounts this user auto-reposts, excluding already explicit reposts)
@@ -315,12 +345,19 @@ export function userRoutes(db: DB): Hono {
         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
-    if (from) { sql += ` AND e.start_date >= ?`; params.push(from); }
-    if (to) { sql += buildToCondition("e.start_date"); params.push(...buildToParams(to)); }
+    {
+      const range = buildDateRangeFilter(
+        { instantColumn: "e.start_at_utc", dateColumn: "e.start_on" },
+        from,
+        to,
+      );
+      sql += range.sql;
+      params.push(...range.params);
+    }
     sql += ` GROUP BY e.id`;
 
     // Wrap in outer query to sort and paginate
-    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_date ${sort} LIMIT ? OFFSET ?`;
+    const fullSql = `SELECT * FROM (${sql}) ORDER BY start_at_utc ${sort} LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const rows = db.prepare(fullSql).all(...params) as Record<string, unknown>[];
@@ -699,7 +736,11 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
-    allDay: false,
+    startAtUtc: row.start_at_utc ?? undefined,
+    endAtUtc: row.end_at_utc ?? undefined,
+    eventTimezone: row.event_timezone ?? undefined,
+    timezoneQuality: row.timezone_quality as "exact_tzid" | "offset_only" | undefined,
+    allDay: !!row.all_day,
     location: row.location_name
       ? {
           name: row.location_name,
@@ -798,6 +839,7 @@ function formatRemoteFollowing(row: Record<string, unknown>): Record<string, unk
 }
 
 function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
+  const eventTimezone = normalizeEventTimezone(row.event_timezone);
   return {
     id: row.id,
     slug: row.slug,
@@ -809,6 +851,10 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     description: row.description,
     startDate: row.start_date,
     endDate: row.end_date,
+    startAtUtc: row.start_at_utc ?? undefined,
+    endAtUtc: row.end_at_utc ?? undefined,
+    eventTimezone,
+    timezoneQuality: "exact_tzid",
     allDay: !!row.all_day,
     location: row.location_name
       ? {

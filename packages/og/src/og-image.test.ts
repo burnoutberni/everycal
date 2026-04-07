@@ -76,6 +76,7 @@ function buildEvent(overrides: Partial<EveryCalEvent> = {}): EveryCalEvent {
     title: "Community Picnic",
     startDate: "2026-08-15T18:00:00.000Z",
     endDate: "2026-08-15T20:00:00.000Z",
+    startAtUtc: "2026-08-15T18:00:00.000Z",
     visibility: "public",
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-01T10:00:00.000Z",
@@ -156,5 +157,37 @@ describe("generateOgImage", () => {
     });
 
     expect(buffer).toEqual(Buffer.from("final-png"));
+  });
+
+  it("formats timed events using event timezone", async () => {
+    await generateOgImage({
+      event: buildEvent({
+        startDate: "2026-08-15T18:00:00.000Z",
+        endDate: "2026-08-15T20:00:00.000Z",
+        startAtUtc: "2026-08-15T18:00:00.000Z",
+        endAtUtc: "2026-08-15T20:00:00.000Z",
+        eventTimezone: "Europe/Vienna",
+      }),
+      locale: "en",
+    });
+
+    const markup = satoriMock.mock.calls.at(-1)?.[0] as string;
+    expect(markup).toMatch(/8:00\s?PM\s?–\s?10:00\s?PM/);
+  });
+
+  it("falls back to UTC when timed event timezone is missing", async () => {
+    await generateOgImage({
+      event: buildEvent({
+        startDate: "2026-08-15T18:00:00.000Z",
+        endDate: "2026-08-15T20:00:00.000Z",
+        startAtUtc: "2026-08-15T18:00:00.000Z",
+        endAtUtc: "2026-08-15T20:00:00.000Z",
+        eventTimezone: undefined,
+      }),
+      locale: "en",
+    });
+
+    const markup = satoriMock.mock.calls.at(-1)?.[0] as string;
+    expect(markup).toMatch(/6:00\s?PM\s?–\s?8:00\s?PM/);
   });
 });

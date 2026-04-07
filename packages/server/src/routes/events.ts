@@ -16,10 +16,13 @@ import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { deliverToFollowers, formatRemoteActorAccount } from "../lib/federation.js";
+import { deliverToFollowers } from "../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { buildFeedQuery } from "../lib/feed-query.js";
-import { buildToCondition, buildToParams } from "../lib/date-query.js";
+import {
+  buildDateRangeFilter,
+  DateQueryParamError,
+} from "../lib/date-query.js";
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
@@ -28,7 +31,14 @@ import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.j
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
-import { convertLegacyNaiveToUtcIso, isValidIanaTimezone, normalizeApTemporal } from "../lib/timezone.js";
+import {
+  datePartFromUtcInstantInTimezone,
+  deriveEventEndAtUtc,
+  deriveEventUtcRange,
+  deriveUtcFromTemporalInput,
+  isValidIanaTimezone,
+  normalizeApTemporal,
+} from "../lib/timezone.js";
 import {
   ActorSelectionPayloadError,
   applyLocalActorSelection,
@@ -37,6 +47,8 @@ import {
   readActorSelectionPayload,
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
+import { serializeLocalEvent, serializeRemoteEvent } from "../lib/event-serializers.js";
+import { AP_CONTEXT, EVERYCAL_CONTEXT, buildApEventObject } from "../lib/activitypub-event.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -53,10 +65,7 @@ const REMOTE_EVENT_SELECT = `
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
 
-const AP_CONTEXT = "https://www.w3.org/ns/activitystreams";
-const EVERYCAL_CONTEXT = {
-  eventTimezone: "https://everycal.org/ns#eventTimezone",
-};
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 // ─── Pure utility functions ─────────────────────────────────────────────────
 
@@ -88,6 +97,22 @@ function formatTimeChangeValue(start: string, end: string | null | undefined): s
   return [start, end || ""].filter(Boolean).join(" – ");
 }
 
+function isDateOnly(value: string): boolean {
+  return DATE_ONLY.test(value);
+}
+
+function deriveStoredDatePart(
+  rawValue: string | null | undefined,
+  utcValue: string | null | undefined,
+  options: { allDay: boolean; eventTimezone: string },
+): string | null {
+  if (!rawValue) return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  if (options.allDay || isDateOnly(trimmed)) return trimmed.slice(0, 10);
+  return datePartFromUtcInstantInTimezone(utcValue, options.eventTimezone) || trimmed.slice(0, 10);
+}
+
 /** Check whether a user is allowed to view an event based on its visibility. */
 function canViewEvent(
   db: DB,
@@ -117,17 +142,19 @@ function canViewEvent(
   return false;
 }
 
-/** Build SQL + params for optional date-range filters on a column. */
-function appendDateFilters(
-  column: string,
+type DateRangeColumns = { instantColumn: string; dateColumn: string };
+
+/**
+ * Build SQL + params for optional date-range filters across paired columns.
+ * `instantColumn` is used for timestamp bounds; `dateColumn` is used for
+ * date-only bounds.
+ */
+function appendDateRangeFilters(
+  columns: DateRangeColumns,
   from?: string,
   to?: string,
 ): { sql: string; params: unknown[] } {
-  let sql = "";
-  const params: unknown[] = [];
-  if (from) { sql += ` AND ${column} >= ?`; params.push(from); }
-  if (to) { sql += buildToCondition(column); params.push(...buildToParams(to)); }
-  return { sql, params };
+  return buildDateRangeFilter(columns, from, to);
 }
 
 /**
@@ -149,116 +176,25 @@ function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown
   return { sql: ` AND (${conditions})`, params };
 }
 
-/** Merge local + remote events by start date, capped at `limit`. */
-function mergeByStartDate(
+/** Merge local + remote events by canonical UTC start instant, capped at `limit`. */
+function mergeByStartAtUtc(
   local: Record<string, unknown>[],
   remote: Record<string, unknown>[],
   limit: number,
 ): Record<string, unknown>[] {
   return [...local, ...remote]
-    .sort((a, b) => ((a.startDate as string) || "").localeCompare((b.startDate as string) || ""))
+    .sort((a, b) => ((a.startAtUtc as string) || "").localeCompare((b.startAtUtc as string) || ""))
     .slice(0, limit);
 }
 
 // ─── Response formatters ────────────────────────────────────────────────────
 
 function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: row.id,
-    slug: row.slug,
-    source: "local",
-    accountId: row.account_id,
-    account: row.account_username
-      ? { username: row.account_username, displayName: row.account_display_name }
-      : undefined,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    startAtUtc: row.start_at_utc ?? undefined,
-    endAtUtc: row.end_at_utc ?? undefined,
-    eventTimezone: row.event_timezone || "Europe/Vienna",
-    allDay: !!row.all_day,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-          url: row.location_url,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => { try { return JSON.parse(row.image_attribution as string); } catch { return undefined; } })()
-            : undefined,
-        }
-      : null,
-    ogImageUrl: row.og_image_url || null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: row.visibility,
-    canceled: !!row.canceled,
-    repostedBy: row.repost_username
-      ? { username: row.repost_username as string, displayName: row.repost_display_name as string | null }
-      : undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return serializeLocalEvent(row);
 }
 
 function formatRemoteEvent(row: Record<string, unknown>): Record<string, unknown> {
-  const account = formatRemoteActorAccount({
-    status: row.actor_fetch_status as string | null,
-    preferredUsername: row.preferred_username as string | null,
-    displayName: row.actor_display_name as string | null,
-    domain: row.domain as string | null,
-    iconUrl: row.actor_icon_url as string | null,
-  });
-  return {
-    id: row.uri,
-    slug: row.slug,
-    source: "remote",
-    actorUri: row.actor_uri,
-    account,
-    title: row.title,
-    description: row.description,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    startAtUtc: row.start_at_utc,
-    endAtUtc: row.end_at_utc,
-    eventTimezone: row.event_timezone,
-    timezoneQuality: row.timezone_quality || "unknown",
-    allDay: false,
-    location: row.location_name
-      ? {
-          name: row.location_name,
-          address: row.location_address,
-          latitude: row.location_latitude,
-          longitude: row.location_longitude,
-        }
-      : null,
-    image: row.image_url
-      ? {
-          url: row.image_url,
-          mediaType: row.image_media_type,
-          alt: row.image_alt,
-          attribution: row.image_attribution
-            ? (() => { try { return JSON.parse(row.image_attribution as string); } catch { return undefined; } })()
-            : undefined,
-        }
-      : null,
-    url: row.url,
-    tags: row.tags ? (row.tags as string).split(",") : [],
-    visibility: "public",
-    canceled: !!row.canceled,
-    createdAt: row.published,
-    updatedAt: row.updated,
-  };
+  return serializeRemoteEvent(row);
 }
 
 // ─── Route definitions ──────────────────────────────────────────────────────
@@ -361,6 +297,8 @@ export function eventRoutes(db: DB): Hono {
 
     const allTags = new Set<string>();
 
+    try {
+
     // Local event tags
     {
       let sql: string;
@@ -391,8 +329,14 @@ export function eventRoutes(db: DB): Hono {
           WHERE e.visibility = 'public'`;
       }
 
-      const dateCol = isMineScope ? "combined.start_date" : "e.start_date";
-      const df = appendDateFilters(dateCol, from, to);
+      const df = appendDateRangeFilters(
+        {
+          instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
+          dateColumn: isMineScope ? "combined.start_on" : "e.start_on",
+        },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
@@ -415,7 +359,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_date", from, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -428,7 +372,11 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    return c.json({ tags: [...allTags].sort() });
+      return c.json({ tags: [...allTags].sort() });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── GET / — list events ───────────────────────────────────────────────
@@ -451,6 +399,8 @@ export function eventRoutes(db: DB): Hono {
 
     let localEvents: Record<string, unknown>[] = [];
     let remoteEvents: Record<string, unknown>[] = [];
+
+    try {
 
     // Fetch local events (unless source=remote)
     if (source !== "remote") {
@@ -491,7 +441,11 @@ export function eventRoutes(db: DB): Hono {
         params.push(account);
       }
 
-      const df = appendDateFilters(`${col}.start_date`, from, to);
+      const df = appendDateRangeFilters(
+        { instantColumn: `${col}.start_at_utc`, dateColumn: `${col}.start_on` },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
@@ -505,7 +459,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(...tagList);
       }
 
-      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -530,7 +484,7 @@ export function eventRoutes(db: DB): Hono {
         params.push(user!.id, user!.id);
       }
 
-      const df = appendDateFilters("re.start_date", from, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
@@ -543,17 +497,21 @@ export function eventRoutes(db: DB): Hono {
       sql += tagFilter.sql;
       params.push(...tagFilter.params);
 
-      sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartDate(localEvents, remoteEvents, limit);
-    if (user) events = attachUserContext(events, user.id);
+      let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
+      if (user) events = attachUserContext(events, user.id);
 
-    return c.json({ events });
+      return c.json({ events });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── POST /rsvp ────────────────────────────────────────────────────────
@@ -596,19 +554,25 @@ export function eventRoutes(db: DB): Hono {
     const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
     const offset = parseInt(c.req.query("offset") || "0", 10);
 
+    try {
+
     // Local: feed events (own + followed + reposted)
     let localEvents: Record<string, unknown>[];
     {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const feed = buildFeedQuery({ userId: user.id, baseUrl, dateFrom: from });
+      const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
       const params = [...feed.params];
 
-      const df = appendDateFilters("combined.start_date", undefined, to);
+      const df = appendDateRangeFilters(
+        { instantColumn: "combined.start_at_utc", dateColumn: "combined.start_on" },
+        from,
+        to,
+      );
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` GROUP BY combined.id ORDER BY combined.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` GROUP BY combined.id ORDER BY combined.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -619,32 +583,35 @@ export function eventRoutes(db: DB): Hono {
     let remoteEvents: Record<string, unknown>[];
     {
       let sql = `${REMOTE_EVENT_SELECT}
-        WHERE re.start_date >= ?
-          AND (
+        WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
             OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
           )`;
-      const params: unknown[] = [from, user.id, user.id];
+      const params: unknown[] = [user.id, user.id];
 
-      const df = appendDateFilters("re.start_date", undefined, to);
+      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` ORDER BY re.start_date ASC LIMIT ? OFFSET ?`;
+      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartDate(localEvents, remoteEvents, limit);
+    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
 
     // Timeline only attaches RSVPs (no repost flags)
     const uris = events.map((e) => e.id as string);
     const rsvps = getUserRsvps(user.id, uris);
     events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
 
-    return c.json({ events });
+      return c.json({ events });
+    } catch (error) {
+      if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
   });
 
   // ─── POST /sync — full replace for scraper accounts ─────────────────────
@@ -658,6 +625,7 @@ export function eventRoutes(db: DB): Hono {
         description?: string;
         startDate: string;
         endDate?: string;
+        eventTimezone: string;
         allDay?: boolean;
         location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
         image?: { url: string; mediaType?: string; alt?: string };
@@ -672,8 +640,21 @@ export function eventRoutes(db: DB): Hono {
     }
 
     for (const ev of body.events) {
-      if (!ev.externalId || !ev.title || !ev.startDate) {
+      if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
+      }
+      if (ev.allDay) {
+        if (!isDateOnly(ev.startDate) || (ev.endDate !== undefined && !isDateOnly(ev.endDate))) {
+          return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+        }
+      }
+      const { startAtUtc, endAtUtc } = deriveEventUtcRange(
+        ev.startDate,
+        ev.endDate,
+        { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
+      );
+      if (!startAtUtc || (ev.allDay ? !endAtUtc : (ev.endDate && !endAtUtc)) || (endAtUtc && endAtUtc < startAtUtc)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
     }
 
@@ -685,7 +666,7 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
@@ -695,6 +676,8 @@ export function eventRoutes(db: DB): Hono {
       title: string;
       start_date: string;
       end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
       all_day: number;
       location_name: string | null;
       location_address: string | null;
@@ -716,7 +699,7 @@ export function eventRoutes(db: DB): Hono {
 
     function eventHash(ev: (typeof body.events)[number]): string {
       const data = JSON.stringify([
-        ev.title, ev.description || "", ev.startDate, ev.endDate || "",
+        ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
         ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
         ev.location?.latitude ?? "", ev.location?.longitude ?? "",
         ev.location?.url || "", ev.image?.url || "", ev.image?.mediaType || "",
@@ -727,14 +710,14 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const insertEvent = db.prepare(
-      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day,
+      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, start_on, end_on,
         location_name, location_address, location_latitude, location_longitude, location_url,
         image_url, image_media_type, image_alt, url, visibility, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const updateEvent = db.prepare(
-      `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
+      `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, start_on = ?, end_on = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?, location_url = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, url = ?, visibility = ?,
         content_hash = ?, canceled = 0, missing_since = NULL, updated_at = datetime('now')
@@ -765,7 +748,7 @@ export function eventRoutes(db: DB): Hono {
 
       const missingBatch = db.transaction((rows: typeof missingRows) => {
         for (const row of rows) {
-          if (row.start_date < nowIso) {
+          if (row.start_at_utc < nowIso) {
             clearMissingForPast.run(row.id);
             rotatedOutPast++;
             continue;
@@ -788,7 +771,7 @@ export function eventRoutes(db: DB): Hono {
       missingBatch(missingRows);
 
       for (const row of missingRows) {
-        if (row.start_date >= nowIso && row.missing_since && !row.canceled) {
+        if (row.start_at_utc >= nowIso && row.missing_since && !row.canceled) {
           notifyEventCancelled(db, row.id, {
             id: row.id,
             title: row.title,
@@ -796,7 +779,7 @@ export function eventRoutes(db: DB): Hono {
             account: { username: user.username },
             startDate: row.start_date,
             endDate: row.end_date,
-            allDay: false,
+            allDay: !!row.all_day,
             location: row.location_name ? { name: row.location_name } : null,
             url: row.url,
           });
@@ -835,7 +818,29 @@ export function eventRoutes(db: DB): Hono {
             const newAllDay = !!ev.allDay;
             const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
             const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
-            if (existingRow.start_date !== ev.startDate || (existingRow.end_date || "") !== (ev.endDate || "") || oldAllDay !== newAllDay) {
+            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveEventUtcRange(
+              ev.startDate,
+              ev.endDate,
+              { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
+            );
+            const existingEffectiveStart = existingRow.start_date;
+            const existingEffectiveEnd = existingRow.end_date;
+            const nextEffectiveStart = ev.startDate;
+            const nextEffectiveEnd = ev.endDate;
+            const oldTimezone = existingRow.event_timezone || "";
+            const newTimezone = ev.eventTimezone || "";
+            const oldStartAtUtc = existingRow.start_at_utc || "";
+            const oldEndAtUtc = existingRow.end_at_utc || "";
+            const newStartAtUtc = nextStartAtUtc || "";
+            const newEndAtUtc = nextEndAtUtc || "";
+            if (
+              existingEffectiveStart !== nextEffectiveStart
+              || (existingEffectiveEnd || "") !== (nextEffectiveEnd || "")
+              || oldAllDay !== newAllDay
+              || oldTimezone !== newTimezone
+              || oldStartAtUtc !== newStartAtUtc
+              || oldEndAtUtc !== newEndAtUtc
+            ) {
               changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
             }
             const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
@@ -845,9 +850,18 @@ export function eventRoutes(db: DB): Hono {
             }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
+            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            }) || ev.startDate.slice(0, 10);
+            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
             updateEvent.run(
               ev.title, evSlug, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -876,10 +890,24 @@ export function eventRoutes(db: DB): Hono {
           } else {
             const id = nanoid(16);
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
+            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveEventUtcRange(
+              ev.startDate,
+              ev.endDate,
+              { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
+            );
+            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            }) || ev.startDate.slice(0, 10);
+            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
             insertEvent.run(
               id, user.id, user.id, ev.externalId, evSlug,
               ev.title, ev.description || null,
               ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
+              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
               ev.location?.name || null, ev.location?.address || null,
               ev.location?.latitude ?? null, ev.location?.longitude ?? null,
               ev.location?.url || null,
@@ -1096,9 +1124,9 @@ export function eventRoutes(db: DB): Hono {
       const actor = await resolveRemoteActor(db, actorUri, true);
       if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
 
-      const stored = upsertRemoteEvent(db, object, actor.uri, {
-        temporal: normalizeApTemporal(object),
-      });
+      const temporal = normalizeApTemporal(object);
+      if (!temporal) return c.json({ error: t(locale, "events.invalid_datetime") }, 400);
+      const stored = upsertRemoteEvent(db, object, actor.uri, { temporal });
       const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
       const row = db
         .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ?`)
@@ -1173,12 +1201,23 @@ export function eventRoutes(db: DB): Hono {
 
     const startDateInput = body.startDateTime || body.startDate;
     const endDateInput = body.endDateTime || body.endDate;
-    const eventTimezone = body.eventTimezone || "Europe/Vienna";
+    const eventTimezone = body.eventTimezone;
     if (!body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
-    if (!isValidIanaTimezone(eventTimezone)) {
+    if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
+    }
+    if (body.allDay) {
+      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      if (!body.startDate || !isDateOnly(body.startDate)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      if (body.endDate !== undefined && !isDateOnly(body.endDate)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
     }
 
     sanitizeEventFields(body as Record<string, unknown>);
@@ -1223,14 +1262,28 @@ export function eventRoutes(db: DB): Hono {
     const imageAttributionJson = body.image?.attribution
       ? JSON.stringify(body.image.attribution)
       : null;
-    const startAtUtc = convertLegacyNaiveToUtcIso(startDateInput, eventTimezone);
+    const { startAtUtc, endAtUtc } = deriveEventUtcRange(
+      startDateInput,
+      endDateInput,
+      { allDay: !!body.allDay, eventTimezone },
+    );
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    const endAtUtc = endDateInput ? convertLegacyNaiveToUtcIso(endDateInput, eventTimezone) : null;
-    if (endDateInput && !endAtUtc) {
+    if ((body.allDay || endDateInput) && !endAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
+    if (endAtUtc && endAtUtc < startAtUtc) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    const startOn = deriveStoredDatePart(startDateInput, startAtUtc, {
+      allDay: !!body.allDay,
+      eventTimezone,
+    }) || startDateInput.slice(0, 10);
+    const endOn = deriveStoredDatePart(endDateInput || null, endAtUtc, {
+      allDay: !!body.allDay,
+      eventTimezone,
+    });
 
     db.prepare(
       `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
@@ -1244,8 +1297,8 @@ export function eventRoutes(db: DB): Hono {
       startAtUtc,
       endAtUtc,
       eventTimezone,
-      startDateInput.slice(0, 10),
-      endDateInput ? endDateInput.slice(0, 10) : null,
+      startOn,
+      endOn,
       body.location?.name || null, body.location?.address || null,
       body.location?.latitude ?? null, body.location?.longitude ?? null,
       body.location?.url || null,
@@ -1263,29 +1316,32 @@ export function eventRoutes(db: DB): Hono {
     if (visibility === "public" || visibility === "unlisted") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
+      const publishedAt = new Date().toISOString();
       const createActivity = {
         "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
         id: `${baseUrl}/events/${id}/activity`,
         type: "Create",
         actor: actorUrl,
-        published: new Date().toISOString(),
+        published: publishedAt,
         to: ["https://www.w3.org/ns/activitystreams#Public"],
         cc: [`${actorUrl}/followers`],
-        object: {
+        object: buildApEventObject({
           id: `${baseUrl}/events/${id}`,
-          type: "Event",
           name: body.title,
-          content: body.description || undefined,
-          startTime: startAtUtc,
-          endTime: endAtUtc || undefined,
-          eventTimezone,
-          url: `${baseUrl}/@${postingAccount.username}/${slug}`,
           attributedTo: actorUrl,
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
-          published: new Date().toISOString(),
-          updated: new Date().toISOString(),
-        },
+          allDay: !!body.allDay,
+          startDate: startDateInput,
+          endDate: endDateInput || undefined,
+          startAtUtc,
+          endAtUtc,
+          content: body.description || undefined,
+          eventTimezone,
+          url: `${baseUrl}/@${postingAccount.username}/${slug}`,
+          published: publishedAt,
+          updated: publishedAt,
+        }),
       };
       deliverToFollowers(db, postingAccount.id, createActivity).catch(() => {});
     }
@@ -1356,40 +1412,75 @@ export function eventRoutes(db: DB): Hono {
     if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const tzForConvert = nextTimezone || existing.event_timezone || "Europe/Vienna";
+    const existingTimezone = isValidIanaTimezone(existing.event_timezone || "")
+      ? (existing.event_timezone as string)
+      : "UTC";
+    const nextAllDay = body.allDay ?? !!existing.all_day;
+    if (nextAllDay) {
+      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      const candidateStart = body.startDate ?? existing.start_date;
+      const candidateEnd = body.endDate !== undefined ? body.endDate : existing.end_date;
+      if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+    }
+    const tzForConvert = nextTimezone ?? existingTimezone;
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
     const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
+    const shouldRecomputeAllDayEndBoundary = nextAllDay && (nextStart !== undefined || body.allDay !== undefined);
     const endForUtc = nextEnd !== undefined
       ? nextEnd
-      : (shouldRecomputeUtcForTimezoneChange ? existing.end_date : undefined);
-    const nextStartAtUtc = startForUtc !== undefined ? convertLegacyNaiveToUtcIso(startForUtc, tzForConvert) : null;
+      : ((shouldRecomputeUtcForTimezoneChange || shouldRecomputeAllDayEndBoundary) ? existing.end_date : undefined);
+    const nextStartAtUtc = startForUtc !== undefined
+      ? deriveUtcFromTemporalInput(startForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
+      : null;
     if (startForUtc !== undefined && !nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const nextEndAtUtc = endForUtc !== undefined && endForUtc !== null
-      ? convertLegacyNaiveToUtcIso(endForUtc, tzForConvert)
+    const baseStartForAllDayEnd = nextStart ?? existing.start_date;
+    const nextEndAtUtc = endForUtc !== undefined
+      ? deriveEventEndAtUtc(endForUtc, {
+        allDay: nextAllDay,
+        eventTimezone: tzForConvert,
+        startValueForAllDay: baseStartForAllDayEnd,
+      })
       : null;
-    if (endForUtc !== undefined && endForUtc !== null && !nextEndAtUtc) {
+    if (endForUtc !== undefined && (nextAllDay ? !nextEndAtUtc : (endForUtc !== null && !nextEndAtUtc))) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    if (nextStartAtUtc && nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }
     if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
     if (nextTimezone !== undefined) {
       fields.push("event_timezone = ?"); values.push(nextTimezone);
+    } else if (existingTimezone !== existing.event_timezone) {
+      fields.push("event_timezone = ?"); values.push(existingTimezone);
     }
     if (startForUtc !== undefined) {
       fields.push("start_at_utc = ?");
       values.push(nextStartAtUtc);
       const startForDateParts = nextStart ?? existing.start_date;
       fields.push("start_on = ?");
-      values.push(startForDateParts.slice(0, 10));
+      values.push(
+        deriveStoredDatePart(startForDateParts, nextStartAtUtc, {
+          allDay: nextAllDay,
+          eventTimezone: tzForConvert,
+        }) || startForDateParts.slice(0, 10),
+      );
     }
     if (endForUtc !== undefined) {
       fields.push("end_at_utc = ?");
-      values.push(endForUtc ? nextEndAtUtc : null);
+      values.push(endForUtc === null && !nextAllDay ? null : nextEndAtUtc);
       const endForDateParts = nextEnd !== undefined ? nextEnd : existing.end_date;
       fields.push("end_on = ?");
-      values.push(endForDateParts ? endForDateParts.slice(0, 10) : null);
+      values.push(deriveStoredDatePart(endForDateParts, nextEndAtUtc, {
+        allDay: nextAllDay,
+        eventTimezone: tzForConvert,
+      }));
     }
     if (body.allDay !== undefined) { fields.push("all_day = ?"); values.push(body.allDay ? 1 : 0); }
     if (body.visibility !== undefined) {
@@ -1432,31 +1523,33 @@ export function eventRoutes(db: DB): Hono {
 
     if (body.tags !== undefined) replaceTags(id, body.tags);
 
+    const oldAllDay = !!existing.all_day;
+    const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
+    const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
+    const newTime = formatTimeChangeValue(nextStart ?? existing.start_date, nextEnd !== undefined ? (nextEnd || "") : (existing.end_date || ""));
+    const oldTimezone = existingTimezone;
+    const newTimezone = body.eventTimezone !== undefined ? body.eventTimezone : oldTimezone;
+    const timeChanged = oldTime !== newTime || oldAllDay !== newAllDay || oldTimezone !== newTimezone;
+    const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
+    const newLoc = body.location === undefined
+      ? oldLoc
+      : body.location === null
+        ? ""
+        : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
+    const locationChanged = oldLoc !== newLoc;
+    const titleChanged = body.title !== undefined && existing.title !== body.title;
+
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
       const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
-      if (body.title !== undefined && existing.title !== body.title) {
+      if (titleChanged) {
         changes.push({ field: "title", before: existing.title, after: body.title });
       }
-      if (body.startDate !== undefined || body.endDate !== undefined || body.allDay !== undefined) {
-        const newStart = body.startDate ?? existing.start_date;
-        const newEnd = body.endDate !== undefined ? (body.endDate || "") : (existing.end_date || "");
-        const oldAllDay = !!existing.all_day;
-        const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
-        const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
-        const newTime = formatTimeChangeValue(newStart, newEnd);
-        if (oldTime !== newTime || oldAllDay !== newAllDay) {
-          changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
-        }
+      if (timeChanged) {
+        changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
       }
-      if (body.location !== undefined) {
-        const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
-        const newLoc = body.location === null
-          ? ""
-          : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
-        if (oldLoc !== newLoc) {
-          changes.push({ field: "location", before: oldLoc, after: newLoc });
-        }
+      if (locationChanged) {
+        changes.push({ field: "location", before: oldLoc, after: newLoc });
       }
       if (changes.length > 0) {
         const ev = readLocalEventById(id);
@@ -1486,28 +1579,31 @@ export function eventRoutes(db: DB): Hono {
           .get(existing.account_id) as { username: string } | undefined;
         if (actorAccount) {
           const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
+          const updatedAt = new Date().toISOString();
           const updateActivity = {
             "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
             id: `${baseUrl}/events/${id}/update`,
             type: "Update",
             actor: actorUrl,
-            published: new Date().toISOString(),
+            published: updatedAt,
             to: ["https://www.w3.org/ns/activitystreams#Public"],
             cc: [`${actorUrl}/followers`],
-            object: {
+            object: buildApEventObject({
               id: `${baseUrl}/events/${id}`,
-              type: "Event",
-              name: updated.title,
-              content: updated.description as string | undefined,
-              startTime: updated.startAtUtc,
-              endTime: updated.endAtUtc,
-              eventTimezone: updated.eventTimezone,
-              url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
+              name: updated.title as string,
               attributedTo: actorUrl,
               to: ["https://www.w3.org/ns/activitystreams#Public"],
               cc: [`${actorUrl}/followers`],
-              updated: new Date().toISOString(),
-            },
+              allDay: !!updated.allDay,
+              startDate: updated.startDate,
+              endDate: updated.endDate,
+              startAtUtc: updated.startAtUtc,
+              endAtUtc: updated.endAtUtc,
+              content: updated.description as string | undefined,
+              eventTimezone: updated.eventTimezone as string | undefined,
+              url: `${baseUrl}/@${actorAccount.username}/${updated.slug}`,
+              updated: updatedAt,
+            }),
           };
           deliverToFollowers(db, existing.account_id, updateActivity).catch(() => {});
         }
@@ -1518,10 +1614,9 @@ export function eventRoutes(db: DB): Hono {
     if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
 
     const ogRelevantFieldsChanged =
-      body.title !== undefined ||
-      body.startDate !== undefined ||
-      body.endDate !== undefined ||
-      body.location !== undefined ||
+      titleChanged ||
+      timeChanged ||
+      locationChanged ||
       body.image !== undefined;
 
     if (ogRelevantFieldsChanged) {

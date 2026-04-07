@@ -334,7 +334,7 @@ export const locations = {
 
 // ---- Events ----
 
-export interface CalEvent {
+type CalEventBase = {
   id: string;
   slug?: string;
   source?: "local" | "remote";
@@ -345,10 +345,8 @@ export interface CalEvent {
   description: string | null;
   startDate: string;
   endDate: string | null;
-  startAtUtc?: string;
-  endAtUtc?: string | null;
   eventTimezone?: string;
-  allDay: boolean;
+  timezoneQuality?: "exact_tzid" | "offset_only";
   location: { name: string; address?: string; latitude?: number; longitude?: number; url?: string } | null;
   image: { url: string; mediaType?: string; alt?: string; attribution?: ImageAttribution } | null;
   ogImageUrl?: string | null;
@@ -362,7 +360,31 @@ export interface CalEvent {
   repostedBy?: { username: string; displayName: string | null };
   createdAt: string;
   updatedAt: string;
-}
+};
+
+type CalEventAllDay = {
+  allDay: true;
+  startAtUtc?: string;
+  endAtUtc?: string | null;
+};
+
+type CalEventTimed = {
+  allDay: false;
+  startAtUtc: string;
+  endAtUtc?: string | null;
+};
+
+export type LocalCalEvent = Omit<CalEventBase, "eventTimezone"> & {
+  source?: "local";
+  eventTimezone: string;
+} & (CalEventAllDay | CalEventTimed);
+
+export type RemoteCalEvent = Omit<CalEventBase, "source"> & {
+  source: "remote";
+  eventTimezone?: string;
+} & (CalEventAllDay | CalEventTimed);
+
+export type CalEvent = LocalCalEvent | RemoteCalEvent;
 
 export interface EventInput {
   title: string;

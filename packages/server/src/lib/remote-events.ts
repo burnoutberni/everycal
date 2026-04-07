@@ -1,11 +1,37 @@
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
-import { normalizeApTemporal, type NormalizedRemoteTemporal } from "./timezone.js";
+import {
+  datePartFromUtcInstantInTimezone,
+  extractDatePart,
+  normalizeApTemporal,
+  type NormalizedRemoteTemporal,
+} from "./timezone.js";
 
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
   temporal?: NormalizedRemoteTemporal;
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function deriveRemoteStoredDatePart(
+  rawValue: string | null | undefined,
+  utcValue: string | null | undefined,
+  temporal: NormalizedRemoteTemporal,
+): string | null {
+  const rawDatePart = extractDatePart(rawValue);
+  const trimmedRaw = typeof rawValue === "string" ? rawValue.trim() : "";
+
+  if (temporal.allDay || (trimmedRaw && DATE_ONLY.test(trimmedRaw))) {
+    return rawDatePart;
+  }
+
+  if (temporal.timezoneQuality === "exact_tzid" && temporal.eventTimezone) {
+    return datePartFromUtcInstantInTimezone(utcValue, temporal.eventTimezone) || extractDatePart(utcValue);
+  }
+
+  return rawDatePart || extractDatePart(utcValue);
 }
 
 function extractLocationAddress(location?: Record<string, unknown>): string | null {
@@ -39,8 +65,13 @@ export function upsertRemoteEvent(
         : "";
   const description = typeof object.content === "string" ? sanitizeHtml(object.content) : null;
   const temporal = options.temporal ?? normalizeApTemporal(object);
+  if (!temporal?.startAtUtc) {
+    throw new Error("Remote event start_at_utc is required");
+  }
   const startDate = temporal.startDate;
   const endDate = temporal.endDate;
+  const startOn = deriveRemoteStoredDatePart(startDate, temporal.startAtUtc, temporal);
+  const endOn = deriveRemoteStoredDatePart(endDate, temporal.endAtUtc, temporal);
 
   const loc = object.location as Record<string, unknown> | undefined;
   const locationAddress = extractLocationAddress(loc);
@@ -63,7 +94,8 @@ export function upsertRemoteEvent(
     db.prepare(
       `UPDATE remote_events SET
         slug = ?,
-        title = ?, description = ?, start_date = ?, end_date = ?,
+        title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
+        start_on = ?, end_on = ?,
         start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
@@ -75,6 +107,9 @@ export function upsertRemoteEvent(
       description,
       startDate,
       endDate,
+      temporal.allDay ? 1 : 0,
+      startOn,
+      endOn,
       temporal.startAtUtc,
       temporal.endAtUtc,
       temporal.eventTimezone,
@@ -100,10 +135,10 @@ export function upsertRemoteEvent(
   const slug = uniqueRemoteEventSlug(db, actorUri, title);
   db.prepare(
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
-      start_at_utc, end_at_utc, event_timezone, timezone_quality,
+      all_day, start_on, end_on, start_at_utc, end_at_utc, event_timezone, timezone_quality,
       location_name, location_address, location_latitude, location_longitude,
       image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -112,6 +147,9 @@ export function upsertRemoteEvent(
     description,
     startDate,
     endDate,
+    temporal.allDay ? 1 : 0,
+    startOn,
+    endOn,
     temporal.startAtUtc,
     temporal.endAtUtc,
     temporal.eventTimezone,
