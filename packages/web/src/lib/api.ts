@@ -377,14 +377,14 @@ type CalEventTimed = {
 export type LocalCalEvent = Omit<CalEventBase, "eventTimezone"> & {
   source?: "local";
   eventTimezone: string;
-};
+} & (CalEventAllDay | CalEventTimed);
 
 export type RemoteCalEvent = Omit<CalEventBase, "source"> & {
   source: "remote";
   eventTimezone?: string;
-};
+} & (CalEventAllDay | CalEventTimed);
 
-export type CalEvent = (LocalCalEvent | RemoteCalEvent) & (CalEventAllDay | CalEventTimed);
+export type CalEvent = LocalCalEvent | RemoteCalEvent;
 
 export interface EventInput {
   title: string;
