@@ -969,12 +969,7 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
     echo '</div>'; // content
 
     if ( 'grid' === $layout && $primary_url ) {
-        $aria_label = sprintf(
-            /* translators: %s: event title */
-            __( 'Open event: %s', 'everycal' ),
-            $title ? $title : __( 'event', 'everycal' )
-        );
-        echo '<a class="everycal-event__card-link" href="' . esc_url( $primary_url ) . '"' . everycal_external_link_attrs( $primary_url ) . ' aria-label="' . esc_attr( $aria_label ) . '" tabindex="-1" aria-hidden="true"></a>';
+        echo '<a class="everycal-event__card-link" href="' . esc_url( $primary_url ) . '"' . everycal_external_link_attrs( $primary_url ) . ' tabindex="-1" aria-hidden="true"></a>';
     }
 
     echo '</article>';

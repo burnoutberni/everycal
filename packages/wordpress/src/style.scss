@@ -83,11 +83,6 @@
 	text-decoration: none;
 }
 
-.everycal-layout-grid .everycal-event__card-link:focus-visible {
-	outline: 3px solid #1d4ed8;
-	outline-offset: -3px;
-}
-
 .everycal-layout-grid .everycal-event a:not(.everycal-event__card-link) {
 	position: relative;
 	z-index: 3;
