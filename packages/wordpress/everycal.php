@@ -1769,6 +1769,89 @@ register_deactivation_hook( __FILE__, function () {
     flush_rewrite_rules();
 } );
 
+add_action( 'admin_bar_menu', 'everycal_customize_event_admin_bar', 999 );
+
+function everycal_is_virtual_event_page() {
+    return (bool) ( get_query_var( 'everycal_event_username' ) && get_query_var( 'everycal_event_slug' ) );
+}
+
+function everycal_customize_event_admin_bar( $wp_admin_bar ) {
+    if ( ! is_admin_bar_showing() || is_admin() || ! everycal_is_virtual_event_page() ) {
+        return;
+    }
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+        return;
+    }
+
+    $username = (string) get_query_var( 'everycal_event_username' );
+    $slug     = (string) get_query_var( 'everycal_event_slug' );
+    $entry    = everycal_get_cached_event_index_entry( $username, $slug );
+
+    $fresh_until = isset( $entry['freshUntil'] ) ? absint( $entry['freshUntil'] ) : 0;
+    if ( $fresh_until > 0 ) {
+        $until_label = sprintf(
+            /* translators: %s: cache expiration date/time. */
+            __( 'Cached until %s', 'everycal' ),
+            wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $fresh_until )
+        );
+    } else {
+        $until_label = __( 'Cache status unavailable', 'everycal' );
+    }
+
+    $event_label = '@' . $username . '/' . $slug;
+    $redirect_to = rawurlencode( remove_query_arg( array( 'everycal_cache_cleared', 'everycal_cache_event' ) ) );
+
+    $refresh_url = add_query_arg(
+        array(
+            'action'      => 'everycal_refresh_cached_event',
+            'username'    => $username,
+            'slug'        => $slug,
+            'redirect_to' => $redirect_to,
+        ),
+        admin_url( 'admin-post.php' )
+    );
+    $refresh_url = wp_nonce_url( $refresh_url, 'everycal_refresh_cached_event' );
+
+    $wp_admin_bar->remove_node( 'edit' );
+
+    $wp_admin_bar->add_node( array(
+        'id'    => 'everycal-cache',
+        'title' => '<span class="ab-icon dashicons dashicons-database-view" aria-hidden="true"></span><span class="ab-label">' . esc_html__( 'Cached', 'everycal' ) . '</span>',
+        'href'  => false,
+        'meta'  => array(
+            'title' => $event_label,
+        ),
+    ) );
+
+    $wp_admin_bar->add_node( array(
+        'id'     => 'everycal-cache-until',
+        'parent' => 'everycal-cache',
+        'title'  => esc_html( $until_label ),
+        'href'   => false,
+    ) );
+
+    $wp_admin_bar->add_node( array(
+        'id'     => 'everycal-cache-refresh',
+        'parent' => 'everycal-cache',
+        'title'  => '↻ ' . esc_html__( 'Refresh now', 'everycal' ),
+        'href'   => esc_url( $refresh_url ),
+    ) );
+
+}
+
+function everycal_get_cache_action_redirect_url() {
+    $requested = isset( $_REQUEST['redirect_to'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['redirect_to'] ) ) : '';
+    if ( '' !== $requested ) {
+        $validated = wp_validate_redirect( rawurldecode( $requested ), false );
+        if ( false !== $validated ) {
+            return $validated;
+        }
+    }
+
+    return admin_url( 'options-general.php?page=everycal' );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Intercept the template for virtual event pages                     */
 /* ------------------------------------------------------------------ */
@@ -2284,8 +2367,8 @@ function everycal_clear_cached_event_action() {
 
     check_admin_referer( 'everycal_clear_cached_event' );
 
-    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
-    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+    $username = isset( $_REQUEST['username'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['username'] ) ) : '';
+    $slug = isset( $_REQUEST['slug'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['slug'] ) ) : '';
 
     everycal_clear_cached_event( $username, $slug );
 
@@ -2295,7 +2378,7 @@ function everycal_clear_cached_event_action() {
             'everycal_cache_cleared' => 'event',
             'everycal_cache_event'   => $event_label,
         ),
-        admin_url( 'options-general.php?page=everycal' )
+        everycal_get_cache_action_redirect_url()
     );
 
     wp_safe_redirect( $redirect );
@@ -2313,7 +2396,7 @@ function everycal_clear_all_cache_action() {
     $redirect = add_query_arg(
         'everycal_cache_cleared',
         'all',
-        admin_url( 'options-general.php?page=everycal' )
+        everycal_get_cache_action_redirect_url()
     );
 
     wp_safe_redirect( $redirect );
@@ -2327,8 +2410,8 @@ function everycal_refresh_cached_event_action() {
 
     check_admin_referer( 'everycal_refresh_cached_event' );
 
-    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
-    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+    $username = isset( $_REQUEST['username'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['username'] ) ) : '';
+    $slug = isset( $_REQUEST['slug'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['slug'] ) ) : '';
     $event_label = '@' . $username . '/' . $slug;
 
     $result = everycal_refresh_cached_event( $username, $slug );
@@ -2339,7 +2422,7 @@ function everycal_refresh_cached_event_action() {
             'everycal_cache_cleared' => $success ? 'refreshed' : 'refresh_failed',
             'everycal_cache_event'   => $event_label,
         ),
-        admin_url( 'options-general.php?page=everycal' )
+        everycal_get_cache_action_redirect_url()
     );
 
     wp_safe_redirect( $redirect );
