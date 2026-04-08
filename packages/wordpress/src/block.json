@@ -50,10 +50,6 @@
 		"excerptLength": {
 			"type": "number",
 			"default": 30
-		},
-		"cacheTtl": {
-			"type": "number",
-			"default": 1440
 		}
 	},
 	"textdomain": "everycal",

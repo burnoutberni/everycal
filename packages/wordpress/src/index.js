@@ -31,7 +31,6 @@ registerBlockType(metadata.name, {
 			descriptionLengthMode,
 			descriptionWordCount,
 			descriptionCharCount,
-			cacheTtl,
 		} = attributes;
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
@@ -75,20 +74,6 @@ registerBlockType(metadata.name, {
 							onChange={(val) =>
 								setAttributes({ account: val })
 							}
-						/>
-						<RangeControl
-							label={__("Cache duration (minutes)", "everycal")}
-							help={__(
-								"How long to cache fetched events. 1440 = 1 day.",
-								"everycal"
-							)}
-							value={cacheTtl}
-							onChange={(val) =>
-								setAttributes({ cacheTtl: val })
-							}
-							min={0}
-							max={2880}
-							step={1}
 						/>
 					</PanelBody>
 

@@ -93,8 +93,7 @@ function everycal_render_block( $attributes ) {
         ? absint( $attributes['descriptionWordCount'] )
         : ( isset( $attributes['excerptLength'] ) ? absint( $attributes['excerptLength'] ) : 30 );
     $description_char_count = isset( $attributes['descriptionCharCount'] ) ? absint( $attributes['descriptionCharCount'] ) : 220;
-    $cache_ttl_minutes = isset( $attributes['cacheTtl'] ) ? absint( $attributes['cacheTtl'] ) : 1440;
-    $cache_ttl         = $cache_ttl_minutes * MINUTE_IN_SECONDS;
+    $cache_ttl         = everycal_get_cache_ttl_seconds();
 
     if ( empty( $server_url ) ) {
         return '<div class="everycal-block everycal-error">
@@ -177,27 +176,38 @@ function everycal_render_block( $attributes ) {
 }
 
 /**
- * Two-tier event cache.
+ * Two-tier feed cache.
  *
- * Tier 1 — Persistent store (wp_option):
- *   All events ever seen, keyed by a composite "account_username:slug" key.
- *   Past events are NEVER removed — they stay for SEO / deep-link purposes.
+ * Tier 1 — Store payload (expiring cache):
+ *   Events keyed by "account_username:slug" from the latest successful fetch.
  *
- * Tier 2 — Freshness flag (transient):
- *   A short-lived transient whose existence means "the store is fresh enough".
+ * Tier 2 — Freshness flag (expiring cache):
+ *   A short-lived flag whose existence means "the store is fresh enough".
  *   When it expires we re-fetch from the API, merge into the store, and reset it.
  *
- * On API failure the persistent store is returned as-is (stale-while-error).
+ * On API failure, stale payloads are served when available.
  */
 function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     $store_key = 'everycal_store_' . md5( $api_url );
     $fresh_key = 'everycal_fresh_' . md5( $api_url );
+    $store_ttl = everycal_get_cache_store_ttl_seconds( $ttl );
 
-    // Load persistent store (may be empty array on first run).
-    $store = get_option( $store_key, array() );
+    // Load expiring store (may be empty array on first run).
+    $store = everycal_cache_get( $store_key, null );
+    if ( null === $store ) {
+        // Backward compat: migrate legacy persistent option into expiring cache.
+        $legacy_store = get_option( $store_key, null );
+        if ( is_array( $legacy_store ) ) {
+            $store = $legacy_store;
+            everycal_cache_set( $store_key, $store, $store_ttl );
+            delete_option( $store_key );
+        } else {
+            $store = array();
+        }
+    }
 
     // If still fresh, return what we have.
-    if ( false !== get_transient( $fresh_key ) ) {
+    if ( false !== everycal_cache_get( $fresh_key, false ) ) {
         return array_values( $store );
     }
 
@@ -211,7 +221,7 @@ function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
         // API unreachable — serve stale data if we have any, still set a short
         // freshness flag so we don't hammer a down server on every page view.
         if ( ! empty( $store ) ) {
-            set_transient( $fresh_key, 1, 60 ); // retry in 1 min
+            everycal_cache_set( $fresh_key, 1, 60 ); // retry in 1 min
             return array_values( $store );
         }
         return array();
@@ -226,7 +236,9 @@ function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     // Pre-warm single-event caches so event detail pages can render from feed data
     // without immediately triggering extra by-slug requests.
     foreach ( $fetched as $event ) {
-        everycal_prewarm_single_event_cache( $event, $now, $server_url );
+        if ( everycal_should_prewarm_event( $event, $now ) ) {
+            everycal_prewarm_single_event_cache( $event, $now, $server_url );
+        }
     }
 
     // Build a set of IDs that came back from the API so we know what's "current".
@@ -255,10 +267,72 @@ function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     }
 
     // Persist and mark fresh.
-    update_option( $store_key, $store, false ); // autoload = false (can be large)
-    set_transient( $fresh_key, 1, $ttl );
+    everycal_cache_set( $store_key, $store, $store_ttl );
+    everycal_cache_set( $fresh_key, 1, $ttl );
 
     return array_values( $store );
+}
+
+/**
+ * Shared cache backend.
+ *
+ * Uses object cache when available, else falls back to transients.
+ */
+function everycal_cache_get( $key, $default = false ) {
+    if ( wp_using_ext_object_cache() ) {
+        $found = false;
+        $value = wp_cache_get( $key, 'everycal', false, $found );
+        if ( $found ) {
+            return $value;
+        }
+        return $default;
+    }
+
+    $value = get_transient( $key );
+    return ( false === $value ) ? $default : $value;
+}
+
+function everycal_cache_set( $key, $value, $ttl ) {
+    $ttl = max( 1, absint( $ttl ) );
+    if ( wp_using_ext_object_cache() ) {
+        return wp_cache_set( $key, $value, 'everycal', $ttl );
+    }
+    return set_transient( $key, $value, $ttl );
+}
+
+/**
+ * Cache TTL from plugin settings, in seconds.
+ */
+function everycal_get_cache_ttl_seconds() {
+    $minutes = absint( get_option( 'everycal_cache_ttl_minutes', 1440 ) );
+    $minutes = max( 1, $minutes );
+    return $minutes * MINUTE_IN_SECONDS;
+}
+
+/**
+ * Keep stale payloads around longer than freshness to allow stale-on-error.
+ */
+function everycal_get_cache_store_ttl_seconds( $fresh_ttl ) {
+    $fresh_ttl = max( 1, absint( $fresh_ttl ) );
+    return max( $fresh_ttl * 2, DAY_IN_SECONDS );
+}
+
+/**
+ * Prewarm recent past + all future events.
+ */
+function everycal_should_prewarm_event( $event, $now = null ) {
+    if ( null === $now ) {
+        $now = time();
+    }
+
+    $past_window_hours = absint( get_option( 'everycal_prewarm_past_hours', 24 ) );
+    $past_window_hours = max( 0, $past_window_hours );
+    $window_start = $now - ( $past_window_hours * HOUR_IN_SECONDS );
+
+    $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
+    $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
+
+    return $end >= $window_start;
 }
 
 /** Stable key for an event inside the persistent store. */
@@ -295,14 +369,16 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
 
     $store_key = 'everycal_ev_' . md5( $username . ':' . $slug );
     $fresh_key = 'everycal_evf_' . md5( $username . ':' . $slug );
+    $store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
 
-    update_option( $store_key, $event, false );
+    everycal_cache_set( $store_key, $event, $store_ttl );
+    delete_option( $store_key ); // cleanup legacy persistent cache key
     everycal_set_cached_event_server_url( $username, $slug, $server_url );
 
     $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
     $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
     $ttl   = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
-    set_transient( $fresh_key, 1, $ttl );
+    everycal_cache_set( $fresh_key, 1, $ttl );
 }
 
 /**
@@ -318,7 +394,9 @@ function everycal_set_cached_event_server_url( $username, $slug, $server_url ) {
     }
 
     $key = 'everycal_evs_' . md5( $username . ':' . $slug );
-    update_option( $key, $server_url, false );
+    $ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+    everycal_cache_set( $key, $server_url, $ttl );
+    delete_option( $key ); // cleanup legacy persistent cache key
 }
 
 /**
@@ -332,7 +410,17 @@ function everycal_get_cached_event_server_url( $username, $slug ) {
     }
 
     $key = 'everycal_evs_' . md5( $username . ':' . $slug );
-    $url = get_option( $key, '' );
+    $url = everycal_cache_get( $key, '' );
+    if ( '' === $url ) {
+        // Backward compat: migrate legacy persistent option into expiring cache.
+        $legacy_url = get_option( $key, '' );
+        if ( is_string( $legacy_url ) && '' !== $legacy_url ) {
+            $ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+            everycal_cache_set( $key, $legacy_url, $ttl );
+            delete_option( $key );
+            $url = $legacy_url;
+        }
+    }
     if ( ! is_string( $url ) || '' === $url ) {
         return '';
     }
@@ -627,6 +715,24 @@ function everycal_register_settings() {
         },
     ) );
 
+    register_setting( 'everycal_settings', 'everycal_cache_ttl_minutes', array(
+        'type'              => 'integer',
+        'default'           => 1440,
+        'sanitize_callback' => function ( $val ) {
+            $minutes = absint( $val );
+            return max( 1, min( 10080, $minutes ) );
+        },
+    ) );
+
+    register_setting( 'everycal_settings', 'everycal_prewarm_past_hours', array(
+        'type'              => 'integer',
+        'default'           => 24,
+        'sanitize_callback' => function ( $val ) {
+            $hours = absint( $val );
+            return min( 8760, $hours );
+        },
+    ) );
+
     register_setting( 'everycal_settings', 'everycal_http_debug_manual', array(
         'type'              => 'boolean',
         'default'           => false,
@@ -648,6 +754,8 @@ function everycal_settings_page() {
     $base = get_option( 'everycal_base_path', 'events' );
     $creator_template = get_option( 'everycal_creator_url_template', '' );
     $default_server_url = get_option( 'everycal_default_server_url', '' );
+    $cache_ttl_minutes = absint( get_option( 'everycal_cache_ttl_minutes', 1440 ) );
+    $prewarm_past_hours = absint( get_option( 'everycal_prewarm_past_hours', 24 ) );
     $manual_http_debug = (bool) get_option( 'everycal_http_debug_manual', false );
     $http_debug_additional_servers = get_option( 'everycal_http_debug_additional_servers', '' );
     $wp_debug_enabled  = defined( 'WP_DEBUG' ) && WP_DEBUG;
@@ -674,6 +782,27 @@ function everycal_settings_page() {
                         <p class="description">
                             <?php echo esc_html__( 'Used as the default server for new EveryCal blocks. Existing blocks can still override this per block.', 'everycal' ); ?><br>
                             <?php echo esc_html__( 'Also used as fallback when a block has no server URL configured.', 'everycal' ); ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="everycal_cache_ttl_minutes"><?php echo esc_html( __( 'Cache freshness (minutes)', 'everycal' ) ); ?></label></th>
+                    <td>
+                        <input type="number" min="1" max="10080" id="everycal_cache_ttl_minutes" name="everycal_cache_ttl_minutes"
+                               value="<?php echo esc_attr( (string) $cache_ttl_minutes ); ?>" class="small-text" />
+                        <p class="description">
+                            <?php echo esc_html__( 'How often EveryCal feed data is refreshed from the upstream server. Default: 1440 (24 hours).', 'everycal' ); ?><br>
+                            <?php echo esc_html__( 'This is now plugin-wide (no per-block cache setting).', 'everycal' ); ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="everycal_prewarm_past_hours"><?php echo esc_html( __( 'Prewarm past window (hours)', 'everycal' ) ); ?></label></th>
+                    <td>
+                        <input type="number" min="0" max="8760" id="everycal_prewarm_past_hours" name="everycal_prewarm_past_hours"
+                               value="<?php echo esc_attr( (string) $prewarm_past_hours ); ?>" class="small-text" />
+                        <p class="description">
+                            <?php echo esc_html__( 'Pre-warm per-event caches for events that ended within this many past hours, plus all future events. Default: 24.', 'everycal' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -904,9 +1033,19 @@ function everycal_event_template( $template ) {
     // Two-tier cache for individual events.
     $store_key = 'everycal_ev_' . md5( $username . ':' . $slug );
     $fresh_key = 'everycal_evf_' . md5( $username . ':' . $slug );
-    $event     = get_option( $store_key, false );
+    $event     = everycal_cache_get( $store_key, false );
+    if ( false === $event ) {
+        // Backward compat: migrate legacy persistent option into expiring cache.
+        $legacy_event = get_option( $store_key, false );
+        if ( false !== $legacy_event ) {
+            $store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+            everycal_cache_set( $store_key, $legacy_event, $store_ttl );
+            delete_option( $store_key );
+            $event = $legacy_event;
+        }
+    }
 
-    if ( false === get_transient( $fresh_key ) ) {
+    if ( false === everycal_cache_get( $fresh_key, false ) ) {
         $response = wp_remote_get( $api_url, array(
             'timeout' => 10,
             'headers' => array( 'Accept' => 'application/json' ),
@@ -914,17 +1053,19 @@ function everycal_event_template( $template ) {
 
         if ( ! is_wp_error( $response ) && 200 === wp_remote_retrieve_response_code( $response ) ) {
             $event = json_decode( wp_remote_retrieve_body( $response ), true );
-            update_option( $store_key, $event, false );
+            $store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+            everycal_cache_set( $store_key, $event, $store_ttl );
+            delete_option( $store_key );
             everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
 
             // Future/ongoing events: short TTL. Past events: cache for 24 h.
             $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
             $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
             $ttl   = ( $end >= time() ) ? 300 : DAY_IN_SECONDS;
-            set_transient( $fresh_key, 1, $ttl );
+            everycal_cache_set( $fresh_key, 1, $ttl );
         } elseif ( $event ) {
             // API failed but we have a stored copy — serve stale, retry in 1 min.
-            set_transient( $fresh_key, 1, 60 );
+            everycal_cache_set( $fresh_key, 1, 60 );
         } else {
             // No stored copy and API failed — 404.
             status_header( 404 );
