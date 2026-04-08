@@ -1225,7 +1225,11 @@ function everycal_settings_page() {
                         </label>
                         <p class="description">
                             <?php echo esc_html__( 'Logging is always enabled automatically when WP_DEBUG is true.', 'everycal' ); ?><br>
-                            <?php echo esc_html( sprintf( __( 'Current status: %s (WP_DEBUG=%s, manual=%s)', 'everycal' ), $http_debug_on ? 'ON' : 'OFF', $wp_debug_enabled ? 'ON' : 'OFF', $manual_http_debug ? 'ON' : 'OFF' ) ); ?><br>
+                            <?php
+                            $status_on  = __( 'ON', 'everycal' );
+                            $status_off = __( 'OFF', 'everycal' );
+                            echo esc_html( sprintf( __( 'Current status: %s (WP_DEBUG=%s, manual=%s)', 'everycal' ), $http_debug_on ? $status_on : $status_off, $wp_debug_enabled ? $status_on : $status_off, $manual_http_debug ? $status_on : $status_off ) );
+                            ?><br>
                             <?php echo esc_html__( 'Requests are filtered to hosts from Default EveryCal server URL and Additional HTTP debug servers.', 'everycal' ); ?>
                         </p>
                     </td>
@@ -1404,11 +1408,38 @@ function everycal_settings_page() {
 
         <script>
         (function() {
+            const i18n = <?php echo wp_json_encode( array(
+                'event' => __( 'Event', 'everycal' ),
+                'handle' => __( 'Handle', 'everycal' ),
+                'start' => __( 'Start', 'everycal' ),
+                'cachedUntil' => __( 'Cached Until', 'everycal' ),
+                'cachedAt' => __( 'Cached At', 'everycal' ),
+                'ascending' => __( 'ascending', 'everycal' ),
+                'descending' => __( 'descending', 'everycal' ),
+                'oldestEarliestFirst' => __( 'oldest/earliest first', 'everycal' ),
+                'newestLatestFirst' => __( 'newest/latest first', 'everycal' ),
+                'sortedBy' => __( 'Sorted by %1$s (%2$s, %3$s).', 'everycal' ),
+                'noCachedEvents' => __( 'No cached events indexed yet.', 'everycal' ),
+                'requestFailed' => __( 'Request failed', 'everycal' ),
+                'expired' => __( 'expired', 'everycal' ),
+                'actionFailedFor' => __( 'Action failed for @%1$s/%2$s.', 'everycal' ),
+                'startAutoRefresh' => __( 'Start Auto-refresh', 'everycal' ),
+                'stopAutoRefresh' => __( 'Stop Auto-refresh', 'everycal' ),
+                'copied' => __( 'Copied', 'everycal' ),
+                'copyFailed' => __( 'Copy failed', 'everycal' ),
+            ) ); ?>;
             const cachePanel = document.getElementById("everycal-cache-events-panel");
             const cacheTable = document.getElementById("everycal-cached-events-table");
             const sortStatus = document.getElementById("everycal-cache-sort-status");
             const cacheCount = document.getElementById("everycal-cache-count");
             const cacheFeedback = document.getElementById("everycal-cache-action-feedback");
+
+            function format(template, values) {
+                return String(template || "").replace(/%([0-9]+)\$s/g, function(_, index) {
+                    const i = parseInt(index, 10) - 1;
+                    return values[i] !== undefined ? String(values[i]) : "";
+                });
+            }
 
             if (cachePanel) {
                 const panelStateKey = "everycal_cache_panel_open";
@@ -1434,19 +1465,19 @@ function everycal_settings_page() {
                 const tbody = cacheTable.querySelector("tbody");
                 const headers = Array.from(cacheTable.querySelectorAll("button[data-everycal-sort]"));
                 const labelByKey = {
-                    event: "Event",
-                    handle: "Handle",
-                    startDate: "Start",
-                    freshUntil: "Cached Until",
-                    cachedAt: "Cached At"
+                    event: i18n.event,
+                    handle: i18n.handle,
+                    startDate: i18n.start,
+                    freshUntil: i18n.cachedUntil,
+                    cachedAt: i18n.cachedAt
                 };
 
                 function updateSortStatus(sortKey, order) {
                     if (!sortStatus) return;
-                    const direction = order === "asc" ? "ascending" : "descending";
-                    const directionLong = order === "asc" ? "oldest/earliest first" : "newest/latest first";
-                    const label = labelByKey[sortKey] || "Cached At";
-                    sortStatus.textContent = "Sorted by " + label + " (" + directionLong + ", " + direction + ").";
+                    const direction = order === "asc" ? i18n.ascending : i18n.descending;
+                    const directionLong = order === "asc" ? i18n.oldestEarliestFirst : i18n.newestLatestFirst;
+                    const label = labelByKey[sortKey] || i18n.cachedAt;
+                    sortStatus.textContent = format(i18n.sortedBy, [label, directionLong, direction]);
                 }
 
                 function updateHeaderIndicators(sortKey, order) {
@@ -1524,7 +1555,7 @@ function everycal_settings_page() {
                         if (!empty) {
                             empty = document.createElement("p");
                             empty.id = "everycal-cache-empty";
-                            empty.textContent = "No cached events indexed yet.";
+                            empty.textContent = i18n.noCachedEvents;
                             cacheTable.parentNode.insertBefore(empty, cacheTable.nextSibling);
                         }
                     } else {
@@ -1549,7 +1580,7 @@ function everycal_settings_page() {
                         });
                         const payload = await response.json();
                         if (!payload || !payload.success) {
-                            throw new Error((payload && payload.data && payload.data.message) ? payload.data.message : "Request failed");
+                            throw new Error((payload && payload.data && payload.data.message) ? payload.data.message : i18n.requestFailed);
                         }
 
                         const data = payload.data || {};
@@ -1608,7 +1639,7 @@ function everycal_settings_page() {
                                 const expired = document.createElement("span");
                                 expired.className = "description";
                                 expired.setAttribute("data-role", "fresh-expired");
-                                expired.textContent = "expired";
+                                expired.textContent = i18n.expired;
                                 freshUntilNode.parentNode.appendChild(expired);
                             }
 
@@ -1621,7 +1652,13 @@ function everycal_settings_page() {
                             sortRows(sortKey, order);
                         }
                     } catch (err) {
-                        setFeedback("Action failed for @" + String(formData.get("username") || "") + "/" + String(formData.get("slug") || "") + ".", true);
+                        setFeedback(
+                            format(i18n.actionFailedFor, [
+                                String(formData.get("username") || ""),
+                                String(formData.get("slug") || "")
+                            ]),
+                            true
+                        );
                     } finally {
                         if (submitBtn) submitBtn.disabled = false;
                     }
@@ -1683,13 +1720,13 @@ function everycal_settings_page() {
                 if (timer) {
                     clearInterval(timer);
                     timer = null;
-                    watchBtn.textContent = "Start Auto-refresh";
+                    watchBtn.textContent = i18n.startAutoRefresh;
                     watchBtn.setAttribute("aria-pressed", "false");
                     return;
                 }
                 refreshLogs();
                 timer = setInterval(refreshLogs, 5000);
-                watchBtn.textContent = "Stop Auto-refresh";
+                watchBtn.textContent = i18n.stopAutoRefresh;
                 watchBtn.setAttribute("aria-pressed", "true");
             });
 
@@ -1705,9 +1742,9 @@ function everycal_settings_page() {
                         viewer.select();
                         document.execCommand("copy");
                     }
-                    copyBtn.textContent = "Copied";
+                    copyBtn.textContent = i18n.copied;
                 } catch (e) {
-                    copyBtn.textContent = "Copy failed";
+                    copyBtn.textContent = i18n.copyFailed;
                 }
                 setTimeout(function () {
                     copyBtn.textContent = original;
@@ -1918,7 +1955,7 @@ function everycal_event_template( $template ) {
 
     // Override the page title.
     add_filter( 'document_title_parts', function ( $parts ) use ( $event ) {
-        $parts['title'] = $event['title'] ?? 'Event';
+        $parts['title'] = $event['title'] ?? __( 'Event', 'everycal' );
         return $parts;
     } );
 
@@ -1930,7 +1967,7 @@ function everycal_event_template( $template ) {
     global $wp_query, $post;
     $post = new WP_Post( (object) array(
         'ID'             => 0,
-        'post_title'     => $event['title'] ?? 'Event',
+        'post_title'     => $event['title'] ?? __( 'Event', 'everycal' ),
         'post_name'      => $slug,
         'post_content'   => '',
         'post_excerpt'   => '',
@@ -2046,8 +2083,8 @@ function everycal_render_single_event_content( $content ) {
             $map_links = everycal_get_location_map_links( $event['location'] );
             if ( ! empty( $map_links ) ) {
                 echo ' (';
-                echo '<a href="' . esc_url( $map_links['google'] ) . '"' . everycal_external_link_attrs( $map_links['google'] ) . '>Google Maps</a>, ';
-                echo '<a href="' . esc_url( $map_links['apple'] ) . '"' . everycal_external_link_attrs( $map_links['apple'] ) . '>Apple Maps</a>, ';
+                echo '<a href="' . esc_url( $map_links['google'] ) . '"' . everycal_external_link_attrs( $map_links['google'] ) . '>' . esc_html__( 'Google Maps', 'everycal' ) . '</a>, ';
+                echo '<a href="' . esc_url( $map_links['apple'] ) . '"' . everycal_external_link_attrs( $map_links['apple'] ) . '>' . esc_html__( 'Apple Maps', 'everycal' ) . '</a>, ';
                 echo '<a href="' . esc_url( $map_links['osm'] ) . '"' . everycal_external_link_attrs( $map_links['osm'] ) . '>OSM</a>';
                 echo ')';
             }

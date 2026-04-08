@@ -1,0 +1,138 @@
+{
+  "translation-revision-date": "2026-04-08 16:14+0000",
+  "generator": "manual make-json compatible export",
+  "domain": "everycal",
+  "locale_data": {
+    "messages": {
+      "": {
+        "domain": "everycal",
+        "lang": "de_DE",
+        "plural-forms": "nplurals=2; plural=(n != 1);"
+      },
+      "Account (optional)": [
+        "Konto (optional)"
+      ],
+      "Character count": [
+        "Zeichenanzahl"
+      ],
+      "Compact": [
+        "Kompakt"
+      ],
+      "Configure an EveryCal server URL in the block settings to display events.": [
+        "Konfiguriere eine EveryCal-Server-URL in den Blockeinstellungen, um Events anzuzeigen."
+      ],
+      "Description length": [
+        "Beschreibungslänge"
+      ],
+      "Description length (characters)": [
+        "Beschreibungslänge (Zeichen)"
+      ],
+      "Description length (words)": [
+        "Beschreibungslänge (Wörter)"
+      ],
+      "e.g. https://events.example.com": [
+        "z.B. https://events.example.com"
+      ],
+      "EveryCal Server URL": [
+        "EveryCal-Server-URL"
+      ],
+      "Feed Settings": [
+        "Feed-Einstellungen"
+      ],
+      "Filter events by account username. Leave empty for all public events.": [
+        "Events nach Kontonutzernamen filtern. Leer lassen für alle öffentlichen Events."
+      ],
+      "Full": [
+        "Vollständig"
+      ],
+      "Grid": [
+        "Raster"
+      ],
+      "Grid columns": [
+        "Rasterspalten"
+      ],
+      "Layout": [
+        "Layout"
+      ],
+      "List": [
+        "Liste"
+      ],
+      "Number of events": [
+        "Anzahl der Events"
+      ],
+      "Style Settings": [
+        "Stil-Einstellungen"
+      ],
+      "Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.": [
+        "Verwendest du einen benutzerdefinierten Server? Füge ihn in den EveryCal-Einstellungen unter „Zusätzliche HTTP-Debug-Server“ hinzu."
+      ],
+      "Word count": [
+        "Wortanzahl"
+      ]
+    }
+  },
+  "comment": {
+    "reference": {
+      "Account (optional)": [
+        "src/index.js:68"
+      ],
+      "Character count": [
+        "src/index.js:125"
+      ],
+      "Compact": [
+        "src/index.js:101"
+      ],
+      "Configure an EveryCal server URL in the block settings to display events.": [
+        "src/index.js:163"
+      ],
+      "Description length": [
+        "src/index.js:120"
+      ],
+      "Description length (characters)": [
+        "src/index.js:141"
+      ],
+      "Description length (words)": [
+        "src/index.js:131"
+      ],
+      "e.g. https://events.example.com": [
+        "src/index.js:48"
+      ],
+      "EveryCal Server URL": [
+        "src/index.js:45"
+      ],
+      "Feed Settings": [
+        "src/index.js:43"
+      ],
+      "Filter events by account username. Leave empty for all public events.": [
+        "src/index.js:69"
+      ],
+      "Full": [
+        "src/index.js:123"
+      ],
+      "Grid": [
+        "src/index.js:97"
+      ],
+      "Grid columns": [
+        "src/index.js:109"
+      ],
+      "Layout": [
+        "src/index.js:89"
+      ],
+      "List": [
+        "src/index.js:93"
+      ],
+      "Number of events": [
+        "src/index.js:82"
+      ],
+      "Style Settings": [
+        "src/index.js:80"
+      ],
+      "Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.": [
+        "src/index.js:53"
+      ],
+      "Word count": [
+        "src/index.js:124"
+      ]
+    }
+  }
+}
