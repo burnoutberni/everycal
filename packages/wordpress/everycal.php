@@ -192,7 +192,11 @@ function everycal_render_block( $attributes ) {
  *
  * On API failure, stale payloads are served when available.
  */
-function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
+function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
+    if ( null === $ttl ) {
+        $ttl = everycal_get_cache_ttl_seconds();
+    }
+
     $store_key = 'everycal_store_' . md5( $api_url );
     $fresh_key = 'everycal_fresh_' . md5( $api_url );
     $store_ttl = everycal_get_cache_store_ttl_seconds( $ttl );
@@ -333,6 +337,13 @@ function everycal_get_cache_ttl_seconds() {
 function everycal_get_cache_store_ttl_seconds( $fresh_ttl ) {
     $fresh_ttl = max( 1, absint( $fresh_ttl ) );
     return max( $fresh_ttl * 2, DAY_IN_SECONDS );
+}
+
+/**
+ * Freshness TTL for per-event caches.
+ */
+function everycal_get_event_cache_ttl_seconds() {
+    return everycal_get_cache_ttl_seconds();
 }
 
 function everycal_get_cached_event_index() {
@@ -576,9 +587,7 @@ function everycal_refresh_cached_event( $username, $slug ) {
     everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
 
     $now = time();
-    $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
-    $end = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
-    $ttl = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
+    $ttl = everycal_get_event_cache_ttl_seconds();
     everycal_cache_set( $fresh_key, 1, $ttl );
 
     everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
@@ -755,9 +764,7 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
     everycal_cache_set( $store_key, $event, $store_ttl );
     delete_option( $store_key ); // cleanup legacy persistent cache key
     everycal_set_cached_event_server_url( $username, $slug, $server_url );
-    $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
-    $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
-    $ttl   = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
+    $ttl   = everycal_get_event_cache_ttl_seconds();
     everycal_cache_set( $fresh_key, 1, $ttl );
 
     everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
@@ -1903,10 +1910,7 @@ function everycal_event_template( $template ) {
             delete_option( $store_key );
             everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
 
-            // Future/ongoing events: short TTL. Past events: cache for 24 h.
-            $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
-            $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
-            $ttl   = ( $end >= time() ) ? 300 : DAY_IN_SECONDS;
+            $ttl   = everycal_get_event_cache_ttl_seconds();
             everycal_cache_set( $fresh_key, 1, $ttl );
             everycal_register_cached_event_index_entry( $event, $server_url, time(), time() + $ttl );
         } elseif ( $event ) {
