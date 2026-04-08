@@ -167,7 +167,7 @@ function everycal_render_block( $attributes ) {
 
         echo '<nav class="everycal-pagination">';
         echo paginate_links( array(
-            'base'      => esc_url( $base ),
+            'base'      => $base,
             'format'    => '',
             'total'     => $pages,
             'current'   => $paged,
