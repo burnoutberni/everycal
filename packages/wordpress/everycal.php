@@ -1417,6 +1417,8 @@ function everycal_settings_page() {
                 'noCachedEvents' => __( 'No cached events indexed yet.', 'everycal' ),
                 'requestFailed' => __( 'Request failed', 'everycal' ),
                 'expired' => __( 'expired', 'everycal' ),
+                'clearedCachedEvent' => __( 'Cleared cached event: @%1$s/%2$s', 'everycal' ),
+                'refreshedCachedEvent' => __( 'Refreshed cached event: @%1$s/%2$s', 'everycal' ),
                 'actionFailedFor' => __( 'Action failed for @%1$s/%2$s.', 'everycal' ),
                 'startAutoRefresh' => __( 'Start Auto-refresh', 'everycal' ),
                 'stopAutoRefresh' => __( 'Stop Auto-refresh', 'everycal' ),
@@ -1590,7 +1592,10 @@ function everycal_settings_page() {
                             row.remove();
                             updateCount();
                             updateEmptyState();
-                            setFeedback("Cleared cached event: @" + username + "/" + slug, false);
+                            setFeedback(
+                                format(i18n.clearedCachedEvent, [username, slug]),
+                                false
+                            );
                             const sortKey = cacheTable.getAttribute("data-sort") || "cachedAt";
                             const order = cacheTable.getAttribute("data-order") || "desc";
                             sortRows(sortKey, order);
@@ -1641,7 +1646,10 @@ function everycal_settings_page() {
                             if (wpLink && entry.wpEventUrl) wpLink.setAttribute("href", entry.wpEventUrl);
                             if (everycalLink && entry.everycalEventUrl) everycalLink.setAttribute("href", entry.everycalEventUrl);
 
-                            setFeedback("Refreshed cached event: @" + username + "/" + slug, false);
+                            setFeedback(
+                                format(i18n.refreshedCachedEvent, [username, slug]),
+                                false
+                            );
                             const sortKey = cacheTable.getAttribute("data-sort") || "cachedAt";
                             const order = cacheTable.getAttribute("data-order") || "desc";
                             sortRows(sortKey, order);
