@@ -112,7 +112,7 @@ function everycal_render_block( $attributes ) {
         ) ) );
     }
 
-    $events = everycal_get_events( $api_url, $cache_ttl );
+    $events = everycal_get_events( $api_url, $cache_ttl, $server_url );
 
     if ( empty( $events ) ) {
         return '<div class="everycal-block everycal-empty"><p>' .
@@ -189,7 +189,7 @@ function everycal_render_block( $attributes ) {
  *
  * On API failure the persistent store is returned as-is (stale-while-error).
  */
-function everycal_get_events( $api_url, $ttl = 300 ) {
+function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     $store_key = 'everycal_store_' . md5( $api_url );
     $fresh_key = 'everycal_fresh_' . md5( $api_url );
 
@@ -226,7 +226,7 @@ function everycal_get_events( $api_url, $ttl = 300 ) {
     // Pre-warm single-event caches so event detail pages can render from feed data
     // without immediately triggering extra by-slug requests.
     foreach ( $fetched as $event ) {
-        everycal_prewarm_single_event_cache( $event, $now );
+        everycal_prewarm_single_event_cache( $event, $now, $server_url );
     }
 
     // Build a set of IDs that came back from the API so we know what's "current".
@@ -276,7 +276,7 @@ function everycal_event_store_key( $event ) {
 /**
  * Pre-populate the per-event cache used by virtual event detail pages.
  */
-function everycal_prewarm_single_event_cache( $event, $now = null ) {
+function everycal_prewarm_single_event_cache( $event, $now = null, $server_url = '' ) {
     $username = '';
     if ( ! empty( $event['account']['username'] ) ) {
         $username = (string) $event['account']['username'];
@@ -297,11 +297,47 @@ function everycal_prewarm_single_event_cache( $event, $now = null ) {
     $fresh_key = 'everycal_evf_' . md5( $username . ':' . $slug );
 
     update_option( $store_key, $event, false );
+    everycal_set_cached_event_server_url( $username, $slug, $server_url );
 
     $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
     $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
     $ttl   = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
     set_transient( $fresh_key, 1, $ttl );
+}
+
+/**
+ * Persist the source server URL for a cached event.
+ */
+function everycal_set_cached_event_server_url( $username, $slug, $server_url ) {
+    $username = is_string( $username ) ? trim( $username ) : '';
+    $slug = is_string( $slug ) ? trim( $slug ) : '';
+    $server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+
+    if ( '' === $username || '' === $slug || '' === $server_url ) {
+        return;
+    }
+
+    $key = 'everycal_evs_' . md5( $username . ':' . $slug );
+    update_option( $key, $server_url, false );
+}
+
+/**
+ * Read the source server URL for a cached event.
+ */
+function everycal_get_cached_event_server_url( $username, $slug ) {
+    $username = is_string( $username ) ? trim( $username ) : '';
+    $slug = is_string( $slug ) ? trim( $slug ) : '';
+    if ( '' === $username || '' === $slug ) {
+        return '';
+    }
+
+    $key = 'everycal_evs_' . md5( $username . ':' . $slug );
+    $url = get_option( $key, '' );
+    if ( ! is_string( $url ) || '' === $url ) {
+        return '';
+    }
+
+    return untrailingslashit( esc_url_raw( $url ) );
 }
 
 /**
@@ -856,11 +892,11 @@ function everycal_event_template( $template ) {
         return $template;
     }
 
-    // We need a server URL. Try to find it from the first EveryCal block on any page.
-    $server_url = everycal_discover_server_url();
+    // Resolve server URL from locally cached feed data first, then fallback to default.
+    $server_url = everycal_discover_server_url( $username, $slug );
     if ( ! $server_url ) {
         status_header( 500 );
-        wp_die( esc_html__( 'EveryCal: no server URL configured. Add an EveryCal Feed block to a page first.', 'everycal' ) );
+        wp_die( esc_html__( 'EveryCal: no server URL configured. Set a default EveryCal server URL in plugin settings.', 'everycal' ) );
     }
 
     $api_url   = trailingslashit( $server_url ) . 'api/v1/events/by-slug/' . urlencode( $username ) . '/' . urlencode( $slug );
@@ -879,6 +915,7 @@ function everycal_event_template( $template ) {
         if ( ! is_wp_error( $response ) && 200 === wp_remote_retrieve_response_code( $response ) ) {
             $event = json_decode( wp_remote_retrieve_body( $response ), true );
             update_option( $store_key, $event, false );
+            everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
 
             // Future/ongoing events: short TTL. Past events: cache for 24 h.
             $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
@@ -1091,91 +1128,20 @@ function everycal_render_single_event_content( $content ) {
 }
 
 /**
- * Discover the server URL from the first EveryCal block found in any published post/page.
+ * Discover the server URL for an event.
  */
-function everycal_discover_server_url() {
-    $urls = everycal_get_all_configured_server_urls();
-    if ( ! empty( $urls ) ) {
-        return $urls[0];
-    }
-
-    $default_server = trim( (string) get_option( 'everycal_default_server_url', '' ) );
-    if ( '' !== $default_server ) {
-        return $default_server;
-    }
-
-    return '';
-}
-
-/**
- * Return all configured EveryCal server URLs across block usages.
- */
-function everycal_get_all_configured_server_urls() {
-    $cached = get_transient( 'everycal_server_urls' );
-    if ( false !== $cached && is_array( $cached ) ) {
+function everycal_discover_server_url( $username = '', $slug = '' ) {
+    $cached = everycal_get_cached_event_server_url( $username, $slug );
+    if ( '' !== $cached ) {
         return $cached;
     }
 
-    $post_types = get_post_types( array( 'show_in_rest' => true ), 'names' );
-    if ( ! is_array( $post_types ) ) {
-        $post_types = array( 'post', 'page' );
-    }
-    $post_types[] = 'wp_block';
-    $post_types[] = 'wp_template';
-    $post_types[] = 'wp_template_part';
-    $post_types   = array_values( array_unique( $post_types ) );
-
-    $posts = get_posts( array(
-        'post_type'      => $post_types,
-        'post_status'    => 'any',
-        's'              => '<!-- wp:everycal/feed',
-        'numberposts'    => -1,
-        'no_found_rows'  => true,
-        'orderby'        => 'ID',
-        'order'          => 'DESC',
-        'suppress_filters' => false,
-    ) );
-
-    $urls = array();
-    foreach ( $posts as $p ) {
-        if ( empty( $p->post_content ) ) {
-            continue;
-        }
-        $blocks = parse_blocks( $p->post_content );
-        everycal_collect_server_urls_from_blocks( $blocks, $urls );
-    }
-
     $default_server = trim( (string) get_option( 'everycal_default_server_url', '' ) );
     if ( '' !== $default_server ) {
-        $urls[] = untrailingslashit( esc_url_raw( $default_server ) );
+        return untrailingslashit( esc_url_raw( $default_server ) );
     }
 
-    $urls = array_values( array_unique( $urls ) );
-    set_transient( 'everycal_server_urls', $urls, MINUTE_IN_SECONDS );
-    return $urls;
-}
-
-/**
- * Recursively collect server URLs from everycal/feed blocks.
- */
-function everycal_collect_server_urls_from_blocks( $blocks, &$urls ) {
-    if ( ! is_array( $blocks ) ) {
-        return;
-    }
-    foreach ( $blocks as $block ) {
-        if ( ! is_array( $block ) ) {
-            continue;
-        }
-        if ( 'everycal/feed' === ( $block['blockName'] ?? '' ) && ! empty( $block['attrs']['serverUrl'] ) ) {
-            $server_url = esc_url_raw( (string) $block['attrs']['serverUrl'] );
-            if ( '' !== $server_url ) {
-                $urls[] = untrailingslashit( $server_url );
-            }
-        }
-        if ( ! empty( $block['innerBlocks'] ) ) {
-            everycal_collect_server_urls_from_blocks( $block['innerBlocks'], $urls );
-        }
-    }
+    return '';
 }
 
 /**
