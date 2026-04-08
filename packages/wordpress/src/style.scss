@@ -97,6 +97,12 @@
 	.everycal-layout-grid .everycal-event {
 		transition: none;
 	}
+
+	.everycal-layout-grid .everycal-event:hover,
+	.everycal-layout-grid .everycal-event:focus-within {
+		transform: none;
+		box-shadow: var(--everycal-shadow);
+	}
 }
 
 /* Compact layout */
