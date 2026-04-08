@@ -244,42 +244,26 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
     $fetched   = array_map( 'everycal_normalise_event', $raw );
     $now       = time();
 
-    // When we have no existing store (e.g. after a full cache wipe), prewarm all
-    // fetched events. Otherwise prewarm only the configured recent/future window.
-    $prewarm_all = empty( $store );
+    // Keep feed store limited to the prewarm window.
+    $windowed_store = array();
 
     // Pre-warm single-event caches so event detail pages can render from feed data
     // without immediately triggering extra by-slug requests.
     foreach ( $fetched as $event ) {
-        if ( $prewarm_all || everycal_should_prewarm_event( $event, $now ) ) {
-            everycal_prewarm_single_event_cache( $event, $now, $server_url );
+        if ( ! everycal_should_prewarm_event( $event, $now ) ) {
+            continue;
         }
-    }
 
-    // Build a set of IDs that came back from the API so we know what's "current".
-    $api_ids = array();
-    foreach ( $fetched as $event ) {
         $key = everycal_event_store_key( $event );
-        $api_ids[ $key ] = true;
-        // Always overwrite with the latest version from the server.
-        $store[ $key ] = $event;
+        if ( '' === (string) $key ) {
+            continue;
+        }
+
+        $windowed_store[ $key ] = $event;
+        everycal_prewarm_single_event_cache( $event, $now, $server_url );
     }
 
-    // Prune: remove events from the store that are NO LONGER in the API response
-    // AND are in the future.  Past events stay forever.
-    foreach ( $store as $key => $event ) {
-        if ( isset( $api_ids[ $key ] ) ) {
-            continue; // still in the API → keep
-        }
-        $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
-        $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
-        if ( $end >= $now ) {
-            // A future/ongoing event disappeared from the API — remove it
-            // (it was probably deleted or made private upstream).
-            unset( $store[ $key ] );
-        }
-        // Past events that disappeared from the API → keep for SEO.
-    }
+    $store = $windowed_store;
 
     // Persist and mark fresh.
     everycal_cache_set( $store_key, $store, $store_ttl );
@@ -1193,7 +1177,7 @@ function everycal_settings_page() {
                                value="<?php echo esc_attr( (string) $cache_ttl_minutes ); ?>" class="small-text" />
                         <p class="description">
                             <?php echo esc_html__( 'How often EveryCal feed data is refreshed from the upstream server. Default: 1440 (24 hours).', 'everycal' ); ?><br>
-                            <?php echo esc_html__( 'This is now plugin-wide (no per-block cache setting).', 'everycal' ); ?>
+                            <?php echo esc_html__( 'This is plugin-wide and also controls single-event cache freshness.', 'everycal' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -1203,7 +1187,7 @@ function everycal_settings_page() {
                         <input type="number" min="0" max="8760" id="everycal_prewarm_past_hours" name="everycal_prewarm_past_hours"
                                value="<?php echo esc_attr( (string) $prewarm_past_hours ); ?>" class="small-text" />
                         <p class="description">
-                            <?php echo esc_html__( 'Pre-warm per-event caches for events that ended within this many past hours, plus all future events. Default: 24.', 'everycal' ); ?>
+                            <?php echo esc_html__( 'Keep/pre-warm caches for events that ended within this many past hours, plus all future events. Events outside this window are dropped from feed cache and need to be fetched from EveryCal just-in-time. Default: 24.', 'everycal' ); ?>
                         </p>
                     </td>
                 </tr>
