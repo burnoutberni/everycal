@@ -31,7 +31,12 @@ function everycal_load_textdomain() {
 // Optional HTTP debug logging for EveryCal API calls.
 add_action( 'http_api_debug', 'everycal_http_api_debug_logger', 10, 5 );
 add_action( 'wp_ajax_everycal_get_http_logs', 'everycal_ajax_get_http_logs' );
+add_action( 'wp_ajax_everycal_clear_cached_event', 'everycal_ajax_clear_cached_event' );
+add_action( 'wp_ajax_everycal_refresh_cached_event', 'everycal_ajax_refresh_cached_event' );
 add_action( 'admin_post_everycal_clear_http_logs', 'everycal_clear_http_logs_action' );
+add_action( 'admin_post_everycal_clear_cached_event', 'everycal_clear_cached_event_action' );
+add_action( 'admin_post_everycal_clear_all_cache', 'everycal_clear_all_cache_action' );
+add_action( 'admin_post_everycal_refresh_cached_event', 'everycal_refresh_cached_event_action' );
 
 // Register the Gutenberg block
 add_action( 'init', 'everycal_register_block' );
@@ -192,6 +197,8 @@ function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     $fresh_key = 'everycal_fresh_' . md5( $api_url );
     $store_ttl = everycal_get_cache_store_ttl_seconds( $ttl );
 
+    everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key );
+
     // Load expiring store (may be empty array on first run).
     $store = everycal_cache_get( $store_key, null );
     if ( null === $store ) {
@@ -233,10 +240,14 @@ function everycal_get_events( $api_url, $ttl = 300, $server_url = '' ) {
     $fetched   = array_map( 'everycal_normalise_event', $raw );
     $now       = time();
 
+    // When we have no existing store (e.g. after a full cache wipe), prewarm all
+    // fetched events. Otherwise prewarm only the configured recent/future window.
+    $prewarm_all = empty( $store );
+
     // Pre-warm single-event caches so event detail pages can render from feed data
     // without immediately triggering extra by-slug requests.
     foreach ( $fetched as $event ) {
-        if ( everycal_should_prewarm_event( $event, $now ) ) {
+        if ( $prewarm_all || everycal_should_prewarm_event( $event, $now ) ) {
             everycal_prewarm_single_event_cache( $event, $now, $server_url );
         }
     }
@@ -300,6 +311,13 @@ function everycal_cache_set( $key, $value, $ttl ) {
     return set_transient( $key, $value, $ttl );
 }
 
+function everycal_cache_delete( $key ) {
+    if ( wp_using_ext_object_cache() ) {
+        return wp_cache_delete( $key, 'everycal' );
+    }
+    return delete_transient( $key );
+}
+
 /**
  * Cache TTL from plugin settings, in seconds.
  */
@@ -315,6 +333,369 @@ function everycal_get_cache_ttl_seconds() {
 function everycal_get_cache_store_ttl_seconds( $fresh_ttl ) {
     $fresh_ttl = max( 1, absint( $fresh_ttl ) );
     return max( $fresh_ttl * 2, DAY_IN_SECONDS );
+}
+
+function everycal_get_cached_event_index() {
+    $index = get_option( 'everycal_cached_event_index', array() );
+    return is_array( $index ) ? $index : array();
+}
+
+function everycal_set_cached_event_index( $index ) {
+    if ( ! is_array( $index ) ) {
+        $index = array();
+    }
+    update_option( 'everycal_cached_event_index', $index, false );
+}
+
+function everycal_register_cached_event_index_entry( $event, $server_url = '', $cached_at = null, $fresh_until = null ) {
+    if ( ! is_array( $event ) ) {
+        return;
+    }
+
+    $username = '';
+    if ( ! empty( $event['account']['username'] ) ) {
+        $username = (string) $event['account']['username'];
+    } elseif ( ! empty( $event['account_username'] ) ) {
+        $username = (string) $event['account_username'];
+    }
+
+    $slug = ! empty( $event['slug'] ) ? (string) $event['slug'] : '';
+    $username = trim( $username );
+    $slug = trim( $slug );
+    if ( '' === $username || '' === $slug ) {
+        return;
+    }
+
+    if ( null === $cached_at ) {
+        $cached_at = time();
+    }
+
+    $id = $username . ':' . $slug;
+    $index = everycal_get_cached_event_index();
+    $existing_server_url = '';
+    $existing_fresh_until = 0;
+    $existing_event_url = '';
+    $existing_handle = '';
+    if ( isset( $index[ $id ]['serverUrl'] ) && is_string( $index[ $id ]['serverUrl'] ) ) {
+        $existing_server_url = $index[ $id ]['serverUrl'];
+    }
+    if ( isset( $index[ $id ]['freshUntil'] ) ) {
+        $existing_fresh_until = absint( $index[ $id ]['freshUntil'] );
+    }
+    if ( isset( $index[ $id ]['eventUrl'] ) && is_string( $index[ $id ]['eventUrl'] ) ) {
+        $existing_event_url = $index[ $id ]['eventUrl'];
+    }
+    if ( isset( $index[ $id ]['handle'] ) && is_string( $index[ $id ]['handle'] ) ) {
+        $existing_handle = $index[ $id ]['handle'];
+    }
+
+    $clean_server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+    if ( '' === $clean_server_url ) {
+        $clean_server_url = $existing_server_url;
+    }
+
+    $event_url = '';
+    if ( ! empty( $event['url'] ) ) {
+        $event_url = esc_url_raw( (string) $event['url'] );
+    }
+    if ( '' === $event_url ) {
+        $event_url = $existing_event_url;
+    }
+
+    $resolved_fresh_until = $existing_fresh_until;
+    if ( null !== $fresh_until ) {
+        $resolved_fresh_until = absint( $fresh_until );
+    }
+
+    $creator = everycal_get_event_creator( $event, $clean_server_url );
+    $handle = isset( $creator['handle'] ) ? ltrim( trim( (string) $creator['handle'] ), '@' ) : '';
+    if ( '' === $handle ) {
+        $handle = $existing_handle;
+    }
+
+    $index[ $id ] = array(
+        'id'        => $id,
+        'username'  => $username,
+        'slug'      => $slug,
+        'handle'    => $handle,
+        'title'     => isset( $event['title'] ) ? sanitize_text_field( (string) $event['title'] ) : '',
+        'startDate' => isset( $event['startDate'] ) ? (string) $event['startDate'] : '',
+        'endDate'   => isset( $event['endDate'] ) ? (string) $event['endDate'] : '',
+        'serverUrl' => $clean_server_url,
+        'eventUrl'  => $event_url,
+        'cachedAt'  => absint( $cached_at ),
+        'freshUntil' => $resolved_fresh_until,
+    );
+
+    everycal_set_cached_event_index( $index );
+}
+
+function everycal_get_feed_cache_index() {
+    $index = get_option( 'everycal_feed_cache_index', array() );
+    return is_array( $index ) ? $index : array();
+}
+
+function everycal_set_feed_cache_index( $index ) {
+    if ( ! is_array( $index ) ) {
+        $index = array();
+    }
+    update_option( 'everycal_feed_cache_index', $index, false );
+}
+
+function everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key ) {
+    $api_url = is_string( $api_url ) ? trim( $api_url ) : '';
+    if ( '' === $api_url ) {
+        return;
+    }
+
+    $index = everycal_get_feed_cache_index();
+    $index[ $api_url ] = array(
+        'apiUrl'   => $api_url,
+        'storeKey' => (string) $store_key,
+        'freshKey' => (string) $fresh_key,
+        'cachedAt' => time(),
+    );
+    everycal_set_feed_cache_index( $index );
+}
+
+function everycal_get_cached_event_cache_keys( $username, $slug ) {
+    $username = is_string( $username ) ? trim( $username ) : '';
+    $slug = is_string( $slug ) ? trim( $slug ) : '';
+    if ( '' === $username || '' === $slug ) {
+        return array();
+    }
+
+    $hash = md5( $username . ':' . $slug );
+    return array(
+        'store'  => 'everycal_ev_' . $hash,
+        'fresh'  => 'everycal_evf_' . $hash,
+        'server' => 'everycal_evs_' . $hash,
+        'id'     => $username . ':' . $slug,
+    );
+}
+
+function everycal_clear_cached_event( $username, $slug ) {
+    $keys = everycal_get_cached_event_cache_keys( $username, $slug );
+    if ( empty( $keys ) ) {
+        return false;
+    }
+
+    everycal_cache_delete( $keys['store'] );
+    everycal_cache_delete( $keys['fresh'] );
+    everycal_cache_delete( $keys['server'] );
+    delete_option( $keys['store'] );
+    delete_option( $keys['fresh'] );
+    delete_option( $keys['server'] );
+
+    $index = everycal_get_cached_event_index();
+    if ( isset( $index[ $keys['id'] ] ) ) {
+        unset( $index[ $keys['id'] ] );
+        everycal_set_cached_event_index( $index );
+    }
+
+    return true;
+}
+
+function everycal_get_cached_event_index_entry( $username, $slug ) {
+    $username = is_string( $username ) ? trim( $username ) : '';
+    $slug = is_string( $slug ) ? trim( $slug ) : '';
+    if ( '' === $username || '' === $slug ) {
+        return null;
+    }
+
+    $index = everycal_get_cached_event_index();
+    $id = $username . ':' . $slug;
+    if ( isset( $index[ $id ] ) && is_array( $index[ $id ] ) ) {
+        return $index[ $id ];
+    }
+
+    return null;
+}
+
+function everycal_build_everycal_event_url( $server_url, $username, $slug, $handle = '' ) {
+    $server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+    $username = ltrim( trim( (string) $username ), '@' );
+    $slug = trim( (string) $slug );
+    $handle = ltrim( trim( (string) $handle ), '@' );
+
+    if ( '' === $server_url || '' === $slug ) {
+        return '';
+    }
+
+    $server_host = everycal_extract_server_host( $server_url );
+    $actor = $username;
+    if ( '' === $actor ) {
+        $actor = $handle;
+    }
+
+    if ( '' !== $handle && false !== strpos( $handle, '@' ) ) {
+        $parts = explode( '@', $handle, 2 );
+        $handle_domain = isset( $parts[1] ) ? strtolower( (string) $parts[1] ) : '';
+        if ( '' !== $handle_domain && '' !== $server_host && $handle_domain !== $server_host ) {
+            $actor = $handle;
+        }
+    }
+
+    if ( '' === $actor ) {
+        return '';
+    }
+
+    return trailingslashit( $server_url ) . '@' . $actor . '/' . rawurlencode( $slug );
+}
+
+function everycal_refresh_cached_event( $username, $slug ) {
+    $username = is_string( $username ) ? sanitize_text_field( $username ) : '';
+    $slug = is_string( $slug ) ? sanitize_text_field( $slug ) : '';
+    $server_url = everycal_discover_server_url( $username, $slug );
+
+    if ( '' === $username || '' === $slug || '' === $server_url ) {
+        return array( 'success' => false );
+    }
+
+    $api_url = trailingslashit( $server_url ) . 'api/v1/events/by-slug/' . rawurlencode( $username ) . '/' . rawurlencode( $slug );
+    $response = wp_remote_get( $api_url, array(
+        'timeout' => 10,
+        'headers' => array( 'Accept' => 'application/json' ),
+    ) );
+
+    if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+        return array( 'success' => false );
+    }
+
+    $event = json_decode( wp_remote_retrieve_body( $response ), true );
+    if ( ! is_array( $event ) ) {
+        return array( 'success' => false );
+    }
+
+    $store_key = 'everycal_ev_' . md5( $username . ':' . $slug );
+    $fresh_key = 'everycal_evf_' . md5( $username . ':' . $slug );
+    $store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+
+    everycal_cache_set( $store_key, $event, $store_ttl );
+    delete_option( $store_key );
+    everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
+
+    $now = time();
+    $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
+    $end = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
+    $ttl = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
+    everycal_cache_set( $fresh_key, 1, $ttl );
+
+    everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
+
+    return array(
+        'success' => true,
+        'entry'   => everycal_get_cached_event_index_entry( $username, $slug ),
+    );
+}
+
+function everycal_get_cached_events_for_admin( $sort = 'cachedAt', $order = 'desc' ) {
+    $events = array_values( everycal_get_cached_event_index() );
+
+    $allowed_sorts = array( 'event', 'handle', 'startDate', 'freshUntil', 'cachedAt' );
+    if ( ! in_array( $sort, $allowed_sorts, true ) ) {
+        $sort = 'cachedAt';
+    }
+
+    $order = strtolower( (string) $order );
+    if ( ! in_array( $order, array( 'asc', 'desc' ), true ) ) {
+        $order = 'desc';
+    }
+
+    usort( $events, function ( $a, $b ) use ( $sort, $order ) {
+        $direction = ( 'asc' === $order ) ? 1 : -1;
+
+        if ( 'event' === $sort ) {
+            $a_value = strtolower( (string) ( $a['title'] ?? ( ( $a['username'] ?? '' ) . ':' . ( $a['slug'] ?? '' ) ) ) );
+            $b_value = strtolower( (string) ( $b['title'] ?? ( ( $b['username'] ?? '' ) . ':' . ( $b['slug'] ?? '' ) ) ) );
+            $cmp = strcmp( $a_value, $b_value );
+            return $cmp * $direction;
+        }
+
+        if ( 'handle' === $sort ) {
+            $a_value = strtolower( (string) ( $a['handle'] ?? ( $a['username'] ?? '' ) ) );
+            $b_value = strtolower( (string) ( $b['handle'] ?? ( $b['username'] ?? '' ) ) );
+            $cmp = strcmp( $a_value, $b_value );
+            return $cmp * $direction;
+        }
+
+        if ( 'startDate' === $sort ) {
+            $a_value = ! empty( $a['startDate'] ) ? strtotime( (string) $a['startDate'] ) : 0;
+            $b_value = ! empty( $b['startDate'] ) ? strtotime( (string) $b['startDate'] ) : 0;
+            $a_value = false === $a_value ? 0 : $a_value;
+            $b_value = false === $b_value ? 0 : $b_value;
+            return ( $a_value <=> $b_value ) * $direction;
+        }
+
+        if ( 'freshUntil' === $sort ) {
+            $a_value = isset( $a['freshUntil'] ) ? absint( $a['freshUntil'] ) : 0;
+            $b_value = isset( $b['freshUntil'] ) ? absint( $b['freshUntil'] ) : 0;
+            return ( $a_value <=> $b_value ) * $direction;
+        }
+
+        $a_value = isset( $a['cachedAt'] ) ? absint( $a['cachedAt'] ) : 0;
+        $b_value = isset( $b['cachedAt'] ) ? absint( $b['cachedAt'] ) : 0;
+        return ( $a_value <=> $b_value ) * $direction;
+    } );
+
+    return $events;
+}
+
+function everycal_clear_all_cache_data() {
+    $events = everycal_get_cached_event_index();
+    foreach ( $events as $event ) {
+        if ( ! is_array( $event ) ) {
+            continue;
+        }
+        $username = isset( $event['username'] ) ? (string) $event['username'] : '';
+        $slug = isset( $event['slug'] ) ? (string) $event['slug'] : '';
+        everycal_clear_cached_event( $username, $slug );
+    }
+
+    $feeds = everycal_get_feed_cache_index();
+    foreach ( $feeds as $feed ) {
+        if ( ! is_array( $feed ) ) {
+            continue;
+        }
+        if ( ! empty( $feed['storeKey'] ) ) {
+            everycal_cache_delete( (string) $feed['storeKey'] );
+            delete_option( (string) $feed['storeKey'] );
+        }
+        if ( ! empty( $feed['freshKey'] ) ) {
+            everycal_cache_delete( (string) $feed['freshKey'] );
+            delete_option( (string) $feed['freshKey'] );
+        }
+    }
+
+    everycal_clear_feed_cache_transient_fallback();
+
+    delete_option( 'everycal_cached_event_index' );
+    delete_option( 'everycal_feed_cache_index' );
+}
+
+function everycal_clear_feed_cache_transient_fallback() {
+    global $wpdb;
+    if ( ! isset( $wpdb ) ) {
+        return;
+    }
+
+    $patterns = array(
+        '_transient_everycal_store_%',
+        '_transient_timeout_everycal_store_%',
+        '_transient_everycal_fresh_%',
+        '_transient_timeout_everycal_fresh_%',
+        'everycal_store_%',
+        'everycal_fresh_%',
+    );
+
+    foreach ( $patterns as $pattern ) {
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                $pattern
+            )
+        );
+    }
 }
 
 /**
@@ -374,11 +755,12 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
     everycal_cache_set( $store_key, $event, $store_ttl );
     delete_option( $store_key ); // cleanup legacy persistent cache key
     everycal_set_cached_event_server_url( $username, $slug, $server_url );
-
     $start = isset( $event['startDate'] ) ? strtotime( $event['startDate'] ) : 0;
     $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
     $ttl   = ( $end >= $now ) ? 300 : DAY_IN_SECONDS;
     everycal_cache_set( $fresh_key, 1, $ttl );
+
+    everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
 }
 
 /**
@@ -765,11 +1147,23 @@ function everycal_settings_page() {
     $logs_text         = implode( "\n", $recent_logs );
     $logs_nonce        = wp_create_nonce( 'everycal_http_logs' );
     $logs_cleared      = isset( $_GET['everycal_logs_cleared'] ) && '1' === (string) $_GET['everycal_logs_cleared'];
+    $cache_action      = isset( $_GET['everycal_cache_cleared'] ) ? sanitize_key( wp_unslash( $_GET['everycal_cache_cleared'] ) ) : '';
+    $cache_event       = isset( $_GET['everycal_cache_event'] ) ? sanitize_text_field( wp_unslash( $_GET['everycal_cache_event'] ) ) : '';
+    $cached_events     = everycal_get_cached_events_for_admin();
     ?>
     <div class="wrap">
         <h1><?php echo esc_html( __( 'EveryCal Settings', 'everycal' ) ); ?></h1>
         <?php if ( $logs_cleared ) : ?>
             <div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'HTTP debug logs cleared.', 'everycal' ); ?></p></div>
+        <?php endif; ?>
+        <?php if ( 'event' === $cache_action ) : ?>
+            <div class="notice notice-success is-dismissible"><p><?php echo esc_html( sprintf( __( 'Cleared cached event: %s', 'everycal' ), $cache_event ) ); ?></p></div>
+        <?php elseif ( 'all' === $cache_action ) : ?>
+            <div class="notice notice-success is-dismissible"><p><?php echo esc_html__( 'Cleared all EveryCal caches (event + feed).', 'everycal' ); ?></p></div>
+        <?php elseif ( 'refreshed' === $cache_action ) : ?>
+            <div class="notice notice-success is-dismissible"><p><?php echo esc_html( sprintf( __( 'Refreshed cached event: %s', 'everycal' ), $cache_event ) ); ?></p></div>
+        <?php elseif ( 'refresh_failed' === $cache_action ) : ?>
+            <div class="notice notice-error is-dismissible"><p><?php echo esc_html( sprintf( __( 'Failed to refresh cached event: %s', 'everycal' ), $cache_event ) ); ?></p></div>
         <?php endif; ?>
         <form method="post" action="options.php">
             <?php settings_fields( 'everycal_settings' ); ?>
@@ -896,8 +1290,376 @@ function everycal_settings_page() {
             </div>
         </details>
 
+        <details id="everycal-cache-events-panel" style="margin-top: 1.25rem;">
+            <summary style="cursor: pointer; font-weight: 600;"><?php echo esc_html__( 'Cached Events', 'everycal' ); ?> (<span id="everycal-cache-count"><?php echo esc_html( (string) count( $cached_events ) ); ?></span>)</summary>
+            <div style="margin-top: 0.75rem;">
+                <div id="everycal-cache-action-feedback" style="margin-bottom:8px;"></div>
+                <p class="description"><?php echo esc_html__( 'Review and clear per-event caches. Use Clear Entire Cache to also wipe feed cache entries.', 'everycal' ); ?></p>
+                <div style="margin-bottom: 12px;">
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
+                        <input type="hidden" name="action" value="everycal_clear_all_cache" />
+                        <?php wp_nonce_field( 'everycal_clear_all_cache' ); ?>
+                        <button type="submit" class="button button-secondary" onclick="return window.confirm('<?php echo esc_js( __( 'Clear all EveryCal cache data? This removes event and feed caches.', 'everycal' ) ); ?>');"><?php echo esc_html__( 'Clear Entire Cache', 'everycal' ); ?></button>
+                    </form>
+                </div>
+                <?php if ( empty( $cached_events ) ) : ?>
+                    <p><?php echo esc_html__( 'No cached events indexed yet.', 'everycal' ); ?></p>
+                <?php else : ?>
+                    <p class="description" id="everycal-cache-sort-status" style="margin-bottom:8px;"><?php echo esc_html__( 'Sorted by Cached At (newest first).', 'everycal' ); ?></p>
+                    <table class="widefat striped" id="everycal-cached-events-table" style="max-width: 1100px;" data-sort="cachedAt" data-order="desc">
+                        <thead>
+                            <tr>
+                                <th scope="col" aria-sort="none"><button type="button" class="button-link" data-everycal-sort="event"><?php echo esc_html__( 'Event', 'everycal' ); ?> <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col" aria-sort="none"><button type="button" class="button-link" data-everycal-sort="startDate"><?php echo esc_html__( 'Start', 'everycal' ); ?> <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col" aria-sort="none"><button type="button" class="button-link" data-everycal-sort="handle"><?php echo esc_html__( 'Handle', 'everycal' ); ?> <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col" aria-sort="none"><button type="button" class="button-link" data-everycal-sort="freshUntil"><?php echo esc_html__( 'Cached Until', 'everycal' ); ?> <span aria-hidden="true">↕</span></button></th>
+                                <th scope="col" aria-sort="none"><button type="button" class="button-link" data-everycal-sort="cachedAt"><?php echo esc_html__( 'Cached At', 'everycal' ); ?> <span aria-hidden="true">↕</span></button></th>
+                                <th><?php echo esc_html__( 'Action', 'everycal' ); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ( $cached_events as $cached_event ) : ?>
+                                <?php
+                                $event_username = isset( $cached_event['username'] ) ? (string) $cached_event['username'] : '';
+                                $event_slug = isset( $cached_event['slug'] ) ? (string) $cached_event['slug'] : '';
+                                $event_id = '@' . $event_username . '/' . $event_slug;
+                                $event_title = isset( $cached_event['title'] ) ? (string) $cached_event['title'] : '';
+                                $event_start = isset( $cached_event['startDate'] ) ? (string) $cached_event['startDate'] : '';
+                                $event_server = isset( $cached_event['serverUrl'] ) ? (string) $cached_event['serverUrl'] : '';
+                                $event_url = isset( $cached_event['eventUrl'] ) ? (string) $cached_event['eventUrl'] : '';
+                                $event_cached_at = isset( $cached_event['cachedAt'] ) ? absint( $cached_event['cachedAt'] ) : 0;
+                                $event_fresh_until = isset( $cached_event['freshUntil'] ) ? absint( $cached_event['freshUntil'] ) : 0;
+                                $event_start_ts = ( '' !== $event_start && false !== strtotime( $event_start ) ) ? strtotime( $event_start ) : 0;
+                                $event_sort_label = strtolower( (string) ( '' !== $event_title ? $event_title : $event_id ) );
+                                $event_handle = isset( $cached_event['handle'] ) ? ltrim( trim( (string) $cached_event['handle'] ), '@' ) : '';
+                                if ( '' === $event_handle ) {
+                                    $event_handle = (string) $event_username;
+                                }
+                                $event_handle_sort = strtolower( $event_handle );
+                                $wp_event_url = home_url( '/' . trim( $base, '/ ' ) . '/@' . rawurlencode( $event_username ) . '/' . rawurlencode( $event_slug ) . '/' );
+                                $everycal_event_url = everycal_build_everycal_event_url( $event_server, $event_username, $event_slug, $event_handle );
+                                ?>
+                                <tr data-event-username="<?php echo esc_attr( $event_username ); ?>" data-event-slug="<?php echo esc_attr( $event_slug ); ?>" data-sort-event="<?php echo esc_attr( $event_sort_label ); ?>" data-sort-handle="<?php echo esc_attr( $event_handle_sort ); ?>" data-sort-startdate="<?php echo esc_attr( (string) $event_start_ts ); ?>" data-sort-freshuntil="<?php echo esc_attr( (string) $event_fresh_until ); ?>" data-sort-cachedat="<?php echo esc_attr( (string) $event_cached_at ); ?>">
+                                    <td>
+                                        <strong data-role="event-title"><?php echo esc_html( '' !== $event_title ? $event_title : $event_id ); ?></strong><br />
+                                        <code><?php echo esc_html( $event_id ); ?></code>
+                                        <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;">
+                                            <a data-role="wp-link" href="<?php echo esc_url( $wp_event_url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html__( 'View on WordPress', 'everycal' ); ?></a>
+                                            <?php if ( '' !== $everycal_event_url ) : ?>
+                                                <span class="description" aria-hidden="true">|</span>
+                                                <a data-role="everycal-link" href="<?php echo esc_url( $everycal_event_url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html__( 'View on EveryCal', 'everycal' ); ?></a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php if ( '' !== $event_start && false !== strtotime( $event_start ) ) : ?>
+                                            <?php echo esc_html( wp_date( 'Y-m-d H:i', strtotime( $event_start ) ) ); ?>
+                                        <?php else : ?>
+                                            <span class="description">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ( '' !== $event_handle ) : ?>
+                                            <code data-role="event-handle">@<?php echo esc_html( $event_handle ); ?></code>
+                                        <?php else : ?>
+                                            <span class="description" data-role="event-handle">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ( $event_fresh_until > 0 ) : ?>
+                                            <span data-role="fresh-until"><?php echo esc_html( wp_date( 'Y-m-d H:i:s', $event_fresh_until ) ); ?></span>
+                                            <?php if ( $event_fresh_until < time() ) : ?>
+                                                <br /><span class="description" data-role="fresh-expired"><?php echo esc_html__( 'expired', 'everycal' ); ?></span>
+                                            <?php endif; ?>
+                                        <?php else : ?>
+                                            <span class="description" data-role="fresh-until">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ( $event_cached_at > 0 ) : ?>
+                                            <span data-role="cached-at"><?php echo esc_html( wp_date( 'Y-m-d H:i:s', $event_cached_at ) ); ?></span>
+                                        <?php else : ?>
+                                            <span class="description" data-role="cached-at">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div style="display:flex;gap:6px;flex-wrap:nowrap;align-items:center;">
+                                            <form class="everycal-cache-row-action" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                                                <input type="hidden" name="action" value="everycal_refresh_cached_event" />
+                                                <input type="hidden" name="username" value="<?php echo esc_attr( $event_username ); ?>" />
+                                                <input type="hidden" name="slug" value="<?php echo esc_attr( $event_slug ); ?>" />
+                                                <?php wp_nonce_field( 'everycal_refresh_cached_event' ); ?>
+                                                <button type="submit" class="button button-primary button-small" style="display:inline-flex;align-items:center;gap:4px;">
+                                                    <span class="dashicons dashicons-update" style="font-size:14px;width:14px;height:14px;line-height:14px;" aria-hidden="true"></span>
+                                                    <span><?php echo esc_html__( 'Refresh', 'everycal' ); ?></span>
+                                                </button>
+                                            </form>
+                                            <form class="everycal-cache-row-action" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                                                <input type="hidden" name="action" value="everycal_clear_cached_event" />
+                                                <input type="hidden" name="username" value="<?php echo esc_attr( $event_username ); ?>" />
+                                                <input type="hidden" name="slug" value="<?php echo esc_attr( $event_slug ); ?>" />
+                                                <?php wp_nonce_field( 'everycal_clear_cached_event' ); ?>
+                                                <button type="submit" class="button button-secondary button-small"><?php echo esc_html__( 'Clear', 'everycal' ); ?></button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+        </details>
+
         <script>
         (function() {
+            const cachePanel = document.getElementById("everycal-cache-events-panel");
+            const cacheTable = document.getElementById("everycal-cached-events-table");
+            const sortStatus = document.getElementById("everycal-cache-sort-status");
+            const cacheCount = document.getElementById("everycal-cache-count");
+            const cacheFeedback = document.getElementById("everycal-cache-action-feedback");
+
+            if (cachePanel) {
+                const panelStateKey = "everycal_cache_panel_open";
+                try {
+                    if (window.localStorage && window.localStorage.getItem(panelStateKey) === "1") {
+                        cachePanel.open = true;
+                    }
+                } catch (e) {
+                    // no-op
+                }
+
+                cachePanel.addEventListener("toggle", function () {
+                    try {
+                        if (!window.localStorage) return;
+                        window.localStorage.setItem(panelStateKey, cachePanel.open ? "1" : "0");
+                    } catch (e) {
+                        // no-op
+                    }
+                });
+            }
+
+            if (cacheTable) {
+                const tbody = cacheTable.querySelector("tbody");
+                const headers = Array.from(cacheTable.querySelectorAll("button[data-everycal-sort]"));
+                const labelByKey = {
+                    event: "Event",
+                    handle: "Handle",
+                    startDate: "Start",
+                    freshUntil: "Cached Until",
+                    cachedAt: "Cached At"
+                };
+
+                function updateSortStatus(sortKey, order) {
+                    if (!sortStatus) return;
+                    const direction = order === "asc" ? "ascending" : "descending";
+                    const directionLong = order === "asc" ? "oldest/earliest first" : "newest/latest first";
+                    const label = labelByKey[sortKey] || "Cached At";
+                    sortStatus.textContent = "Sorted by " + label + " (" + directionLong + ", " + direction + ").";
+                }
+
+                function updateHeaderIndicators(sortKey, order) {
+                    const ths = Array.from(cacheTable.querySelectorAll("thead th[aria-sort]"));
+                    ths.forEach(function (th) {
+                        th.setAttribute("aria-sort", "none");
+                    });
+
+                    headers.forEach(function (btn) {
+                        const span = btn.querySelector("span");
+                        if (!span) return;
+                        if (btn.getAttribute("data-everycal-sort") === sortKey) {
+                            span.textContent = order === "asc" ? "↑" : "↓";
+                            const th = btn.closest("th");
+                            if (th) {
+                                th.setAttribute("aria-sort", order === "asc" ? "ascending" : "descending");
+                            }
+                        } else {
+                            span.textContent = "↕";
+                        }
+                    });
+                }
+
+                function sortRows(sortKey, order) {
+                    if (!tbody) return;
+                    const rows = Array.from(tbody.querySelectorAll("tr"));
+                    const isNumeric = sortKey !== "event" && sortKey !== "handle";
+                    const direction = order === "asc" ? 1 : -1;
+
+                    rows.sort(function (a, b) {
+                        const aRaw = a.getAttribute("data-sort-" + sortKey.toLowerCase()) || "";
+                        const bRaw = b.getAttribute("data-sort-" + sortKey.toLowerCase()) || "";
+
+                        if (isNumeric) {
+                            const aNum = parseInt(aRaw, 10) || 0;
+                            const bNum = parseInt(bRaw, 10) || 0;
+                            return (aNum - bNum) * direction;
+                        }
+
+                        return aRaw.localeCompare(bRaw) * direction;
+                    });
+
+                    rows.forEach(function (row) {
+                        tbody.appendChild(row);
+                    });
+
+                    cacheTable.setAttribute("data-sort", sortKey);
+                    cacheTable.setAttribute("data-order", order);
+                    updateHeaderIndicators(sortKey, order);
+                    updateSortStatus(sortKey, order);
+                }
+
+                function getRowCount() {
+                    if (!tbody) return 0;
+                    return tbody.querySelectorAll("tr").length;
+                }
+
+                function updateCount() {
+                    if (!cacheCount) return;
+                    cacheCount.textContent = String(getRowCount());
+                }
+
+                function setFeedback(message, isError) {
+                    if (!cacheFeedback) return;
+                    cacheFeedback.textContent = message;
+                    cacheFeedback.className = isError ? "notice notice-error inline" : "notice notice-success inline";
+                }
+
+                function updateEmptyState() {
+                    if (!tbody || !cacheTable) return;
+                    const hasRows = getRowCount() > 0;
+                    let empty = document.getElementById("everycal-cache-empty");
+                    if (!hasRows) {
+                        cacheTable.style.display = "none";
+                        if (!empty) {
+                            empty = document.createElement("p");
+                            empty.id = "everycal-cache-empty";
+                            empty.textContent = "No cached events indexed yet.";
+                            cacheTable.parentNode.insertBefore(empty, cacheTable.nextSibling);
+                        }
+                    } else {
+                        cacheTable.style.display = "table";
+                        if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
+                    }
+                }
+
+                async function submitRowAction(form) {
+                    const formData = new FormData(form);
+                    const action = String(formData.get("action") || "");
+                    if (!action) return;
+
+                    const submitBtn = form.querySelector("button[type=submit]");
+                    if (submitBtn) submitBtn.disabled = true;
+
+                    try {
+                        const response = await fetch(ajaxurl, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            body: formData,
+                        });
+                        const payload = await response.json();
+                        if (!payload || !payload.success) {
+                            throw new Error((payload && payload.data && payload.data.message) ? payload.data.message : "Request failed");
+                        }
+
+                        const data = payload.data || {};
+                        const username = String(formData.get("username") || "");
+                        const slug = String(formData.get("slug") || "");
+                        const row = Array.from(tbody.querySelectorAll("tr")).find(function (tr) {
+                            return tr.getAttribute("data-event-username") === username && tr.getAttribute("data-event-slug") === slug;
+                        });
+                        if (!row) return;
+
+                        if (action === "everycal_clear_cached_event") {
+                            row.remove();
+                            updateCount();
+                            updateEmptyState();
+                            setFeedback("Cleared cached event: @" + username + "/" + slug, false);
+                            const sortKey = cacheTable.getAttribute("data-sort") || "cachedAt";
+                            const order = cacheTable.getAttribute("data-order") || "desc";
+                            sortRows(sortKey, order);
+                            return;
+                        }
+
+                        if (action === "everycal_refresh_cached_event" && data.entry) {
+                            const entry = data.entry;
+                            const titleNode = row.querySelector('[data-role="event-title"]');
+                            const handleNode = row.querySelector('[data-role="event-handle"]');
+                            const cachedAtNode = row.querySelector('[data-role="cached-at"]');
+                            const freshUntilNode = row.querySelector('[data-role="fresh-until"]');
+                            const wpLink = row.querySelector('[data-role="wp-link"]');
+                            const everycalLink = row.querySelector('[data-role="everycal-link"]');
+
+                            const displayTitle = entry.title && entry.title.length ? entry.title : ("@" + username + "/" + slug);
+                            const handleDisplay = entry.handle && entry.handle.length ? ("@" + entry.handle.replace(/^@+/, "")) : "—";
+
+                            row.setAttribute("data-sort-event", String(displayTitle).toLowerCase());
+                            row.setAttribute("data-sort-handle", String((entry.handle || username || "")).toLowerCase());
+                            row.setAttribute("data-sort-startdate", String(entry.startTs || 0));
+                            row.setAttribute("data-sort-freshuntil", String(entry.freshUntil || 0));
+                            row.setAttribute("data-sort-cachedat", String(entry.cachedAt || 0));
+
+                            if (titleNode) titleNode.textContent = displayTitle;
+                            if (handleNode) handleNode.textContent = handleDisplay;
+                            if (cachedAtNode) cachedAtNode.textContent = entry.cachedAtText || "—";
+                            if (freshUntilNode) freshUntilNode.textContent = entry.freshUntilText || "—";
+
+                            const existingExpired = row.querySelector('[data-role="fresh-expired"]');
+                            if (existingExpired && existingExpired.parentNode) {
+                                const parent = existingExpired.parentNode;
+                                const prev = existingExpired.previousSibling;
+                                if (prev && prev.nodeName === "BR") {
+                                    parent.removeChild(prev);
+                                }
+                                parent.removeChild(existingExpired);
+                            }
+                            if (entry.freshExpired && freshUntilNode && freshUntilNode.parentNode) {
+                                freshUntilNode.parentNode.appendChild(document.createElement("br"));
+                                const expired = document.createElement("span");
+                                expired.className = "description";
+                                expired.setAttribute("data-role", "fresh-expired");
+                                expired.textContent = "expired";
+                                freshUntilNode.parentNode.appendChild(expired);
+                            }
+
+                            if (wpLink && entry.wpEventUrl) wpLink.setAttribute("href", entry.wpEventUrl);
+                            if (everycalLink && entry.everycalEventUrl) everycalLink.setAttribute("href", entry.everycalEventUrl);
+
+                            setFeedback("Refreshed cached event: @" + username + "/" + slug, false);
+                            const sortKey = cacheTable.getAttribute("data-sort") || "cachedAt";
+                            const order = cacheTable.getAttribute("data-order") || "desc";
+                            sortRows(sortKey, order);
+                        }
+                    } catch (err) {
+                        setFeedback("Action failed for @" + String(formData.get("username") || "") + "/" + String(formData.get("slug") || "") + ".", true);
+                    } finally {
+                        if (submitBtn) submitBtn.disabled = false;
+                    }
+                }
+
+                headers.forEach(function (btn) {
+                    btn.addEventListener("click", function () {
+                        const sortKey = btn.getAttribute("data-everycal-sort") || "cachedAt";
+                        const currentSort = cacheTable.getAttribute("data-sort") || "cachedAt";
+                        const currentOrder = cacheTable.getAttribute("data-order") || "desc";
+                        const nextOrder = (sortKey === currentSort && currentOrder === "asc") ? "desc" : "asc";
+                        sortRows(sortKey, nextOrder);
+                    });
+                });
+
+                updateHeaderIndicators("cachedAt", "desc");
+                updateSortStatus("cachedAt", "desc");
+                updateCount();
+                updateEmptyState();
+
+                const rowForms = Array.from(document.querySelectorAll("form.everycal-cache-row-action"));
+                rowForms.forEach(function (form) {
+                    form.addEventListener("submit", function (e) {
+                        e.preventDefault();
+                        submitRowAction(form);
+                    });
+                });
+            }
+
             const viewer = document.getElementById("everycal-http-log-viewer");
             const refreshBtn = document.getElementById("everycal-http-refresh");
             const watchBtn = document.getElementById("everycal-http-watch");
@@ -1063,6 +1825,7 @@ function everycal_event_template( $template ) {
             $end   = ! empty( $event['endDate'] ) ? strtotime( $event['endDate'] ) : $start;
             $ttl   = ( $end >= time() ) ? 300 : DAY_IN_SECONDS;
             everycal_cache_set( $fresh_key, 1, $ttl );
+            everycal_register_cached_event_index_entry( $event, $server_url, time(), time() + $ttl );
         } elseif ( $event ) {
             // API failed but we have a stored copy — serve stale, retry in 1 min.
             everycal_cache_set( $fresh_key, 1, 60 );
@@ -1432,6 +2195,72 @@ function everycal_ajax_get_http_logs() {
     ) );
 }
 
+function everycal_ajax_clear_cached_event() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
+    }
+
+    check_ajax_referer( 'everycal_clear_cached_event' );
+
+    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
+    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+    $ok = everycal_clear_cached_event( $username, $slug );
+
+    if ( ! $ok ) {
+        wp_send_json_error( array( 'message' => 'invalid_event' ), 400 );
+    }
+
+    wp_send_json_success( array(
+        'event' => '@' . $username . '/' . $slug,
+    ) );
+}
+
+function everycal_ajax_refresh_cached_event() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
+    }
+
+    check_ajax_referer( 'everycal_refresh_cached_event' );
+
+    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
+    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+
+    $result = everycal_refresh_cached_event( $username, $slug );
+    if ( empty( $result['success'] ) || empty( $result['entry'] ) || ! is_array( $result['entry'] ) ) {
+        wp_send_json_error( array( 'message' => 'refresh_failed' ), 400 );
+    }
+
+    $entry = $result['entry'];
+    $base = get_option( 'everycal_base_path', 'events' );
+    $entry_username = isset( $entry['username'] ) ? (string) $entry['username'] : $username;
+    $entry_slug = isset( $entry['slug'] ) ? (string) $entry['slug'] : $slug;
+    $entry_handle = isset( $entry['handle'] ) ? ltrim( trim( (string) $entry['handle'] ), '@' ) : $entry_username;
+    $entry_server = isset( $entry['serverUrl'] ) ? (string) $entry['serverUrl'] : '';
+    $entry_title = isset( $entry['title'] ) ? (string) $entry['title'] : '';
+    $entry_start = isset( $entry['startDate'] ) ? (string) $entry['startDate'] : '';
+    $entry_start_ts = ( '' !== $entry_start && false !== strtotime( $entry_start ) ) ? strtotime( $entry_start ) : 0;
+    $entry_cached_at = isset( $entry['cachedAt'] ) ? absint( $entry['cachedAt'] ) : 0;
+    $entry_fresh_until = isset( $entry['freshUntil'] ) ? absint( $entry['freshUntil'] ) : 0;
+
+    wp_send_json_success( array(
+        'event' => '@' . $entry_username . '/' . $entry_slug,
+        'entry' => array(
+            'username' => $entry_username,
+            'slug' => $entry_slug,
+            'handle' => $entry_handle,
+            'title' => $entry_title,
+            'startTs' => $entry_start_ts,
+            'cachedAt' => $entry_cached_at,
+            'freshUntil' => $entry_fresh_until,
+            'cachedAtText' => $entry_cached_at > 0 ? wp_date( 'Y-m-d H:i:s', $entry_cached_at ) : '—',
+            'freshUntilText' => $entry_fresh_until > 0 ? wp_date( 'Y-m-d H:i:s', $entry_fresh_until ) : '—',
+            'freshExpired' => $entry_fresh_until > 0 && $entry_fresh_until < time(),
+            'wpEventUrl' => home_url( '/' . trim( (string) $base, '/ ' ) . '/@' . rawurlencode( $entry_username ) . '/' . rawurlencode( $entry_slug ) . '/' ),
+            'everycalEventUrl' => everycal_build_everycal_event_url( $entry_server, $entry_username, $entry_slug, $entry_handle ),
+        ),
+    ) );
+}
+
 /**
  * Clear saved HTTP debug logs.
  */
@@ -1444,6 +2273,75 @@ function everycal_clear_http_logs_action() {
     delete_option( 'everycal_http_debug_logs' );
 
     $redirect = add_query_arg( 'everycal_logs_cleared', '1', admin_url( 'options-general.php?page=everycal' ) );
+    wp_safe_redirect( $redirect );
+    exit;
+}
+
+function everycal_clear_cached_event_action() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'You are not allowed to do this.', 'everycal' ) );
+    }
+
+    check_admin_referer( 'everycal_clear_cached_event' );
+
+    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
+    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+
+    everycal_clear_cached_event( $username, $slug );
+
+    $event_label = '@' . $username . '/' . $slug;
+    $redirect = add_query_arg(
+        array(
+            'everycal_cache_cleared' => 'event',
+            'everycal_cache_event'   => $event_label,
+        ),
+        admin_url( 'options-general.php?page=everycal' )
+    );
+
+    wp_safe_redirect( $redirect );
+    exit;
+}
+
+function everycal_clear_all_cache_action() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'You are not allowed to do this.', 'everycal' ) );
+    }
+
+    check_admin_referer( 'everycal_clear_all_cache' );
+    everycal_clear_all_cache_data();
+
+    $redirect = add_query_arg(
+        'everycal_cache_cleared',
+        'all',
+        admin_url( 'options-general.php?page=everycal' )
+    );
+
+    wp_safe_redirect( $redirect );
+    exit;
+}
+
+function everycal_refresh_cached_event_action() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'You are not allowed to do this.', 'everycal' ) );
+    }
+
+    check_admin_referer( 'everycal_refresh_cached_event' );
+
+    $username = isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '';
+    $slug = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+    $event_label = '@' . $username . '/' . $slug;
+
+    $result = everycal_refresh_cached_event( $username, $slug );
+    $success = ! empty( $result['success'] );
+
+    $redirect = add_query_arg(
+        array(
+            'everycal_cache_cleared' => $success ? 'refreshed' : 'refresh_failed',
+            'everycal_cache_event'   => $event_label,
+        ),
+        admin_url( 'options-general.php?page=everycal' )
+    );
+
     wp_safe_redirect( $redirect );
     exit;
 }
@@ -1647,10 +2545,11 @@ function everycal_layout_supports_description( $layout ) {
 /**
  * Extract creator identity from the event object.
  */
-function everycal_get_event_creator( $event ) {
+function everycal_get_event_creator( $event, $server_url = '' ) {
     $username = '';
     $label    = '';
     $domain   = '';
+    $handle   = '';
 
     if ( ! empty( $event['account']['username'] ) ) {
         $username = (string) $event['account']['username'];
@@ -1670,13 +2569,63 @@ function everycal_get_event_creator( $event ) {
         $domain = (string) $event['account_domain'];
     }
 
+    if ( ! empty( $event['account']['handle'] ) ) {
+        $handle = (string) $event['account']['handle'];
+    } elseif ( ! empty( $event['account_handle'] ) ) {
+        $handle = (string) $event['account_handle'];
+    }
+
+    $username = ltrim( trim( $username ), '@' );
+    $domain = strtolower( trim( $domain ) );
+    $handle = ltrim( trim( $handle ), '@' );
+
+    if ( '' !== $handle && false !== strpos( $handle, '@' ) ) {
+        $parts = explode( '@', $handle, 2 );
+        if ( '' === $username && ! empty( $parts[0] ) ) {
+            $username = (string) $parts[0];
+        }
+        if ( '' === $domain && ! empty( $parts[1] ) ) {
+            $domain = strtolower( (string) $parts[1] );
+        }
+    }
+
+    if ( '' !== $username && false !== strpos( $username, '@' ) ) {
+        $parts = explode( '@', $username, 2 );
+        $username = (string) $parts[0];
+        if ( '' === $domain && ! empty( $parts[1] ) ) {
+            $domain = strtolower( (string) $parts[1] );
+        }
+    }
+
+    if ( '' === $domain ) {
+        $url_handle = everycal_extract_handle_from_event_url( isset( $event['url'] ) ? (string) $event['url'] : '' );
+        if ( '' !== $url_handle && false !== strpos( $url_handle, '@' ) ) {
+            $parts = explode( '@', $url_handle, 2 );
+            if ( '' === $username && ! empty( $parts[0] ) ) {
+                $username = (string) $parts[0];
+            }
+            if ( ! empty( $parts[1] ) ) {
+                $domain = strtolower( (string) $parts[1] );
+            }
+        }
+    }
+
+    if ( '' === $domain ) {
+        $server_host = everycal_extract_server_host( $server_url );
+        if ( '' !== $server_host ) {
+            $domain = $server_host;
+        }
+    }
+
     if ( '' === $label ) {
         $label = $username;
     }
 
-    $handle = $username;
-    if ( $domain && false === strpos( $username, '@' ) ) {
-        $handle = $username . '@' . $domain;
+    if ( '' === $handle ) {
+        $handle = $username;
+        if ( $domain && false === strpos( $username, '@' ) ) {
+            $handle = $username . '@' . $domain;
+        }
     }
 
     return array(
@@ -1685,6 +2634,27 @@ function everycal_get_event_creator( $event ) {
         'handle'   => $handle,
         'label'    => $label,
     );
+}
+
+/**
+ * Best-effort extraction of @user@domain from an event URL path.
+ */
+function everycal_extract_handle_from_event_url( $url ) {
+    $url = is_string( $url ) ? trim( $url ) : '';
+    if ( '' === $url ) {
+        return '';
+    }
+
+    $path = (string) wp_parse_url( $url, PHP_URL_PATH );
+    if ( '' === $path ) {
+        return '';
+    }
+
+    if ( preg_match( '#/@([^/@]+@[^/]+)/#', $path, $matches ) ) {
+        return ltrim( (string) $matches[1], '@' );
+    }
+
+    return '';
 }
 
 /**
