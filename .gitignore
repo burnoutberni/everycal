@@ -14,6 +14,8 @@ tmp/
 *.db-shm
 *.db-wal
 packages/wordpress/build/
+packages/wordpress/vendor/
+packages/wordpress/.phpstan/
 .scraper-password
 .wirmachenwien_password
 scraper-api-keys.json

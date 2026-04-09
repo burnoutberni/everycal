@@ -18,6 +18,7 @@ import { __, sprintf } from "@wordpress/i18n";
 import { ServerSideRender } from "@wordpress/server-side-render";
 
 import metadata from "./block.json";
+import { deriveServerMode } from "./utils";
 import "./editor.scss";
 import "./style.scss";
 
@@ -44,13 +45,6 @@ registerBlockType(metadata.name, {
 				: "";
 		const effectiveDefaultServerUrl =
 			configuredDefaultServerUrl || defaultServerUrl;
-		const deriveServerMode = (value) => {
-			const normalizedServerUrl = (value || "").trim();
-			if (normalizedServerUrl.length === 0) {
-				return "default";
-			}
-			return "custom";
-		};
 		const serverMode = deriveServerMode(serverUrl);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";

@@ -41,6 +41,26 @@ pnpm --filter @everycal/wordpress build
 
 3. Activate **EveryCal** in wp-admin.
 
+## Development checks
+
+Run these from the repository root:
+
+```bash
+pnpm --filter @everycal/wordpress build
+pnpm --filter @everycal/wordpress lint
+pnpm --filter @everycal/wordpress test
+pnpm --filter @everycal/wordpress php:setup
+pnpm --filter @everycal/wordpress lint:php:strict
+```
+
+What each command does:
+
+- `build`: compiles block assets into `packages/wordpress/build`
+- `lint`: runs JavaScript and PHP syntax checks
+- `test`: runs plugin unit tests (Jest via `@wordpress/scripts`)
+- `php:setup`: installs Composer-based PHP tooling in `packages/wordpress/vendor`
+- `lint:php:strict`: runs PHPCS (WPCS) and PHPStan
+
 ## Quick start
 
 1. Open **Settings -> EveryCal**.
