@@ -2281,6 +2281,11 @@ function everycal_http_debug_enabled() {
         $enabled = (bool) EVERYCAL_HTTP_DEBUG;
     }
 
+    /**
+     * Filters whether EveryCal HTTP debug logging is enabled.
+     *
+     * @param bool $enabled Whether debug logging is enabled.
+     */
     return (bool) apply_filters( 'everycal_http_debug_enabled', $enabled );
 }
 
@@ -2290,6 +2295,16 @@ function everycal_http_debug_enabled() {
 function everycal_http_debug_error_log_enabled( $line = '', $url = '', $context = '', $response = null, $args = array() ) {
     $enabled = defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG;
 
+    /**
+     * Filters whether EveryCal HTTP debug lines should be written to PHP error_log.
+     *
+     * @param bool  $enabled  Whether writing to error_log is enabled.
+     * @param string $line    Formatted log line.
+     * @param string $url     Request URL.
+     * @param string $context Debug context from the HTTP API.
+     * @param mixed  $response HTTP API response value.
+     * @param array  $args    Request arguments passed to wp_remote_get/wp_remote_request.
+     */
     return (bool) apply_filters(
         'everycal_http_debug_error_log_enabled',
         $enabled,
@@ -2904,6 +2919,14 @@ function everycal_resolve_creator_url( $event, $server_url, $creator = null ) {
         }
     }
 
+    /**
+     * Filters the resolved creator profile URL shown in event cards and event pages.
+     *
+     * @param string $resolved   The resolved URL before filtering.
+     * @param array  $event      Normalized event payload.
+     * @param string $server_url EveryCal server URL used for the request.
+     * @param array  $creator    Normalized creator payload.
+     */
     $filtered = apply_filters( 'everycal_creator_url', $resolved, $event, $server_url, $creator );
     return is_string( $filtered ) ? $filtered : $resolved;
 }
