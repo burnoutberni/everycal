@@ -940,7 +940,7 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
     }
 
     // Creator
-    $creator = everycal_get_event_creator( $event );
+    $creator = everycal_get_event_creator( $event, $server_url );
     if ( ! empty( $creator['label'] ) ) {
         $creator_url = everycal_resolve_creator_url( $event, $server_url, $creator );
         echo '<div class="everycal-event__creator">';
@@ -2127,7 +2127,7 @@ function everycal_render_single_event_content( $content ) {
     }
 
     // Creator
-    $creator = everycal_get_event_creator( $event );
+    $creator = everycal_get_event_creator( $event, $server_url );
     if ( ! empty( $creator['label'] ) ) {
         $creator_url = everycal_resolve_creator_url( $event, $server_url, $creator );
         echo '<p class="everycal-single-event__creator">';
@@ -2870,7 +2870,7 @@ function everycal_extract_handle_from_event_url( $url ) {
  */
 function everycal_resolve_creator_url( $event, $server_url, $creator = null ) {
     if ( null === $creator ) {
-        $creator = everycal_get_event_creator( $event );
+        $creator = everycal_get_event_creator( $event, $server_url );
     }
 
     if ( empty( $creator['username'] ) ) {
