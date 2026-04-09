@@ -13,6 +13,11 @@
 		"align": ["wide", "full"]
 	},
 	"attributes": {
+		"serverMode": {
+			"type": "string",
+			"default": "default",
+			"enum": ["default", "custom"]
+		},
 		"serverUrl": {
 			"type": "string",
 			"default": ""

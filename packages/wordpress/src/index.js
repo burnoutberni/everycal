@@ -25,6 +25,7 @@ import "./style.scss";
 registerBlockType(metadata.name, {
 	edit({ attributes, setAttributes }) {
 		const {
+			serverMode,
 			serverUrl,
 			account,
 			limit,
@@ -45,10 +46,13 @@ registerBlockType(metadata.name, {
 				: "";
 		const effectiveDefaultServerUrl =
 			configuredDefaultServerUrl || defaultServerUrl;
-		const serverMode = deriveServerMode(serverUrl);
+		const selectedServerMode =
+			serverMode === "default" || serverMode === "custom"
+				? serverMode
+				: deriveServerMode(serverUrl);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
-		const hasCustomServer = serverMode === "custom";
+		const hasCustomServer = selectedServerMode === "custom";
 		const blockProps = useBlockProps();
 
 		return (
@@ -57,7 +61,7 @@ registerBlockType(metadata.name, {
 					<PanelBody title={__("Feed Settings", "everycal")} initialOpen={true}>
 						<SelectControl
 							label={__("Server source", "everycal")}
-							value={serverMode}
+							value={selectedServerMode}
 							options={[
 								{
 									label: effectiveDefaultServerUrl
@@ -72,10 +76,14 @@ registerBlockType(metadata.name, {
 							]}
 							onChange={(val) => {
 								if (val === "default") {
-									setAttributes({ serverUrl: "" });
+									setAttributes({
+										serverMode: "default",
+										serverUrl: "",
+									});
 									return;
 								}
 								setAttributes({
+									serverMode: "custom",
 									serverUrl: effectiveDefaultServerUrl
 										? effectiveDefaultServerUrl.trim()
 										: "",
