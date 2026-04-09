@@ -2226,7 +2226,7 @@ function everycal_render_single_event_content( $content ) {
 				echo ' (';
 				echo '<a href="' . esc_url( $map_links['google'] ) . '"' . everycal_external_link_attrs( $map_links['google'] ) . '>' . esc_html__( 'Google Maps', 'everycal' ) . '</a>, ';
 				echo '<a href="' . esc_url( $map_links['apple'] ) . '"' . everycal_external_link_attrs( $map_links['apple'] ) . '>' . esc_html__( 'Apple Maps', 'everycal' ) . '</a>, ';
-				echo '<a href="' . esc_url( $map_links['osm'] ) . '"' . everycal_external_link_attrs( $map_links['osm'] ) . '>OSM</a>';
+				echo '<a href="' . esc_url( $map_links['osm'] ) . '"' . everycal_external_link_attrs( $map_links['osm'] ) . '>' . esc_html__( 'OSM', 'everycal' ) . '</a>';
 				echo ')';
 			}
 		}
