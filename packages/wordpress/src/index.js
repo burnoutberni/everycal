@@ -76,7 +76,9 @@ registerBlockType(metadata.name, {
 									return;
 								}
 								setAttributes({
-									serverUrl: (effectiveDefaultServerUrl || "https://").trim(),
+									serverUrl: effectiveDefaultServerUrl
+										? effectiveDefaultServerUrl.trim()
+										: "",
 								});
 							}}
 						/>
