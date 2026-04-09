@@ -45,12 +45,26 @@ registerBlockType(metadata.name, {
 				: "";
 		const effectiveDefaultServerUrl =
 			configuredDefaultServerUrl || defaultServerUrl;
+		const deriveServerMode = (value) => {
+			const normalizedServerUrl = (value || "").trim();
+			const normalizedDefaultServerUrl = (effectiveDefaultServerUrl || "").trim();
+			if (normalizedServerUrl.length === 0) {
+				return "default";
+			}
+			if (
+				normalizedDefaultServerUrl.length > 0 &&
+				normalizedServerUrl === normalizedDefaultServerUrl
+			) {
+				return "default";
+			}
+			return "custom";
+		};
 		const [serverMode, setServerMode] = useState(
-			(serverUrl || "").trim().length > 0 ? "custom" : "default"
+			deriveServerMode(serverUrl)
 		);
 		useEffect(() => {
-			setServerMode((serverUrl || "").trim().length > 0 ? "custom" : "default");
-		}, [serverUrl]);
+			setServerMode(deriveServerMode(serverUrl));
+		}, [serverUrl, effectiveDefaultServerUrl]);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
 		const hasCustomServer = serverMode === "custom";
