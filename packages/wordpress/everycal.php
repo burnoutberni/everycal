@@ -78,9 +78,17 @@ function everycal_enqueue_block_editor_config() {
  * and renders them grouped: ongoing → future → past, with pagination.
  */
 function everycal_render_block( $attributes ) {
-    $server_url = isset( $attributes['serverUrl'] ) ? esc_url( $attributes['serverUrl'] ) : '';
+    $server_url = isset( $attributes['serverUrl'] ) ? untrailingslashit( esc_url_raw( (string) $attributes['serverUrl'] ) ) : '';
     if ( '' === $server_url ) {
-        $server_url = esc_url( get_option( 'everycal_default_server_url', '' ) );
+        $server_url = untrailingslashit( esc_url_raw( (string) get_option( 'everycal_default_server_url', '' ) ) );
+    }
+    if ( '' !== $server_url ) {
+        $parsed_server_url = wp_parse_url( $server_url );
+        $server_scheme = strtolower( (string) ( $parsed_server_url['scheme'] ?? '' ) );
+        $server_host = isset( $parsed_server_url['host'] ) ? trim( (string) $parsed_server_url['host'] ) : '';
+        if ( ! in_array( $server_scheme, array( 'http', 'https' ), true ) || '' === $server_host ) {
+            $server_url = '';
+        }
     }
     $account    = isset( $attributes['account'] ) ? sanitize_text_field( $attributes['account'] ) : '';
     $per_page   = isset( $attributes['limit'] ) ? absint( $attributes['limit'] ) : 10;
