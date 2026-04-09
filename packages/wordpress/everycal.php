@@ -960,10 +960,10 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
 
 		$datetime_lines = everycal_get_event_datetime_lines( $event );
 		if ( ! empty( $datetime_lines['date'] ) ) {
-			echo '<div class="everycal-event__date-line"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</div>';
+			echo '<span class="everycal-event__date-line" style="display:block;"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</span>';
 		}
 		if ( ! empty( $datetime_lines['time'] ) ) {
-			echo '<div class="everycal-event__time-line"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</div>';
+			echo '<span class="everycal-event__time-line" style="display:block;"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</span>';
 		}
 		echo '</time>';
 	}
@@ -2190,10 +2190,10 @@ function everycal_render_single_event_content( $content ) {
 		echo '<time class="everycal-event__date" datetime="' . esc_attr( $event['startDate'] ) . '">';
 		$datetime_lines = everycal_get_event_datetime_lines( $event );
 		if ( ! empty( $datetime_lines['date'] ) ) {
-			echo '<div class="everycal-event__date-line"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</div>';
+			echo '<span class="everycal-event__date-line" style="display:block;"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</span>';
 		}
 		if ( ! empty( $datetime_lines['time'] ) ) {
-			echo '<div class="everycal-event__time-line"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</div>';
+			echo '<span class="everycal-event__time-line" style="display:block;"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</span>';
 		}
 		echo '</time>';
 	}
