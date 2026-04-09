@@ -8,7 +8,6 @@
 import { registerBlockType } from "@wordpress/blocks";
 import { InspectorControls, useBlockProps } from "@wordpress/block-editor";
 import { useSelect } from "@wordpress/data";
-import { useEffect, useState } from "@wordpress/element";
 import {
 	PanelBody,
 	TextControl,
@@ -47,24 +46,12 @@ registerBlockType(metadata.name, {
 			configuredDefaultServerUrl || defaultServerUrl;
 		const deriveServerMode = (value) => {
 			const normalizedServerUrl = (value || "").trim();
-			const normalizedDefaultServerUrl = (effectiveDefaultServerUrl || "").trim();
 			if (normalizedServerUrl.length === 0) {
-				return "default";
-			}
-			if (
-				normalizedDefaultServerUrl.length > 0 &&
-				normalizedServerUrl === normalizedDefaultServerUrl
-			) {
 				return "default";
 			}
 			return "custom";
 		};
-		const [serverMode, setServerMode] = useState(
-			deriveServerMode(serverUrl)
-		);
-		useEffect(() => {
-			setServerMode(deriveServerMode(serverUrl));
-		}, [serverUrl, effectiveDefaultServerUrl]);
+		const serverMode = deriveServerMode(serverUrl);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
 		const hasCustomServer = serverMode === "custom";
@@ -91,11 +78,12 @@ registerBlockType(metadata.name, {
 							]}
 							onChange={(val) => {
 								if (val === "default") {
-									setServerMode("default");
 									setAttributes({ serverUrl: "" });
 									return;
 								}
-								setServerMode("custom");
+								setAttributes({
+									serverUrl: (effectiveDefaultServerUrl || "https://").trim(),
+								});
 							}}
 						/>
 						{hasCustomServer && (
