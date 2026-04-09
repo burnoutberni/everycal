@@ -2643,7 +2643,7 @@ function everycal_get_event_datetime_lines( $event ) {
 
         return array(
             'date' => $date_line,
-            'time' => esc_html__( 'All day', 'everycal' ),
+            'time' => __( 'All day', 'everycal' ),
         );
     }
 
