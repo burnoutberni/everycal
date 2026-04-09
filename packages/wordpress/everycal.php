@@ -37,10 +37,10 @@ add_action( 'admin_post_everycal_clear_http_logs', 'everycal_clear_http_logs_act
 add_action( 'admin_post_everycal_clear_cached_event', 'everycal_clear_cached_event_action' );
 add_action( 'admin_post_everycal_clear_all_cache', 'everycal_clear_all_cache_action' );
 add_action( 'admin_post_everycal_refresh_cached_event', 'everycal_refresh_cached_event_action' );
+add_action( 'enqueue_block_editor_assets', 'everycal_enqueue_block_editor_config' );
 
 // Register the Gutenberg block
 add_action( 'init', 'everycal_register_block' );
-add_filter( 'block_type_metadata', 'everycal_apply_default_server_to_block_metadata' );
 
 function everycal_register_block() {
     register_block_type( __DIR__ . '/build', array(
@@ -49,27 +49,25 @@ function everycal_register_block() {
 }
 
 /**
- * Inject plugin-level default EveryCal server URL into block metadata defaults.
+ * Expose EveryCal editor defaults to block JavaScript.
  */
-function everycal_apply_default_server_to_block_metadata( $metadata ) {
-    if ( empty( $metadata['name'] ) || 'everycal/feed' !== $metadata['name'] ) {
-        return $metadata;
-    }
-
+function everycal_enqueue_block_editor_config() {
     $default_server = trim( (string) get_option( 'everycal_default_server_url', '' ) );
-    if ( '' === $default_server ) {
-        return $metadata;
+    $default_server = '' !== $default_server ? untrailingslashit( esc_url_raw( $default_server ) ) : '';
+
+    $config = wp_json_encode( array(
+        'defaultServerUrl' => $default_server,
+    ) );
+
+    if ( false === $config ) {
+        return;
     }
 
-    if ( ! isset( $metadata['attributes'] ) || ! is_array( $metadata['attributes'] ) ) {
-        $metadata['attributes'] = array();
-    }
-    if ( ! isset( $metadata['attributes']['serverUrl'] ) || ! is_array( $metadata['attributes']['serverUrl'] ) ) {
-        $metadata['attributes']['serverUrl'] = array( 'type' => 'string' );
-    }
-
-    $metadata['attributes']['serverUrl']['default'] = $default_server;
-    return $metadata;
+    wp_add_inline_script(
+        'wp-blocks',
+        'window.everycalBlockConfig = Object.assign({}, window.everycalBlockConfig || {}, ' . $config . ');',
+        'before'
+    );
 }
 
 /**

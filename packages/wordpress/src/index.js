@@ -39,13 +39,17 @@ registerBlockType(metadata.name, {
 			const value = blockType?.attributes?.serverUrl?.default;
 			return typeof value === "string" ? value.trim() : "";
 		}, []);
+		const configuredDefaultServerUrl =
+			typeof globalThis?.everycalBlockConfig?.defaultServerUrl === "string"
+				? globalThis.everycalBlockConfig.defaultServerUrl.trim()
+				: "";
+		const effectiveDefaultServerUrl =
+			configuredDefaultServerUrl || defaultServerUrl;
 		const [serverMode, setServerMode] = useState(
 			(serverUrl || "").trim().length > 0 ? "custom" : "default"
 		);
 		useEffect(() => {
-			if ((serverUrl || "").trim().length > 0) {
-				setServerMode("custom");
-			}
+			setServerMode((serverUrl || "").trim().length > 0 ? "custom" : "default");
 		}, [serverUrl]);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
@@ -61,10 +65,10 @@ registerBlockType(metadata.name, {
 							value={serverMode}
 							options={[
 								{
-									label: defaultServerUrl
+									label: effectiveDefaultServerUrl
 										? sprintf(
 											__("Site default (%s)", "everycal"),
-											defaultServerUrl
+											effectiveDefaultServerUrl
 									  )
 										: __("Site default (not configured)", "everycal"),
 									value: "default",
@@ -99,7 +103,7 @@ registerBlockType(metadata.name, {
 										)}
 									</>
 								}
-								placeholder={defaultServerUrl || undefined}
+								placeholder={effectiveDefaultServerUrl || undefined}
 								value={serverUrl}
 								onChange={(val) =>
 									setAttributes({ serverUrl: val })
