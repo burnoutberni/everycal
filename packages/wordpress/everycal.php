@@ -2272,6 +2272,23 @@ function everycal_http_debug_enabled() {
 }
 
 /**
+ * Whether EveryCal HTTP debug lines should also be sent to PHP error_log.
+ */
+function everycal_http_debug_error_log_enabled( $line = '', $url = '', $context = '', $response = null, $args = array() ) {
+    $enabled = defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG;
+
+    return (bool) apply_filters(
+        'everycal_http_debug_error_log_enabled',
+        $enabled,
+        $line,
+        $url,
+        $context,
+        $response,
+        $args
+    );
+}
+
+/**
  * Return recent HTTP debug log lines.
  */
 function everycal_get_http_debug_logs( $limit = 200 ) {
@@ -2555,7 +2572,9 @@ function everycal_http_api_debug_logger( $response, $context, $class, $args, $ur
         (string) $context
     );
 
-    error_log( $line );
+    if ( everycal_http_debug_error_log_enabled( $line, $url, $context, $response, $args ) ) {
+        error_log( $line );
+    }
     everycal_append_http_debug_log( '[' . wp_date( 'Y-m-d H:i:s' ) . '] ' . $line );
 }
 
