@@ -12,6 +12,7 @@ import {
 	TextControl,
 	RangeControl,
 	SelectControl,
+	Notice,
 } from "@wordpress/components";
 import { __ } from "@wordpress/i18n";
 import { ServerSideRender } from "@wordpress/server-side-render";
@@ -35,12 +36,21 @@ registerBlockType(metadata.name, {
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
 		const hasCustomServer = (serverUrl || "").trim().length > 0;
+		const usesDefaultServerFallback = !hasCustomServer;
 		const blockProps = useBlockProps();
 
 		return (
 			<div {...blockProps}>
 				<InspectorControls>
 					<PanelBody title={__("Feed Settings", "everycal")} initialOpen={true}>
+						{usesDefaultServerFallback && (
+							<Notice status="info" isDismissible={false}>
+								{__(
+									"No per-block server URL is set. This block uses the default EveryCal server URL from plugin settings when available.",
+									"everycal"
+								)}
+							</Notice>
+						)}
 						<TextControl
 							label={__("EveryCal Server URL", "everycal")}
 							help={
@@ -151,22 +161,10 @@ registerBlockType(metadata.name, {
 					</PanelBody>
 				</InspectorControls>
 
-				{serverUrl ? (
-					<ServerSideRender
-						block="everycal/feed"
-						attributes={attributes}
-					/>
-				) : (
-					<div className="everycal-placeholder">
-						<span className="dashicons dashicons-calendar-alt"></span>
-						<p>
-							{__(
-								"Configure an EveryCal server URL in the block settings to display events.",
-								"everycal"
-							)}
-						</p>
-					</div>
-				)}
+				<ServerSideRender
+					block="everycal/feed"
+					attributes={attributes}
+				/>
 			</div>
 		);
 	},
