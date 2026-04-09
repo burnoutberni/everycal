@@ -244,6 +244,9 @@ importers:
         specifier: ^3.0.0
         version: 3.9.0(react@19.2.4)
     devDependencies:
+      '@playwright/test':
+        specifier: ^1.50.0
+        version: 1.58.2
       '@testing-library/react':
         specifier: ^16.3.0
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -268,6 +271,9 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
+      nanoid:
+        specifier: ^5.1.0
+        version: 5.1.6
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
