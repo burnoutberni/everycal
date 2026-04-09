@@ -912,10 +912,10 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
 
         $datetime_lines = everycal_get_event_datetime_lines( $event );
         if ( ! empty( $datetime_lines['date'] ) ) {
-            echo '<div class="everycal-event__date-line">📅 ' . esc_html( $datetime_lines['date'] ) . '</div>';
+            echo '<div class="everycal-event__date-line"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</div>';
         }
         if ( ! empty( $datetime_lines['time'] ) ) {
-            echo '<div class="everycal-event__time-line">🕒 ' . esc_html( $datetime_lines['time'] ) . '</div>';
+            echo '<div class="everycal-event__time-line"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</div>';
         }
         echo '</time>';
     }
@@ -955,7 +955,7 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
 
     // Location
     if ( ! empty( $event['location']['name'] ) ) {
-        echo '<div class="everycal-event__location">📍 ';
+        echo '<div class="everycal-event__location"><span aria-hidden="true">📍 </span>';
         if ( ! empty( $event['location']['url'] ) ) {
             echo '<a href="' . esc_url( $event['location']['url'] ) . '"' . everycal_external_link_attrs( $event['location']['url'] ) . '>' . esc_html( $event['location']['name'] ) . '</a>';
         } else {
@@ -1877,7 +1877,7 @@ function everycal_customize_event_admin_bar( $wp_admin_bar ) {
     $wp_admin_bar->add_node( array(
         'id'     => 'everycal-cache-refresh',
         'parent' => 'everycal-cache',
-        'title'  => '↻ ' . esc_html__( 'Refresh now', 'everycal' ),
+        'title'  => '<span aria-hidden="true">↻ </span>' . esc_html__( 'Refresh now', 'everycal' ),
         'href'   => esc_url( $refresh_url ),
     ) );
 
@@ -2077,17 +2077,17 @@ function everycal_render_single_event_content( $content ) {
         echo '<time class="everycal-event__date" datetime="' . esc_attr( $event['startDate'] ) . '">';
         $datetime_lines = everycal_get_event_datetime_lines( $event );
         if ( ! empty( $datetime_lines['date'] ) ) {
-            echo '<div class="everycal-event__date-line">📅 ' . esc_html( $datetime_lines['date'] ) . '</div>';
+            echo '<div class="everycal-event__date-line"><span aria-hidden="true">📅 </span>' . esc_html( $datetime_lines['date'] ) . '</div>';
         }
         if ( ! empty( $datetime_lines['time'] ) ) {
-            echo '<div class="everycal-event__time-line">🕒 ' . esc_html( $datetime_lines['time'] ) . '</div>';
+            echo '<div class="everycal-event__time-line"><span aria-hidden="true">🕒 </span>' . esc_html( $datetime_lines['time'] ) . '</div>';
         }
         echo '</time>';
     }
 
     // Location
     if ( ! empty( $event['location']['name'] ) ) {
-        echo '<div class="everycal-single-event__location">📍 ';
+        echo '<div class="everycal-single-event__location"><span aria-hidden="true">📍 </span>';
         if ( ! empty( $event['location']['url'] ) ) {
             echo '<a href="' . esc_url( $event['location']['url'] ) . '"' . everycal_external_link_attrs( $event['location']['url'] ) . '>' . esc_html( $event['location']['name'] ) . '</a>';
         } else {
