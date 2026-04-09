@@ -2176,14 +2176,15 @@ function everycal_render_single_event_content( $content ) {
 	}
 
 	$event      = $GLOBALS['everycal_single_event'];
-	$base       = get_option( 'everycal_base_path', 'events' );
+	$base       = trim( (string) get_option( 'everycal_base_path', 'events' ), '/ ' );
+	$back_url   = '' === $base ? home_url( '/' ) : home_url( '/' . $base . '/' );
 	$server_url = isset( $GLOBALS['everycal_single_server_url'] ) ? $GLOBALS['everycal_single_server_url'] : '';
 
 	ob_start();
 	echo '<div class="everycal-single-event">';
 
 	// Back link
-	echo '<p class="everycal-single-event__back"><a href="/' . esc_attr( $base ) . '/">&larr; '
+	echo '<p class="everycal-single-event__back"><a href="' . esc_url( $back_url ) . '">&larr; '
 		. esc_html__( 'All events', 'everycal' ) . '</a></p>';
 
 	// Image
