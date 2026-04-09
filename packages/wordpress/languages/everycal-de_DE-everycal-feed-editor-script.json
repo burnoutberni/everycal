@@ -1,5 +1,5 @@
 {
-  "translation-revision-date": "2026-04-08 16:14+0000",
+  "translation-revision-date": "2026-04-08 16:05+0000",
   "generator": "manual make-json compatible export",
   "domain": "everycal",
   "locale_data": {
@@ -9,47 +9,41 @@
         "lang": "de_DE",
         "plural-forms": "nplurals=2; plural=(n != 1);"
       },
-      "Account (optional)": [
-        "Konto (optional)"
+      "Feed Settings": [
+        "Feed-Einstellungen"
       ],
-      "Character count": [
-        "Zeichenanzahl"
+      "Server source": [
+        "Serverquelle"
       ],
-      "Compact": [
-        "Kompakt"
+      "Site default (%s)": [
+        "Website-Standard (%s)"
       ],
-      "Configure an EveryCal server URL in the block settings to display events.": [
-        "Konfiguriere eine EveryCal-Server-URL in den Blockeinstellungen, um Events anzuzeigen."
+      "Site default (not configured)": [
+        "Website-Standard (nicht konfiguriert)"
       ],
-      "Description length": [
-        "Beschreibungslänge"
-      ],
-      "Description length (characters)": [
-        "Beschreibungslänge (Zeichen)"
-      ],
-      "Description length (words)": [
-        "Beschreibungslänge (Wörter)"
-      ],
-      "e.g. https://events.example.com": [
-        "z.B. https://events.example.com"
+      "Custom URL": [
+        "Benutzerdefinierte URL"
       ],
       "EveryCal Server URL": [
         "EveryCal-Server-URL"
       ],
-      "Feed Settings": [
-        "Feed-Einstellungen"
+      "e.g. https://events.example.com": [
+        "z.B. https://events.example.com"
+      ],
+      "Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.": [
+        "Verwendest du einen benutzerdefinierten Server? Füge ihn in den EveryCal-Einstellungen unter „Zusätzliche HTTP-Debug-Server“ hinzu."
+      ],
+      "Account (optional)": [
+        "Konto (optional)"
       ],
       "Filter events by account username. Leave empty for all public events.": [
         "Events nach Kontonutzernamen filtern. Leer lassen für alle öffentlichen Events."
       ],
-      "Full": [
-        "Vollständig"
+      "Style Settings": [
+        "Stil-Einstellungen"
       ],
-      "Grid": [
-        "Raster"
-      ],
-      "Grid columns": [
-        "Rasterspalten"
+      "Number of events": [
+        "Anzahl der Events"
       ],
       "Layout": [
         "Layout"
@@ -57,81 +51,105 @@
       "List": [
         "Liste"
       ],
-      "Number of events": [
-        "Anzahl der Events"
+      "Grid": [
+        "Raster"
       ],
-      "Style Settings": [
-        "Stil-Einstellungen"
+      "Compact": [
+        "Kompakt"
       ],
-      "Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.": [
-        "Verwendest du einen benutzerdefinierten Server? Füge ihn in den EveryCal-Einstellungen unter „Zusätzliche HTTP-Debug-Server“ hinzu."
+      "Grid columns": [
+        "Rasterspalten"
+      ],
+      "Description length": [
+        "Beschreibungslänge"
+      ],
+      "Full": [
+        "Vollständig"
       ],
       "Word count": [
         "Wortanzahl"
+      ],
+      "Character count": [
+        "Zeichenanzahl"
+      ],
+      "Description length (words)": [
+        "Beschreibungslänge (Wörter)"
+      ],
+      "Description length (characters)": [
+        "Beschreibungslänge (Zeichen)"
       ]
     }
   },
   "comment": {
     "reference": {
-      "Account (optional)": [
-        "src/index.js:68"
+      "Feed Settings": [
+        "src/index.js:76"
       ],
-      "Character count": [
-        "src/index.js:125"
+      "Server source": [
+        "src/index.js:78"
       ],
-      "Compact": [
-        "src/index.js:101"
+      "Site default (%s)": [
+        "src/index.js:84"
       ],
-      "Configure an EveryCal server URL in the block settings to display events.": [
-        "src/index.js:163"
+      "Site default (not configured)": [
+        "src/index.js:87"
       ],
-      "Description length": [
-        "src/index.js:120"
-      ],
-      "Description length (characters)": [
-        "src/index.js:141"
-      ],
-      "Description length (words)": [
-        "src/index.js:131"
-      ],
-      "e.g. https://events.example.com": [
-        "src/index.js:48"
+      "Custom URL": [
+        "src/index.js:90"
       ],
       "EveryCal Server URL": [
-        "src/index.js:45"
+        "src/index.js:103"
       ],
-      "Feed Settings": [
-        "src/index.js:43"
-      ],
-      "Filter events by account username. Leave empty for all public events.": [
-        "src/index.js:69"
-      ],
-      "Full": [
-        "src/index.js:123"
-      ],
-      "Grid": [
-        "src/index.js:97"
-      ],
-      "Grid columns": [
-        "src/index.js:109"
-      ],
-      "Layout": [
-        "src/index.js:89"
-      ],
-      "List": [
-        "src/index.js:93"
-      ],
-      "Number of events": [
-        "src/index.js:82"
-      ],
-      "Style Settings": [
-        "src/index.js:80"
+      "e.g. https://events.example.com": [
+        "src/index.js:106"
       ],
       "Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.": [
-        "src/index.js:53"
+        "src/index.js:111"
+      ],
+      "Account (optional)": [
+        "src/index.js:128"
+      ],
+      "Filter events by account username. Leave empty for all public events.": [
+        "src/index.js:129"
+      ],
+      "Style Settings": [
+        "src/index.js:140"
+      ],
+      "Number of events": [
+        "src/index.js:142"
+      ],
+      "Layout": [
+        "src/index.js:149"
+      ],
+      "List": [
+        "src/index.js:153"
+      ],
+      "Grid": [
+        "src/index.js:157"
+      ],
+      "Compact": [
+        "src/index.js:161"
+      ],
+      "Grid columns": [
+        "src/index.js:169"
+      ],
+      "Description length": [
+        "src/index.js:180"
+      ],
+      "Full": [
+        "src/index.js:183"
       ],
       "Word count": [
-        "src/index.js:124"
+        "src/index.js:184"
+      ],
+      "Character count": [
+        "src/index.js:185"
+      ],
+      "Description length (words)": [
+        "src/index.js:191"
+      ],
+      "Description length (characters)": [
+        "src/index.js:201"
       ]
     }
   }
