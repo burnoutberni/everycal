@@ -1,5 +1,5 @@
 # German (informal "du") translation for EveryCal
-# Copyright (C) 2025 EveryCal Contributors
+# Copyright (C) 2026 EveryCal Contributors
 # This file is distributed under the AGPL-3.0-only.
 msgid ""
 msgstr ""
@@ -36,7 +36,7 @@ msgstr ""
 #: everycal.php
 #, fuzzy
 msgid "EveryCal Contributors"
-msgstr "EveryCal-Einstellungen"
+msgstr "EveryCal Beitragende"
 
 #: everycal.php:103
 msgid "Please configure an EveryCal server URL."
