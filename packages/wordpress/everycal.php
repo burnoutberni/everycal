@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: EveryCal
- * Plugin URI:  https://github.com/everycal/everycal
+ * Plugin URI:  https://github.com/burnoutberni/everycal
  * Description: Display federated event feeds from any EveryCal server. Just add the Gutenberg block and point it at a feed URL.
  * Version:     0.1.0
  * Author:      EveryCal Contributors

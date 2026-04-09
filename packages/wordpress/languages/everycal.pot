@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: EveryCal 0.1.0\n"
-"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/wordpress\n"
+"Report-Msgid-Bugs-To: https://github.com/burnoutberni/everycal/issues\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
@@ -22,8 +22,8 @@ msgstr ""
 
 #. Plugin URI of the plugin
 #: everycal.php
-msgid "https://github.com/everycal/everycal"
-msgstr ""
+msgid "https://github.com/burnoutberni/everycal"
+msgstr "https://github.com/burnoutberni/everycal"
 
 #. Description of the plugin
 #: everycal.php

@@ -22,8 +22,8 @@ msgstr "EveryCal"
 
 #. Plugin URI of the plugin
 #: everycal.php
-msgid "https://github.com/everycal/everycal"
-msgstr ""
+msgid "https://github.com/burnoutberni/everycal"
+msgstr "https://github.com/burnoutberni/everycal"
 
 #. Description of the plugin
 #: everycal.php
