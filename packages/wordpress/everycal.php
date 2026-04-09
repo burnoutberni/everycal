@@ -690,16 +690,17 @@ function everycal_clear_feed_cache_transient_fallback() {
         return;
     }
 
-    $patterns = array(
-        '_transient_everycal_store_%',
-        '_transient_timeout_everycal_store_%',
-        '_transient_everycal_fresh_%',
-        '_transient_timeout_everycal_fresh_%',
-        'everycal_store_%',
-        'everycal_fresh_%',
+    $prefixes = array(
+        '_transient_everycal_store_',
+        '_transient_timeout_everycal_store_',
+        '_transient_everycal_fresh_',
+        '_transient_timeout_everycal_fresh_',
+        'everycal_store_',
+        'everycal_fresh_',
     );
 
-    foreach ( $patterns as $pattern ) {
+    foreach ( $prefixes as $prefix ) {
+        $pattern = $wpdb->esc_like( $prefix ) . '%';
         $wpdb->query(
             $wpdb->prepare(
                 "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
