@@ -2301,6 +2301,49 @@ function everycal_append_http_debug_log( $line ) {
 }
 
 /**
+ * Sanitize URLs for log output.
+ *
+ * Removes control characters and strips query/fragment parts.
+ */
+function everycal_sanitize_url_for_log( $url ) {
+    $url = is_string( $url ) ? trim( $url ) : '';
+    if ( '' === $url ) {
+        return '';
+    }
+
+    $url = preg_replace( '/[\x00-\x1F\x7F]+/', '', $url );
+    if ( ! is_string( $url ) || '' === $url ) {
+        return '';
+    }
+
+    $parts = wp_parse_url( $url );
+    if ( ! is_array( $parts ) ) {
+        return preg_replace( '/[?#].*$/', '', $url );
+    }
+
+    $scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+    $host   = isset( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
+    $path   = isset( $parts['path'] ) ? (string) $parts['path'] : '';
+    $port   = isset( $parts['port'] ) ? absint( $parts['port'] ) : 0;
+
+    $sanitized = '';
+    if ( '' !== $scheme ) {
+        $sanitized .= $scheme . '://';
+    }
+    $sanitized .= $host;
+    if ( $port > 0 ) {
+        $sanitized .= ':' . $port;
+    }
+    $sanitized .= $path;
+
+    if ( '' === $sanitized ) {
+        return preg_replace( '/[?#].*$/', '', $url );
+    }
+
+    return $sanitized;
+}
+
+/**
  * AJAX endpoint for log viewer polling.
  */
 function everycal_ajax_get_http_logs() {
@@ -2500,7 +2543,7 @@ function everycal_http_api_debug_logger( $response, $context, $class, $args, $ur
     $line = sprintf(
         '[EveryCal HTTP] %s %s | timeout=%s | status=%s | context=%s',
         $method,
-        (string) $url,
+        everycal_sanitize_url_for_log( $url ),
         $timeout,
         $status,
         (string) $context
