@@ -523,7 +523,23 @@ function everycal_build_everycal_event_url( $server_url, $username, $slug, $hand
         return '';
     }
 
+    $actor = everycal_select_actor_for_server( $server_url, $username, $handle );
+
+    if ( '' === $actor ) {
+        return '';
+    }
+
+    return trailingslashit( $server_url ) . '@' . $actor . '/' . rawurlencode( $slug );
+}
+
+/**
+ * Pick username for local actors, full handle for remote actors.
+ */
+function everycal_select_actor_for_server( $server_url, $username, $handle ) {
+    $username = ltrim( trim( (string) $username ), '@' );
+    $handle = ltrim( trim( (string) $handle ), '@' );
     $server_host = everycal_extract_server_host( $server_url );
+
     $actor = $username;
     if ( '' === $actor ) {
         $actor = $handle;
@@ -537,11 +553,7 @@ function everycal_build_everycal_event_url( $server_url, $username, $slug, $hand
         }
     }
 
-    if ( '' === $actor ) {
-        return '';
-    }
-
-    return trailingslashit( $server_url ) . '@' . $actor . '/' . rawurlencode( $slug );
+    return $actor;
 }
 
 function everycal_build_wp_event_detail_url( $base_path, $username, $slug ) {
@@ -2867,7 +2879,10 @@ function everycal_resolve_creator_url( $event, $server_url, $creator = null ) {
 
     $default_url = '';
     if ( ! empty( $server_url ) ) {
-        $default_url = trailingslashit( $server_url ) . '@' . $creator['handle'];
+        $actor = everycal_select_actor_for_server( $server_url, $creator['username'], $creator['handle'] );
+        if ( '' !== $actor ) {
+            $default_url = trailingslashit( $server_url ) . '@' . $actor;
+        }
     }
 
     $resolved = $default_url;
