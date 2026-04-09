@@ -538,6 +538,18 @@ function everycal_build_everycal_event_url( $server_url, $username, $slug, $hand
     return trailingslashit( $server_url ) . '@' . $actor . '/' . rawurlencode( $slug );
 }
 
+function everycal_build_wp_event_detail_url( $base_path, $username, $slug ) {
+    $base_path = trim( (string) $base_path, '/ ' );
+    $username = ltrim( trim( (string) $username ), '@' );
+    $slug = trim( (string) $slug );
+
+    if ( '' === $base_path || '' === $username || '' === $slug ) {
+        return '';
+    }
+
+    return home_url( '/' . $base_path . '/@' . rawurlencode( $username ) . '/' . rawurlencode( $slug ) . '/' );
+}
+
 function everycal_refresh_cached_event( $username, $slug ) {
     $username = is_string( $username ) ? sanitize_text_field( $username ) : '';
     $slug = is_string( $slug ) ? sanitize_text_field( $slug ) : '';
@@ -863,7 +875,7 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
     $primary_url = '';
 
     if ( $evt_username && $evt_slug ) {
-        $detail_url  = home_url( '/' . $base_path . '/@' . $evt_username . '/' . $evt_slug . '/' );
+        $detail_url  = everycal_build_wp_event_detail_url( $base_path, $evt_username, $evt_slug );
         $primary_url = $detail_url;
     } elseif ( ! empty( $event['url'] ) ) {
         $primary_url = $event['url'];
@@ -1326,7 +1338,7 @@ function everycal_settings_page() {
                                     $event_handle = (string) $event_username;
                                 }
                                 $event_handle_sort = strtolower( $event_handle );
-                                $wp_event_url = home_url( '/' . trim( $base, '/ ' ) . '/@' . rawurlencode( $event_username ) . '/' . rawurlencode( $event_slug ) . '/' );
+                                $wp_event_url = everycal_build_wp_event_detail_url( $base, $event_username, $event_slug );
                                 $everycal_event_url = everycal_build_everycal_event_url( $event_server, $event_username, $event_slug, $event_handle );
                                 ?>
                                 <tr data-event-username="<?php echo esc_attr( $event_username ); ?>" data-event-slug="<?php echo esc_attr( $event_slug ); ?>" data-sort-event="<?php echo esc_attr( $event_sort_label ); ?>" data-sort-handle="<?php echo esc_attr( $event_handle_sort ); ?>" data-sort-startdate="<?php echo esc_attr( (string) $event_start_ts ); ?>" data-sort-freshuntil="<?php echo esc_attr( (string) $event_fresh_until ); ?>" data-sort-cachedat="<?php echo esc_attr( (string) $event_cached_at ); ?>">
@@ -2366,7 +2378,7 @@ function everycal_ajax_refresh_cached_event() {
             'cachedAtText' => $entry_cached_at > 0 ? wp_date( 'Y-m-d H:i:s', $entry_cached_at ) : '—',
             'freshUntilText' => $entry_fresh_until > 0 ? wp_date( 'Y-m-d H:i:s', $entry_fresh_until ) : '—',
             'freshExpired' => $entry_fresh_until > 0 && $entry_fresh_until < time(),
-            'wpEventUrl' => home_url( '/' . trim( (string) $base, '/ ' ) . '/@' . rawurlencode( $entry_username ) . '/' . rawurlencode( $entry_slug ) . '/' ),
+            'wpEventUrl' => everycal_build_wp_event_detail_url( $base, $entry_username, $entry_slug ),
             'everycalEventUrl' => everycal_build_everycal_event_url( $entry_server, $entry_username, $entry_slug, $entry_handle ),
         ),
     ) );
