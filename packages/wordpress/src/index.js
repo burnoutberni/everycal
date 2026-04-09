@@ -7,14 +7,15 @@
 
 import { registerBlockType } from "@wordpress/blocks";
 import { InspectorControls, useBlockProps } from "@wordpress/block-editor";
+import { useSelect } from "@wordpress/data";
+import { useEffect, useState } from "@wordpress/element";
 import {
 	PanelBody,
 	TextControl,
 	RangeControl,
 	SelectControl,
-	Notice,
 } from "@wordpress/components";
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import { ServerSideRender } from "@wordpress/server-side-render";
 
 import metadata from "./block.json";
@@ -33,47 +34,78 @@ registerBlockType(metadata.name, {
 			descriptionWordCount,
 			descriptionCharCount,
 		} = attributes;
+		const defaultServerUrl = useSelect((select) => {
+			const blockType = select("core/blocks").getBlockType(metadata.name);
+			const value = blockType?.attributes?.serverUrl?.default;
+			return typeof value === "string" ? value.trim() : "";
+		}, []);
+		const [serverMode, setServerMode] = useState(
+			(serverUrl || "").trim().length > 0 ? "custom" : "default"
+		);
+		useEffect(() => {
+			if ((serverUrl || "").trim().length > 0) {
+				setServerMode("custom");
+			}
+		}, [serverUrl]);
 		const supportsDescription = layout === "list" || layout === "grid";
 		const isGridLayout = layout === "grid";
-		const hasCustomServer = (serverUrl || "").trim().length > 0;
-		const usesDefaultServerFallback = !hasCustomServer;
+		const hasCustomServer = serverMode === "custom";
 		const blockProps = useBlockProps();
 
 		return (
 			<div {...blockProps}>
 				<InspectorControls>
 					<PanelBody title={__("Feed Settings", "everycal")} initialOpen={true}>
-						{usesDefaultServerFallback && (
-							<Notice status="info" isDismissible={false}>
-								{__(
-									"No per-block server URL is set. This block uses the default EveryCal server URL from plugin settings when available.",
-									"everycal"
-								)}
-							</Notice>
-						)}
-						<TextControl
-							label={__("EveryCal Server URL", "everycal")}
-							help={
-								<>
-									{__("e.g. https://events.example.com", "everycal")}
-									{hasCustomServer && (
-										<>
-											{" "}
-											<a href="options-general.php?page=everycal">
-												{__(
-													"Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.",
-													"everycal"
-												)}
-											</a>
-										</>
-									)}
-								</>
-							}
-							value={serverUrl}
-							onChange={(val) =>
-								setAttributes({ serverUrl: val })
-							}
+						<SelectControl
+							label={__("Server source", "everycal")}
+							value={serverMode}
+							options={[
+								{
+									label: defaultServerUrl
+										? sprintf(
+											__("Site default (%s)", "everycal"),
+											defaultServerUrl
+									  )
+										: __("Site default (not configured)", "everycal"),
+									value: "default",
+								},
+								{ label: __("Custom URL", "everycal"), value: "custom" },
+							]}
+							onChange={(val) => {
+								if (val === "default") {
+									setServerMode("default");
+									setAttributes({ serverUrl: "" });
+									return;
+								}
+								setServerMode("custom");
+							}}
 						/>
+						{hasCustomServer && (
+							<TextControl
+								label={__("EveryCal Server URL", "everycal")}
+								help={
+									<>
+										{__("e.g. https://events.example.com", "everycal")}
+										{hasCustomServer && (
+											<>
+												{" "}
+												<a href="options-general.php?page=everycal">
+													{__(
+														"Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.",
+														"everycal"
+													)}
+												</a>
+											</>
+										)}
+									</>
+								}
+								placeholder={defaultServerUrl || undefined}
+								value={serverUrl}
+								onChange={(val) =>
+									setAttributes({ serverUrl: val })
+								}
+							/>
+						)}
 						<TextControl
 							label={__("Account (optional)", "everycal")}
 							help={__(
