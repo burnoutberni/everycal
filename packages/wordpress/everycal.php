@@ -52,11 +52,31 @@ function everycal_register_block() {
 }
 
 /**
+ * Normalize and validate an EveryCal server URL.
+ *
+ * Returns an untrailed absolute URL when valid, otherwise an empty string.
+ */
+function everycal_normalize_server_url( $value ) {
+	$url = untrailingslashit( esc_url_raw( trim( (string) $value ) ) );
+	if ( '' === $url ) {
+		return '';
+	}
+
+	$parts  = wp_parse_url( $url );
+	$scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+	$host   = isset( $parts['host'] ) ? trim( (string) $parts['host'] ) : '';
+	if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === $host ) {
+		return '';
+	}
+
+	return $url;
+}
+
+/**
  * Expose EveryCal editor defaults to block JavaScript.
  */
 function everycal_enqueue_block_editor_config() {
-	$default_server = trim( (string) get_option( 'everycal_default_server_url', '' ) );
-	$default_server = '' !== $default_server ? untrailingslashit( esc_url_raw( $default_server ) ) : '';
+	$default_server = everycal_normalize_server_url( get_option( 'everycal_default_server_url', '' ) );
 
 	$config = wp_json_encode(
 		array(
@@ -83,17 +103,9 @@ function everycal_enqueue_block_editor_config() {
  * and renders them grouped: ongoing → future → past, with pagination.
  */
 function everycal_render_block( $attributes ) {
-	$server_url = isset( $attributes['serverUrl'] ) ? untrailingslashit( esc_url_raw( (string) $attributes['serverUrl'] ) ) : '';
+	$server_url = isset( $attributes['serverUrl'] ) ? everycal_normalize_server_url( $attributes['serverUrl'] ) : '';
 	if ( '' === $server_url ) {
-		$server_url = untrailingslashit( esc_url_raw( (string) get_option( 'everycal_default_server_url', '' ) ) );
-	}
-	if ( '' !== $server_url ) {
-		$parsed_server_url = wp_parse_url( $server_url );
-		$server_scheme     = strtolower( (string) ( $parsed_server_url['scheme'] ?? '' ) );
-		$server_host       = isset( $parsed_server_url['host'] ) ? trim( (string) $parsed_server_url['host'] ) : '';
-		if ( ! in_array( $server_scheme, array( 'http', 'https' ), true ) || '' === $server_host ) {
-			$server_url = '';
-		}
+		$server_url = everycal_normalize_server_url( get_option( 'everycal_default_server_url', '' ) );
 	}
 	$account                 = isset( $attributes['account'] ) ? sanitize_text_field( $attributes['account'] ) : '';
 	$per_page                = isset( $attributes['limit'] ) ? absint( $attributes['limit'] ) : 10;
@@ -392,7 +404,7 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 	$existing_event_url   = '';
 	$existing_handle      = '';
 	if ( isset( $index[ $id ]['serverUrl'] ) && is_string( $index[ $id ]['serverUrl'] ) ) {
-		$existing_server_url = $index[ $id ]['serverUrl'];
+		$existing_server_url = everycal_normalize_server_url( $index[ $id ]['serverUrl'] );
 	}
 	if ( isset( $index[ $id ]['freshUntil'] ) ) {
 		$existing_fresh_until = absint( $index[ $id ]['freshUntil'] );
@@ -404,7 +416,7 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 		$existing_handle = $index[ $id ]['handle'];
 	}
 
-	$clean_server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+	$clean_server_url = everycal_normalize_server_url( $server_url );
 	if ( '' === $clean_server_url ) {
 		$clean_server_url = $existing_server_url;
 	}
@@ -528,7 +540,7 @@ function everycal_get_cached_event_index_entry( $username, $slug ) {
 }
 
 function everycal_build_everycal_event_url( $server_url, $username, $slug, $handle = '' ) {
-	$server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+	$server_url = everycal_normalize_server_url( $server_url );
 	$username   = ltrim( trim( (string) $username ), '@' );
 	$slug       = trim( (string) $slug );
 	$handle     = ltrim( trim( (string) $handle ), '@' );
@@ -811,7 +823,7 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
 function everycal_set_cached_event_server_url( $username, $slug, $server_url ) {
 	$username   = is_string( $username ) ? trim( $username ) : '';
 	$slug       = is_string( $slug ) ? trim( $slug ) : '';
-	$server_url = untrailingslashit( esc_url_raw( (string) $server_url ) );
+	$server_url = everycal_normalize_server_url( $server_url );
 
 	if ( '' === $username || '' === $slug || '' === $server_url ) {
 		return;
@@ -849,7 +861,7 @@ function everycal_get_cached_event_server_url( $username, $slug ) {
 		return '';
 	}
 
-	return untrailingslashit( esc_url_raw( $url ) );
+	return everycal_normalize_server_url( $url );
 }
 
 /**
@@ -1150,7 +1162,7 @@ function everycal_register_settings() {
 			'type'              => 'string',
 			'default'           => '',
 			'sanitize_callback' => function ( $val ) {
-				return untrailingslashit( esc_url_raw( $val ) );
+				return everycal_normalize_server_url( $val );
 			},
 		)
 	);
@@ -2276,9 +2288,9 @@ function everycal_discover_server_url( $username = '', $slug = '' ) {
 		return $cached;
 	}
 
-	$default_server = trim( (string) get_option( 'everycal_default_server_url', '' ) );
+	$default_server = everycal_normalize_server_url( get_option( 'everycal_default_server_url', '' ) );
 	if ( '' !== $default_server ) {
-		return untrailingslashit( esc_url_raw( $default_server ) );
+		return $default_server;
 	}
 
 	return '';
