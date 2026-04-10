@@ -4,7 +4,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: EveryCal 0.1.0\n"
-"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/wordpress\n"
+"Report-Msgid-Bugs-To: https://github.com/burnoutberni/everycal/issues\n"
 "POT-Creation-Date: 2026-04-10T12:39:15+00:00\n"
 "PO-Revision-Date: 2026-04-08 16:05+0000\n"
 "Last-Translator: EveryCal Contributors\n"
