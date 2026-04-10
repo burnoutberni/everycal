@@ -253,8 +253,6 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 	$fresh_key = 'everycal_fresh_' . md5( $api_url );
 	$store_ttl = everycal_get_cache_store_ttl_seconds( $ttl );
 
-	everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key );
-
 	// Load expiring store (may be empty array on first run).
 	$store = everycal_cache_get( $store_key, null );
 	if ( null === $store ) {
@@ -263,6 +261,7 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 		if ( is_array( $legacy_store ) ) {
 			$store = $legacy_store;
 			everycal_cache_set( $store_key, $store, $store_ttl );
+			everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key );
 			delete_option( $store_key );
 		} else {
 			$store = array();
@@ -333,6 +332,7 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 	// Persist and mark fresh.
 	everycal_cache_set( $store_key, $store, $store_ttl );
 	everycal_cache_set( $fresh_key, 1, $ttl );
+	everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key );
 
 	return array_values( $store );
 }
