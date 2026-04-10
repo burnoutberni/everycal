@@ -270,9 +270,19 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 		return array();
 	}
 
-	$body    = wp_remote_retrieve_body( $response );
-	$data    = json_decode( $body, true );
-	$raw     = isset( $data['events'] ) ? $data['events'] : array();
+	$body = wp_remote_retrieve_body( $response );
+	$data = json_decode( $body, true );
+	if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $data ) || ! isset( $data['events'] ) || ! is_array( $data['events'] ) ) {
+		// Malformed payload — serve stale data if we have any, still set a short
+		// freshness flag so we retry soon without hammering every request.
+		if ( ! empty( $store ) ) {
+			everycal_cache_set( $fresh_key, 1, 60 ); // retry in 1 min
+			return array_values( $store );
+		}
+		return array();
+	}
+
+	$raw     = $data['events'];
 	$fetched = array_map( 'everycal_normalise_event', $raw );
 	$now     = time();
 
