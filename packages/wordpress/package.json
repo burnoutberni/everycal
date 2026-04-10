@@ -15,7 +15,7 @@
     "test": "wp-scripts test-unit-js --runInBand",
     "plugin-zip": "wp-scripts plugin-zip",
     "i18n:compile": "for f in languages/*.po; do msgfmt -o \"${f%.po}.mo\" \"$f\"; done",
-    "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal"
+    "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal --exclude=build,node_modules,vendor"
   },
   "devDependencies": {
     "@wordpress/scripts": "^31.8.0"
