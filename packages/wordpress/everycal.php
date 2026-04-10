@@ -310,6 +310,8 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 
 	// Keep feed store limited to the prewarm window.
 	$windowed_store = array();
+	$cached_event_index = everycal_get_cached_event_index();
+	$persist_cached_event_index = false;
 
 	// Pre-warm single-event caches so event detail pages can render from feed data
 	// without immediately triggering extra by-slug requests.
@@ -324,7 +326,11 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 		}
 
 		$windowed_store[ $key ] = $event;
-		everycal_prewarm_single_event_cache( $event, $now, $server_url );
+		$persist_cached_event_index = everycal_prewarm_single_event_cache( $event, $now, $server_url, $cached_event_index ) || $persist_cached_event_index;
+	}
+
+	if ( $persist_cached_event_index ) {
+		everycal_set_cached_event_index( $cached_event_index );
 	}
 
 	$store = $windowed_store;
@@ -407,9 +413,9 @@ function everycal_set_cached_event_index( $index ) {
 	update_option( 'everycal_cached_event_index', $index, false );
 }
 
-function everycal_register_cached_event_index_entry( $event, $server_url = '', $cached_at = null, $fresh_until = null ) {
-	if ( ! is_array( $event ) ) {
-		return;
+function everycal_merge_cached_event_index_entry( &$index, $event, $server_url = '', $cached_at = null, $fresh_until = null ) {
+	if ( ! is_array( $index ) || ! is_array( $event ) ) {
+		return false;
 	}
 
 	$username = '';
@@ -423,7 +429,7 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 	$username = trim( $username );
 	$slug     = trim( $slug );
 	if ( '' === $username || '' === $slug ) {
-		return;
+		return false;
 	}
 
 	if ( null === $cached_at ) {
@@ -431,7 +437,6 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 	}
 
 	$id                   = $username . ':' . $slug;
-	$index                = everycal_get_cached_event_index();
 	$existing_server_url  = '';
 	$existing_fresh_until = 0;
 	$existing_event_url   = '';
@@ -473,7 +478,7 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 		$handle = $existing_handle;
 	}
 
-	$index[ $id ] = array(
+	$entry = array(
 		'id'         => $id,
 		'username'   => $username,
 		'slug'       => $slug,
@@ -487,7 +492,22 @@ function everycal_register_cached_event_index_entry( $event, $server_url = '', $
 		'freshUntil' => $resolved_fresh_until,
 	);
 
+	if ( isset( $index[ $id ] ) && is_array( $index[ $id ] ) && $index[ $id ] === $entry ) {
+		return false;
+	}
+
+	$index[ $id ] = $entry;
+	return true;
+}
+
+function everycal_register_cached_event_index_entry( $event, $server_url = '', $cached_at = null, $fresh_until = null ) {
+	$index = everycal_get_cached_event_index();
+	if ( ! everycal_merge_cached_event_index_entry( $index, $event, $server_url, $cached_at, $fresh_until ) ) {
+		return false;
+	}
+
 	everycal_set_cached_event_index( $index );
+	return true;
 }
 
 function everycal_get_feed_cache_index() {
@@ -820,7 +840,7 @@ function everycal_event_store_key( $event ) {
 /**
  * Pre-populate the per-event cache used by virtual event detail pages.
  */
-function everycal_prewarm_single_event_cache( $event, $now = null, $server_url = '' ) {
+function everycal_prewarm_single_event_cache( $event, $now = null, $server_url = '', &$cached_event_index = null ) {
 	$username = '';
 	if ( ! empty( $event['account']['username'] ) ) {
 		$username = (string) $event['account']['username'];
@@ -830,7 +850,7 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
 
 	$slug = ! empty( $event['slug'] ) ? (string) $event['slug'] : '';
 	if ( '' === $username || '' === $slug ) {
-		return;
+		return false;
 	}
 
 	if ( null === $now ) {
@@ -847,7 +867,11 @@ function everycal_prewarm_single_event_cache( $event, $now = null, $server_url =
 	$ttl = everycal_get_event_cache_ttl_seconds();
 	everycal_cache_set( $fresh_key, 1, $ttl );
 
-	everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
+	if ( is_array( $cached_event_index ) ) {
+		return everycal_merge_cached_event_index_entry( $cached_event_index, $event, $server_url, $now, $now + $ttl );
+	}
+
+	return everycal_register_cached_event_index_entry( $event, $server_url, $now, $now + $ttl );
 }
 
 /**
