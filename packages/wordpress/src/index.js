@@ -8,6 +8,7 @@
 import { registerBlockType } from "@wordpress/blocks";
 import { InspectorControls, useBlockProps } from "@wordpress/block-editor";
 import { useSelect } from "@wordpress/data";
+import { useEffect } from "@wordpress/element";
 import {
 	PanelBody,
 	TextControl,
@@ -18,12 +19,12 @@ import { __, sprintf } from "@wordpress/i18n";
 import { ServerSideRender } from "@wordpress/server-side-render";
 
 import metadata from "./block.json";
-import { deriveServerMode } from "./utils";
+import { createInstanceId, deriveServerMode } from "./utils";
 import "./editor.scss";
 import "./style.scss";
 
 registerBlockType(metadata.name, {
-	edit({ attributes, setAttributes }) {
+	edit({ attributes, setAttributes, clientId }) {
 		const {
 			serverMode,
 			serverUrl,
@@ -34,7 +35,17 @@ registerBlockType(metadata.name, {
 			descriptionLengthMode,
 			descriptionWordCount,
 			descriptionCharCount,
+			instanceId,
 		} = attributes;
+
+		useEffect(() => {
+			if (typeof instanceId === "string" && instanceId.trim().length > 0) {
+				return;
+			}
+
+			setAttributes({ instanceId: createInstanceId(clientId) });
+		}, [instanceId, clientId, setAttributes]);
+
 		const defaultServerUrl = useSelect((select) => {
 			const blockType = select("core/blocks").getBlockType(metadata.name);
 			const value = blockType?.attributes?.serverUrl?.default;

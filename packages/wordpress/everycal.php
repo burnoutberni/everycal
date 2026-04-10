@@ -73,6 +73,21 @@ function everycal_normalize_server_url( $value ) {
 }
 
 /**
+ * Normalize a block instance identifier for query argument usage.
+ */
+function everycal_normalize_instance_id( $value ) {
+	$instance_id = is_scalar( $value ) ? (string) $value : '';
+	$instance_id = strtolower( trim( $instance_id ) );
+	$instance_id = preg_replace( '/[^a-z0-9_-]/', '', $instance_id );
+
+	if ( ! is_string( $instance_id ) || '' === $instance_id ) {
+		return '';
+	}
+
+	return substr( $instance_id, 0, 32 );
+}
+
+/**
  * Expose EveryCal editor defaults to block JavaScript.
  */
 function everycal_enqueue_block_editor_config() {
@@ -154,7 +169,15 @@ function everycal_render_block( $attributes ) {
 	$grouped = everycal_group_events( $events );
 
 	// ── Pagination ──
-	$paged       = isset( $_GET['everycal_page'] ) ? max( 1, absint( wp_unslash( $_GET['everycal_page'] ) ) ) : 1;
+	$instance_id    = isset( $attributes['instanceId'] ) ? everycal_normalize_instance_id( $attributes['instanceId'] ) : '';
+	$page_query_arg = ( '' !== $instance_id ) ? 'everycal_page_' . $instance_id : 'everycal_page';
+	$paged          = 1;
+	if ( isset( $_GET[ $page_query_arg ] ) ) {
+		$paged = max( 1, absint( wp_unslash( $_GET[ $page_query_arg ] ) ) );
+	} elseif ( 'everycal_page' !== $page_query_arg && isset( $_GET['everycal_page'] ) ) {
+		// Backward compatibility for old links while blocks adopt instance IDs.
+		$paged = max( 1, absint( wp_unslash( $_GET['everycal_page'] ) ) );
+	}
 	$all_sorted  = $grouped['upcoming'];
 	$total       = count( $all_sorted );
 	$pages       = max( 1, (int) ceil( $total / $per_page ) );
@@ -189,8 +212,8 @@ function everycal_render_block( $attributes ) {
 
 	// Pagination links
 	if ( $pages > 1 ) {
-		$base = remove_query_arg( 'everycal_page' );
-		$base = add_query_arg( 'everycal_page', '%#%', $base );
+		$base = remove_query_arg( array( $page_query_arg, 'everycal_page' ) );
+		$base = add_query_arg( $page_query_arg, '%#%', $base );
 
 		echo '<nav class="everycal-pagination">';
 		echo paginate_links(

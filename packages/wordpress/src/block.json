@@ -55,6 +55,10 @@
 		"excerptLength": {
 			"type": "number",
 			"default": 30
+		},
+		"instanceId": {
+			"type": "string",
+			"default": ""
 		}
 	},
 	"textdomain": "everycal",
