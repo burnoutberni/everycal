@@ -867,11 +867,25 @@ function everycal_get_cached_event_server_url( $username, $slug ) {
 			$url = $legacy_url;
 		}
 	}
-	if ( ! is_string( $url ) || '' === $url ) {
-		return '';
+
+	if ( is_string( $url ) && '' !== $url ) {
+		$normalized_url = everycal_normalize_server_url( $url );
+		if ( '' !== $normalized_url ) {
+			return $normalized_url;
+		}
 	}
 
-	return everycal_normalize_server_url( $url );
+	$entry = everycal_get_cached_event_index_entry( $username, $slug );
+	if ( is_array( $entry ) && isset( $entry['serverUrl'] ) && is_string( $entry['serverUrl'] ) ) {
+		$index_url = everycal_normalize_server_url( $entry['serverUrl'] );
+		if ( '' !== $index_url ) {
+			$ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+			everycal_cache_set( $key, $index_url, $ttl );
+			return $index_url;
+		}
+	}
+
+	return '';
 }
 
 /**
