@@ -8,7 +8,7 @@
     "build": "wp-scripts build",
     "dev": "wp-scripts start",
     "lint": "pnpm run lint:js && pnpm run lint:php",
-    "lint:js": "node --check src/index.js && node --check src/utils.js && node --check src/utils.test.js",
+    "lint:js": "wp-scripts lint-js",
     "lint:php": "php -l everycal.php",
     "lint:php:strict": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun lint:php:strict.\"; exit 1; }; composer run lint --no-interaction'",
     "php:setup": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun php:setup.\"; exit 1; }; composer install --no-interaction'",
