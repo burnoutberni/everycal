@@ -681,7 +681,7 @@ function everycal_refresh_cached_event( $username, $slug ) {
 	}
 
 	$event = json_decode( wp_remote_retrieve_body( $response ), true );
-	if ( ! is_array( $event ) ) {
+	if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $event ) ) {
 		return array( 'success' => false );
 	}
 
@@ -2142,16 +2142,26 @@ function everycal_event_template( $template ) {
 		);
 
 		if ( ! is_wp_error( $response ) && 200 === wp_remote_retrieve_response_code( $response ) ) {
-			$event     = json_decode( wp_remote_retrieve_body( $response ), true );
-			$store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
-			everycal_cache_set( $store_key, $event, $store_ttl );
-			delete_option( $store_key );
-			everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
+			$fetched_event = json_decode( wp_remote_retrieve_body( $response ), true );
+			if ( JSON_ERROR_NONE === json_last_error() && is_array( $fetched_event ) ) {
+				$event     = $fetched_event;
+				$store_ttl = everycal_get_cache_store_ttl_seconds( everycal_get_cache_ttl_seconds() );
+				everycal_cache_set( $store_key, $event, $store_ttl );
+				delete_option( $store_key );
+				everycal_set_cached_event_server_url( (string) $username, (string) $slug, $server_url );
 
-			$ttl = everycal_get_event_cache_ttl_seconds();
-			everycal_cache_set( $fresh_key, 1, $ttl );
-			everycal_register_cached_event_index_entry( $event, $server_url, time(), time() + $ttl );
-		} elseif ( $event ) {
+				$ttl = everycal_get_event_cache_ttl_seconds();
+				everycal_cache_set( $fresh_key, 1, $ttl );
+				everycal_register_cached_event_index_entry( $event, $server_url, time(), time() + $ttl );
+			} elseif ( is_array( $event ) ) {
+				// Malformed payload but we have a stored copy — serve stale, retry in 1 min.
+				everycal_cache_set( $fresh_key, 1, 60 );
+			} else {
+				// No stored copy and malformed payload — 404.
+				status_header( 404 );
+				return get_404_template();
+			}
+		} elseif ( is_array( $event ) ) {
 			// API failed but we have a stored copy — serve stale, retry in 1 min.
 			everycal_cache_set( $fresh_key, 1, 60 );
 		} else {
@@ -2161,7 +2171,7 @@ function everycal_event_template( $template ) {
 		}
 	}
 
-	if ( ! $event ) {
+	if ( ! is_array( $event ) ) {
 		status_header( 404 );
 		return get_404_template();
 	}
