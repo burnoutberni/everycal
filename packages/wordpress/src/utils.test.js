@@ -51,9 +51,21 @@ describe( 'createInstanceId', () => {
 			random,
 		} );
 
-		expect( result ).toBe( 'eciiiiiiiiii' );
+		expect( result ).toBe( 'eci000000000' );
 		expect( result ).toMatch( /^ec[a-z0-9]{10}$/ );
 		expect( random ).toHaveBeenCalled();
+	} );
+
+	it( 'returns a non-empty fixed-width suffix when random returns zero', () => {
+		const random = jest.fn().mockReturnValue( 0 );
+
+		const result = createInstanceId( undefined, {
+			crypto: undefined,
+			random,
+		} );
+
+		expect( result ).toBe( 'ec0000000000' );
+		expect( random ).toHaveBeenCalledTimes( 1 );
 	} );
 } );
 

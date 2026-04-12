@@ -34,6 +34,10 @@ export function createInstanceId( seed, providers = {} ) {
 }
 
 function createRandomSuffix( providers = {} ) {
+	const suffixLength = 10;
+	const radix = 36;
+	const maxRandomInt = radix ** suffixLength;
+
 	let cryptoApi = null;
 	if ( Object.prototype.hasOwnProperty.call( providers, 'crypto' ) ) {
 		cryptoApi = providers.crypto;
@@ -44,13 +48,18 @@ function createRandomSuffix( providers = {} ) {
 		typeof providers.random === 'function' ? providers.random : Math.random;
 
 	if ( cryptoApi && typeof cryptoApi.randomUUID === 'function' ) {
-		return cryptoApi.randomUUID().replace( /-/g, '' ).slice( 0, 10 );
+		return cryptoApi
+			.randomUUID()
+			.replace( /-/g, '' )
+			.slice( 0, suffixLength );
 	}
 
-	let suffix = '';
-	while ( suffix.length < 10 ) {
-		suffix += random().toString( 36 ).slice( 2 );
-	}
+	const randomValue = random();
+	const normalizedRandom =
+		typeof randomValue === 'number' && Number.isFinite( randomValue )
+			? Math.min( Math.max( randomValue, 0 ), 1 - Number.EPSILON )
+			: 0;
+	const randomInt = Math.floor( normalizedRandom * maxRandomInt );
 
-	return suffix.slice( 0, 10 );
+	return randomInt.toString( radix ).padStart( suffixLength, '0' );
 }
