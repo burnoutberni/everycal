@@ -58,6 +58,10 @@ const Edit = ( { attributes, setAttributes, clientId } ) => {
 		typeof globalThis?.everycalBlockConfig?.defaultServerUrl === 'string'
 			? globalThis.everycalBlockConfig.defaultServerUrl.trim()
 			: '';
+	const settingsUrl =
+		typeof globalThis?.everycalBlockConfig?.settingsUrl === 'string'
+			? globalThis.everycalBlockConfig.settingsUrl.trim()
+			: '';
 	const effectiveDefaultServerUrl =
 		configuredDefaultServerUrl || defaultServerUrl;
 	const selectedServerMode =
@@ -130,7 +134,14 @@ const Edit = ( { attributes, setAttributes, clientId } ) => {
 									{ hasCustomServer && (
 										<>
 											{ ' ' }
-											<a href="options-general.php?page=everycal">
+											<a
+												href={
+													settingsUrl ||
+													'options-general.php?page=everycal'
+												}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
 												{ __(
 													'Using a custom server? Add it to Additional HTTP debug servers in EveryCal settings.',
 													'everycal'

@@ -96,6 +96,7 @@ function everycal_enqueue_block_editor_config() {
 	$config = wp_json_encode(
 		array(
 			'defaultServerUrl' => $default_server,
+			'settingsUrl'      => admin_url( 'options-general.php?page=everycal' ),
 		)
 	);
 
