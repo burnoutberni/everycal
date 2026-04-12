@@ -2115,7 +2115,7 @@ function everycal_event_template( $template ) {
 		wp_die( esc_html__( 'EveryCal: no server URL configured. Set a default EveryCal server URL in plugin settings.', 'everycal' ) );
 	}
 
-	$api_url = trailingslashit( $server_url ) . 'api/v1/events/by-slug/' . urlencode( $username ) . '/' . urlencode( $slug );
+	$api_url = trailingslashit( $server_url ) . 'api/v1/events/by-slug/' . rawurlencode( $username ) . '/' . rawurlencode( $slug );
 
 	// Two-tier cache for individual events.
 	$store_key = 'everycal_ev_' . md5( $username . ':' . $slug );
