@@ -125,6 +125,7 @@ function everycal_render_block( $attributes ) {
 	}
 	$account                 = isset( $attributes['account'] ) ? sanitize_text_field( $attributes['account'] ) : '';
 	$per_page                = isset( $attributes['limit'] ) ? absint( $attributes['limit'] ) : 10;
+	$per_page                = max( 1, $per_page );
 	$layout                  = isset( $attributes['layout'] ) ? sanitize_text_field( $attributes['layout'] ) : 'list';
 	$grid_columns            = isset( $attributes['gridColumns'] ) ? absint( $attributes['gridColumns'] ) : 3;
 	$grid_columns            = max( 1, min( 6, $grid_columns ) );
@@ -271,9 +272,9 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 
 	// If still fresh, return what we have.
 	if ( false !== everycal_cache_get( $fresh_key, false ) ) {
-		$feed_cache_index     = everycal_get_feed_cache_index();
-		$feed_cache_entry     = isset( $feed_cache_index[ $api_url ] ) && is_array( $feed_cache_index[ $api_url ] ) ? $feed_cache_index[ $api_url ] : array();
-		$has_matching_entry   = isset( $feed_cache_entry['storeKey'], $feed_cache_entry['freshKey'] )
+		$feed_cache_index   = everycal_get_feed_cache_index();
+		$feed_cache_entry   = isset( $feed_cache_index[ $api_url ] ) && is_array( $feed_cache_index[ $api_url ] ) ? $feed_cache_index[ $api_url ] : array();
+		$has_matching_entry = isset( $feed_cache_entry['storeKey'], $feed_cache_entry['freshKey'] )
 			&& (string) $feed_cache_entry['storeKey'] === $store_key
 			&& (string) $feed_cache_entry['freshKey'] === $fresh_key;
 		if ( ! $has_matching_entry ) {
