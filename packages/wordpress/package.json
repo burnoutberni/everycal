@@ -18,6 +18,15 @@
     "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal --exclude=build,node_modules,vendor --headers='{\"Report-Msgid-Bugs-To\":\"https://github.com/burnoutberni/everycal/issues\"}'"
   },
   "devDependencies": {
-    "@wordpress/scripts": "^31.8.0"
+    "@wordpress/block-editor": "^15.16.0",
+    "@wordpress/blocks": "^15.16.0",
+    "@wordpress/components": "^32.5.0",
+    "@wordpress/data": "^10.43.0",
+    "@wordpress/element": "^6.43.0",
+    "@wordpress/i18n": "^6.16.0",
+    "@wordpress/scripts": "^31.8.0",
+    "@wordpress/server-side-render": "^6.19.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
