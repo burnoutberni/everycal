@@ -9,7 +9,7 @@ export function deriveServerMode( value ) {
 
 export function resolveCustomServerUrl( currentServerUrl, defaultServerUrl ) {
 	if ( typeof currentServerUrl === 'string' && currentServerUrl.trim() ) {
-		return currentServerUrl;
+		return currentServerUrl.trim();
 	}
 
 	if ( typeof defaultServerUrl === 'string' && defaultServerUrl.trim() ) {

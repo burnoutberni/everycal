@@ -61,7 +61,7 @@ describe( 'resolveCustomServerUrl', () => {
 	it( 'preserves an existing custom URL', () => {
 		expect(
 			resolveCustomServerUrl(
-				'https://custom.example.com',
+				' https://custom.example.com ',
 				'https://default.example.com'
 			)
 		).toBe( 'https://custom.example.com' );
