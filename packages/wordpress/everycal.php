@@ -1002,6 +1002,27 @@ function everycal_group_events( $events ) {
 }
 
 /**
+ * Resolve accessible alt text for an event image.
+ */
+function everycal_get_event_image_alt( $event ) {
+	if ( ! is_array( $event ) ) {
+		return __( 'Event image', 'everycal' );
+	}
+
+	if ( ! empty( $event['image']['alt'] ) ) {
+		return (string) $event['image']['alt'];
+	}
+
+	$title = ! empty( $event['title'] ) ? trim( (string) $event['title'] ) : '';
+	if ( '' !== $title ) {
+		/* translators: %s is the event title. */
+		return sprintf( __( 'Event image for %s', 'everycal' ), $title );
+	}
+
+	return __( 'Event image', 'everycal' );
+}
+
+/**
  * Render a single event card (shared between the block and pagination).
  */
 function everycal_render_event_card( $event, $server_url = '', $layout = 'list', $description_length_mode = 'words', $description_word_count = 30, $description_char_count = 220 ) {
@@ -1027,12 +1048,9 @@ function everycal_render_event_card( $event, $server_url = '', $layout = 'list',
 
 	// Header image
 	if ( ! empty( $event['image']['url'] ) ) {
+		$image_alt = everycal_get_event_image_alt( $event );
 		echo '<div class="everycal-event__image">';
-		echo '<img src="' . esc_url( $event['image']['url'] ) . '"';
-		if ( ! empty( $event['image']['alt'] ) ) {
-			echo ' alt="' . esc_attr( $event['image']['alt'] ) . '"';
-		}
-		echo ' loading="lazy" />';
+		echo '<img src="' . esc_url( $event['image']['url'] ) . '" alt="' . esc_attr( $image_alt ) . '" loading="lazy" />';
 		echo '</div>';
 	}
 
@@ -2281,12 +2299,9 @@ function everycal_render_single_event_content( $content ) {
 
 	// Image
 	if ( ! empty( $event['image']['url'] ) ) {
+		$image_alt = everycal_get_event_image_alt( $event );
 		echo '<div class="everycal-single-event__image">';
-		echo '<img src="' . esc_url( $event['image']['url'] ) . '"';
-		if ( ! empty( $event['image']['alt'] ) ) {
-			echo ' alt="' . esc_attr( $event['image']['alt'] ) . '"';
-		}
-		echo ' loading="lazy" style="max-width:100%;height:auto;border-radius:8px;" />';
+		echo '<img src="' . esc_url( $event['image']['url'] ) . '" alt="' . esc_attr( $image_alt ) . '" loading="lazy" style="max-width:100%;height:auto;border-radius:8px;" />';
 		echo '</div>';
 	}
 
