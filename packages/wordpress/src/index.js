@@ -19,7 +19,11 @@ import { __, sprintf } from '@wordpress/i18n';
 import { ServerSideRender } from '@wordpress/server-side-render';
 
 import metadata from './block.json';
-import { createInstanceId, deriveServerMode } from './utils';
+import {
+	createInstanceId,
+	deriveServerMode,
+	resolveCustomServerUrl,
+} from './utils';
 import './editor.scss';
 import './style.scss';
 
@@ -107,9 +111,10 @@ const Edit = ( { attributes, setAttributes, clientId } ) => {
 							}
 							setAttributes( {
 								serverMode: 'custom',
-								serverUrl: effectiveDefaultServerUrl
-									? effectiveDefaultServerUrl.trim()
-									: '',
+								serverUrl: resolveCustomServerUrl(
+									serverUrl,
+									effectiveDefaultServerUrl
+								),
 							} );
 						} }
 					/>

@@ -7,6 +7,18 @@ export function deriveServerMode( value ) {
 	return 'custom';
 }
 
+export function resolveCustomServerUrl( currentServerUrl, defaultServerUrl ) {
+	if ( typeof currentServerUrl === 'string' && currentServerUrl.trim() ) {
+		return currentServerUrl;
+	}
+
+	if ( typeof defaultServerUrl === 'string' && defaultServerUrl.trim() ) {
+		return defaultServerUrl.trim();
+	}
+
+	return '';
+}
+
 export function createInstanceId( seed ) {
 	const normalizedSeed = ( seed || '' )
 		.toString()

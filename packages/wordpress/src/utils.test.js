@@ -1,4 +1,8 @@
-import { createInstanceId, deriveServerMode } from './utils';
+import {
+	createInstanceId,
+	deriveServerMode,
+	resolveCustomServerUrl,
+} from './utils';
 
 describe( 'deriveServerMode', () => {
 	it( 'returns default for an empty string', () => {
@@ -60,5 +64,26 @@ describe( 'createInstanceId', () => {
 
 		expect( result ).toBe( 'eciiiiiiiiii' );
 		expect( result ).toMatch( /^ec[a-z0-9]{10}$/ );
+	} );
+} );
+
+describe( 'resolveCustomServerUrl', () => {
+	it( 'preserves an existing custom URL', () => {
+		expect(
+			resolveCustomServerUrl(
+				'https://custom.example.com',
+				'https://default.example.com'
+			)
+		).toBe( 'https://custom.example.com' );
+	} );
+
+	it( 'prefills from the default URL when current is empty', () => {
+		expect(
+			resolveCustomServerUrl( '', ' https://default.example.com ' )
+		).toBe( 'https://default.example.com' );
+	} );
+
+	it( 'returns empty when both current and default are empty', () => {
+		expect( resolveCustomServerUrl( '   ', '' ) ).toBe( '' );
 	} );
 } );
