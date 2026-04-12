@@ -7,12 +7,26 @@
   "scripts": {
     "build": "wp-scripts build",
     "dev": "wp-scripts start",
-    "lint": "node --check src/index.js",
-    "plugin-zip": "wp-scripts plugin-zip",
+    "lint": "pnpm run lint:js && pnpm run lint:php",
+    "lint:js": "wp-scripts lint-js",
+    "lint:php": "php -l everycal.php",
+    "lint:php:strict": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun lint:php:strict.\"; exit 1; }; composer run lint --no-interaction'",
+    "php:setup": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun php:setup.\"; exit 1; }; composer install --no-interaction'",
+    "test": "wp-scripts test-unit-js --runInBand",
+    "plugin-zip": "pnpm run build && node ./scripts/plugin-zip.mjs",
     "i18n:compile": "for f in languages/*.po; do msgfmt -o \"${f%.po}.mo\" \"$f\"; done",
-    "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal"
+    "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal --exclude=build,node_modules,vendor --headers='{\"Report-Msgid-Bugs-To\":\"https://github.com/burnoutberni/everycal/issues\"}'"
   },
   "devDependencies": {
-    "@wordpress/scripts": "^31.8.0"
+    "@wordpress/block-editor": "^15.16.0",
+    "@wordpress/blocks": "^15.16.0",
+    "@wordpress/components": "^32.5.0",
+    "@wordpress/data": "^10.43.0",
+    "@wordpress/element": "^6.43.0",
+    "@wordpress/i18n": "^6.16.0",
+    "@wordpress/scripts": "^31.8.0",
+    "@wordpress/server-side-render": "^6.19.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

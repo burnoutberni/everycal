@@ -13,6 +13,12 @@ EveryCal lets you host your own event server, publish rich event pages, follow l
 - `packages/jobs`: scheduled scraper and reminder jobs
 - `packages/wordpress`: optional WordPress Gutenberg feed block
 
+WordPress plugin documentation:
+
+- `packages/wordpress/readme.txt`: WordPress.org plugin readme (installation/FAQ/changelog)
+- `packages/wordpress/README.md`: developer and operator guide
+- `packages/wordpress/docs/HOOKS.md`: filter hooks reference
+
 ## Requirements
 
 - Node.js >= 22

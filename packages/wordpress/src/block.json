@@ -13,6 +13,11 @@
 		"align": ["wide", "full"]
 	},
 	"attributes": {
+		"serverMode": {
+			"type": "string",
+			"default": "default",
+			"enum": ["default", "custom"]
+		},
 		"serverUrl": {
 			"type": "string",
 			"default": ""
@@ -30,9 +35,30 @@
 			"default": "list",
 			"enum": ["list", "grid", "compact"]
 		},
-		"cacheTtl": {
+		"gridColumns": {
 			"type": "number",
-			"default": 300
+			"default": 3
+		},
+		"descriptionLengthMode": {
+			"type": "string",
+			"default": "words",
+			"enum": ["full", "words", "chars"]
+		},
+		"descriptionWordCount": {
+			"type": "number",
+			"default": 30
+		},
+		"descriptionCharCount": {
+			"type": "number",
+			"default": 220
+		},
+		"excerptLength": {
+			"type": "number",
+			"default": 30
+		},
+		"instanceId": {
+			"type": "string",
+			"default": ""
 		}
 	},
 	"textdomain": "everycal",

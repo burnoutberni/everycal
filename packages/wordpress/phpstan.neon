@@ -1,0 +1,10 @@
+includes:
+  - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+  level: 0
+  paths:
+    - everycal.php
+  tmpDir: .phpstan
+  parallel:
+    maximumNumberOfProcesses: 1

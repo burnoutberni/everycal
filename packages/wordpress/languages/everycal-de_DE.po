@@ -1,130 +1,603 @@
 # German (informal "du") translation for EveryCal
-# Copyright (C) 2025 EveryCal Contributors
+# Copyright (C) 2026 EveryCal Contributors
 # This file is distributed under the AGPL-3.0-only.
 msgid ""
 msgstr ""
 "Project-Id-Version: EveryCal 0.1.0\n"
-"Report-Msgid-Bugs-To: https://github.com/everycal/everycal/issues\n"
-"POT-Creation-Date: 2025-02-21 00:00+0000\n"
-"PO-Revision-Date: 2025-02-21 00:00+0000\n"
+"Report-Msgid-Bugs-To: https://github.com/burnoutberni/everycal/issues\n"
+"POT-Creation-Date: 2026-04-10T12:39:15+00:00\n"
+"PO-Revision-Date: 2026-04-08 16:05+0000\n"
 "Last-Translator: EveryCal Contributors\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=1; plural=0;\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: everycal.php:56
-msgid "Please configure an EveryCal server URL."
-msgstr "Bitte konfiguriere eine EveryCal-Server-URL."
-
-#: everycal.php:74
-#: everycal.php:91
-msgid "No events found."
-msgstr "Keine Events gefunden."
-
-#: everycal.php:107
-msgid "Upcoming Events"
-msgstr "Kommende Events"
-
-#: everycal.php:110
-msgid "Past Events"
-msgstr "Vergangene Events"
-
-#: everycal.php:125
-msgid "Previous"
-msgstr "Zurück"
-
-#: everycal.php:126
-msgid "Next"
-msgstr "Weiter"
-
-#: everycal.php:301
-msgid "Ongoing"
-msgstr "Laufend"
-
-#: everycal.php:424
-#: everycal.php:446
-msgid "EveryCal Settings"
-msgstr "EveryCal-Einstellungen"
-
-#: everycal.php:425
+#. Plugin Name of the plugin
+#: everycal.php everycal.php:1150
 msgid "EveryCal"
 msgstr "EveryCal"
 
-#: everycal.php:451
+#. Plugin URI of the plugin
+#: everycal.php
+msgid "https://github.com/burnoutberni/everycal"
+msgstr "https://github.com/burnoutberni/everycal"
+
+#. Description of the plugin
+#: everycal.php
+msgid ""
+"Display federated event feeds from any EveryCal server. Just add the "
+"Gutenberg block and point it at a feed URL."
+msgstr ""
+
+#. Author of the plugin
+#: everycal.php
+#, fuzzy
+msgid "EveryCal Contributors"
+msgstr "EveryCal Beitragende"
+
+#: everycal.php:128
+msgid "Please configure an EveryCal server URL."
+msgstr "Bitte konfiguriere eine EveryCal-Server-URL."
+
+#: everycal.php:150 everycal.php:167
+msgid "No events found."
+msgstr "Keine Events gefunden."
+
+#: everycal.php:179
+msgid "Upcoming Events"
+msgstr "Kommende Events"
+
+#: everycal.php:202
+msgid "Previous"
+msgstr "Zurück"
+
+#: everycal.php:203
+msgid "Next"
+msgstr "Weiter"
+
+#: everycal.php:994
+msgid "Ongoing"
+msgstr "Laufend"
+
+#: everycal.php:1012 everycal.php:2265
+msgid "By"
+msgstr "Von"
+
+#: everycal.php:1149 everycal.php:1265
+msgid "EveryCal Settings"
+msgstr "EveryCal-Einstellungen"
+
+#: everycal.php:1267
+msgid "HTTP debug logs cleared."
+msgstr "HTTP-Debug-Logs geleert."
+
+#. translators: %s is the cache event label.
+#: everycal.php:1271
+#, php-format
+msgid "Cleared cached event: %s"
+msgstr "Zwischengespeichertes Event geleert: %s"
+
+#: everycal.php:1273
+msgid "Cleared all EveryCal caches (event + feed)."
+msgstr "Alle EveryCal-Caches geleert (Event + Feed)."
+
+#. translators: %s is the cache event label.
+#: everycal.php:1276
+#, php-format
+msgid "Refreshed cached event: %s"
+msgstr "Zwischengespeichertes Event aktualisiert: %s"
+
+#. translators: %s is the cache event label.
+#: everycal.php:1279
+#, php-format
+msgid "Failed to refresh cached event: %s"
+msgstr "Zwischengespeichertes Event konnte nicht aktualisiert werden: %s"
+
+#: everycal.php:1285
+msgid "Default EveryCal server URL"
+msgstr "Standard-EveryCal-Server-URL"
+
+#: everycal.php:1290
+msgid ""
+"Used as the default server for new EveryCal blocks. Existing blocks can "
+"still override this per block."
+msgstr ""
+"Wird als Standardserver für neue EveryCal-Blöcke verwendet. Bestehende "
+"Blöcke können das weiterhin pro Block überschreiben."
+
+#: everycal.php:1291
+msgid "Also used as fallback when a block has no server URL configured."
+msgstr ""
+"Wird auch als Fallback verwendet, wenn ein Block keine Server-URL "
+"konfiguriert hat."
+
+#: everycal.php:1296
+msgid "Cache freshness (minutes)"
+msgstr "Cache-Aktualität (Minuten)"
+
+#: everycal.php:1301
+msgid ""
+"How often EveryCal feed data is refreshed from the upstream server. Default: "
+"1440 (24 hours)."
+msgstr ""
+"Wie oft EveryCal-Feed-Daten vom Upstream-Server aktualisiert werden. "
+"Standard: 1440 (24 Stunden)."
+
+#: everycal.php:1302
+msgid "This is plugin-wide and also controls single-event cache freshness."
+msgstr ""
+"Diese Einstellung gilt pluginweit und steuert auch die Aktualität des Einzel-"
+"Event-Caches."
+
+#: everycal.php:1307
+msgid "Prewarm past window (hours)"
+msgstr "Prewarm-Vergangenheitsfenster (Stunden)"
+
+#: everycal.php:1312
+msgid ""
+"Keep/pre-warm caches for events that ended within this many past hours, plus "
+"all future events. Events outside this window are dropped from feed cache "
+"and need to be fetched from EveryCal just-in-time. Default: 24."
+msgstr ""
+"Behalte bzw. prewarme Caches für Events, die innerhalb der letzten so vielen "
+"Stunden geendet haben, plus alle zukünftigen Events. Events außerhalb dieses "
+"Fensters werden aus dem Feed-Cache entfernt und müssen bei Bedarf direkt von "
+"EveryCal abgerufen werden. Standard: 24."
+
+#: everycal.php:1317
 msgid "Event pages base path"
 msgstr "Basis-Pfad für Event-Seiten"
 
-#: everycal.php:458
+#: everycal.php:1324
 msgid "Individual event detail pages will be served at this path."
 msgstr "Einzelne Event-Detailseiten werden unter diesem Pfad bereitgestellt."
 
-#: everycal.php:459
+#: everycal.php:1325
 msgid "After changing this, click Save — permalinks are flushed automatically."
-msgstr "Nach der Änderung auf Speichern klicken — Permalinks werden automatisch aktualisiert."
+msgstr ""
+"Nach der Änderung auf Speichern klicken — Permalinks werden automatisch "
+"aktualisiert."
 
-#: everycal.php:528
-msgid "EveryCal: no server URL configured. Add an EveryCal Feed block to a page first."
-msgstr "EveryCal: Keine Server-URL konfiguriert. Füge zuerst einen EveryCal-Feed-Block zu einer Seite hinzu."
+#: everycal.php:1330
+msgid "Creator profile URL template"
+msgstr "URL-Vorlage für Creator-Profile"
 
-#: everycal.php:661
+#: everycal.php:1335
+msgid ""
+"Optional. Leave empty to link creators to the EveryCal instance profile."
+msgstr ""
+"Optional. Leer lassen, um Creator mit dem EveryCal-Instanzprofil zu "
+"verlinken."
+
+#: everycal.php:1336
+msgid ""
+"You can use: {username}, {domain}, {handle}, {server_url}. Relative paths "
+"are resolved on this WordPress site."
+msgstr ""
+"Du kannst Folgendes verwenden: {username}, {domain}, {handle}, {server_url}. "
+"Relative Pfade werden auf dieser WordPress-Seite aufgelöst."
+
+#: everycal.php:1341
+msgid "HTTP debug logging"
+msgstr "HTTP-Debug-Logging"
+
+#: everycal.php:1346
+msgid "Enable EveryCal HTTP debug logging even when WP_DEBUG is off."
+msgstr ""
+"EveryCal-HTTP-Debug-Logging auch aktivieren, wenn WP_DEBUG deaktiviert ist."
+
+#: everycal.php:1349
+msgid "Logging is always enabled automatically when WP_DEBUG is true."
+msgstr "Logging ist immer automatisch aktiviert, wenn WP_DEBUG auf true steht."
+
+#: everycal.php:1351
+msgid "ON"
+msgstr "EIN"
+
+#: everycal.php:1352
+msgid "OFF"
+msgstr "AUS"
+
+#. translators: 1: current status, 2: WP_DEBUG status, 3: manual logging status.
+#: everycal.php:1354
+#, php-format
+msgid "Current status: %1$s (WP_DEBUG=%2$s, manual=%3$s)"
+msgstr "Aktueller Status: %1$s (WP_DEBUG=%2$s, manuell=%3$s)"
+
+#: everycal.php:1357
+msgid ""
+"Requests are filtered to hosts from Default EveryCal server URL and "
+"Additional HTTP debug servers."
+msgstr ""
+"Anfragen werden auf Hosts aus der Standard-EveryCal-Server-URL und "
+"zusätzlichen HTTP-Debug-Servern gefiltert."
+
+#: everycal.php:1362
+msgid "Additional HTTP debug servers"
+msgstr "Zusätzliche HTTP-Debug-Server"
+
+#: everycal.php:1367
+msgid ""
+"Optional comma-separated list of server URLs or hostnames to include in HTTP "
+"debug logging."
+msgstr ""
+"Optional: Kommagetrennte Liste von Server-URLs oder Hostnamen, die im HTTP-"
+"Debug-Logging berücksichtigt werden."
+
+#: everycal.php:1368
+msgid "Example: events.example.com, https://calendar.example.org"
+msgstr "Beispiel: events.example.com, https://calendar.example.org"
+
+#: everycal.php:1371
+msgid "Active debug hosts:"
+msgstr "Aktive Debug-Hosts:"
+
+#: everycal.php:1377
+msgid "none configured"
+msgstr "nichts konfiguriert"
+
+#: everycal.php:1387
+msgid "HTTP Debug Log Viewer"
+msgstr "HTTP-Debug-Log-Viewer"
+
+#: everycal.php:1390
+msgid ""
+"Shows recent EveryCal HTTP requests captured by this plugin. Use Auto-"
+"refresh to watch requests live while browsing the site."
+msgstr ""
+"Zeigt aktuelle EveryCal-HTTP-Anfragen an, die von diesem Plugin "
+"aufgezeichnet wurden. Nutze Auto-Aktualisierung, um Anfragen beim Browsen "
+"live zu verfolgen."
+
+#: everycal.php:1393
+msgid "Tracked hosts:"
+msgstr "Überwachte Hosts:"
+
+#: everycal.php:1394
+msgid "none discovered yet"
+msgstr "bisher keine erkannt"
+
+#: everycal.php:1397 everycal.php:1513
+msgid "Refresh"
+msgstr "Aktualisieren"
+
+#: everycal.php:1398 everycal.php:1559
+msgid "Start Auto-refresh"
+msgstr "Auto-Aktualisierung starten"
+
+#: everycal.php:1399
+msgid "Copy Logs"
+msgstr "Logs kopieren"
+
+#: everycal.php:1406
+msgid "Clear Logs"
+msgstr "Logs leeren"
+
+#: everycal.php:1413
+msgid "Cached Events"
+msgstr "Zwischengespeicherte Events"
+
+#: everycal.php:1416
+msgid ""
+"Review and clear per-event caches. Use Clear Entire Cache to also wipe feed "
+"cache entries."
+msgstr ""
+"Pro-Event-Caches prüfen und leeren. Mit „Gesamten Cache leeren“ werden auch "
+"Feed-Cache-Einträge entfernt."
+
+#: everycal.php:1421
+msgid "Clear all EveryCal cache data? This removes event and feed caches."
+msgstr ""
+"Alle EveryCal-Cache-Daten löschen? Dadurch werden Event- und Feed-Caches "
+"entfernt."
+
+#: everycal.php:1421
+msgid "Clear Entire Cache"
+msgstr "Gesamten Cache leeren"
+
+#: everycal.php:1425 everycal.php:1550
+msgid "No cached events indexed yet."
+msgstr "Noch keine zwischengespeicherten Events indexiert."
+
+#: everycal.php:1427
+msgid "Sorted by Cached At (newest first)."
+msgstr "Sortiert nach Zwischengespeichert am (neueste zuerst)."
+
+#: everycal.php:1431 everycal.php:1539 everycal.php:2119 everycal.php:2133
+msgid "Event"
+msgstr "Event"
+
+#: everycal.php:1432 everycal.php:1541
+msgid "Start"
+msgstr "Start"
+
+#: everycal.php:1433 everycal.php:1540
+msgid "Handle"
+msgstr "Handle"
+
+#: everycal.php:1434 everycal.php:1542
+msgid "Cached Until"
+msgstr "Zwischengespeichert bis"
+
+#: everycal.php:1435 everycal.php:1543
+msgid "Cached At"
+msgstr "Zwischengespeichert am"
+
+#: everycal.php:1436
+msgid "Action"
+msgstr "Aktion"
+
+#: everycal.php:1466
+msgid "View on WordPress"
+msgstr "In WordPress ansehen"
+
+#: everycal.php:1469
+msgid "View on EveryCal"
+msgstr "Auf EveryCal ansehen"
+
+#: everycal.php:1491 everycal.php:1552
+msgid "expired"
+msgstr "abgelaufen"
+
+#: everycal.php:1521
+msgid "Clear"
+msgstr "Leeren"
+
+#: everycal.php:1544
+msgid "ascending"
+msgstr "aufsteigend"
+
+#: everycal.php:1545
+msgid "descending"
+msgstr "absteigend"
+
+#: everycal.php:1546
+msgid "oldest/earliest first"
+msgstr "älteste/früheste zuerst"
+
+#: everycal.php:1547
+msgid "newest/latest first"
+msgstr "neueste/späteste zuerst"
+
+#. translators: 1: current sort field label, 2: current sort direction, 3: opposite sort direction.
+#: everycal.php:1549
+#, php-format
+msgid "Sorted by %1$s (%2$s, %3$s)."
+msgstr "Sortiert nach %1$s (%2$s, %3$s)."
+
+#: everycal.php:1551
+msgid "Request failed"
+msgstr "Anfrage fehlgeschlagen"
+
+#. translators: 1: account username, 2: event slug.
+#: everycal.php:1554
+#, fuzzy, php-format
+msgid "Cleared cached event: @%1$s/%2$s"
+msgstr "Zwischengespeichertes Event geleert: %s"
+
+#. translators: 1: account username, 2: event slug.
+#: everycal.php:1556
+#, fuzzy, php-format
+msgid "Refreshed cached event: @%1$s/%2$s"
+msgstr "Zwischengespeichertes Event aktualisiert: %s"
+
+#. translators: 1: account username, 2: event slug.
+#: everycal.php:1558
+#, php-format
+msgid "Action failed for @%1$s/%2$s."
+msgstr "Aktion für @%1$s/%2$s fehlgeschlagen."
+
+#: everycal.php:1560
+msgid "Stop Auto-refresh"
+msgstr "Auto-Aktualisierung stoppen"
+
+#: everycal.php:1561
+msgid "Copied"
+msgstr "Kopiert"
+
+#: everycal.php:1562
+msgid "Copy failed"
+msgstr "Kopieren fehlgeschlagen"
+
+#. translators: %s: cache expiration date/time.
+#: everycal.php:1974
+#, php-format
+msgid "Cached until %s"
+msgstr "Zwischengespeichert bis %s"
+
+#: everycal.php:1978
+msgid "Cache status unavailable"
+msgstr "Cache-Status nicht verfügbar"
+
+#: everycal.php:2000
+msgid "Cached"
+msgstr "Im Cache"
+
+#: everycal.php:2021
+msgid "Refresh now"
+msgstr "Jetzt aktualisieren"
+
+#: everycal.php:2057
+msgid ""
+"EveryCal: no server URL configured. Set a default EveryCal server URL in "
+"plugin settings."
+msgstr ""
+"EveryCal: Keine Server-URL konfiguriert. Lege in den Plugin-Einstellungen "
+"eine Standard-EveryCal-Server-URL fest."
+
+#: everycal.php:2212
 msgid "All events"
 msgstr "Alle Events"
 
-#: everycal.php:712
+#: everycal.php:2251
+msgid "Google Maps"
+msgstr "Google Maps"
+
+#: everycal.php:2252
+msgid "Apple Maps"
+msgstr "Apple Maps"
+
+#: everycal.php:2253
+msgid "OSM"
+msgstr ""
+
+#: everycal.php:2296
 msgid "Original event page"
 msgstr "Original-Event-Seite"
 
-#: src/index.js:32
+#: everycal.php:2623 everycal.php:2636 everycal.php:2661 everycal.php:2679
+msgid "You are not allowed to do this."
+msgstr "Du darfst das nicht tun."
+
+#: everycal.php:2811
+msgid "All day"
+msgstr "Ganztägig"
+
+#: build/index.js:1 src/index.js:61
 msgid "Feed Settings"
 msgstr "Feed-Einstellungen"
 
-#: src/index.js:36
+#: build/index.js:1 src/index.js:63
+msgid "Server source"
+msgstr "Serverquelle"
+
+#: build/index.js:1 src/index.js:69
+msgid "Site default (%s)"
+msgstr "Website-Standard (%s)"
+
+#: build/index.js:1 src/index.js:72
+msgid "Site default (not configured)"
+msgstr "Website-Standard (nicht konfiguriert)"
+
+#: build/index.js:1 src/index.js:75
+msgid "Custom URL"
+msgstr "Benutzerdefinierte URL"
+
+#: build/index.js:1 src/index.js:95
 msgid "EveryCal Server URL"
 msgstr "EveryCal-Server-URL"
 
-#: src/index.js:38
+#: build/index.js:1 src/index.js:98
 msgid "e.g. https://events.example.com"
 msgstr "z.B. https://events.example.com"
 
-#: src/index.js:47
+#: build/index.js:1 src/index.js:103
+msgid ""
+"Using a custom server? Add it to Additional HTTP debug servers in EveryCal "
+"settings."
+msgstr ""
+"Verwendest du einen benutzerdefinierten Server? Füge ihn in den EveryCal-"
+"Einstellungen unter „Zusätzliche HTTP-Debug-Server“ hinzu."
+
+#: build/index.js:1 src/index.js:120
 msgid "Account (optional)"
 msgstr "Konto (optional)"
 
-#: src/index.js:49
+#: build/index.js:1 src/index.js:121
 msgid "Filter events by account username. Leave empty for all public events."
-msgstr "Events nach Kontonutzernamen filtern. Leer lassen für alle öffentlichen Events."
+msgstr ""
+"Events nach Kontonutzernamen filtern. Leer lassen für alle öffentlichen "
+"Events."
 
-#: src/index.js:58
+#: build/index.js:1 src/index.js:132
+msgid "Style Settings"
+msgstr "Stil-Einstellungen"
+
+#: build/index.js:1 src/index.js:134
 msgid "Number of events"
 msgstr "Anzahl der Events"
 
-#: src/index.js:65
+#: build/index.js:1 src/index.js:141
 msgid "Layout"
 msgstr "Layout"
 
-#: src/index.js:69
+#: build/index.js:1 src/index.js:145
 msgid "List"
 msgstr "Liste"
 
-#: src/index.js:73
+#: build/index.js:1 src/index.js:149
 msgid "Grid"
 msgstr "Raster"
 
-#: src/index.js:77
+#: build/index.js:1 src/index.js:153
 msgid "Compact"
 msgstr "Kompakt"
 
-#: src/index.js:84
-msgid "Cache duration (seconds)"
-msgstr "Cache-Dauer (Sekunden)"
+#: build/index.js:1 src/index.js:161
+msgid "Grid columns"
+msgstr "Rasterspalten"
 
-#: src/index.js:86
-msgid "How long to cache fetched events. 300 = 5 minutes."
-msgstr "Wie lange abgerufene Events gecacht werden. 300 = 5 Minuten."
+#: build/index.js:1 src/index.js:172
+msgid "Description length"
+msgstr "Beschreibungslänge"
 
-#: src/index.js:109
-msgid "Configure an EveryCal server URL in the block settings to display events."
-msgstr "Konfiguriere eine EveryCal-Server-URL in den Blockeinstellungen, um Events anzuzeigen."
+#: build/index.js:1 src/index.js:175
+msgid "Full"
+msgstr "Vollständig"
+
+#: build/index.js:1 src/index.js:176
+msgid "Word count"
+msgstr "Wortanzahl"
+
+#: build/index.js:1 src/index.js:177
+msgid "Character count"
+msgstr "Zeichenanzahl"
+
+#: build/index.js:1 src/index.js:183
+msgid "Description length (words)"
+msgstr "Beschreibungslänge (Wörter)"
+
+#: build/index.js:1 src/index.js:193
+msgid "Description length (characters)"
+msgstr "Beschreibungslänge (Zeichen)"
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block title"
+msgid "EveryCal Feed"
+msgstr "EveryCal-Feed"
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block description"
+msgid "Display an event feed from any EveryCal server."
+msgstr "Zeigt einen Event-Feed von jedem EveryCal-Server an."
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block keyword"
+msgid "events"
+msgstr "veranstaltungen"
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block keyword"
+msgid "calendar"
+msgstr "kalender"
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block keyword"
+msgid "activitypub"
+msgstr "activitypub"
+
+#: build/block.json src/block.json
+#, fuzzy
+msgctxt "block keyword"
+msgid "federation"
+msgstr "föderation"
+
+#~ msgid ""
+#~ "Configure an EveryCal server URL in the block settings to display events."
+#~ msgstr ""
+#~ "Konfiguriere eine EveryCal-Server-URL in den Blockeinstellungen, um "
+#~ "Events anzuzeigen."
+
+#~ msgid "event"
+#~ msgstr "Event"
+
+#~ msgid "Open event: %s"
+#~ msgstr "Event öffnen: %s"

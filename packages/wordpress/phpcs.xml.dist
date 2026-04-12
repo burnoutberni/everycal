@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<ruleset name="EveryCal WordPress Plugin">
+  <description>PHP_CodeSniffer rules for the EveryCal WordPress plugin.</description>
+
+  <arg name="basepath" value="."/>
+  <arg name="colors"/>
+  <arg value="p"/>
+
+  <file>everycal.php</file>
+
+  <rule ref="WordPress-Core"/>
+
+  <exclude-pattern>vendor/*</exclude-pattern>
+  <exclude-pattern>node_modules/*</exclude-pattern>
+  <exclude-pattern>build/*</exclude-pattern>
+</ruleset>
