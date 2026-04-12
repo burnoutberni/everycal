@@ -34,12 +34,12 @@ export function createInstanceId( seed, providers = {} ) {
 }
 
 function createRandomSuffix( providers = {} ) {
-	const cryptoApi =
-		Object.prototype.hasOwnProperty.call( providers, 'crypto' )
-			? providers.crypto
-			: typeof globalThis !== 'undefined' && globalThis.crypto
-				? globalThis.crypto
-				: null;
+	let cryptoApi = null;
+	if ( Object.prototype.hasOwnProperty.call( providers, 'crypto' ) ) {
+		cryptoApi = providers.crypto;
+	} else if ( typeof globalThis !== 'undefined' && globalThis.crypto ) {
+		cryptoApi = globalThis.crypto;
+	}
 	const random =
 		typeof providers.random === 'function' ? providers.random : Math.random;
 
