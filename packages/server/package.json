@@ -15,14 +15,14 @@
   "dependencies": {
     "@everycal/core": "workspace:*",
     "@everycal/og": "workspace:*",
-    "@hono/node-server": "^1.19.10",
+    "@hono/node-server": "^1.19.13",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.0.0",
     "cross-env": "^10.1.0",
     "dotenv": "^17.3.1",
-    "hono": "^4.12.10",
+    "hono": "^4.12.12",
     "nanoid": "^5.1.0",
-    "nodemailer": "^8.0.4",
+    "nodemailer": "^8.0.5",
     "sanitize-html": "^2.17.0",
     "sharp": "^0.34.5",
     "vike": "^0.4.255"
@@ -34,6 +34,6 @@
     "@types/sanitize-html": "^2.16.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   }
 }
