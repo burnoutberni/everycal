@@ -271,6 +271,15 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 
 	// If still fresh, return what we have.
 	if ( false !== everycal_cache_get( $fresh_key, false ) ) {
+		$feed_cache_index     = everycal_get_feed_cache_index();
+		$feed_cache_entry     = isset( $feed_cache_index[ $api_url ] ) && is_array( $feed_cache_index[ $api_url ] ) ? $feed_cache_index[ $api_url ] : array();
+		$has_matching_entry   = isset( $feed_cache_entry['storeKey'], $feed_cache_entry['freshKey'] )
+			&& (string) $feed_cache_entry['storeKey'] === $store_key
+			&& (string) $feed_cache_entry['freshKey'] === $fresh_key;
+		if ( ! $has_matching_entry ) {
+			everycal_register_feed_cache_keys( $api_url, $store_key, $fresh_key );
+		}
+
 		return array_values( $store );
 	}
 
