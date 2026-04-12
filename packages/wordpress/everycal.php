@@ -2944,6 +2944,12 @@ function everycal_get_event_description_preview( $description, $mode = 'words', 
 		if ( function_exists( 'wp_html_excerpt' ) ) {
 			return wp_html_excerpt( $text, $char_limit, '…' );
 		}
+		if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) ) {
+			if ( mb_strlen( $text, 'UTF-8' ) <= $char_limit ) {
+				return $text;
+			}
+			return mb_substr( $text, 0, $char_limit, 'UTF-8' ) . '…';
+		}
 		if ( strlen( $text ) <= $char_limit ) {
 			return $text;
 		}
