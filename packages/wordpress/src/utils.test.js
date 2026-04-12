@@ -35,6 +35,8 @@ describe( 'createInstanceId', () => {
 				'crypto',
 				originalCryptoDescriptor
 			);
+		} else {
+			delete globalThis.crypto;
 		}
 	} );
 
@@ -45,6 +47,15 @@ describe( 'createInstanceId', () => {
 	} );
 
 	it( 'uses crypto.randomUUID when available', () => {
+		if ( ! globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function' ) {
+			Object.defineProperty( globalThis, 'crypto', {
+				value: {
+					randomUUID: () => '00000000-0000-0000-0000-000000000000',
+				},
+				configurable: true,
+			} );
+		}
+
 		jest.spyOn( globalThis.crypto, 'randomUUID' ).mockReturnValue(
 			'12345678-90ab-cdef-1234-567890abcdef'
 		);
