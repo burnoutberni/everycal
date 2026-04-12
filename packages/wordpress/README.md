@@ -75,7 +75,7 @@ Plugin settings are in **Settings -> EveryCal**.
 - `everycal_default_server_url`: default server URL used for new blocks and empty block fallback
 - `everycal_cache_ttl_minutes`: feed/event cache freshness window (`1..10080`, default `1440`)
 - `everycal_prewarm_past_hours`: how long ended events stay prewarmed (`0..8760`, default `24`)
-- `everycal_base_path`: event detail page base path (default `events`)
+- `everycal_base_path`: event detail page base path (default `events`, empty values fall back to `events`)
 - `everycal_creator_url_template`: optional creator profile URL template
 - `everycal_http_debug_manual`: force HTTP debug logging when `WP_DEBUG` is off
 - `everycal_http_debug_additional_servers`: extra hosts to include in debug logs
@@ -111,6 +111,8 @@ Creator URL template tokens:
 When event pages are enabled via the base path setting, events resolve under:
 
 - `/{base-path}/@username/event-slug`
+
+If the saved base path is empty (for example after trimming `/` and spaces), the plugin automatically falls back to `events`.
 
 Rewrite rules are flushed when `everycal_base_path` changes.
 

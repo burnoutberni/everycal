@@ -48,6 +48,10 @@ Check that the server URL is valid, the upstream feed has public events, and you
 
 Save settings once in **Settings -> EveryCal** after changing the base path. This plugin flushes rewrite rules when that path changes.
 
+= What happens if I clear the event base path setting? =
+
+The plugin enforces a non-empty base path. Empty values automatically fall back to `events` so rewrites stay scoped to `/events/@username/event-slug`.
+
 = How do I clear stale cache entries? =
 
 Open **Settings -> EveryCal** and use the **Cached Events** section to clear one cached event or the entire cache.

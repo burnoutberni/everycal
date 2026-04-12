@@ -88,6 +88,18 @@ function everycal_normalize_instance_id( $value ) {
 }
 
 /**
+ * Normalize event detail base path and enforce non-empty fallback.
+ */
+function everycal_normalize_base_path( $value, $fallback = 'events' ) {
+	$base = trim( (string) $value, '/ ' );
+	if ( '' === $base ) {
+		return trim( (string) $fallback, '/ ' );
+	}
+
+	return $base;
+}
+
+/**
  * Expose EveryCal editor defaults to block JavaScript.
  */
 function everycal_enqueue_block_editor_config() {
@@ -647,7 +659,7 @@ function everycal_select_actor_for_server( $server_url, $username, $handle ) {
 }
 
 function everycal_build_wp_event_detail_url( $base_path, $username, $slug ) {
-	$base_path = trim( (string) $base_path, '/ ' );
+	$base_path = everycal_normalize_base_path( $base_path );
 	$username  = ltrim( trim( (string) $username ), '@' );
 	$slug      = trim( (string) $slug );
 
@@ -1026,7 +1038,7 @@ function everycal_get_event_image_alt( $event ) {
  * Render a single event card (shared between the block and pagination).
  */
 function everycal_render_event_card( $event, $server_url = '', $layout = 'list', $description_length_mode = 'words', $description_word_count = 30, $description_char_count = 220 ) {
-	$base_path    = get_option( 'everycal_base_path', 'events' );
+	$base_path    = everycal_normalize_base_path( get_option( 'everycal_base_path', 'events' ) );
 	$evt_username = '';
 	if ( ! empty( $event['account']['username'] ) ) {
 		$evt_username = $event['account']['username'];
@@ -1238,7 +1250,7 @@ function everycal_register_settings() {
 			'type'              => 'string',
 			'default'           => 'events',
 			'sanitize_callback' => function ( $val ) {
-				return trim( $val, '/ ' );
+				return everycal_normalize_base_path( $val );
 			},
 		)
 	);
@@ -1319,7 +1331,7 @@ function everycal_register_settings() {
 }
 
 function everycal_settings_page() {
-	$base                          = get_option( 'everycal_base_path', 'events' );
+	$base                          = everycal_normalize_base_path( get_option( 'everycal_base_path', 'events' ) );
 	$creator_template              = get_option( 'everycal_creator_url_template', '' );
 	$default_server_url            = get_option( 'everycal_default_server_url', '' );
 	$cache_ttl_minutes             = absint( get_option( 'everycal_cache_ttl_minutes', 1440 ) );
@@ -1990,7 +2002,7 @@ add_action(
 add_action( 'init', 'everycal_add_rewrite_rules' );
 
 function everycal_add_rewrite_rules() {
-	$base = get_option( 'everycal_base_path', 'events' );
+	$base = everycal_normalize_base_path( get_option( 'everycal_base_path', 'events' ) );
 	// Match: /events/@{username}/{slug}
 	add_rewrite_rule(
 		'^' . preg_quote( $base, '/' ) . '/@([^/]+)/([^/]+)/?$',
@@ -2286,8 +2298,8 @@ function everycal_render_single_event_content( $content ) {
 	}
 
 	$event      = $GLOBALS['everycal_single_event'];
-	$base       = trim( (string) get_option( 'everycal_base_path', 'events' ), '/ ' );
-	$back_url   = '' === $base ? home_url( '/' ) : home_url( '/' . $base . '/' );
+	$base       = everycal_normalize_base_path( get_option( 'everycal_base_path', 'events' ) );
+	$back_url   = home_url( '/' . $base . '/' );
 	$server_url = isset( $GLOBALS['everycal_single_server_url'] ) ? $GLOBALS['everycal_single_server_url'] : '';
 
 	ob_start();
@@ -2666,7 +2678,7 @@ function everycal_ajax_refresh_cached_event() {
 	}
 
 	$entry             = $result['entry'];
-	$base              = get_option( 'everycal_base_path', 'events' );
+	$base              = everycal_normalize_base_path( get_option( 'everycal_base_path', 'events' ) );
 	$entry_username    = isset( $entry['username'] ) ? (string) $entry['username'] : $username;
 	$entry_slug        = isset( $entry['slug'] ) ? (string) $entry['slug'] : $slug;
 	$entry_handle      = isset( $entry['handle'] ) ? ltrim( trim( (string) $entry['handle'] ), '@' ) : $entry_username;
