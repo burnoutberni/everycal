@@ -309,8 +309,8 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 	$now     = time();
 
 	// Keep feed store limited to the prewarm window.
-	$windowed_store = array();
-	$cached_event_index = everycal_get_cached_event_index();
+	$windowed_store             = array();
+	$cached_event_index         = everycal_get_cached_event_index();
 	$persist_cached_event_index = false;
 
 	// Pre-warm single-event caches so event detail pages can render from feed data
@@ -325,7 +325,7 @@ function everycal_get_events( $api_url, $ttl = null, $server_url = '' ) {
 			continue;
 		}
 
-		$windowed_store[ $key ] = $event;
+		$windowed_store[ $key ]     = $event;
 		$persist_cached_event_index = everycal_prewarm_single_event_cache( $event, $now, $server_url, $cached_event_index ) || $persist_cached_event_index;
 	}
 
@@ -2026,7 +2026,7 @@ function everycal_customize_event_admin_bar( $wp_admin_bar ) {
 	}
 
 	$event_label = '@' . $username . '/' . $slug;
-	$redirect_to = rawurlencode( remove_query_arg( array( 'everycal_cache_cleared', 'everycal_cache_event' ) ) );
+	$redirect_to = remove_query_arg( array( 'everycal_cache_cleared', 'everycal_cache_event' ) );
 
 	$refresh_url = add_query_arg(
 		array(
