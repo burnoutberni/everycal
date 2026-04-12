@@ -13,7 +13,7 @@
     "lint:php:strict": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun lint:php:strict.\"; exit 1; }; composer run lint --no-interaction'",
     "php:setup": "sh -c 'command -v composer >/dev/null 2>&1 || { echo \"Composer is required. Install Composer and rerun php:setup.\"; exit 1; }; composer install --no-interaction'",
     "test": "wp-scripts test-unit-js --runInBand",
-    "plugin-zip": "wp-scripts plugin-zip",
+    "plugin-zip": "pnpm run build && node ./scripts/plugin-zip.mjs",
     "i18n:compile": "for f in languages/*.po; do msgfmt -o \"${f%.po}.mo\" \"$f\"; done",
     "i18n:pot": "wp i18n make-pot . languages/everycal.pot --domain=everycal --exclude=build,node_modules,vendor --headers='{\"Report-Msgid-Bugs-To\":\"https://github.com/burnoutberni/everycal/issues\"}'"
   },

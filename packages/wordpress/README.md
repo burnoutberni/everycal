@@ -27,6 +27,8 @@ pnpm --filter @everycal/wordpress build
 pnpm --filter @everycal/wordpress plugin-zip
 ```
 
+This creates `packages/wordpress/everycal-<version>.zip` (for example `everycal-0.1.0.zip`).
+
 2. Upload zip in WordPress: **Plugins -> Add New -> Upload Plugin**.
 3. Activate **EveryCal**.
 
