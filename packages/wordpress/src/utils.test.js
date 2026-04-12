@@ -21,23 +21,8 @@ describe( 'deriveServerMode', () => {
 } );
 
 describe( 'createInstanceId', () => {
-	const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(
-		globalThis,
-		'crypto'
-	);
-
 	afterEach( () => {
 		jest.restoreAllMocks();
-
-		if ( originalCryptoDescriptor ) {
-			Object.defineProperty(
-				globalThis,
-				'crypto',
-				originalCryptoDescriptor
-			);
-		} else {
-			delete globalThis.crypto;
-		}
 	} );
 
 	it( 'creates a deterministic id from a seed', () => {
@@ -47,34 +32,28 @@ describe( 'createInstanceId', () => {
 	} );
 
 	it( 'uses crypto.randomUUID when available', () => {
-		if ( ! globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function' ) {
-			Object.defineProperty( globalThis, 'crypto', {
-				value: {
-					randomUUID: () => '00000000-0000-0000-0000-000000000000',
-				},
-				configurable: true,
-			} );
-		}
+		const randomUUID = jest
+			.fn()
+			.mockReturnValue( '12345678-90ab-cdef-1234-567890abcdef' );
 
-		jest.spyOn( globalThis.crypto, 'randomUUID' ).mockReturnValue(
-			'12345678-90ab-cdef-1234-567890abcdef'
-		);
-
-		const result = createInstanceId();
+		const result = createInstanceId( undefined, {
+			crypto: { randomUUID },
+		} );
 		expect( result ).toBe( 'ec1234567890' );
+		expect( randomUUID ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'falls back to a fixed-length random id when crypto is missing', () => {
-		Object.defineProperty( globalThis, 'crypto', {
-			value: undefined,
-			configurable: true,
-		} );
-		jest.spyOn( Math, 'random' ).mockReturnValue( 0.5 );
+		const random = jest.fn().mockReturnValue( 0.5 );
 
-		const result = createInstanceId();
+		const result = createInstanceId( undefined, {
+			crypto: undefined,
+			random,
+		} );
 
 		expect( result ).toBe( 'eciiiiiiiiii' );
 		expect( result ).toMatch( /^ec[a-z0-9]{10}$/ );
+		expect( random ).toHaveBeenCalled();
 	} );
 } );
 

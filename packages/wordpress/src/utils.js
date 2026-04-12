@@ -19,7 +19,7 @@ export function resolveCustomServerUrl( currentServerUrl, defaultServerUrl ) {
 	return '';
 }
 
-export function createInstanceId( seed ) {
+export function createInstanceId( seed, providers = {} ) {
 	const normalizedSeed = ( seed || '' )
 		.toString()
 		.toLowerCase()
@@ -29,15 +29,19 @@ export function createInstanceId( seed ) {
 		return `ec${ normalizedSeed.slice( 0, 16 ) }`;
 	}
 
-	const randomSuffix = createRandomSuffix();
+	const randomSuffix = createRandomSuffix( providers );
 	return `ec${ randomSuffix }`;
 }
 
-function createRandomSuffix() {
+function createRandomSuffix( providers = {} ) {
 	const cryptoApi =
-		typeof globalThis !== 'undefined' && globalThis.crypto
-			? globalThis.crypto
-			: null;
+		Object.prototype.hasOwnProperty.call( providers, 'crypto' )
+			? providers.crypto
+			: typeof globalThis !== 'undefined' && globalThis.crypto
+				? globalThis.crypto
+				: null;
+	const random =
+		typeof providers.random === 'function' ? providers.random : Math.random;
 
 	if ( cryptoApi && typeof cryptoApi.randomUUID === 'function' ) {
 		return cryptoApi.randomUUID().replace( /-/g, '' ).slice( 0, 10 );
@@ -45,7 +49,7 @@ function createRandomSuffix() {
 
 	let suffix = '';
 	while ( suffix.length < 10 ) {
-		suffix += Math.random().toString( 36 ).slice( 2 );
+		suffix += random().toString( 36 ).slice( 2 );
 	}
 
 	return suffix.slice( 0, 10 );
