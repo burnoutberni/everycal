@@ -37,22 +37,62 @@ interface TribeEventsResponse {
   next_rest_url?: string;
 }
 
+const MAX_TRIBE_PAGES = 100;
+
 export async function fetchTribeEvents(url: string): Promise<TribeEvent[]> {
   const events: TribeEvent[] = [];
-  let nextUrl = url;
+  const seedUrl = new URL(url);
+  let nextUrl: URL | undefined = seedUrl;
+  let pageCount = 0;
+  const visitedUrls = new Set<string>();
 
   while (nextUrl) {
-    const response = await fetch(nextUrl);
+    pageCount += 1;
+    if (pageCount > MAX_TRIBE_PAGES) {
+      throw new Error(`Tribe pagination exceeded ${MAX_TRIBE_PAGES} pages`);
+    }
+
+    const currentUrl = nextUrl.toString();
+    if (visitedUrls.has(currentUrl)) {
+      throw new Error(`Tribe pagination cycle detected for URL: ${currentUrl}`);
+    }
+    visitedUrls.add(currentUrl);
+
+    const response = await fetch(currentUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch Tribe events API: ${response.status}`);
     }
 
     const payload = (await response.json()) as TribeEventsResponse;
-    events.push(...(payload.events || []));
-    nextUrl = payload.next_rest_url || "";
+    if (Array.isArray(payload.events)) {
+      events.push(...payload.events);
+    }
+    nextUrl = getSafeNextUrl(payload.next_rest_url, seedUrl);
   }
 
   return events;
+}
+
+function getSafeNextUrl(nextRestUrl: string | undefined, seedUrl: URL): URL | undefined {
+  if (!nextRestUrl) {
+    return undefined;
+  }
+
+  let candidate: URL;
+  try {
+    candidate = new URL(nextRestUrl, seedUrl);
+  } catch {
+    throw new Error(`Invalid Tribe pagination URL: ${nextRestUrl}`);
+  }
+
+  if (candidate.protocol !== "http:" && candidate.protocol !== "https:") {
+    throw new Error(`Unsafe Tribe pagination protocol: ${candidate.protocol}`);
+  }
+  if (candidate.origin !== seedUrl.origin) {
+    throw new Error(`Unsafe Tribe pagination origin: ${candidate.origin}`);
+  }
+
+  return candidate;
 }
 
 export function fromTribeEvent(

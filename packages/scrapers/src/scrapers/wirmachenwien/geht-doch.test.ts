@@ -63,6 +63,6 @@ describe("GehtDochScraper", () => {
     );
 
     expect(scraper.bio).toContain("zivilgesellschaftlich organisierter Verein");
-    expect(scraper.avatarUrl).toContain("wirmachen.wien");
+    expect(scraper.avatarUrl).toContain("geht-doch.info");
   });
 });
