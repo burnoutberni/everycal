@@ -5,7 +5,7 @@
 import type { Scraper } from "./scraper.js";
 import { FlexScraper } from "./scrapers/flex-at.js";
 
-// wirmachen.wien scrapers (6 organisations)
+// wirmachen.wien scrapers (7 organisations)
 import {
   CriticalMassViennaScraper,
   RadlobbyWienScraper,
@@ -13,6 +13,7 @@ import {
   SpaceAndPlaceScraper,
   KirchberggasseScraper,
   WestbahnparkScraper,
+  GehtDochScraper,
 } from "./scrapers/wirmachenwien/index.js";
 
 export const registry: Scraper[] = [
@@ -27,6 +28,7 @@ export const registry: Scraper[] = [
   new SpaceAndPlaceScraper(),
   new KirchberggasseScraper(),
   new WestbahnparkScraper(),
+  new GehtDochScraper(),
 ];
 
 export function getScraperById(id: string): Scraper | undefined {

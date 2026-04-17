@@ -12,6 +12,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import crypto from "node:crypto";
+import { normalizeHashtagName } from "@everycal/core";
 import type { DB } from "../db.js";
 import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
@@ -813,10 +814,15 @@ function rowToAPEvent(
   if (attachments.length > 0) event.attachment = attachments;
 
   if (tags.length > 0) {
-    event.tag = tags.map((t) => ({
-      type: "Hashtag",
-      name: t.startsWith("#") ? t : `#${t}`,
-    }));
+    const normalizedTags = tags
+      .map(normalizeHashtagName)
+      .filter((t): t is string => Boolean(t));
+    if (normalizedTags.length > 0) {
+      event.tag = normalizedTags.map((t) => ({
+        type: "Hashtag",
+        name: `#${t}`,
+      }));
+    }
   }
 
   if (row.og_image_url) {

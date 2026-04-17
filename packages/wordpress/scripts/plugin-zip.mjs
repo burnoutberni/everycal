@@ -40,9 +40,13 @@ try {
 	await mkdir( tempPluginDir, { recursive: true } );
 
 	for ( const entry of requiredEntries ) {
-		await cp( path.join( packageDir, entry ), path.join( tempPluginDir, entry ), {
-			recursive: true,
-		} );
+		await cp(
+			path.join( packageDir, entry ),
+			path.join( tempPluginDir, entry ),
+			{
+				recursive: true,
+			}
+		);
 	}
 
 	await rm( outputZipPath, { force: true } );
@@ -51,8 +55,8 @@ try {
 		cwd: tempRoot,
 	} );
 
-	console.log( `Created ${ outputZipName }` );
-	console.log( `Path: ${ outputZipPath }` );
+	process.stdout.write( `Created ${ outputZipName }\n` );
+	process.stdout.write( `Path: ${ outputZipPath }\n` );
 } finally {
 	await rm( tempRoot, { recursive: true, force: true } );
 }

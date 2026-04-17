@@ -53,6 +53,12 @@ interface APTag {
 
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
+export function normalizeHashtagName(tag: string): string | undefined {
+  const base = tag.replace(/^#/, "").trim();
+  if (!base) return undefined;
+  return base.replace(/\s+/g, "-").replace(/-+/g, "-");
+}
+
 function visibilityToAddressing(
   visibility: EventVisibility,
   organizer?: string
@@ -137,10 +143,15 @@ export function toActivityPubEvent(event: EveryCalEvent): APEvent {
   }
 
   if (event.tags && event.tags.length > 0) {
-    ap.tag = event.tags.map((t) => ({
-      type: "Hashtag" as const,
-      name: t.startsWith("#") ? t : `#${t}`,
-    }));
+    const normalizedTags = event.tags
+      .map(normalizeHashtagName)
+      .filter((t): t is string => Boolean(t));
+    if (normalizedTags.length > 0) {
+      ap.tag = normalizedTags.map((t) => ({
+        type: "Hashtag" as const,
+        name: `#${t}`,
+      }));
+    }
   }
 
   return ap;

@@ -15,3 +15,5 @@ export { MatznerViertelScraper } from "./matznerviertel.js";
 export { SpaceAndPlaceScraper } from "./space-and-place.js";
 export { KirchberggasseScraper } from "./kirchberggasse.js";
 export { WestbahnparkScraper } from "./westbahnpark.js";
+
+export { GehtDochScraper } from "./geht-doch.js";

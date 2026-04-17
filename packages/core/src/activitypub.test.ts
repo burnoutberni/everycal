@@ -66,6 +66,18 @@ describe("toActivityPubEvent", () => {
     expect(ap.startTime).toBe("2026-03-01");
     expect(ap.endTime).toBe("2026-03-02");
   });
+
+  it("normalizes tags to valid hashtag names", () => {
+    const ap = toActivityPubEvent(
+      baseEvent({
+        tags: ["community walk", "#already-tagged", "two   spaces", "   "],
+      })
+    );
+
+    const names = (ap.tag || []).map((t) => t.name);
+    expect(names).toEqual(["#community-walk", "#already-tagged", "#two-spaces"]);
+    for (const name of names) expect(name).not.toMatch(/\s/);
+  });
 });
 
 describe("fromActivityPubEvent", () => {

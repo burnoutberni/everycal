@@ -183,6 +183,40 @@ describe("ActivityPub timezone interoperability", () => {
     expect(Array.isArray(body["@context"])).toBe(true);
   });
 
+  it("serves federated Event objects with normalized hashtag tags", async () => {
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'public')`
+    ).run(
+      "e3",
+      "u1",
+      "event-three",
+      "Event Three",
+      "2026-03-05T18:00:00",
+      "2026-03-05T17:00:00.000Z",
+      "Europe/Vienna",
+    );
+    db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?), (?, ?), (?, ?)").run(
+      "e3",
+      "community walk",
+      "e3",
+      "#already-tagged",
+      "e3",
+      "two   spaces",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/events/e3", {
+      headers: { accept: "application/activity+json" },
+    });
+    const body = await res.json() as Record<string, any>;
+
+    expect(res.status).toBe(200);
+    const names = ((body.tag as Array<{ name: string }>) || []).map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(["#community-walk", "#already-tagged", "#two-spaces"]));
+    for (const name of names) expect(name).not.toMatch(/\s/);
+  });
+
   it("ingests inbound AP timezone quality variants", async () => {
     const app = makeApp(db);
     const actor = "https://remote.example/users/a";
