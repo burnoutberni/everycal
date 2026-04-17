@@ -53,7 +53,7 @@ interface APTag {
 
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
-function normalizeHashtagName(tag: string): string | undefined {
+export function normalizeHashtagName(tag: string): string | undefined {
   const base = tag.replace(/^#/, "").trim();
   if (!base) return undefined;
   return base.replace(/\s+/g, "-").replace(/-+/g, "-");

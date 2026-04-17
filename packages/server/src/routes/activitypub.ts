@@ -12,6 +12,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import crypto from "node:crypto";
+import { normalizeHashtagName } from "@everycal/core";
 import type { DB } from "../db.js";
 import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
@@ -53,12 +54,6 @@ function toEpochMillisOrZero(value: unknown): number {
   if (!iso) return 0;
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? 0 : ms;
-}
-
-function normalizeHashtagName(tag: string): string | undefined {
-  const base = tag.replace(/^#/, "").trim();
-  if (!base) return undefined;
-  return base.replace(/\s+/g, "-").replace(/-+/g, "-");
 }
 
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
