@@ -36,10 +36,16 @@ for arg in "$@"; do
   fi
 done
 
-# Discover scrapers from packages/scrapers/src/scrapers (all .ts files except index.ts)
+# Discover scrapers from packages/scrapers/src/scrapers
+# Include only scraper source files (exclude index and test files)
 # Scraper id = basename with hyphens → underscores (e.g. flex-at.ts → flex_at)
 SCRAPER_DIR="$(cd "$(dirname "$0")/.." && pwd)/packages/scrapers/src/scrapers"
-SCRAPERS=$(find "$SCRAPER_DIR" -name "*.ts" -type f ! -name "index.ts" -exec sh -c 'basename "$1" .ts | tr "-" "_"' _ {} \; | sort -u)
+SCRAPERS=$(find "$SCRAPER_DIR" -type f -name "*.ts" \
+  ! -name "index.ts" \
+  ! -name "*.test.ts" \
+  ! -name "*.spec.ts" \
+  ! -path "*/__tests__/*" \
+  -exec sh -c 'basename "$1" .ts | tr "-" "_"' _ {} \; | sort -u)
 
 # Placeholder display name (scrapers update profile on first run)
 scraper_display_name() {
@@ -56,10 +62,20 @@ echo "🗓️  EveryCal Scraper Account Setup"
 echo "   Server: $SERVER"
 echo ""
 
-# Start fresh JSON
-echo "{" > "$OUT_FILE"
-FIRST=1
+# Prepare output JSON: keep existing keys and append only new ones
+OUT_FILE_EXISTED=0
+if [ -f "$OUT_FILE" ]; then
+  OUT_FILE_EXISTED=1
+  if ! jq -e 'type == "object"' "$OUT_FILE" > /dev/null 2>&1; then
+    echo "❌ Existing output file is not a valid JSON object: $OUT_FILE"
+    exit 1
+  fi
+else
+  echo "{}" > "$OUT_FILE"
+fi
+
 CREATED=0
+ADDED_KEYS=0
 ERRORS=""
 
 for scraper in $SCRAPERS; do
@@ -106,13 +122,15 @@ for scraper in $SCRAPERS; do
   rm -f "/tmp/${scraper}-cookie.txt"
 
   if [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
-    echo "✅ created"
     CREATED=$((CREATED + 1))
-    if [ "$FIRST" -eq 1 ]; then
-      FIRST=0
-      echo "  \"$scraper\": \"$API_KEY\"" >> "$OUT_FILE"
+    if jq -e --arg scraper "$scraper" 'has($scraper)' "$OUT_FILE" > /dev/null; then
+      echo "✅ created (existing key kept)"
     else
-      echo "  ,\"$scraper\": \"$API_KEY\"" >> "$OUT_FILE"
+      tmp_out_file="${OUT_FILE}.tmp.$$"
+      jq --arg scraper "$scraper" --arg key "$API_KEY" '. + {($scraper): $key}' "$OUT_FILE" > "$tmp_out_file"
+      mv "$tmp_out_file" "$OUT_FILE"
+      ADDED_KEYS=$((ADDED_KEYS + 1))
+      echo "✅ created"
     fi
   else
     echo "❌ API key creation failed"
@@ -122,17 +140,17 @@ for scraper in $SCRAPERS; do
   sleep 0.5
 done
 
-echo "}" >> "$OUT_FILE"
-
 if [ "$CREATED" -eq 0 ]; then
   echo ""
-  echo "❌ No accounts were created. Nothing to configure."
+  echo "❌ No accounts were created."
   if [ -n "$ERRORS" ]; then
     echo ""
     echo "Issues:"
     echo "$ERRORS" | while read -r line; do [ -n "$line" ] && echo "  - $line"; done
   fi
-  rm -f "$OUT_FILE"
+  if [ "$OUT_FILE_EXISTED" -eq 0 ]; then
+    rm -f "$OUT_FILE"
+  fi
   exit 1
 fi
 
@@ -142,6 +160,7 @@ chmod 600 "$OUT_FILE" 2>/dev/null || true
 echo ""
 echo "══════════════════════════════════════════════════════════════════════"
 echo "  $CREATED scraper account(s) created"
+echo "  $ADDED_KEYS API key(s) added to $OUT_FILE"
 echo "══════════════════════════════════════════════════════════════════════"
 echo ""
 echo "🔑 API keys written to: $OUT_FILE  (mode 600, owner-read only)"
