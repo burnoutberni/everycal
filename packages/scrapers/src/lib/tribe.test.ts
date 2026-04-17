@@ -54,6 +54,38 @@ describe("fetchTribeEvents", () => {
     );
   });
 
+  it("rejects invalid pagination URLs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockJsonResponse({
+          events: [{ id: 1, title: "Page one" }],
+          next_rest_url: "https://flex.at:bad-port/wp-json/tribe/events/v1/events?page=2",
+        })
+      )
+    );
+
+    await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
+      "Invalid Tribe pagination URL"
+    );
+  });
+
+  it("rejects non-http pagination protocols", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockJsonResponse({
+          events: [{ id: 1, title: "Page one" }],
+          next_rest_url: "javascript:alert(1)",
+        })
+      )
+    );
+
+    await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
+      "Unsafe Tribe pagination protocol"
+    );
+  });
+
   it("detects circular pagination URLs", async () => {
     const fetchMock = vi
       .fn()
@@ -94,5 +126,37 @@ describe("fetchTribeEvents", () => {
       "Tribe pagination exceeded 100 pages"
     );
     expect(fetchMock).toHaveBeenCalledTimes(100);
+  });
+
+  it("rejects Tribe error payload shape", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockJsonResponse({
+          code: "rest_forbidden",
+          message: "You cannot view this resource.",
+          data: { status: 403 },
+        })
+      )
+    );
+
+    await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
+      "Tribe API returned error payload: rest_forbidden: You cannot view this resource."
+    );
+  });
+
+  it("rejects non-array events payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockJsonResponse({
+          events: { id: 1 },
+        })
+      )
+    );
+
+    await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
+      "Invalid Tribe API payload: expected events array"
+    );
   });
 });

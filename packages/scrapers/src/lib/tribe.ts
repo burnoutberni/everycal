@@ -63,14 +63,42 @@ export async function fetchTribeEvents(url: string): Promise<TribeEvent[]> {
       throw new Error(`Failed to fetch Tribe events API: ${response.status}`);
     }
 
-    const payload = (await response.json()) as TribeEventsResponse;
-    if (Array.isArray(payload.events)) {
-      events.push(...payload.events);
-    }
+    const payload = parseTribeEventsResponse(await response.json());
+    events.push(...payload.events);
     nextUrl = getSafeNextUrl(payload.next_rest_url, seedUrl);
   }
 
   return events;
+}
+
+function parseTribeEventsResponse(payload: unknown): TribeEventsResponse {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Invalid Tribe API payload: expected object");
+  }
+
+  const candidate = payload as {
+    events?: unknown;
+    next_rest_url?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+
+  if (typeof candidate.code === "string") {
+    const message = typeof candidate.message === "string" ? candidate.message : "Unknown error";
+    throw new Error(`Tribe API returned error payload: ${candidate.code}: ${message}`);
+  }
+
+  if (candidate.events !== undefined && !Array.isArray(candidate.events)) {
+    throw new Error("Invalid Tribe API payload: expected events array");
+  }
+  if (candidate.next_rest_url !== undefined && typeof candidate.next_rest_url !== "string") {
+    throw new Error("Invalid Tribe API payload: expected next_rest_url string");
+  }
+
+  return {
+    events: (candidate.events ?? []) as TribeEvent[],
+    next_rest_url: candidate.next_rest_url,
+  };
 }
 
 function getSafeNextUrl(nextRestUrl: string | undefined, seedUrl: URL): URL | undefined {
