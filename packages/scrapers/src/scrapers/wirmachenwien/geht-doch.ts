@@ -15,9 +15,10 @@ export class GehtDochScraper implements Scraper {
   readonly name = "GEHT-DOCH";
   readonly eventTimezone = "Europe/Vienna";
   readonly url = "https://geht-doch.info/termine/";
-  readonly website = "https://geht-doch.wien/";
+  readonly website = "https://geht-doch.info/";
   readonly bio = "GEHT-DOCH ist ein zivilgesellschaftlich organisierter Verein zur Förderung des Zu Fuß Gehens und für menschengerechten öffentlichen Raum.";
-  readonly avatarUrl = "https://wirmachen.wien/wp-content/uploads/2024/06/old-man-walking-city.jpg";
+  readonly avatarUrl = "https://geht-doch.info/wp-content/uploads/2026/03/GD_logo_ohne_wien.png";
+  readonly defaultEventImageUrl = "https://geht-doch.info/wp-content/uploads/2026/04/20170916-Streetlife-Festival_Christian-Fuerthner-45.jpg";
 
   async scrape(): Promise<Partial<EveryCalEvent>[]> {
     const now = new Date();
