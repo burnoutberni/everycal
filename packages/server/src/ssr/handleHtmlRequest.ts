@@ -99,7 +99,8 @@ export async function handleHtmlRequest(
     });
   }
 
-  return c.body(body, statusCode);
+  c.status(statusCode as never);
+  return c.body(body);
 }
 
 function attachBootstrapDiagnostics(
