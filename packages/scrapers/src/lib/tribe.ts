@@ -60,7 +60,9 @@ export async function fetchTribeEvents(url: string): Promise<TribeEvent[]> {
 
     const response = await fetch(currentUrl);
     if (!response.ok) {
-      throw new Error(`Failed to fetch Tribe events API: ${response.status}`);
+      throw new Error(
+        `Failed to fetch Tribe events API (${response.status}) for ${currentUrl} (seed origin: ${seedUrl.origin})`
+      );
     }
 
     const payload = parseTribeEventsResponse(await response.json());

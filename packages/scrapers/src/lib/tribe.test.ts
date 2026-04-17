@@ -8,6 +8,13 @@ function mockJsonResponse(payload: unknown) {
   } as const;
 }
 
+function mockHttpErrorResponse(status: number) {
+  return {
+    ok: false,
+    status,
+  } as const;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -51,6 +58,14 @@ describe("fetchTribeEvents", () => {
 
     await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
       "Unsafe Tribe pagination origin"
+    );
+  });
+
+  it("includes request URL in HTTP error messages", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockHttpErrorResponse(503)));
+
+    await expect(fetchTribeEvents("https://flex.at/wp-json/tribe/events/v1/events?page=1")).rejects.toThrow(
+      "Failed to fetch Tribe events API (503) for https://flex.at/wp-json/tribe/events/v1/events?page=1 (seed origin: https://flex.at)"
     );
   });
 
