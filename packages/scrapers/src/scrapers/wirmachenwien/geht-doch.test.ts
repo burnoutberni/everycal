@@ -59,7 +59,7 @@ describe("GehtDochScraper", () => {
     });
 
     expect(events[0]?.tags).toEqual(
-      expect.arrayContaining(["wien", "zu-fuß-gehen", "öffentlicher-raum", "wirmachenwien", "community walk"])
+      expect.arrayContaining(["wien", "zu-fuß-gehen", "öffentlicher-raum", "wirmachenwien", "community-walk"])
     );
 
     expect(scraper.bio).toContain("zivilgesellschaftlich organisierter Verein");

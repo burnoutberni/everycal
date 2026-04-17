@@ -10,6 +10,12 @@ import { fetchTribeEvents, fromTribeEvent, toTribeDate } from "../../lib/tribe.j
 
 const API_URL = "https://geht-doch.info/wp-json/tribe/events/v1/events";
 
+function normalizeCategoryTag(value: string | undefined): string | undefined {
+  const base = value?.trim().toLowerCase().replace(/^#/, "");
+  if (!base) return undefined;
+  return base.replace(/\s+/g, "-").replace(/-+/g, "-");
+}
+
 export class GehtDochScraper implements Scraper {
   readonly id = "geht_doch";
   readonly name = "GEHT-DOCH";
@@ -42,7 +48,7 @@ export class GehtDochScraper implements Scraper {
         : { name: "Wien", address: "Wien, Austria" };
 
       const categoryTags = (raw.categories || [])
-        .map((c) => c.name?.trim().toLowerCase())
+        .map((c) => normalizeCategoryTag(c.name))
         .filter((c): c is string => Boolean(c));
 
       const tags = Array.from(new Set(["wien", "zu-fuß-gehen", "öffentlicher-raum", "wirmachenwien", ...categoryTags]));

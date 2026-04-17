@@ -55,6 +55,12 @@ function toEpochMillisOrZero(value: unknown): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
+function normalizeHashtagName(tag: string): string | undefined {
+  const base = tag.replace(/^#/, "").trim();
+  if (!base) return undefined;
+  return base.replace(/\s+/g, "-").replace(/-+/g, "-");
+}
+
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
   const row = db
     .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
@@ -813,10 +819,15 @@ function rowToAPEvent(
   if (attachments.length > 0) event.attachment = attachments;
 
   if (tags.length > 0) {
-    event.tag = tags.map((t) => ({
-      type: "Hashtag",
-      name: t.startsWith("#") ? t : `#${t}`,
-    }));
+    const normalizedTags = tags
+      .map(normalizeHashtagName)
+      .filter((t): t is string => Boolean(t));
+    if (normalizedTags.length > 0) {
+      event.tag = normalizedTags.map((t) => ({
+        type: "Hashtag",
+        name: `#${t}`,
+      }));
+    }
   }
 
   if (row.og_image_url) {
