@@ -222,8 +222,7 @@ export function federationRoutes(db: DB): Hono {
         if (!temporal) continue;
         const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
-          generateAndSaveRemoteOgImage(db, upserted.uri)
-            .then()
+          void generateAndSaveRemoteOgImage(db, upserted.uri)
             .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
         }
         imported++;

@@ -954,8 +954,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     for (const eventId of ogEventIdsToGenerate) {
-      generateAndSaveOgImage(db, eventId)
-        .then()
+      void generateAndSaveOgImage(db, eventId)
         .catch((err) => console.error(`[OG] Failed to create OG image for event ${eventId}:`, err));
     }
 
@@ -1380,8 +1379,7 @@ export function eventRoutes(db: DB): Hono {
     response.rsvpStatus = "going";
 
     if (isOgEligibleVisibility(visibility)) {
-      generateAndSaveOgImage(db, id)
-        .then()
+      void generateAndSaveOgImage(db, id)
         .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
     }
 
@@ -1655,8 +1653,7 @@ export function eventRoutes(db: DB): Hono {
 
     if (ogRelevantFieldsChanged || visibilityChanged) {
       if (shouldHaveOgImage) {
-        generateAndSaveOgImage(db, id)
-          .then()
+        void generateAndSaveOgImage(db, id)
           .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
       } else {
         clearLocalOgImageUrlIfSupported(db, id);

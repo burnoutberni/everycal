@@ -653,8 +653,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   });
 
   if (isRemoteActivityOgEligible(activity, object)) {
-    generateAndSaveRemoteOgImage(db, upserted.uri)
-      .then()
+    void generateAndSaveRemoteOgImage(db, upserted.uri)
       .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
   }
 
