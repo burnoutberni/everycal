@@ -11,6 +11,7 @@ import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { validateFederationUrl } from "../lib/federation.js";
 
 const PUBLIC_ADDRESS = "https://www.w3.org/ns/activitystreams#Public";
+const REMOTE_OG_FILENAME_RE = /^remote-[a-f0-9]{64}\.png$/;
 
 function normalizeRecipients(input: unknown): string[] {
   if (typeof input === "string") return [input];
@@ -75,6 +76,7 @@ function remoteOgFilenameFromUrl(ogImageUrl: string): string | null {
   if (!path.startsWith(prefix)) return null;
   const filename = path.slice(prefix.length);
   if (!filename || filename.includes("/") || filename.includes("\\")) return null;
+  if (!REMOTE_OG_FILENAME_RE.test(filename)) return null;
   return filename;
 }
 
@@ -130,6 +132,8 @@ export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void
   if (!ogImageUrl) return;
   const filename = remoteOgFilenameFromUrl(ogImageUrl);
   if (!filename) return;
+  const expectedFilename = getRemoteOgFilename(eventUri);
+  if (filename !== expectedFilename) return;
 
   const { unlink } = await import("node:fs/promises");
   const ogPath = join(OG_DIR, filename);

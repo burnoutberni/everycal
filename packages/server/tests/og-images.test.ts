@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { initDatabase } from "../src/db.js";
 import type { DB } from "../src/db.js";
 
@@ -51,6 +52,11 @@ import {
 function insertAccount(db: DB, id: string) {
   db.prepare("INSERT INTO accounts (id, username, preferred_language) VALUES (?, ?, ?)")
     .run(id, id, "en");
+}
+
+function remoteOgImageUrlForUri(uri: string): string {
+  const digest = createHash("sha256").update(uri).digest("hex");
+  return `/og-images/remote-${digest}.png?v=100`;
 }
 
 describe("generateAndSaveOgImage temporal payload", () => {
@@ -273,7 +279,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
       "2026-02-15T17:00:00.000Z",
       "Europe/Vienna",
       "exact_tzid",
-      "/og-images/remote-123.png?v=100",
+      remoteOgImageUrlForUri("https://remote.example/events/cleanup"),
       "2026-02-10T12:00:00.000Z",
       0,
     );
@@ -285,7 +291,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
     };
     expect(row.og_image_url).toBeNull();
     expect(unlinkMock).toHaveBeenCalledOnce();
-    expect(unlinkMock.mock.calls[0]?.[0]).toContain("remote-123.png");
+    expect(unlinkMock.mock.calls[0]?.[0]).toContain(createHash("sha256").update("https://remote.example/events/cleanup").digest("hex"));
   });
 
   it("clears remote og_image_url even when file is already missing", async () => {
@@ -306,7 +312,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
       "2026-02-15T17:00:00.000Z",
       "Europe/Vienna",
       "exact_tzid",
-      "/og-images/remote-missing.png?v=100",
+      remoteOgImageUrlForUri("https://remote.example/events/missing"),
       "2026-02-10T12:00:00.000Z",
       0,
     );
@@ -317,6 +323,99 @@ describe("generateAndSaveOgImage temporal payload", () => {
       og_image_url: string | null;
     };
     expect(row.og_image_url).toBeNull();
+  });
+
+  it("clears remote og_image_url but does not remove non-remote filename", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, all_day,
+        start_at_utc, event_timezone, timezone_quality,
+        og_image_url, fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/poisoned-local",
+      "https://remote.example/users/alice",
+      "Remote Event Poisoned Local",
+      "2026-02-15T18:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      "/og-images/local-cleanup.png?v=100",
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    await clearRemoteOgImage(db, "https://remote.example/events/poisoned-local");
+
+    const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/poisoned-local") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it("clears remote og_image_url but does not remove mismatched remote filename", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, all_day,
+        start_at_utc, event_timezone, timezone_quality,
+        og_image_url, fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/poisoned-remote",
+      "https://remote.example/users/alice",
+      "Remote Event Poisoned Remote",
+      "2026-02-15T18:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      remoteOgImageUrlForUri("https://remote.example/events/other"),
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    await clearRemoteOgImage(db, "https://remote.example/events/poisoned-remote");
+
+    const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/poisoned-remote") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it("clears remote og_image_url but does not remove malformed remote filename", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, all_day,
+        start_at_utc, event_timezone, timezone_quality,
+        og_image_url, fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/poisoned-malformed",
+      "https://remote.example/users/alice",
+      "Remote Event Poisoned Malformed",
+      "2026-02-15T18:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      "/og-images/remote-123.png?v=100",
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    await clearRemoteOgImage(db, "https://remote.example/events/poisoned-malformed");
+
+    const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/poisoned-malformed") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+    expect(unlinkMock).not.toHaveBeenCalled();
   });
 
   it("clears local og_image_url and removes local image file", async () => {
