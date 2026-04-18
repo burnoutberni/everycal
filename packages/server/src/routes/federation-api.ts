@@ -29,6 +29,7 @@ import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
+import { generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -219,7 +220,12 @@ export function federationRoutes(db: DB): Hono {
 
         const temporal = normalizeApTemporal(fullObj);
         if (!temporal) continue;
-        upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
+        const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
+        if (isRemoteActivityOgEligible(activity, fullObj)) {
+          generateAndSaveRemoteOgImage(db, upserted.uri)
+            .then()
+            .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+        }
         imported++;
       }
 

@@ -251,6 +251,24 @@ describe("event slug canonical behavior", () => {
     expect(row.end_on).toBe("2025-12-31");
   });
 
+  it("does not generate OG for private event creates", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Event",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+
+    expect(create.status).toBe(201);
+    expect(generateAndSaveOgImage).not.toHaveBeenCalled();
+  });
+
   it("rejects switching a timed event to all-day without date-only fields", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -588,6 +606,104 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBe("2026-01-01T02:00:00.000Z");
     expect(row.start_on).toBe("2025-12-31");
     expect(row.end_on).toBe("2025-12-31");
+  });
+
+  it("sync only triggers OG generation for public and unlisted events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "sync-public-og",
+            title: "Public OG",
+            startDate: "2026-08-10T08:00:00",
+            eventTimezone: "UTC",
+            visibility: "public",
+          },
+          {
+            externalId: "sync-unlisted-og",
+            title: "Unlisted OG",
+            startDate: "2026-08-10T09:00:00",
+            eventTimezone: "UTC",
+            visibility: "unlisted",
+          },
+          {
+            externalId: "sync-private-no-og",
+            title: "Private No OG",
+            startDate: "2026-08-10T10:00:00",
+            eventTimezone: "UTC",
+            visibility: "private",
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(200);
+
+    const publicEvent = db.prepare("SELECT id FROM events WHERE external_id = ?").get("sync-public-og") as { id: string };
+    const unlistedEvent = db.prepare("SELECT id FROM events WHERE external_id = ?").get("sync-unlisted-og") as { id: string };
+    const privateEvent = db.prepare("SELECT id FROM events WHERE external_id = ?").get("sync-private-no-og") as { id: string };
+
+    const ogCalls = vi.mocked(generateAndSaveOgImage).mock.calls.map((call) => call[1]);
+    expect(ogCalls).toContain(publicEvent.id);
+    expect(ogCalls).toContain(unlistedEvent.id);
+    expect(ogCalls).not.toContain(privateEvent.id);
+  });
+
+  it("sync does not trigger OG generation when visibility becomes private", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    db.prepare(
+      `INSERT INTO events (
+        id, account_id, created_by_account_id, external_id, slug, title,
+        start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone,
+        start_on, end_on, visibility, content_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "existing-og",
+      "u1",
+      "u1",
+      "sync-visibility-change",
+      "existing-og",
+      "Existing OG",
+      "2026-08-10T08:00:00",
+      null,
+      0,
+      "2026-08-10T08:00:00.000Z",
+      null,
+      "UTC",
+      "2026-08-10",
+      null,
+      "public",
+      "old-hash",
+    );
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "sync-visibility-change",
+            title: "Existing OG Updated",
+            startDate: "2026-08-10T08:00:00",
+            eventTimezone: "UTC",
+            visibility: "private",
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(200);
+    expect(generateAndSaveOgImage).not.toHaveBeenCalled();
+
+    const row = db.prepare("SELECT visibility FROM events WHERE id = ?").get("existing-og") as {
+      visibility: string;
+    };
+    expect(row.visibility).toBe("private");
   });
 
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {

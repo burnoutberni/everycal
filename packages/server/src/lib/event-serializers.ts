@@ -103,6 +103,7 @@ export function serializeRemoteEvent(row: Record<string, unknown>): Record<strin
           attribution: parseImageAttribution(row.image_attribution),
         }
       : null,
+    ogImageUrl: row.og_image_url || null,
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: "public",

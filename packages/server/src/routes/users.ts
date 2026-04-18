@@ -752,6 +752,7 @@ function formatRemoteEventForUser(row: Record<string, unknown>): Record<string, 
     image: row.image_url
       ? { url: row.image_url, mediaType: row.image_media_type, alt: row.image_alt }
       : null,
+    ogImageUrl: row.og_image_url || null,
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: "public",
@@ -868,6 +869,7 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     image: row.image_url
       ? { url: row.image_url, mediaType: row.image_media_type, alt: row.image_alt }
       : null,
+    ogImageUrl: row.og_image_url || null,
     url: row.url,
     tags: row.tags ? (row.tags as string).split(",") : [],
     visibility: row.visibility,

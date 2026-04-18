@@ -27,6 +27,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
+import { generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -646,10 +647,16 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
 
-  upsertRemoteEvent(db, object, effectiveActor, {
+  const upserted = upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
     temporal,
   });
+
+  if (isRemoteActivityOgEligible(activity, object)) {
+    generateAndSaveRemoteOgImage(db, upserted.uri)
+      .then()
+      .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+  }
 
   if (activityType === "Update" && changes.length > 0) {
     const stored = db.prepare(
