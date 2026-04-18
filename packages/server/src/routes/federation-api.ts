@@ -169,6 +169,19 @@ export function federationRoutes(db: DB): Hono {
     try {
       const items = await fetchRemoteOutbox(actor.outbox);
       let imported = 0;
+      const ogConcurrency = 3;
+      const pendingOgJobs = new Set<Promise<void>>();
+
+      const scheduleOgJob = async (job: () => Promise<void>): Promise<void> => {
+        const task = job().catch((err) => {
+          console.error("[OG] Unexpected remote OG job failure:", err);
+        });
+        pendingOgJobs.add(task);
+        task.finally(() => pendingOgJobs.delete(task));
+        if (pendingOgJobs.size >= ogConcurrency) {
+          await Promise.race(pendingOgJobs);
+        }
+      };
 
       for (const item of items) {
         // Outbox items may be full activities or URL references — resolve if needed
@@ -222,13 +235,27 @@ export function federationRoutes(db: DB): Hono {
         if (!temporal) continue;
         const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
-          void generateAndSaveRemoteOgImage(db, upserted.uri)
-            .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+          await scheduleOgJob(() =>
+            generateAndSaveRemoteOgImage(db, upserted.uri)
+              .then(() => undefined)
+              .catch((err) => {
+                console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err);
+              })
+          );
         } else {
-          void clearRemoteOgImage(db, upserted.uri)
-            .catch((err) => console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err));
+          await scheduleOgJob(() =>
+            clearRemoteOgImage(db, upserted.uri)
+              .then(() => undefined)
+              .catch((err) => {
+                console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err);
+              })
+          );
         }
         imported++;
+      }
+
+      if (pendingOgJobs.size > 0) {
+        await Promise.all(pendingOgJobs);
       }
 
       return c.json({ ok: true, imported, total: items.length });
