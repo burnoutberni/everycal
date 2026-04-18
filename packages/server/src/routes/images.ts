@@ -14,6 +14,7 @@ const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENVERSE_BASE = "https://api.openverse.org/v1";
 const UTM_SOURCE = "everycal";
 const UTM_MEDIUM = "referral";
+const UNSPLASH_PHOTO_ID_RE = /^[A-Za-z0-9_-]+$/;
 
 interface UnsplashPhoto {
   urls?: { regular?: string; small?: string; full?: string };
@@ -88,8 +89,16 @@ export function imageRoutes(): Hono {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
-    // Download tracking endpoint should only target /photos/:id/download.
-    if (!/^\/photos\/[^/]+\/download$/.test(validatedUrl.pathname)) {
+    const pathParts = validatedUrl.pathname.split("/").filter(Boolean);
+    const photoId =
+      pathParts.length === 3
+      && pathParts[0] === "photos"
+      && pathParts[2] === "download"
+        ? pathParts[1]
+        : "";
+
+    // Download tracking endpoint should only target /photos/:id/download with valid Unsplash id.
+    if (!photoId || !UNSPLASH_PHOTO_ID_RE.test(photoId)) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
