@@ -1246,15 +1246,18 @@ export function eventRoutes(db: DB): Hono {
       postAsAccountId?: string;
     }>();
 
-    const startDateInput = body.startDateTime || body.startDate;
+    sanitizeEventWriteFields(body as Record<string, unknown>);
+
+    const startDateInput = typeof body.startDateTime === "string"
+      ? body.startDateTime.trim()
+      : (typeof body.startDate === "string" ? body.startDate.trim() : "");
     const eventTimezone = body.eventTimezone;
-    if (!body.title || !startDateInput) {
+    if (typeof body.title !== "string" || !body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
     if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
-    sanitizeEventWriteFields(body as Record<string, unknown>);
 
     const postAsAccountId = body.postAsAccountId || user.id;
     const postingAccount = db

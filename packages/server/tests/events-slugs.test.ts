@@ -285,6 +285,42 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBeNull();
   });
 
+  it("rejects create when title normalizes to empty whitespace", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "   ",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+    const row = db.prepare("SELECT COUNT(*) as count FROM events").get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
+  it("rejects create when title normalizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "<b></b>",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+    const row = db.prepare("SELECT COUNT(*) as count FROM events").get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
   it("does not generate OG for private event creates", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
