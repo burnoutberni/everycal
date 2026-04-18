@@ -5,6 +5,7 @@ import {
   deriveStoredDatePart,
   deriveUpdateTemporalFields,
   normalizeEventWriteInput,
+  sanitizeEventWriteFields,
 } from "../src/lib/event-write.js";
 
 describe("event write normalization", () => {
@@ -141,6 +142,34 @@ describe("event write normalization", () => {
     });
 
     expect(normalized).toBeNull();
+  });
+});
+
+describe("event write sanitization", () => {
+  it("drops non-array tag payloads", () => {
+    const body: Record<string, unknown> = { tags: "oops" };
+
+    sanitizeEventWriteFields(body);
+
+    expect(body.tags).toBeUndefined();
+  });
+
+  it("keeps only string tags and sanitizes HTML", () => {
+    const body: Record<string, unknown> = {
+      tags: ["  <b>music</b>  ", 123, "", null, "<i>art</i>", {}, "   "],
+    };
+
+    sanitizeEventWriteFields(body);
+
+    expect(body.tags).toEqual(["music", "art"]);
+  });
+
+  it("preserves explicit empty tag arrays", () => {
+    const body: Record<string, unknown> = { tags: [] };
+
+    sanitizeEventWriteFields(body);
+
+    expect(body.tags).toEqual([]);
   });
 });
 

@@ -36,8 +36,15 @@ export function sanitizeEventWriteFields(body: Record<string, unknown>): void {
     if (typeof loc.name === "string") loc.name = stripHtml(loc.name);
     if (typeof loc.address === "string") loc.address = stripHtml(loc.address);
   }
-  if (body.tags && Array.isArray(body.tags)) {
-    body.tags = (body.tags as string[]).map((t) => stripHtml(t));
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags)) {
+      body.tags = undefined;
+    } else {
+      body.tags = body.tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => stripHtml(tag))
+        .filter(Boolean);
+    }
   }
 }
 
