@@ -8,6 +8,7 @@ import { generateOgImage, getOgImageFilename } from "@everycal/og";
 import type { DB } from "../db.js";
 import { OG_DIR } from "../lib/paths.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
+import { validateFederationUrl } from "../lib/federation.js";
 
 const PUBLIC_ADDRESS = "https://www.w3.org/ns/activitystreams#Public";
 
@@ -210,6 +211,20 @@ export async function generateAndSaveRemoteOgImage(db: DB, eventUri: string): Pr
 
   if (!event || event.canceled) return null;
 
+  let safeImage: { url: string; mediaType?: string; alt?: string } | undefined;
+  if (event.image_url) {
+    try {
+      await validateFederationUrl(event.image_url);
+      safeImage = {
+        url: event.image_url,
+        mediaType: event.image_media_type || undefined,
+        alt: event.image_alt || undefined,
+      };
+    } catch (err) {
+      console.warn(`[OG] Skipping unsafe remote event image for ${event.uri}:`, err);
+    }
+  }
+
   const baseEventData = {
     id: event.uri,
     title: event.title,
@@ -224,13 +239,7 @@ export async function generateAndSaveRemoteOgImage(db: DB, eventUri: string): Pr
           longitude: event.location_longitude ?? undefined,
         }
       : undefined,
-    image: event.image_url
-      ? {
-          url: event.image_url,
-          mediaType: event.image_media_type || undefined,
-          alt: event.image_alt || undefined,
-        }
-      : undefined,
+    image: safeImage,
     visibility: "public" as const,
     createdAt: "",
     updatedAt: "",

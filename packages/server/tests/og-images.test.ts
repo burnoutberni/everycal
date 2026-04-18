@@ -5,12 +5,14 @@ import type { DB } from "../src/db.js";
 const {
   generateOgImageMock,
   getOgImageFilenameMock,
+  validateFederationUrlMock,
   writeFileMock,
   existsSyncMock,
   mkdirSyncMock,
 } = vi.hoisted(() => ({
   generateOgImageMock: vi.fn(async () => Buffer.from("og-png")),
   getOgImageFilenameMock: vi.fn((eventId: string) => `${eventId}.png`),
+  validateFederationUrlMock: vi.fn(async () => undefined),
   writeFileMock: vi.fn(async () => undefined),
   existsSyncMock: vi.fn(() => true),
   mkdirSyncMock: vi.fn(),
@@ -19,6 +21,10 @@ const {
 vi.mock("@everycal/og", () => ({
   generateOgImage: generateOgImageMock,
   getOgImageFilename: getOgImageFilenameMock,
+}));
+
+vi.mock("../src/lib/federation.js", () => ({
+  validateFederationUrl: validateFederationUrlMock,
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -46,6 +52,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     existsSyncMock.mockReturnValue(true);
+    validateFederationUrlMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -193,11 +200,55 @@ describe("generateAndSaveOgImage temporal payload", () => {
 
     expect(og).toMatch(/^\/og-images\/remote-[a-f0-9]{64}\.png\?v=\d+$/);
     expect(generateOgImageMock).toHaveBeenCalledOnce();
+    expect(validateFederationUrlMock).not.toHaveBeenCalled();
 
     const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/1") as {
       og_image_url: string | null;
     };
     expect(row.og_image_url).toBe(og);
+  });
+
+  it("skips remote header image when URL validation fails", async () => {
+    const db = initDatabase(":memory:");
+    validateFederationUrlMock.mockRejectedValueOnce(new Error("Requests to private/internal addresses are not allowed"));
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, end_date, all_day,
+        start_at_utc, end_at_utc, event_timezone, timezone_quality,
+        image_url, image_media_type, image_alt,
+        fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/2",
+      "https://remote.example/users/alice",
+      "Remote Event With Image",
+      "2026-02-15T18:00:00+01:00",
+      "2026-02-15T19:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "2026-02-15T18:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      "http://127.0.0.1/internal.png",
+      "image/png",
+      "Header",
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const og = await generateAndSaveRemoteOgImage(db, "https://remote.example/events/2");
+
+    expect(og).toMatch(/^\/og-images\/remote-[a-f0-9]{64}\.png\?v=\d+$/);
+    expect(validateFederationUrlMock).toHaveBeenCalledWith("http://127.0.0.1/internal.png");
+    expect(generateOgImageMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({
+        image: undefined,
+      }),
+    }));
+    expect(warnSpy).toHaveBeenCalledOnce();
+
+    warnSpy.mockRestore();
   });
 });
 
