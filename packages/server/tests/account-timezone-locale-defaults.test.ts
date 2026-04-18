@@ -53,4 +53,51 @@ describe("account timezone/locale defaults", () => {
 
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("rejects calendar_feed_tokens schemas missing token column", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-calendar-feed-tokens.sqlite");
+    const db = initDatabase(dbPath);
+    db.exec(`
+      CREATE TABLE calendar_feed_tokens_new (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO calendar_feed_tokens_new (account_id, token_hash, created_at)
+      SELECT account_id, token, created_at FROM calendar_feed_tokens;
+      DROP TABLE calendar_feed_tokens;
+      ALTER TABLE calendar_feed_tokens_new RENAME TO calendar_feed_tokens;
+    `);
+    db.close();
+
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects event_rsvps data containing legacy statuses", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-event-rsvps-status.sqlite");
+    const db = initDatabase(dbPath);
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u1", "user1");
+    db.exec(`
+      CREATE TABLE event_rsvps_new (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        event_uri TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, event_uri)
+      );
+      DROP TABLE event_rsvps;
+      ALTER TABLE event_rsvps_new RENAME TO event_rsvps;
+    `);
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)")
+      .run("u1", "event:1", "interested");
+    db.close();
+
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

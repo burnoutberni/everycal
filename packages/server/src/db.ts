@@ -79,8 +79,16 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   remote_actors: ["followers_count", "following_count", "fetch_status", "last_error", "next_retry_at", "gone_at"],
   remote_follows: ["follower_shared_inbox"],
   remote_following: ["follow_activity_id", "follow_object_uri"],
+  calendar_feed_tokens: ["token"],
   api_keys: ["key_prefix"],
 };
+
+function hasOnlySupportedRsvpStatuses(db: DB): boolean {
+  const invalid = db
+    .prepare("SELECT 1 AS bad FROM event_rsvps WHERE status IS NULL OR status NOT IN ('going','maybe') LIMIT 1")
+    .get() as { bad: number } | undefined;
+  return !invalid;
+}
 
 function tableExists(db: DB, table: string): boolean {
   const row = db
@@ -113,6 +121,8 @@ function schemaLooksLikeCurrentBaseline(db: DB): boolean {
       if (!columns.has(column)) return false;
     }
   }
+
+  if (!hasOnlySupportedRsvpStatuses(db)) return false;
 
   return true;
 }
