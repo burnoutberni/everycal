@@ -285,6 +285,28 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBeNull();
   });
 
+  it("accepts create with whitespace-padded timezone and stores trimmed value", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Trimmed Timezone Create",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: " UTC ",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT event_timezone FROM events WHERE id = ?").get(body.id) as {
+      event_timezone: string;
+    };
+    expect(row.event_timezone).toBe("UTC");
+  });
+
   it("rejects create when title normalizes to empty whitespace", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 

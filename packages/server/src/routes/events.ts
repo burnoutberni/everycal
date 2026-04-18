@@ -1257,7 +1257,9 @@ export function eventRoutes(db: DB): Hono {
     const startDateInput = typeof body.startDateTime === "string"
       ? body.startDateTime.trim()
       : (typeof body.startDate === "string" ? body.startDate.trim() : "");
-    const eventTimezone = body.eventTimezone;
+    const eventTimezone = typeof body.eventTimezone === "string"
+      ? body.eventTimezone.trim()
+      : "";
     if (typeof body.title !== "string" || !body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
