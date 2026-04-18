@@ -1435,6 +1435,30 @@ export function eventRoutes(db: DB): Hono {
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
+    if ((body.startDate !== undefined && typeof body.startDate !== "string")
+      || (body.startDateTime !== undefined && typeof body.startDateTime !== "string")
+      || (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== "string")
+      || (body.endDateTime !== undefined && body.endDateTime !== null && typeof body.endDateTime !== "string")
+      || (body.allDay !== undefined && typeof body.allDay !== "boolean")) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    if (body.eventTimezone !== undefined && typeof body.eventTimezone !== "string") {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
+    const normalizedStartDate = body.startDate?.trim() || undefined;
+    const normalizedStartDateTime = body.startDateTime?.trim() || undefined;
+    const normalizedEndDate = body.endDate === null
+      ? null
+      : (body.endDate?.trim() || undefined);
+    const normalizedEndDateTime = body.endDateTime === null
+      ? null
+      : (body.endDateTime?.trim() || undefined);
+    const normalizedTimezone = body.eventTimezone?.trim() || undefined;
+    if (body.eventTimezone !== undefined && !normalizedTimezone) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
     const fields: string[] = [];
     const values: unknown[] = [];
 
@@ -1442,9 +1466,9 @@ export function eventRoutes(db: DB): Hono {
       fields.push("title = ?"); values.push(body.title);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
-    const nextStart = body.startDateTime ?? body.startDate;
-    const nextEnd = body.endDateTime ?? body.endDate;
-    const nextTimezone = body.eventTimezone;
+    const nextStart = normalizedStartDateTime ?? normalizedStartDate;
+    const nextEnd = normalizedEndDateTime ?? normalizedEndDate;
+    const nextTimezone = normalizedTimezone;
     if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
@@ -1453,11 +1477,11 @@ export function eventRoutes(db: DB): Hono {
       : "UTC";
     const nextAllDay = body.allDay ?? !!existing.all_day;
     if (nextAllDay) {
-      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+      if (normalizedStartDateTime !== undefined || normalizedEndDateTime !== undefined) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
-      const candidateStart = body.startDate ?? existing.start_date;
-      const candidateEnd = body.endDate !== undefined ? body.endDate : existing.end_date;
+      const candidateStart = normalizedStartDate ?? existing.start_date;
+      const candidateEnd = normalizedEndDate !== undefined ? normalizedEndDate : existing.end_date;
       if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
@@ -1571,7 +1595,7 @@ export function eventRoutes(db: DB): Hono {
         startDate: nextStart ?? existing.start_date,
         endDate: nextEnd !== undefined ? nextEnd : existing.end_date,
         allDay: newAllDay,
-        eventTimezone: body.eventTimezone !== undefined ? body.eventTimezone : existingTimezone,
+        eventTimezone: nextTimezone !== undefined ? nextTimezone : existingTimezone,
         locationName: body.location === undefined ? existing.location_name : (body.location?.name ?? null),
         locationAddress: body.location === undefined ? existing.location_address : (body.location?.address ?? null),
       },

@@ -547,6 +547,33 @@ describe("event slug canonical behavior", () => {
     expect(typeof payload.error).toBe("string");
   });
 
+  it("returns a safe 400 for malformed PUT temporal field types", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Malformed PUT",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ startDateTime: 123 }),
+    });
+
+    const payload = await update.json() as { error?: unknown };
+    expect(update.status).toBe(400);
+    expect(typeof payload.error).toBe("string");
+  });
+
   it("stores all-day sync end_at_utc using end-exclusive boundary", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
