@@ -102,7 +102,7 @@ describe("event write normalization", () => {
     });
   });
 
-  it("preserves explicit null endDateTime when datetime fields are allowed", () => {
+  it("treats null endDateTime as omitted and falls back to endDate", () => {
     const normalized = normalizeEventWriteInput({
       startDate: "2026-01-10",
       startDateTime: "2026-01-10T10:30",
@@ -115,9 +115,27 @@ describe("event write normalization", () => {
 
     expect(normalized).toEqual({
       startValue: "2026-01-10T10:30",
-      endValue: null,
+      endValue: "2026-01-11",
       eventTimezone: "Europe/Vienna",
       allDay: false,
+    });
+  });
+
+  it("accepts all-day payloads when endDateTime is explicitly null", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: "2026-01-10",
+      endDate: "2026-01-11",
+      endDateTime: null,
+      eventTimezone: "Europe/Vienna",
+      allDay: true,
+      allowDateTimeFields: true,
+    });
+
+    expect(normalized).toEqual({
+      startValue: "2026-01-10",
+      endValue: "2026-01-11",
+      eventTimezone: "Europe/Vienna",
+      allDay: true,
     });
   });
 

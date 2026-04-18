@@ -1492,7 +1492,7 @@ export function eventRoutes(db: DB): Hono {
       ? null
       : (body.endDate?.trim() || undefined);
     const normalizedEndDateTime = body.endDateTime === null
-      ? null
+      ? undefined
       : (body.endDateTime?.trim() || undefined);
     const normalizedTimezone = body.eventTimezone?.trim() || undefined;
     if (body.eventTimezone !== undefined && !normalizedTimezone) {

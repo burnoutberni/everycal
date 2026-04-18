@@ -94,7 +94,7 @@ export function normalizeEventWriteInput(input: {
   const normalizedStartDate = normalizeTemporalValue(input.startDate);
   const normalizedStartDateTime = normalizeTemporalValue(input.startDateTime);
   const normalizedEndDate = normalizeTemporalValue(input.endDate, { nullable: true });
-  const normalizedEndDateTime = normalizeTemporalValue(input.endDateTime, { nullable: true });
+  const normalizedEndDateTime = normalizeTemporalValue(input.endDateTime);
   if (
     normalizedStartDate.invalid
     || normalizedStartDateTime.invalid

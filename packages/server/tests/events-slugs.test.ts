@@ -435,6 +435,38 @@ describe("event slug canonical behavior", () => {
     expect(update.status).toBe(400);
   });
 
+  it("accepts all-day update when endDateTime is explicitly null", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All Day Null End DateTime",
+        allDay: true,
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allDay: true,
+        endDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT end_date FROM events WHERE id = ?").get(created.id) as { end_date: string | null };
+    expect(row.end_date).toBe("2026-01-02");
+  });
+
   it("accepts switching to all-day when date-only fields are provided", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -725,6 +757,36 @@ describe("event slug canonical behavior", () => {
 
     const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(created.id) as { start_date: string };
     expect(row.start_date).toBe("2026-01-01T12:00:00");
+  });
+
+  it("treats null endDateTime as omitted on update", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null end datetime update",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        endDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT end_date FROM events WHERE id = ?").get(created.id) as { end_date: string | null };
+    expect(row.end_date).toBe("2026-01-01T11:00:00");
   });
 
   it("rejects PUT title update when title normalizes to empty whitespace", async () => {
