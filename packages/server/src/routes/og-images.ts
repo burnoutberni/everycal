@@ -63,6 +63,38 @@ function updateRemoteOgImageUrl(db: DB, eventUri: string, ogImageUrl: string | n
   }
 }
 
+function remoteOgFilenameFromUrl(ogImageUrl: string): string | null {
+  const path = ogImageUrl.split("?")[0];
+  const prefix = "/og-images/";
+  if (!path.startsWith(prefix)) return null;
+  const filename = path.slice(prefix.length);
+  if (!filename || filename.includes("/") || filename.includes("\\")) return null;
+  return filename;
+}
+
+export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void> {
+  const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
+    og_image_url: string | null;
+  } | undefined;
+
+  updateRemoteOgImageUrl(db, eventUri, null);
+
+  const ogImageUrl = row?.og_image_url;
+  if (!ogImageUrl) return;
+  const filename = remoteOgFilenameFromUrl(ogImageUrl);
+  if (!filename) return;
+
+  const { unlink } = await import("node:fs/promises");
+  const ogPath = join(OG_DIR, filename);
+  try {
+    await unlink(ogPath);
+  } catch (err) {
+    if (!(err && typeof err === "object" && "code" in err && err.code === "ENOENT")) {
+      throw err;
+    }
+  }
+}
+
 export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<string | null> {
   const { writeFile } = await import("node:fs/promises");
   const { existsSync, mkdirSync } = await import("node:fs");

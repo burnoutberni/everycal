@@ -7,6 +7,7 @@ const {
   getOgImageFilenameMock,
   validateFederationUrlMock,
   writeFileMock,
+  unlinkMock,
   existsSyncMock,
   mkdirSyncMock,
 } = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const {
   getOgImageFilenameMock: vi.fn((eventId: string) => `${eventId}.png`),
   validateFederationUrlMock: vi.fn(async () => undefined),
   writeFileMock: vi.fn(async () => undefined),
+  unlinkMock: vi.fn(async () => undefined),
   existsSyncMock: vi.fn(() => true),
   mkdirSyncMock: vi.fn(),
 }));
@@ -29,6 +31,7 @@ vi.mock("../src/lib/federation.js", () => ({
 
 vi.mock("node:fs/promises", () => ({
   writeFile: writeFileMock,
+  unlink: unlinkMock,
 }));
 
 vi.mock("node:fs", () => ({
@@ -39,6 +42,7 @@ vi.mock("node:fs", () => ({
 import {
   generateAndSaveOgImage,
   generateAndSaveRemoteOgImage,
+  clearRemoteOgImage,
   isOgEligibleVisibility,
   isRemoteActivityOgEligible,
 } from "../src/routes/og-images.js";
@@ -249,6 +253,69 @@ describe("generateAndSaveOgImage temporal payload", () => {
     expect(warnSpy).toHaveBeenCalledOnce();
 
     warnSpy.mockRestore();
+  });
+
+  it("clears remote og_image_url and removes image file", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, all_day,
+        start_at_utc, event_timezone, timezone_quality,
+        og_image_url, fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/cleanup",
+      "https://remote.example/users/alice",
+      "Remote Event Cleanup",
+      "2026-02-15T18:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      "/og-images/remote-123.png?v=100",
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    await clearRemoteOgImage(db, "https://remote.example/events/cleanup");
+
+    const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/cleanup") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+    expect(unlinkMock).toHaveBeenCalledOnce();
+    expect(unlinkMock.mock.calls[0]?.[0]).toContain("remote-123.png");
+  });
+
+  it("clears remote og_image_url even when file is already missing", async () => {
+    const db = initDatabase(":memory:");
+    unlinkMock.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    db.prepare(
+      `INSERT INTO remote_events (
+        uri, actor_uri, title, start_date, all_day,
+        start_at_utc, event_timezone, timezone_quality,
+        og_image_url, fetched_at, canceled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "https://remote.example/events/missing",
+      "https://remote.example/users/alice",
+      "Remote Event Missing File",
+      "2026-02-15T18:00:00+01:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "exact_tzid",
+      "/og-images/remote-missing.png?v=100",
+      "2026-02-10T12:00:00.000Z",
+      0,
+    );
+
+    await expect(clearRemoteOgImage(db, "https://remote.example/events/missing")).resolves.toBeUndefined();
+
+    const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/missing") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
   });
 });
 

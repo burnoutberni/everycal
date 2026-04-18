@@ -29,7 +29,7 @@ import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
-import { generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
+import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -224,6 +224,9 @@ export function federationRoutes(db: DB): Hono {
         if (isRemoteActivityOgEligible(activity, fullObj)) {
           void generateAndSaveRemoteOgImage(db, upserted.uri)
             .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+        } else {
+          void clearRemoteOgImage(db, upserted.uri)
+            .catch((err) => console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err));
         }
         imported++;
       }

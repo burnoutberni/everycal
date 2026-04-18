@@ -27,7 +27,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
-import { generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
+import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -655,6 +655,9 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   if (isRemoteActivityOgEligible(activity, object)) {
     void generateAndSaveRemoteOgImage(db, upserted.uri)
       .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+  } else {
+    void clearRemoteOgImage(db, upserted.uri)
+      .catch((err) => console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err));
   }
 
   if (activityType === "Update" && changes.length > 0) {
