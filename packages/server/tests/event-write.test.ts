@@ -100,6 +100,17 @@ describe("event write normalization", () => {
       allDay: true,
     });
   });
+
+  it("returns null for malformed non-string temporal payload values", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: 123 as unknown as string,
+      endDateTime: { bad: true } as unknown as string,
+      eventTimezone: "Europe/Vienna",
+      allowDateTimeFields: true,
+    });
+
+    expect(normalized).toBeNull();
+  });
 });
 
 describe("event write canonical derivation", () => {

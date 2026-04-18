@@ -64,8 +64,8 @@ export type NormalizedWriteInput = {
   allDay: boolean;
 };
 
-function normalizeTemporalValue(value: string | null | undefined): string | undefined {
-  if (value === null || value === undefined) return undefined;
+function normalizeTemporalValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
 }
