@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
-import { isValidHttpUrl, normalizeHttpUrlInput } from "@everycal/core";
+import { isValidHttpUrl, localDateTimeWithTimezoneToUtcIso, normalizeHttpUrlInput } from "@everycal/core";
 import {
   events as eventsApi,
   locations as locationsApi,
@@ -68,18 +68,6 @@ function completeDatetimeLocal(
   return null;
 }
 
-function parseDateTimeLocal(value: string): { year: number; month: number; day: number; hour: number; minute: number } | null {
-  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-  if (!m) return null;
-  return {
-    year: Number(m[1]),
-    month: Number(m[2]),
-    day: Number(m[3]),
-    hour: Number(m[4]),
-    minute: Number(m[5]),
-  };
-}
-
 function formatLocalFromParts(parts: { year: number; month: number; day: number; hour: number; minute: number }): string {
   return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
 }
@@ -109,19 +97,10 @@ function formatInTimeZoneParts(ms: number, timeZone: string): { year: number; mo
 }
 
 function localDateTimeToUtcMillis(value: string, timeZone: string): number | null {
-  const desired = parseDateTimeLocal(value);
-  if (!desired) return null;
-  let guess = Date.UTC(desired.year, desired.month - 1, desired.day, desired.hour, desired.minute);
-  for (let i = 0; i < 4; i += 1) {
-    const actual = formatInTimeZoneParts(guess, timeZone);
-    if (!actual) return null;
-    const desiredMs = Date.UTC(desired.year, desired.month - 1, desired.day, desired.hour, desired.minute);
-    const actualMs = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute);
-    const diffMinutes = Math.round((desiredMs - actualMs) / 60000);
-    if (diffMinutes === 0) return guess;
-    guess += diffMinutes * 60000;
-  }
-  return guess;
+  const utcIso = localDateTimeWithTimezoneToUtcIso(value, timeZone);
+  if (!utcIso) return null;
+  const ms = new Date(utcIso).getTime();
+  return Number.isNaN(ms) ? null : ms;
 }
 
 function utcMillisToLocalDateTime(ms: number, timeZone: string): string {
