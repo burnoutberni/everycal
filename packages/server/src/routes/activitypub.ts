@@ -24,6 +24,7 @@ import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.j
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
@@ -653,11 +654,21 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   });
 
   if (isRemoteActivityOgEligible(activity, object)) {
-    void generateAndSaveRemoteOgImage(db, upserted.uri)
-      .catch((err) => console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err));
+    enqueueOgJob(`remote:${upserted.uri}`, async () => {
+      try {
+        await generateAndSaveRemoteOgImage(db, upserted.uri);
+      } catch (err) {
+        console.error(`[OG] Failed to create remote OG image for event ${upserted.uri}:`, err);
+      }
+    });
   } else {
-    void clearRemoteOgImage(db, upserted.uri)
-      .catch((err) => console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err));
+    enqueueOgJob(`remote:${upserted.uri}`, async () => {
+      try {
+        await clearRemoteOgImage(db, upserted.uri);
+      } catch (err) {
+        console.error(`[OG] Failed to clear remote OG image for event ${upserted.uri}:`, err);
+      }
+    });
   }
 
   if (activityType === "Update" && changes.length > 0) {
