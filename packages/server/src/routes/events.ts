@@ -943,9 +943,31 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
+    const ogGenerateConcurrency = 3;
+    const pendingOgGenerateJobs = new Set<Promise<void>>();
+    const scheduleOgGenerateJob = async (job: () => Promise<void>): Promise<void> => {
+      const task = job().catch((err) => {
+        console.error("[OG] Unexpected local OG generation failure:", err);
+      });
+      pendingOgGenerateJobs.add(task);
+      task.finally(() => pendingOgGenerateJobs.delete(task));
+      if (pendingOgGenerateJobs.size >= ogGenerateConcurrency) {
+        await Promise.race(pendingOgGenerateJobs);
+      }
+    };
+
     for (const eventId of ogEventIdsToGenerate) {
-      void generateAndSaveOgImage(db, eventId)
-        .catch((err) => console.error(`[OG] Failed to create OG image for event ${eventId}:`, err));
+      await scheduleOgGenerateJob(() =>
+        generateAndSaveOgImage(db, eventId)
+          .then(() => undefined)
+          .catch((err) => {
+            console.error(`[OG] Failed to create OG image for event ${eventId}:`, err);
+          })
+      );
+    }
+
+    if (pendingOgGenerateJobs.size > 0) {
+      await Promise.all(pendingOgGenerateJobs);
     }
 
     const ogClearConcurrency = 3;
