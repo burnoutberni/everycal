@@ -1046,6 +1046,48 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBeNull();
   });
 
+  it("normalizes sync external IDs before dedupe and persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "sync-ext-trim",
+            title: "First Variant",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+          {
+            externalId: "  sync-ext-trim  ",
+            title: "Second Variant",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const payload = await sync.json() as { total: number; created: number };
+    expect(payload.total).toBe(1);
+    expect(payload.created).toBe(1);
+
+    const row = db.prepare("SELECT external_id, title FROM events WHERE external_id = ?").get("sync-ext-trim") as {
+      external_id: string;
+      title: string;
+    };
+    expect(row.external_id).toBe("sync-ext-trim");
+    expect(row.title).toBe("Second Variant");
+
+    const countRow = db.prepare("SELECT COUNT(*) AS count FROM events WHERE external_id = ?").get("sync-ext-trim") as {
+      count: number;
+    };
+    expect(countRow.count).toBe(1);
+  });
+
   it("creates remote slug once and keeps it immutable on update", () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");

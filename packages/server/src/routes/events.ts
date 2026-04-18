@@ -615,6 +615,7 @@ export function eventRoutes(db: DB): Hono {
       allDay: boolean;
       eventTimezone: string;
     }>();
+    const normalizedIncomingEvents: typeof body.events = [];
 
     for (const ev of body.events) {
       if (typeof ev.externalId !== "string"
@@ -648,15 +649,20 @@ export function eventRoutes(db: DB): Hono {
         || (endAtUtc && endAtUtc < startAtUtc)) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
-      normalizedSyncTemporalByExternalId.set(ev.externalId, {
+      const normalizedExternalId = ev.externalId.trim();
+      normalizedSyncTemporalByExternalId.set(normalizedExternalId, {
         startDate: normalizedWrite.startValue,
         endDate: normalizedWrite.endValue,
         allDay: normalizedWrite.allDay,
         eventTimezone: normalizedWrite.eventTimezone,
       });
+      normalizedIncomingEvents.push({
+        ...ev,
+        externalId: normalizedExternalId,
+      });
     }
 
-    const deduped = [...new Map(body.events.map((ev) => [ev.externalId, ev])).values()];
+    const deduped = [...new Map(normalizedIncomingEvents.map((ev) => [ev.externalId, ev])).values()];
 
     for (const ev of deduped) {
       sanitizeEventWriteFields(ev as Record<string, unknown>);
