@@ -104,7 +104,7 @@ export function normalizeEventWriteInput(input: {
     ? (startDateTime || startDate)
     : startDate;
   const endValue = input.allowDateTimeFields
-    ? (endDateTime || endDate)
+    ? (endDateTime !== undefined ? endDateTime : endDate)
     : endDate;
   if (!startValue || !input.eventTimezone) return null;
 
