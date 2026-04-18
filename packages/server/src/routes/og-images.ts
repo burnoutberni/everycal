@@ -22,6 +22,18 @@ function hasPublicAddress(recipients: string[]): boolean {
   return recipients.includes(PUBLIC_ADDRESS);
 }
 
+function collectRecipients(entity: Record<string, unknown>): string[] {
+  const allRecipients = [
+    ...normalizeRecipients(entity.to),
+    ...normalizeRecipients(entity.cc),
+    ...normalizeRecipients(entity.audience),
+    ...normalizeRecipients(entity.bto),
+    ...normalizeRecipients(entity.bcc),
+  ];
+
+  return [...new Set(allRecipients)];
+}
+
 export function isOgEligibleVisibility(visibility: string | null | undefined): boolean {
   return visibility === "public" || visibility === "unlisted";
 }
@@ -30,15 +42,9 @@ export function isRemoteActivityOgEligible(
   activity: Record<string, unknown>,
   object: Record<string, unknown>
 ): boolean {
-  const objectTo = normalizeRecipients(object.to);
-  const objectCc = normalizeRecipients(object.cc);
-  const activityTo = normalizeRecipients(activity.to);
-  const activityCc = normalizeRecipients(activity.cc);
+  const recipients = [...collectRecipients(activity), ...collectRecipients(object)];
 
-  const toRecipients = objectTo.length > 0 ? objectTo : activityTo;
-  const ccRecipients = objectCc.length > 0 ? objectCc : activityCc;
-
-  return hasPublicAddress(toRecipients) || hasPublicAddress(ccRecipients);
+  return hasPublicAddress(recipients);
 }
 
 function updateLocalOgImageUrl(db: DB, eventId: string, ogImageUrl: string | null): void {

@@ -403,4 +403,61 @@ describe("OG eligibility helpers", () => {
       { id: "https://remote.example/events/4", type: "Event" },
     )).toBe(false);
   });
+
+  it("uses union of activity and object recipients", () => {
+    expect(isRemoteActivityOgEligible(
+      {
+        to: ["https://www.w3.org/ns/activitystreams#Public"],
+      },
+      {
+        id: "https://remote.example/events/5",
+        type: "Event",
+        to: ["https://remote.example/users/alice/followers"],
+      },
+    )).toBe(true);
+
+    expect(isRemoteActivityOgEligible(
+      {
+        to: ["https://remote.example/users/alice/followers"],
+      },
+      {
+        id: "https://remote.example/events/6",
+        type: "Event",
+        cc: ["https://www.w3.org/ns/activitystreams#Public"],
+      },
+    )).toBe(true);
+  });
+
+  it("considers audience, bto, and bcc recipients", () => {
+    expect(isRemoteActivityOgEligible(
+      {
+        audience: ["https://www.w3.org/ns/activitystreams#Public"],
+      },
+      {
+        id: "https://remote.example/events/7",
+        type: "Event",
+      },
+    )).toBe(true);
+
+    expect(isRemoteActivityOgEligible(
+      {
+        bto: ["https://www.w3.org/ns/activitystreams#Public"],
+      },
+      {
+        id: "https://remote.example/events/8",
+        type: "Event",
+      },
+    )).toBe(true);
+
+    expect(isRemoteActivityOgEligible(
+      {
+        to: ["https://remote.example/users/alice/followers"],
+      },
+      {
+        id: "https://remote.example/events/9",
+        type: "Event",
+        bcc: ["https://www.w3.org/ns/activitystreams#Public"],
+      },
+    )).toBe(true);
+  });
 });
