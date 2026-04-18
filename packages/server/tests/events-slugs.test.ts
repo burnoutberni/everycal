@@ -255,6 +255,36 @@ describe("event slug canonical behavior", () => {
     expect(row.end_on).toBe("2025-12-31");
   });
 
+  it("normalizes create temporal values before persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Trimmed Timed Event",
+        startDate: "2026-01-01",
+        startDateTime: " 2026-01-01T10:00:00 ",
+        endDateTime: "   ",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc FROM events WHERE id = ?").get(body.id) as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+    expect(row.end_date).toBeNull();
+    expect(row.start_at_utc).toBe("2026-01-01T10:00:00.000Z");
+    expect(row.end_at_utc).toBeNull();
+  });
+
   it("does not generate OG for private event creates", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -896,6 +926,38 @@ describe("event slug canonical behavior", () => {
     expect(row.event_timezone).toBe("Europe/Vienna");
     expect(row.start_at_utc).toBe("2026-06-01T08:00:00.000Z");
     expect(row.end_at_utc).toBe("2026-06-01T09:00:00.000Z");
+  });
+
+  it("normalizes sync temporal values before persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "trimmed-sync-1",
+            title: "Trimmed Sync Event",
+            startDate: " 2026-06-01T10:00:00 ",
+            endDate: "   ",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc FROM events WHERE external_id = ?").get("trimmed-sync-1") as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_date).toBe("2026-06-01T10:00:00");
+    expect(row.end_date).toBeNull();
+    expect(row.start_at_utc).toBe("2026-06-01T10:00:00.000Z");
+    expect(row.end_at_utc).toBeNull();
   });
 
   it("creates remote slug once and keeps it immutable on update", () => {

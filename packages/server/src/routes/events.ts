@@ -609,6 +609,13 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
+    const normalizedSyncTemporalByExternalId = new Map<string, {
+      startDate: string;
+      endDate: string | null;
+      allDay: boolean;
+      eventTimezone: string;
+    }>();
+
     for (const ev of body.events) {
       if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
@@ -624,9 +631,17 @@ export function eventRoutes(db: DB): Hono {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
       const { startAtUtc, endAtUtc } = deriveCanonicalTemporalFields(normalizedWrite);
-      if (!startAtUtc || (ev.allDay ? !endAtUtc : (ev.endDate && !endAtUtc)) || (endAtUtc && endAtUtc < startAtUtc)) {
+      if (!startAtUtc
+        || (normalizedWrite.allDay ? !endAtUtc : (normalizedWrite.endValue !== null && !endAtUtc))
+        || (endAtUtc && endAtUtc < startAtUtc)) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
+      normalizedSyncTemporalByExternalId.set(ev.externalId, {
+        startDate: normalizedWrite.startValue,
+        endDate: normalizedWrite.endValue,
+        allDay: normalizedWrite.allDay,
+        eventTimezone: normalizedWrite.eventTimezone,
+      });
     }
 
     const deduped = [...new Map(body.events.map((ev) => [ev.externalId, ev])).values()];
@@ -634,6 +649,24 @@ export function eventRoutes(db: DB): Hono {
     for (const ev of deduped) {
       sanitizeEventWriteFields(ev as Record<string, unknown>);
     }
+
+    type SyncEventInput = Omit<(typeof body.events)[number], "startDate" | "endDate" | "allDay" | "eventTimezone"> & {
+      startDate: string;
+      endDate: string | null;
+      allDay: boolean;
+      eventTimezone: string;
+    };
+    const syncEvents: SyncEventInput[] = deduped.map((ev) => {
+      const normalizedTemporal = normalizedSyncTemporalByExternalId.get(ev.externalId);
+      if (!normalizedTemporal) throw new Error("missing normalized sync temporal values");
+      return {
+        ...ev,
+        startDate: normalizedTemporal.startDate,
+        endDate: normalizedTemporal.endDate,
+        allDay: normalizedTemporal.allDay,
+        eventTimezone: normalizedTemporal.eventTimezone,
+      };
+    });
 
     const existing = db
       .prepare(
@@ -661,7 +694,7 @@ export function eventRoutes(db: DB): Hono {
     }[];
 
     const existingByExtId = new Map(existing.map((r) => [r.external_id, r]));
-    const incomingExtIds = new Set(deduped.map((e) => e.externalId));
+    const incomingExtIds = new Set(syncEvents.map((e) => e.externalId));
 
     let created = 0;
     let updated = 0;
@@ -671,7 +704,7 @@ export function eventRoutes(db: DB): Hono {
     const ogEventIdsToGenerate = new Set<string>();
     const ogEventIdsToClear = new Set<string>();
 
-    function eventHash(ev: (typeof body.events)[number]): string {
+    function eventHash(ev: SyncEventInput): string {
       const data = JSON.stringify([
         ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
         ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
@@ -764,8 +797,8 @@ export function eventRoutes(db: DB): Hono {
 
     // Batch 2+: Upsert incoming events in chunks — skip unchanged events
     const BATCH_SIZE = 20;
-    for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
-      const chunk = deduped.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < syncEvents.length; i += BATCH_SIZE) {
+      const chunk = syncEvents.slice(i, i + BATCH_SIZE);
 
       const upsertBatch = db.transaction((events: typeof chunk) => {
         for (const ev of events) {
@@ -904,7 +937,7 @@ export function eventRoutes(db: DB): Hono {
 
       upsertBatch(chunk);
 
-      if (i + BATCH_SIZE < deduped.length) {
+      if (i + BATCH_SIZE < syncEvents.length) {
         await yieldToEventLoop();
       }
     }
@@ -929,7 +962,7 @@ export function eventRoutes(db: DB): Hono {
       });
     }
 
-    return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
+    return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: syncEvents.length });
   });
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────
@@ -1199,7 +1232,6 @@ export function eventRoutes(db: DB): Hono {
     }>();
 
     const startDateInput = body.startDateTime || body.startDate;
-    const endDateInput = body.endDateTime || body.endDate;
     const eventTimezone = body.eventTimezone;
     if (!body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
@@ -1277,7 +1309,9 @@ export function eventRoutes(db: DB): Hono {
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    if ((body.allDay || endDateInput) && !endAtUtc) {
+    const startDateValue = normalizedWrite.startValue;
+    const endDateValue = normalizedWrite.endValue;
+    if ((normalizedWrite.allDay || endDateValue !== null) && !endAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
     if (endAtUtc && endAtUtc < startAtUtc) {
@@ -1291,7 +1325,7 @@ export function eventRoutes(db: DB): Hono {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, postingAccount.id, user.id, slug, body.title, body.description || null,
-      startDateInput, endDateInput || null, body.allDay ? 1 : 0,
+      startDateValue, endDateValue, body.allDay ? 1 : 0,
       startAtUtc,
       endAtUtc,
       eventTimezone,
@@ -1330,8 +1364,8 @@ export function eventRoutes(db: DB): Hono {
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
           allDay: !!body.allDay,
-          startDate: startDateInput,
-          endDate: endDateInput || undefined,
+          startDate: startDateValue,
+          endDate: endDateValue || undefined,
           startAtUtc,
           endAtUtc,
           content: body.description || undefined,
