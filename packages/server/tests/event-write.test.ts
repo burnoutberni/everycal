@@ -101,9 +101,21 @@ describe("event write normalization", () => {
     });
   });
 
-  it("returns null for malformed non-string temporal payload values", () => {
+  it("returns null when startDateTime is present but not a string", () => {
     const normalized = normalizeEventWriteInput({
-      startDate: 123 as unknown as string,
+      startDate: "2026-01-10",
+      startDateTime: 123 as unknown as string,
+      eventTimezone: "Europe/Vienna",
+      allowDateTimeFields: true,
+    });
+
+    expect(normalized).toBeNull();
+  });
+
+  it("returns null when endDateTime is present but not a string", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: "2026-01-10",
+      endDate: "2026-01-11",
       endDateTime: { bad: true } as unknown as string,
       eventTimezone: "Europe/Vienna",
       allowDateTimeFields: true,

@@ -64,10 +64,15 @@ export type NormalizedWriteInput = {
   allDay: boolean;
 };
 
-function normalizeTemporalValue(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+function normalizeTemporalValue(
+  value: unknown,
+  options?: { nullable?: boolean },
+): { value: string | null | undefined; invalid: boolean } {
+  if (value === undefined) return { value: undefined, invalid: false };
+  if (value === null) return options?.nullable ? { value: null, invalid: false } : { value: undefined, invalid: true };
+  if (typeof value !== "string") return { value: undefined, invalid: true };
   const trimmed = value.trim();
-  return trimmed || undefined;
+  return { value: trimmed || undefined, invalid: false };
 }
 
 export function normalizeEventWriteInput(input: {
@@ -79,10 +84,22 @@ export function normalizeEventWriteInput(input: {
   allDay?: boolean;
   allowDateTimeFields: boolean;
 }): NormalizedWriteInput | null {
-  const startDate = normalizeTemporalValue(input.startDate);
-  const startDateTime = normalizeTemporalValue(input.startDateTime);
-  const endDate = normalizeTemporalValue(input.endDate);
-  const endDateTime = normalizeTemporalValue(input.endDateTime);
+  const normalizedStartDate = normalizeTemporalValue(input.startDate);
+  const normalizedStartDateTime = normalizeTemporalValue(input.startDateTime);
+  const normalizedEndDate = normalizeTemporalValue(input.endDate, { nullable: true });
+  const normalizedEndDateTime = normalizeTemporalValue(input.endDateTime, { nullable: true });
+  if (
+    normalizedStartDate.invalid
+    || normalizedStartDateTime.invalid
+    || normalizedEndDate.invalid
+    || normalizedEndDateTime.invalid
+  ) {
+    return null;
+  }
+  const startDate = normalizedStartDate.value ?? undefined;
+  const startDateTime = normalizedStartDateTime.value ?? undefined;
+  const endDate = normalizedEndDate.value;
+  const endDateTime = normalizedEndDateTime.value;
   const startValue = input.allowDateTimeFields
     ? (startDateTime || startDate)
     : startDate;
@@ -97,7 +114,7 @@ export function normalizeEventWriteInput(input: {
       return null;
     }
     if (!startDate || !isDateOnly(startDate)) return null;
-    if (endDate !== undefined && !isDateOnly(endDate)) return null;
+    if (endDate !== undefined && endDate !== null && !isDateOnly(endDate)) return null;
   }
 
   return {
