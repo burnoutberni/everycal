@@ -111,8 +111,8 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
       ? {
           name: event.location_name,
           address: event.location_address || undefined,
-          latitude: event.location_latitude || undefined,
-          longitude: event.location_longitude || undefined,
+          latitude: event.location_latitude ?? undefined,
+          longitude: event.location_longitude ?? undefined,
           url: event.location_url || undefined,
         }
       : undefined,
@@ -220,8 +220,8 @@ export async function generateAndSaveRemoteOgImage(db: DB, eventUri: string): Pr
       ? {
           name: event.location_name,
           address: event.location_address || undefined,
-          latitude: event.location_latitude || undefined,
-          longitude: event.location_longitude || undefined,
+          latitude: event.location_latitude ?? undefined,
+          longitude: event.location_longitude ?? undefined,
         }
       : undefined,
     image: event.image_url
