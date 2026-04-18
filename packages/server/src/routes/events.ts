@@ -1254,18 +1254,6 @@ export function eventRoutes(db: DB): Hono {
     if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
-    if (body.allDay) {
-      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      if (!body.startDate || !isDateOnly(body.startDate)) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      if (body.endDate !== undefined && !isDateOnly(body.endDate)) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-    }
-
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
     const postAsAccountId = body.postAsAccountId || user.id;
@@ -1340,7 +1328,7 @@ export function eventRoutes(db: DB): Hono {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, postingAccount.id, user.id, slug, body.title, body.description || null,
-      startDateValue, endDateValue, body.allDay ? 1 : 0,
+      startDateValue, endDateValue, normalizedWrite.allDay ? 1 : 0,
       startAtUtc,
       endAtUtc,
       eventTimezone,
