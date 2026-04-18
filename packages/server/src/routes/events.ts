@@ -603,9 +603,9 @@ export function eventRoutes(db: DB): Hono {
         tags?: string[];
         visibility?: string;
       }[];
-    }>();
+    }>().catch(() => null);
 
-    if (!Array.isArray(body.events)) {
+    if (!body || !Array.isArray(body.events)) {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
@@ -617,8 +617,20 @@ export function eventRoutes(db: DB): Hono {
     }>();
 
     for (const ev of body.events) {
-      if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
+      if (typeof ev.externalId !== "string"
+        || !ev.externalId.trim()
+        || typeof ev.title !== "string"
+        || !ev.title.trim()
+        || typeof ev.startDate !== "string"
+        || !ev.startDate.trim()
+        || typeof ev.eventTimezone !== "string"
+        || !ev.eventTimezone.trim()
+        || !isValidIanaTimezone(ev.eventTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
+      }
+      if ((ev.endDate !== undefined && ev.endDate !== null && typeof ev.endDate !== "string")
+        || (ev.allDay !== undefined && typeof ev.allDay !== "boolean")) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
       const normalizedWrite = normalizeEventWriteInput({
         startDate: ev.startDate,
@@ -656,17 +668,20 @@ export function eventRoutes(db: DB): Hono {
       allDay: boolean;
       eventTimezone: string;
     };
-    const syncEvents: SyncEventInput[] = deduped.map((ev) => {
+    const syncEvents: SyncEventInput[] = [];
+    for (const ev of deduped) {
       const normalizedTemporal = normalizedSyncTemporalByExternalId.get(ev.externalId);
-      if (!normalizedTemporal) throw new Error("missing normalized sync temporal values");
-      return {
+      if (!normalizedTemporal) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      syncEvents.push({
         ...ev,
         startDate: normalizedTemporal.startDate,
         endDate: normalizedTemporal.endDate,
         allDay: normalizedTemporal.allDay,
         eventTimezone: normalizedTemporal.eventTimezone,
-      };
-    });
+      });
+    }
 
     const existing = db
       .prepare(

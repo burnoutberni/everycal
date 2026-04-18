@@ -524,6 +524,29 @@ describe("event slug canonical behavior", () => {
     expect(sync.status).toBe(400);
   });
 
+  it("returns a safe 400 for malformed sync temporal field types", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "malformed-sync-1",
+            title: "Malformed Sync",
+            startDate: 123,
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+
+    const payload = await sync.json() as { error?: unknown };
+    expect(sync.status).toBe(400);
+    expect(typeof payload.error).toBe("string");
+  });
+
   it("stores all-day sync end_at_utc using end-exclusive boundary", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
