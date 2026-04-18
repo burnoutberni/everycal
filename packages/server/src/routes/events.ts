@@ -818,9 +818,6 @@ export function eventRoutes(db: DB): Hono {
               if (existingRow.canceled || existingRow.missing_since) {
                 restoreEventState.run(existingRow.id);
               }
-              if (isOgEligibleVisibility(visibility)) {
-                ogEventIdsToGenerate.add(existingRow.id);
-              }
               unchanged++;
               continue;
             }
