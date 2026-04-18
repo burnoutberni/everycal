@@ -64,6 +64,12 @@ export type NormalizedWriteInput = {
   allDay: boolean;
 };
 
+function normalizeTemporalValue(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 export function normalizeEventWriteInput(input: {
   startDate?: string;
   startDateTime?: string;
@@ -73,21 +79,25 @@ export function normalizeEventWriteInput(input: {
   allDay?: boolean;
   allowDateTimeFields: boolean;
 }): NormalizedWriteInput | null {
+  const startDate = normalizeTemporalValue(input.startDate);
+  const startDateTime = normalizeTemporalValue(input.startDateTime);
+  const endDate = normalizeTemporalValue(input.endDate);
+  const endDateTime = normalizeTemporalValue(input.endDateTime);
   const startValue = input.allowDateTimeFields
-    ? (input.startDateTime ?? input.startDate)
-    : input.startDate;
+    ? (startDateTime || startDate)
+    : startDate;
   const endValue = input.allowDateTimeFields
-    ? (input.endDateTime ?? input.endDate)
-    : input.endDate;
+    ? (endDateTime || endDate)
+    : endDate;
   if (!startValue || !input.eventTimezone) return null;
 
   const allDay = !!input.allDay;
   if (allDay) {
-    if (input.allowDateTimeFields && (input.startDateTime !== undefined || input.endDateTime !== undefined)) {
+    if (input.allowDateTimeFields && (startDateTime !== undefined || endDateTime !== undefined)) {
       return null;
     }
-    if (!input.startDate || !isDateOnly(input.startDate)) return null;
-    if (input.endDate !== undefined && input.endDate !== null && !isDateOnly(input.endDate)) return null;
+    if (!startDate || !isDateOnly(startDate)) return null;
+    if (endDate !== undefined && !isDateOnly(endDate)) return null;
   }
 
   return {
