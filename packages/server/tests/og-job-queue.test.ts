@@ -82,7 +82,60 @@ describe("og job queue", () => {
     expect(calls).toContain("other");
     expect(calls).toContain("third");
     expect(calls).not.toContain("second");
-    expect(getOgJobQueueStats().coalesced).toBe(1);
+    expect(getOgJobQueueStats().coalesced).toBe(2);
+    expect(getOgJobQueueStats().depth).toBe(0);
+  });
+
+  it("defers and coalesces jobs enqueued for an active key", async () => {
+    __setOgJobQueueConcurrencyForTests(2);
+
+    const firstStarted = createGate();
+    const releaseFirst = createGate();
+    const calls: string[] = [];
+    let runningForKey = 0;
+    let maxRunningForKey = 0;
+
+    enqueueOgJob("remote:event-a", async () => {
+      calls.push("first");
+      runningForKey += 1;
+      maxRunningForKey = Math.max(maxRunningForKey, runningForKey);
+      firstStarted.open();
+      await releaseFirst.wait;
+      runningForKey -= 1;
+    });
+
+    await firstStarted.wait;
+
+    enqueueOgJob("remote:event-a", async () => {
+      calls.push("second");
+      runningForKey += 1;
+      maxRunningForKey = Math.max(maxRunningForKey, runningForKey);
+      await delay(5);
+      runningForKey -= 1;
+    });
+
+    enqueueOgJob("remote:event-a", async () => {
+      calls.push("third");
+      runningForKey += 1;
+      maxRunningForKey = Math.max(maxRunningForKey, runningForKey);
+      await delay(5);
+      runningForKey -= 1;
+    });
+
+    enqueueOgJob("remote:event-b", async () => {
+      calls.push("other");
+      await delay(5);
+    });
+
+    releaseFirst.open();
+    await __waitForOgJobQueueIdleForTests();
+
+    expect(maxRunningForKey).toBe(1);
+    expect(calls[0]).toBe("first");
+    expect(calls).toContain("other");
+    expect(calls).toContain("third");
+    expect(calls).not.toContain("second");
+    expect(getOgJobQueueStats().coalesced).toBe(2);
     expect(getOgJobQueueStats().depth).toBe(0);
   });
 });

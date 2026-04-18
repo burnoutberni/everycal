@@ -9,6 +9,7 @@ let concurrency = Number.isFinite(parsedConcurrency) && parsedConcurrency > 0 ? 
 const pendingJobsByKey = new Map<string, OgJob>();
 const pendingOrder: string[] = [];
 const deferredJobsByKey = new Map<string, OgJob>();
+const activeKeys = new Set<string>();
 
 let activeJobs = 0;
 let coalescedJobs = 0;
@@ -76,6 +77,7 @@ function runDrain(): void {
 
     pendingJobsByKey.delete(nextKey);
     activeJobs += 1;
+    activeKeys.add(nextKey);
 
     void nextJob
       .run()
@@ -84,6 +86,7 @@ function runDrain(): void {
       })
       .finally(() => {
         activeJobs -= 1;
+        activeKeys.delete(nextKey);
         const deferred = deferredJobsByKey.get(nextKey);
         if (deferred) {
           deferredJobsByKey.delete(nextKey);
@@ -104,7 +107,7 @@ export function enqueueOgJob(key: string, run: () => Promise<void>): void {
     pendingJobsByKey.set(key, job);
     coalescedJobs += 1;
     logCoalescingIfNeeded();
-  } else if (deferredJobsByKey.has(key)) {
+  } else if (deferredJobsByKey.has(key) || activeKeys.has(key)) {
     deferredJobsByKey.set(key, job);
     coalescedJobs += 1;
     logCoalescingIfNeeded();
@@ -138,6 +141,7 @@ export function __resetOgJobQueueForTests(): void {
   pendingJobsByKey.clear();
   pendingOrder.length = 0;
   deferredJobsByKey.clear();
+  activeKeys.clear();
   activeJobs = 0;
   coalescedJobs = 0;
   draining = false;
