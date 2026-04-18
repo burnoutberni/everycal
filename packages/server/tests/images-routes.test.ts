@@ -92,6 +92,8 @@ describe("imageRoutes trigger-download", () => {
       "not-a-url",
       "http://api.unsplash.com/photos/abc/download",
       "https://example.com/photos/abc/download",
+      "https://api.unsplash.com:444/photos/abc/download",
+      "https://user:pass@api.unsplash.com/photos/abc/download",
       "https://api.unsplash.com/photos/abc",
       "https://api.unsplash.com/photos/a/b/download",
       "https://api.unsplash.com/photos//download",

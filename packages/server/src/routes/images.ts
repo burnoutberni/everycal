@@ -79,7 +79,12 @@ export function imageRoutes(): Hono {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
-    if (validatedUrl.protocol !== "https:" || validatedUrl.hostname !== "api.unsplash.com") {
+    if (
+      validatedUrl.protocol !== "https:"
+      || validatedUrl.host !== "api.unsplash.com"
+      || validatedUrl.username
+      || validatedUrl.password
+    ) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
