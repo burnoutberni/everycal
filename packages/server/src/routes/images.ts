@@ -93,12 +93,10 @@ export function imageRoutes(): Hono {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
-    try {
-      validatedUrl.searchParams.set("client_id", UNSPLASH_ACCESS_KEY);
-      await fetch(validatedUrl.toString(), { redirect: "error" });
-    } catch {
+    validatedUrl.searchParams.set("client_id", UNSPLASH_ACCESS_KEY);
+    void fetch(validatedUrl.toString(), { redirect: "error" }).catch(() => {
       // Non-critical; don't fail the request
-    }
+    });
     return c.json({ ok: true });
   });
 
