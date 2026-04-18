@@ -122,9 +122,17 @@ export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> 
 }
 
 export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void> {
-  const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
-    og_image_url: string | null;
-  } | undefined;
+  let row: { og_image_url: string | null } | undefined;
+  try {
+    row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
+      og_image_url: string | null;
+    } | undefined;
+  } catch (err) {
+    if (err instanceof Error && err.message.toLowerCase().includes("no such column")) {
+      return;
+    }
+    throw err;
+  }
 
   updateRemoteOgImageUrl(db, eventUri, null);
 

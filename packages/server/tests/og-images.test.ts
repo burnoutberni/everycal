@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import Database from "better-sqlite3";
 import { initDatabase } from "../src/db.js";
 import type { DB } from "../src/db.js";
+import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
 
 const {
   generateOgImageMock,
@@ -35,10 +40,14 @@ vi.mock("node:fs/promises", () => ({
   unlink: unlinkMock,
 }));
 
-vi.mock("node:fs", () => ({
-  existsSync: existsSyncMock,
-  mkdirSync: mkdirSyncMock,
-}));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: existsSyncMock,
+    mkdirSync: mkdirSyncMock,
+  };
+});
 
 import {
   clearLocalOgImage,
@@ -416,6 +425,38 @@ describe("generateAndSaveOgImage temporal payload", () => {
     };
     expect(row.og_image_url).toBeNull();
     expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it("no-ops when legacy remote_events schema has no og_image_url column", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-og.sqlite");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE remote_events (
+        uri TEXT PRIMARY KEY,
+        actor_uri TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start_date TEXT NOT NULL
+      );
+    `);
+    legacy.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date) VALUES (?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/legacy",
+        "https://remote.example/users/alice",
+        "Legacy Event",
+        "2026-02-15T18:00:00+01:00",
+      );
+    legacy.close();
+
+    const db = initDatabase(dbPath);
+    const userVersion = db.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+
+    await expect(clearRemoteOgImage(db, "https://remote.example/events/legacy")).resolves.toBeUndefined();
+    expect(unlinkMock).not.toHaveBeenCalled();
+
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("clears local og_image_url and removes local image file", async () => {
