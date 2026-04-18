@@ -8,6 +8,7 @@ let concurrency = Number.isFinite(parsedConcurrency) && parsedConcurrency > 0 ? 
 
 const pendingJobsByKey = new Map<string, OgJob>();
 const pendingOrder: string[] = [];
+let pendingHead = 0;
 const deferredJobsByKey = new Map<string, OgJob>();
 const activeKeys = new Set<string>();
 
@@ -47,6 +48,13 @@ function queuePendingJob(job: OgJob): void {
   pendingJobsByKey.set(job.key, job);
 }
 
+function compactPendingOrderIfNeeded(): void {
+  if (pendingHead > 1024 && pendingHead > pendingOrder.length / 2) {
+    pendingOrder.splice(0, pendingHead);
+    pendingHead = 0;
+  }
+}
+
 function scheduleDrain(): void {
   if (draining) return;
   draining = true;
@@ -58,14 +66,17 @@ function runDrain(): void {
 
   while (activeJobs < concurrency) {
     let nextKey: string | undefined;
-    while (pendingOrder.length > 0) {
-      const key = pendingOrder.shift();
+    while (pendingHead < pendingOrder.length) {
+      const key = pendingOrder[pendingHead];
+      pendingHead += 1;
       if (!key) continue;
       if (pendingJobsByKey.has(key)) {
         nextKey = key;
         break;
       }
     }
+
+    compactPendingOrderIfNeeded();
 
     if (!nextKey) {
       logQueueDepthIfNeeded();
@@ -140,6 +151,7 @@ export function getOgJobQueueStats(): {
 export function __resetOgJobQueueForTests(): void {
   pendingJobsByKey.clear();
   pendingOrder.length = 0;
+  pendingHead = 0;
   deferredJobsByKey.clear();
   activeKeys.clear();
   activeJobs = 0;
