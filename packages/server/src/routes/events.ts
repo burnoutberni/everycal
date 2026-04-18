@@ -588,7 +588,7 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/sync", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    type SyncRequestBody = {
       events: {
         externalId: string;
         title: string;
@@ -603,9 +603,19 @@ export function eventRoutes(db: DB): Hono {
         tags?: string[];
         visibility?: string;
       }[];
-    }>().catch(() => null);
+    };
+    let body: SyncRequestBody;
 
-    if (!body || !Array.isArray(body.events)) {
+    try {
+      body = await c.req.json<SyncRequestBody>();
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
+      }
+      throw error;
+    }
+
+    if (!Array.isArray(body.events)) {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
