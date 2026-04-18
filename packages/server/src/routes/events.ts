@@ -1234,7 +1234,7 @@ export function eventRoutes(db: DB): Hono {
       description?: string;
       startDate: string;
       endDate?: string;
-      startDateTime?: string;
+      startDateTime?: string | null;
       endDateTime?: string;
       eventTimezone?: string;
       allDay?: boolean;
@@ -1430,7 +1430,7 @@ export function eventRoutes(db: DB): Hono {
       title?: string;
       description?: string;
       startDate?: string;
-      startDateTime?: string;
+      startDateTime?: string | null;
       endDate?: string | null;
       endDateTime?: string | null;
       eventTimezone?: string;
@@ -1449,7 +1449,7 @@ export function eventRoutes(db: DB): Hono {
     }
 
     if ((body.startDate !== undefined && typeof body.startDate !== "string")
-      || (body.startDateTime !== undefined && typeof body.startDateTime !== "string")
+      || (body.startDateTime !== undefined && body.startDateTime !== null && typeof body.startDateTime !== "string")
       || (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== "string")
       || (body.endDateTime !== undefined && body.endDateTime !== null && typeof body.endDateTime !== "string")
       || (body.allDay !== undefined && typeof body.allDay !== "boolean")) {
@@ -1460,7 +1460,9 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const normalizedStartDate = body.startDate?.trim() || undefined;
-    const normalizedStartDateTime = body.startDateTime?.trim() || undefined;
+    const normalizedStartDateTime = body.startDateTime === null
+      ? undefined
+      : (body.startDateTime?.trim() || undefined);
     const normalizedEndDate = body.endDate === null
       ? null
       : (body.endDate?.trim() || undefined);

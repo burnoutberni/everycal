@@ -76,15 +76,15 @@ function normalizeTemporalValue(
   options?: { nullable?: boolean },
 ): { value: string | null | undefined; invalid: boolean } {
   if (value === undefined) return { value: undefined, invalid: false };
-  if (value === null) return options?.nullable ? { value: null, invalid: false } : { value: undefined, invalid: true };
+  if (value === null) return options?.nullable ? { value: null, invalid: false } : { value: undefined, invalid: false };
   if (typeof value !== "string") return { value: undefined, invalid: true };
   const trimmed = value.trim();
   return { value: trimmed || undefined, invalid: false };
 }
 
 export function normalizeEventWriteInput(input: {
-  startDate?: string;
-  startDateTime?: string;
+  startDate?: string | null;
+  startDateTime?: string | null;
   endDate?: string | null;
   endDateTime?: string | null;
   eventTimezone?: string;

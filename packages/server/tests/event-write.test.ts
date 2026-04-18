@@ -121,6 +121,23 @@ describe("event write normalization", () => {
     });
   });
 
+  it("treats null startDateTime as omitted and falls back to startDate", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: "2026-01-10",
+      startDateTime: null,
+      eventTimezone: "Europe/Vienna",
+      allDay: false,
+      allowDateTimeFields: true,
+    });
+
+    expect(normalized).toEqual({
+      startValue: "2026-01-10",
+      endValue: null,
+      eventTimezone: "Europe/Vienna",
+      allDay: false,
+    });
+  });
+
   it("returns null when startDateTime is present but not a string", () => {
     const normalized = normalizeEventWriteInput({
       startDate: "2026-01-10",

@@ -610,6 +610,57 @@ describe("event slug canonical behavior", () => {
     expect(typeof payload.error).toBe("string");
   });
 
+  it("treats null startDateTime as omitted on create", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null datetime create",
+        startDate: "2026-01-01T10:00:00",
+        startDateTime: null,
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(created.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+  });
+
+  it("treats null startDateTime as omitted on update", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null datetime update",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        startDate: "2026-01-01T12:00:00",
+        startDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(created.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T12:00:00");
+  });
+
   it("rejects PUT title update when title normalizes to empty whitespace", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
