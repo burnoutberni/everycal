@@ -1168,7 +1168,7 @@ describe("event slug canonical behavior", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rejects unsupported legacy schemas instead of mutating them at runtime", () => {
+  it("assumes unsupported legacy schemas are current and marks schema version", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy.sqlite");
     const legacy = new Database(dbPath);
@@ -1182,7 +1182,10 @@ describe("event slug canonical behavior", () => {
     `);
     legacy.close();
 
-    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+    const reopened = initDatabase(dbPath);
+    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+    reopened.close();
     rmSync(dir, { recursive: true, force: true });
   });
 });

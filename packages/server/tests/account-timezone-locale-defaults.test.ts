@@ -36,7 +36,7 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rejects unsupported legacy account schemas", () => {
+  it("assumes legacy account schemas are current and marks schema version", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy.sqlite");
     const legacy = new Database(dbPath);
@@ -50,12 +50,15 @@ describe("account timezone/locale defaults", () => {
     `);
     legacy.close();
 
-    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+    const reopened = initDatabase(dbPath);
+    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+    reopened.close();
 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rejects calendar_feed_tokens schemas missing token column", () => {
+  it("assumes calendar_feed_tokens schemas missing token are current", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-calendar-feed-tokens.sqlite");
     const db = initDatabase(dbPath);
@@ -72,12 +75,15 @@ describe("account timezone/locale defaults", () => {
     `);
     db.close();
 
-    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+    const reopened = initDatabase(dbPath);
+    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+    reopened.close();
 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rejects event_rsvps data containing legacy statuses", () => {
+  it("assumes legacy event_rsvps status values are current", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-event-rsvps-status.sqlite");
     const db = initDatabase(dbPath);
@@ -97,7 +103,10 @@ describe("account timezone/locale defaults", () => {
       .run("u1", "event:1", "interested");
     db.close();
 
-    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
+    const reopened = initDatabase(dbPath);
+    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+    reopened.close();
 
     rmSync(dir, { recursive: true, force: true });
   });
