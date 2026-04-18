@@ -3,7 +3,7 @@
  *
  * GET /api/v1/images/sources — list available sources
  * GET /api/v1/images/search?q=QUERY&source= — search for header images (returns url + attribution)
- * POST /api/v1/images/trigger-download — trigger Unsplash download tracking (per API guidelines)
+ * POST /api/v1/images/trigger-download — trigger Unsplash download tracking (auth, per API guidelines)
  */
 
 import { Hono } from "hono";
@@ -63,10 +63,11 @@ export function imageRoutes(): Hono {
     });
   });
 
-  /** Trigger Unsplash download tracking when user selects an image (per API guidelines). */
+  /** Trigger Unsplash download tracking when user selects an image (auth; per API guidelines). */
   router.post("/trigger-download", requireAuth(), async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: string };
-    const rawUrl = body?.downloadLocation?.trim();
+    const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: unknown };
+    const downloadLocation = body?.downloadLocation;
+    const rawUrl = typeof downloadLocation === "string" ? downloadLocation.trim() : "";
     if (!rawUrl || !UNSPLASH_ACCESS_KEY) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
@@ -82,8 +83,8 @@ export function imageRoutes(): Hono {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
-    // Download tracking endpoint should only target Unsplash photo download URLs.
-    if (!validatedUrl.pathname.startsWith("/photos/") || !validatedUrl.pathname.endsWith("/download")) {
+    // Download tracking endpoint should only target /photos/:id/download.
+    if (!/^\/photos\/[^/]+\/download$/.test(validatedUrl.pathname)) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
 
