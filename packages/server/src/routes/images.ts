@@ -3,16 +3,18 @@
  *
  * GET /api/v1/images/sources — list available sources
  * GET /api/v1/images/search?q=QUERY&source= — search for header images (returns url + attribution)
- * POST /api/v1/images/trigger-download — trigger Unsplash download tracking (per API guidelines)
+ * POST /api/v1/images/trigger-download — trigger Unsplash download tracking (auth, per API guidelines)
  */
 
 import { Hono } from "hono";
 import { getLocale, t } from "../lib/i18n.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENVERSE_BASE = "https://api.openverse.org/v1";
 const UTM_SOURCE = "everycal";
 const UTM_MEDIUM = "referral";
+const UNSPLASH_PHOTO_ID_RE = /^[A-Za-z0-9_-]+$/;
 
 interface UnsplashPhoto {
   urls?: { regular?: string; small?: string; full?: string };
@@ -62,19 +64,48 @@ export function imageRoutes(): Hono {
     });
   });
 
-  /** Trigger Unsplash download tracking when user selects an image (per API guidelines). */
-  router.post("/trigger-download", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: string };
-    const url = body?.downloadLocation?.trim();
-    if (!url || !UNSPLASH_ACCESS_KEY) {
+  /** Trigger Unsplash download tracking when user selects an image (auth; per API guidelines). */
+  router.post("/trigger-download", requireAuth(), async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: unknown };
+    const downloadLocation = body?.downloadLocation;
+    const rawUrl = typeof downloadLocation === "string" ? downloadLocation.trim() : "";
+    if (!rawUrl || !UNSPLASH_ACCESS_KEY) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
+
+    let validatedUrl: URL;
     try {
-      const sep = url.includes("?") ? "&" : "?";
-      await fetch(`${url}${sep}client_id=${UNSPLASH_ACCESS_KEY}`);
+      validatedUrl = new URL(rawUrl);
     } catch {
-      // Non-critical; don't fail the request
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
+
+    if (
+      validatedUrl.protocol !== "https:"
+      || validatedUrl.host !== "api.unsplash.com"
+      || validatedUrl.username
+      || validatedUrl.password
+    ) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
+
+    const pathParts = validatedUrl.pathname.split("/").filter(Boolean);
+    const photoId =
+      pathParts.length === 3
+      && pathParts[0] === "photos"
+      && pathParts[2] === "download"
+        ? pathParts[1]
+        : "";
+
+    // Download tracking endpoint should only target /photos/:id/download with valid Unsplash id.
+    if (!photoId || !UNSPLASH_PHOTO_ID_RE.test(photoId)) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
+
+    validatedUrl.searchParams.set("client_id", UNSPLASH_ACCESS_KEY);
+    void fetch(validatedUrl.toString(), { redirect: "error" }).catch(() => {
+      // Non-critical; don't fail the request
+    });
     return c.json({ ok: true });
   });
 
