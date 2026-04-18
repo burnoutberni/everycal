@@ -948,9 +948,31 @@ export function eventRoutes(db: DB): Hono {
         .catch((err) => console.error(`[OG] Failed to create OG image for event ${eventId}:`, err));
     }
 
+    const ogClearConcurrency = 3;
+    const pendingOgClearJobs = new Set<Promise<void>>();
+    const scheduleOgClearJob = async (job: () => Promise<void>): Promise<void> => {
+      const task = job().catch((err) => {
+        console.error("[OG] Unexpected local OG clear failure:", err);
+      });
+      pendingOgClearJobs.add(task);
+      task.finally(() => pendingOgClearJobs.delete(task));
+      if (pendingOgClearJobs.size >= ogClearConcurrency) {
+        await Promise.race(pendingOgClearJobs);
+      }
+    };
+
     for (const eventId of ogEventIdsToClear) {
-      await clearLocalOgImage(db, eventId)
-        .catch((err) => console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err));
+      await scheduleOgClearJob(() =>
+        clearLocalOgImage(db, eventId)
+          .then(() => undefined)
+          .catch((err) => {
+            console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err);
+          })
+      );
+    }
+
+    if (pendingOgClearJobs.size > 0) {
+      await Promise.all(pendingOgClearJobs);
     }
 
     return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
