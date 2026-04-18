@@ -175,6 +175,39 @@ describe("ical timezone export/import", () => {
     expect(parsed.endDate).toBe("2026-05-10");
   });
 
+  it("imports all-day TZID events into UTC when conversion succeeds", () => {
+    const parsed = fromICal([
+      "BEGIN:VEVENT",
+      "UID:all-day-tzid-1",
+      "DTSTART;VALUE=DATE;TZID=Europe/Vienna:20260510",
+      "DTEND;VALUE=DATE;TZID=Europe/Vienna:20260511",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(parsed.allDay).toBe(true);
+    expect(parsed.startDate).toBe("2026-05-10");
+    expect(parsed.endDate).toBe("2026-05-10");
+    expect(parsed.startAtUtc).toBe("2026-05-09T22:00:00.000Z");
+    expect(parsed.endAtUtc).toBe("2026-05-10T22:00:00.000Z");
+    expect(parsed.timezoneQuality).toBe("exact_tzid");
+  });
+
+  it("rejects invalid iCal DATE values for all-day DTSTART", () => {
+    const parsed = fromICal([
+      "BEGIN:VEVENT",
+      "UID:all-day-invalid-date-1",
+      "DTSTART;VALUE=DATE;TZID=Europe/Vienna:20260230",
+      "DTEND;VALUE=DATE;TZID=Europe/Vienna:20260301",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(parsed.startDate).toBeUndefined();
+    expect(parsed.endDate).toBeUndefined();
+    expect(parsed.startAtUtc).toBeUndefined();
+    expect(parsed.endAtUtc).toBeUndefined();
+    expect(parsed.timezoneQuality).toBeUndefined();
+  });
+
   it("keeps folded lines and parameterized keys parseable", () => {
     const parsed = fromICal([
       "BEGIN:VEVENT",

@@ -138,10 +138,16 @@ export function fromICal(vevent: string): Partial<EveryCalEvent> {
     }
 
     if (parsedStart.tzid) {
-      event.startAtUtc = localInZoneToUtcIso(`${parsedStart.date}T00:00:00`, parsedStart.tzid);
+      const startAtUtc = localInZoneToUtcIso(`${parsedStart.date}T00:00:00`, parsedStart.tzid);
       const exclusiveEnd = addDays(event.endDate, 1);
-      event.endAtUtc = localInZoneToUtcIso(`${exclusiveEnd}T00:00:00`, parsedStart.tzid);
-      event.timezoneQuality = "exact_tzid";
+      const endAtUtc = localInZoneToUtcIso(`${exclusiveEnd}T00:00:00`, parsedStart.tzid);
+      if (startAtUtc && endAtUtc) {
+        event.startAtUtc = startAtUtc;
+        event.endAtUtc = endAtUtc;
+        event.timezoneQuality = "exact_tzid";
+      } else {
+        event.timezoneQuality = "unknown";
+      }
     } else {
       event.timezoneQuality = "unknown";
     }
@@ -275,6 +281,7 @@ function parseDateProperty(prop?: ParsedProperty):
 
   if (prop.params.VALUE === "DATE" || /^\d{8}$/.test(value)) {
     const date = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+    if (!isValidDateOnly(date)) return null;
     return { kind: "date", date, tzid };
   }
 
@@ -333,6 +340,18 @@ function addDays(date: string, days: number): string {
   const base = new Date(`${date}T00:00:00Z`);
   base.setUTCDate(base.getUTCDate() + days);
   return base.toISOString().slice(0, 10);
+}
+
+function isValidDateOnly(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
 }
 
 export function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {
