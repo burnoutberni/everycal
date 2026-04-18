@@ -610,6 +610,58 @@ describe("event slug canonical behavior", () => {
     expect(typeof payload.error).toBe("string");
   });
 
+  it("rejects PUT title update when title normalizes to empty whitespace", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Original PUT Title",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "   " }),
+    });
+
+    expect(update.status).toBe(400);
+    const row = db.prepare("SELECT title FROM events WHERE id = ?").get(created.id) as { title: string };
+    expect(row.title).toBe("Original PUT Title");
+  });
+
+  it("rejects PUT title update when title normalizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Original PUT HTML Title",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "<b></b>" }),
+    });
+
+    expect(update.status).toBe(400);
+    const row = db.prepare("SELECT title FROM events WHERE id = ?").get(created.id) as { title: string };
+    expect(row.title).toBe("Original PUT HTML Title");
+  });
+
   it("stores all-day sync end_at_utc using end-exclusive boundary", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 

@@ -1444,6 +1444,10 @@ export function eventRoutes(db: DB): Hono {
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
+    if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
     if ((body.startDate !== undefined && typeof body.startDate !== "string")
       || (body.startDateTime !== undefined && typeof body.startDateTime !== "string")
       || (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== "string")
