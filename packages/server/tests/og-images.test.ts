@@ -40,6 +40,7 @@ vi.mock("node:fs", () => ({
 }));
 
 import {
+  clearLocalOgImage,
   generateAndSaveOgImage,
   generateAndSaveRemoteOgImage,
   clearRemoteOgImage,
@@ -313,6 +314,65 @@ describe("generateAndSaveOgImage temporal payload", () => {
     await expect(clearRemoteOgImage(db, "https://remote.example/events/missing")).resolves.toBeUndefined();
 
     const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get("https://remote.example/events/missing") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+  });
+
+  it("clears local og_image_url and removes local image file", async () => {
+    const db = initDatabase(":memory:");
+    insertAccount(db, "u1");
+    db.prepare(
+      `INSERT INTO events (
+        id, account_id, title, start_date, all_day,
+        start_at_utc, event_timezone, visibility, og_image_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "local-cleanup",
+      "u1",
+      "Local Event Cleanup",
+      "2026-02-15T18:00:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "public",
+      "/og-images/local-cleanup.png?v=100",
+    );
+
+    await clearLocalOgImage(db, "local-cleanup");
+
+    const row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get("local-cleanup") as {
+      og_image_url: string | null;
+    };
+    expect(row.og_image_url).toBeNull();
+    expect(unlinkMock).toHaveBeenCalledOnce();
+    expect(unlinkMock.mock.calls[0]?.[0]).toContain("local-cleanup.png");
+  });
+
+  it("clears local og_image_url even when local image file is already missing", async () => {
+    const db = initDatabase(":memory:");
+    insertAccount(db, "u1");
+    unlinkMock.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "ENOENT" }));
+    db.prepare(
+      `INSERT INTO events (
+        id, account_id, title, start_date, all_day,
+        start_at_utc, event_timezone, visibility, og_image_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "local-missing",
+      "u1",
+      "Local Event Missing File",
+      "2026-02-15T18:00:00",
+      0,
+      "2026-02-15T17:00:00.000Z",
+      "Europe/Vienna",
+      "public",
+      "/og-images/local-missing.png?v=100",
+    );
+
+    await expect(clearLocalOgImage(db, "local-missing")).resolves.toBeUndefined();
+
+    const row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get("local-missing") as {
       og_image_url: string | null;
     };
     expect(row.og_image_url).toBeNull();

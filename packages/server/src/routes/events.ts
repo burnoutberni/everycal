@@ -26,7 +26,7 @@ import {
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
-import { generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
+import { clearLocalOgImage, generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
@@ -99,17 +99,6 @@ function formatTimeChangeValue(start: string, end: string | null | undefined): s
 
 function isDateOnly(value: string): boolean {
   return DATE_ONLY.test(value);
-}
-
-function clearLocalOgImageUrlIfSupported(db: DB, eventId: string): void {
-  try {
-    db.prepare("UPDATE events SET og_image_url = NULL WHERE id = ?").run(eventId);
-  } catch (err) {
-    if (err instanceof Error && err.message.toLowerCase().includes("no such column")) {
-      return;
-    }
-    throw err;
-  }
 }
 
 function deriveStoredDatePart(
@@ -709,6 +698,7 @@ export function eventRoutes(db: DB): Hono {
     let rotatedOutPast = 0;
     let unchanged = 0;
     const ogEventIdsToGenerate = new Set<string>();
+    const ogEventIdsToClear = new Set<string>();
 
     function eventHash(ev: (typeof body.events)[number]): string {
       const data = JSON.stringify([
@@ -885,7 +875,7 @@ export function eventRoutes(db: DB): Hono {
             if (isOgEligibleVisibility(visibility)) {
               ogEventIdsToGenerate.add(existingRow.id);
             } else {
-              clearLocalOgImageUrlIfSupported(db, existingRow.id);
+              ogEventIdsToClear.add(existingRow.id);
             }
 
             deleteTagsStmt.run(existingRow.id);
@@ -956,6 +946,11 @@ export function eventRoutes(db: DB): Hono {
     for (const eventId of ogEventIdsToGenerate) {
       void generateAndSaveOgImage(db, eventId)
         .catch((err) => console.error(`[OG] Failed to create OG image for event ${eventId}:`, err));
+    }
+
+    for (const eventId of ogEventIdsToClear) {
+      await clearLocalOgImage(db, eventId)
+        .catch((err) => console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err));
     }
 
     return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
@@ -1656,7 +1651,8 @@ export function eventRoutes(db: DB): Hono {
         void generateAndSaveOgImage(db, id)
           .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
       } else {
-        clearLocalOgImageUrlIfSupported(db, id);
+        await clearLocalOgImage(db, id)
+          .catch((err) => console.error(`[OG] Failed to clear OG image for event ${id}:`, err));
       }
     }
 
@@ -1665,7 +1661,7 @@ export function eventRoutes(db: DB): Hono {
 
   // ─── DELETE /:id ────────────────────────────────────────────────────────
 
-  router.delete("/:id", requireAuth(), (c) => {
+  router.delete("/:id", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
 
@@ -1696,6 +1692,8 @@ export function eventRoutes(db: DB): Hono {
       });
     }
 
+    await clearLocalOgImage(db, id)
+      .catch((err) => console.error(`[OG] Failed to clear OG image for deleted event ${id}:`, err));
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";

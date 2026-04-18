@@ -72,6 +72,47 @@ function remoteOgFilenameFromUrl(ogImageUrl: string): string | null {
   return filename;
 }
 
+function localOgFilenameFromUrl(ogImageUrl: string, eventId: string): string | null {
+  const path = ogImageUrl.split("?")[0];
+  const prefix = "/og-images/";
+  if (!path.startsWith(prefix)) return null;
+  const filename = path.slice(prefix.length);
+  if (!filename || filename.includes("/") || filename.includes("\\")) return null;
+  const expectedFilename = `${eventId}.png`;
+  return filename === expectedFilename ? filename : null;
+}
+
+export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> {
+  let row: { og_image_url: string | null } | undefined;
+  try {
+    row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get(eventId) as {
+      og_image_url: string | null;
+    } | undefined;
+  } catch (err) {
+    if (err instanceof Error && err.message.toLowerCase().includes("no such column")) {
+      return;
+    }
+    throw err;
+  }
+
+  updateLocalOgImageUrl(db, eventId, null);
+
+  const ogImageUrl = row?.og_image_url;
+  if (!ogImageUrl) return;
+  const filename = localOgFilenameFromUrl(ogImageUrl, eventId);
+  if (!filename) return;
+
+  const { unlink } = await import("node:fs/promises");
+  const ogPath = join(OG_DIR, filename);
+  try {
+    await unlink(ogPath);
+  } catch (err) {
+    if (!(err && typeof err === "object" && "code" in err && err.code === "ENOENT")) {
+      throw err;
+    }
+  }
+}
+
 export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void> {
   const row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
     og_image_url: string | null;

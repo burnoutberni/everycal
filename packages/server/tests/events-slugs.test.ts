@@ -31,6 +31,7 @@ vi.mock("../src/routes/og-images.js", async () => {
   return {
     ...actual,
     generateAndSaveOgImage: vi.fn().mockResolvedValue("/og-images/mock.png?v=1"),
+    clearLocalOgImage: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -39,7 +40,7 @@ import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 import { notifyEventUpdated } from "../src/lib/notifications.js";
-import { generateAndSaveOgImage } from "../src/routes/og-images.js";
+import { clearLocalOgImage, generateAndSaveOgImage } from "../src/routes/og-images.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
 
 const oneYearMs = 365 * 24 * 60 * 60 * 1000;
@@ -71,6 +72,7 @@ describe("event slug canonical behavior", () => {
     vi.mocked(validateFederationUrl).mockResolvedValue(undefined);
     vi.mocked(notifyEventUpdated).mockClear();
     vi.mocked(generateAndSaveOgImage).mockClear();
+    vi.mocked(clearLocalOgImage).mockClear();
   });
 
   it("keeps local slug immutable on title update", async () => {
@@ -699,6 +701,7 @@ describe("event slug canonical behavior", () => {
 
     expect(sync.status).toBe(200);
     expect(generateAndSaveOgImage).not.toHaveBeenCalled();
+    expect(clearLocalOgImage).toHaveBeenCalledWith(db, "existing-og");
 
     const row = db.prepare("SELECT visibility FROM events WHERE id = ?").get("existing-og") as {
       visibility: string;
