@@ -343,6 +343,16 @@ export const MIGRATIONS: Migration[] = [
       db.exec(BASELINE_SCHEMA_SQL);
     },
   },
+  {
+    version: 2,
+    name: "remote_events_og_image_url",
+    up: (db) => {
+      const columns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "og_image_url")) {
+        db.exec("ALTER TABLE remote_events ADD COLUMN og_image_url TEXT");
+      }
+    },
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

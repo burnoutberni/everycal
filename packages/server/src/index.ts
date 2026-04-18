@@ -35,7 +35,6 @@ import { locationRoutes } from "./routes/locations.js";
 import { imageRoutes } from "./routes/images.js";
 import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { serveOgImagesRoutes } from "./routes/serve-og-images.js";
-import { ogImageRoutes } from "./routes/og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
 import { DATABASE_PATH } from "./lib/paths.js";
@@ -160,7 +159,6 @@ app.route("/api/v1/uploads", uploadRoutes());
 app.route("/api/v1/locations", locationRoutes(db));
 app.route("/api/v1/images", imageRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
-app.route("/api/v1/og-images", ogImageRoutes(db));
 
 // ActivityPub / WebFinger / NodeInfo
 app.route("/.well-known", wellKnownRoutes(db));

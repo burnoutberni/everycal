@@ -144,10 +144,11 @@ describe("generateOgImage", () => {
   });
 
   it("composites header image when fetch succeeds", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer,
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const buffer = await generateOgImage({
       event: buildEvent({
@@ -157,6 +158,10 @@ describe("generateOgImage", () => {
     });
 
     expect(buffer).toEqual(Buffer.from("final-png"));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/header.jpg",
+      expect.objectContaining({ redirect: "error" }),
+    );
   });
 
   it("formats timed events using event timezone", async () => {

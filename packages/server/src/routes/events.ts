@@ -26,7 +26,8 @@ import {
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
-import { generateAndSaveOgImage } from "./og-images.js";
+import { enqueueOgJob } from "../lib/og-job-queue.js";
+import { clearLocalOgImage, generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
@@ -666,7 +667,7 @@ export function eventRoutes(db: DB): Hono {
 
     const existing = db
       .prepare(
-        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, location_name, location_address, url, description, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
+        "SELECT id, slug, external_id, content_hash, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, location_name, location_address, url, description, visibility, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
       .all(user.id) as {
       id: string;
@@ -684,6 +685,7 @@ export function eventRoutes(db: DB): Hono {
       event_timezone: string | null;
       url: string | null;
       description: string | null;
+      visibility: string;
       canceled: number;
       missing_since: string | null;
     }[];
@@ -696,6 +698,8 @@ export function eventRoutes(db: DB): Hono {
     let canceled = 0;
     let rotatedOutPast = 0;
     let unchanged = 0;
+    const ogEventIdsToGenerate = new Set<string>();
+    const ogEventIdsToClear = new Set<string>();
 
     function eventHash(ev: (typeof body.events)[number]): string {
       const data = JSON.stringify([
@@ -869,6 +873,12 @@ export function eventRoutes(db: DB): Hono {
               ev.url || null, visibility, hash, existingRow.id,
             );
 
+            if (isOgEligibleVisibility(visibility)) {
+              ogEventIdsToGenerate.add(existingRow.id);
+            } else {
+              ogEventIdsToClear.add(existingRow.id);
+            }
+
             deleteTagsStmt.run(existingRow.id);
             if (ev.tags) {
               for (const tag of ev.tags) insertTagStmt.run(existingRow.id, tag.trim());
@@ -915,6 +925,10 @@ export function eventRoutes(db: DB): Hono {
               ev.url || null, visibility, hash,
             );
 
+            if (isOgEligibleVisibility(visibility)) {
+              ogEventIdsToGenerate.add(id);
+            }
+
             if (ev.tags) {
               for (const tag of ev.tags) insertTagStmt.run(id, tag.trim());
             }
@@ -928,6 +942,26 @@ export function eventRoutes(db: DB): Hono {
       if (i + BATCH_SIZE < deduped.length) {
         await yieldToEventLoop();
       }
+    }
+
+    for (const eventId of ogEventIdsToGenerate) {
+      enqueueOgJob(`local:${eventId}`, async () => {
+        try {
+          await generateAndSaveOgImage(db, eventId);
+        } catch (err) {
+          console.error(`[OG] Failed to create OG image for event ${eventId}:`, err);
+        }
+      });
+    }
+
+    for (const eventId of ogEventIdsToClear) {
+      enqueueOgJob(`local:${eventId}`, async () => {
+        try {
+          await clearLocalOgImage(db, eventId);
+        } catch (err) {
+          console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err);
+        }
+      });
     }
 
     return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
@@ -1350,9 +1384,10 @@ export function eventRoutes(db: DB): Hono {
     if (!response) return c.json({ error: t(getLocale(c), "events.event_not_found_after_create") }, 500);
     response.rsvpStatus = "going";
 
-    generateAndSaveOgImage(db, id)
-      .then()
-      .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+    if (isOgEligibleVisibility(visibility)) {
+      void generateAndSaveOgImage(db, id)
+        .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+    }
 
     return c.json(response, 201);
   });
@@ -1613,16 +1648,23 @@ export function eventRoutes(db: DB): Hono {
     const updated = readLocalEventById(id);
     if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
 
+    const nextVisibility = body.visibility ?? existing.visibility;
+    const visibilityChanged = nextVisibility !== existing.visibility;
+    const shouldHaveOgImage = isOgEligibleVisibility(nextVisibility);
     const ogRelevantFieldsChanged =
       titleChanged ||
       timeChanged ||
       locationChanged ||
       body.image !== undefined;
 
-    if (ogRelevantFieldsChanged) {
-      generateAndSaveOgImage(db, id)
-        .then()
-        .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+    if (ogRelevantFieldsChanged || visibilityChanged) {
+      if (shouldHaveOgImage) {
+        void generateAndSaveOgImage(db, id)
+          .catch((err) => console.error(`[OG] Failed to create OG image for event ${id}:`, err));
+      } else {
+        await clearLocalOgImage(db, id)
+          .catch((err) => console.error(`[OG] Failed to clear OG image for event ${id}:`, err));
+      }
     }
 
     return c.json(updated);
@@ -1630,7 +1672,7 @@ export function eventRoutes(db: DB): Hono {
 
   // ─── DELETE /:id ────────────────────────────────────────────────────────
 
-  router.delete("/:id", requireAuth(), (c) => {
+  router.delete("/:id", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
 
@@ -1661,6 +1703,8 @@ export function eventRoutes(db: DB): Hono {
       });
     }
 
+    await clearLocalOgImage(db, id)
+      .catch((err) => console.error(`[OG] Failed to clear OG image for deleted event ${id}:`, err));
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
