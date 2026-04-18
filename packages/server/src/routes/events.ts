@@ -1261,9 +1261,9 @@ export function eventRoutes(db: DB): Hono {
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
-    const startDateInput = typeof body.startDateTime === "string"
+    const startDateInput = (typeof body.startDateTime === "string"
       ? body.startDateTime.trim()
-      : (typeof body.startDate === "string" ? body.startDate.trim() : "");
+      : "") || (typeof body.startDate === "string" ? body.startDate.trim() : "");
     const eventTimezone = typeof body.eventTimezone === "string"
       ? body.eventTimezone.trim()
       : "";

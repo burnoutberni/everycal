@@ -285,6 +285,27 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBeNull();
   });
 
+  it("treats whitespace-only startDateTime as omitted on create", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Whitespace DateTime Fallback",
+        startDate: "2026-01-01T10:00:00",
+        startDateTime: "   ",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(body.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+  });
+
   it("accepts create with whitespace-padded timezone and stores trimmed value", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
