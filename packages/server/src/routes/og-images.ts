@@ -86,7 +86,7 @@ function localOgFilenameFromUrl(ogImageUrl: string, eventId: string): string | n
   if (!path.startsWith(prefix)) return null;
   const filename = path.slice(prefix.length);
   if (!filename || filename.includes("/") || filename.includes("\\")) return null;
-  const expectedFilename = `${eventId}.png`;
+  const expectedFilename = getOgImageFilename(eventId);
   return filename === expectedFilename ? filename : null;
 }
 
@@ -249,7 +249,7 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
   await writeFile(ogPath, ogBuffer);
 
   const version = Math.floor(new Date(event.updated_at).getTime() / 1000);
-  const ogImageUrl = `/og-images/${eventId}.png?v=${version}`;
+  const ogImageUrl = `/og-images/${ogFilename}?v=${version}`;
   updateLocalOgImageUrl(db, eventId, ogImageUrl);
 
   return ogImageUrl;
