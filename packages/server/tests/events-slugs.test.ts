@@ -40,6 +40,7 @@ import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 import { notifyEventUpdated } from "../src/lib/notifications.js";
 import { generateAndSaveOgImage } from "../src/routes/og-images.js";
+import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
 
 const oneYearMs = 365 * 24 * 60 * 60 * 1000;
 
@@ -1161,7 +1162,7 @@ describe("event slug canonical behavior", () => {
 
     const reopened = initDatabase(dbPath);
     const userVersion = reopened.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(1);
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
 
     reopened.close();
     rmSync(dir, { recursive: true, force: true });

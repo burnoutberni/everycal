@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
+import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
 
 describe("account timezone/locale defaults", () => {
   it("defaults new accounts to system timezone, locale, and theme", () => {
@@ -29,7 +30,7 @@ describe("account timezone/locale defaults", () => {
 
     const reopened = initDatabase(dbPath);
     const userVersion = reopened.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(1);
+    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
 
     reopened.close();
     rmSync(dir, { recursive: true, force: true });
