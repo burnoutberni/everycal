@@ -1152,7 +1152,22 @@ describe("event slug canonical behavior", () => {
     expect(res.status).toBe(404);
   });
 
-  it("migrates existing remote_events table without slug column", () => {
+  it("adopts the schema version marker for an already-current database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "current.sqlite");
+    const initial = initDatabase(dbPath);
+    initial.pragma("user_version = 0");
+    initial.close();
+
+    const reopened = initDatabase(dbPath);
+    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    expect(userVersion).toBe(1);
+
+    reopened.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects unsupported legacy schemas instead of mutating them at runtime", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy.sqlite");
     const legacy = new Database(dbPath);
@@ -1166,282 +1181,7 @@ describe("event slug canonical behavior", () => {
     `);
     legacy.close();
 
-    const migrated = initDatabase(dbPath);
-    const cols = migrated.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
-    const hasSlug = cols.some((c) => c.name === "slug");
-    const hasStartAtUtc = cols.some((c) => c.name === "start_at_utc");
-    const hasTimezoneQuality = cols.some((c) => c.name === "timezone_quality");
-    expect(hasSlug).toBe(true);
-    expect(hasStartAtUtc).toBe(true);
-    expect(hasTimezoneQuality).toBe(true);
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("normalizes legacy local events to canonical UTC and valid timezone", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-local.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT,
-        external_id TEXT,
-        visibility TEXT,
-        title TEXT,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        all_day INTEGER NOT NULL DEFAULT 0,
-        event_timezone TEXT,
-        created_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("legacy-1", "not-a-date", null, 0, "Not/AZone", "2024-05-01 10:30:00");
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT start_at_utc, event_timezone, start_on FROM events WHERE id = ?"
-    ).get("legacy-1") as { start_at_utc: string; event_timezone: string; start_on: string };
-
-    expect(row.start_at_utc).toBe("2024-05-01T10:30:00.000Z");
-    expect(row.event_timezone).toBe("UTC");
-    expect(row.start_on).toBe("2024-05-01");
-
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("backfills invalid legacy timezone even when UTC columns already exist", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-local-invalid-tz.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT,
-        external_id TEXT,
-        visibility TEXT,
-        title TEXT,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        all_day INTEGER NOT NULL DEFAULT 0,
-        start_at_utc TEXT,
-        end_at_utc TEXT,
-        event_timezone TEXT,
-        created_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      "INSERT INTO events (id, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      "legacy-invalid-tz",
-      "2024-05-01T09:00:00",
-      null,
-      0,
-      "2024-05-01T09:00:00.000Z",
-      null,
-      "Not/AZone",
-      "2024-05-01 10:30:00"
-    );
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT event_timezone FROM events WHERE id = ?"
-    ).get("legacy-invalid-tz") as { event_timezone: string };
-
-    expect(row.event_timezone).toBe("UTC");
-
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("backfills end_on from derived UTC when legacy end_date is invalid", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-local-invalid-end.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT,
-        external_id TEXT,
-        visibility TEXT,
-        title TEXT,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        all_day INTEGER NOT NULL DEFAULT 0,
-        event_timezone TEXT,
-        created_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("legacy-invalid-end", "2024-05-01T09:00:00Z", "not-a-date", 0, "UTC", "2024-05-01 10:30:00");
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT start_at_utc, end_at_utc, end_on FROM events WHERE id = ?"
-    ).get("legacy-invalid-end") as { start_at_utc: string; end_at_utc: string | null; end_on: string | null };
-
-    expect(row.end_at_utc).toBe(row.start_at_utc);
-    expect(row.end_on).toBe("2024-05-01");
-
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("backfills legacy all-day local events with end-exclusive UTC boundary", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-local-all-day.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT,
-        external_id TEXT,
-        visibility TEXT,
-        title TEXT,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        all_day INTEGER NOT NULL DEFAULT 0,
-        event_timezone TEXT,
-        created_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      "INSERT INTO events (id, start_date, end_date, all_day, event_timezone, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("legacy-all-day", "2026-08-10", "2026-08-11", 1, "Europe/Vienna", "2026-01-01 10:30:00");
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT start_at_utc, end_at_utc, start_on, end_on FROM events WHERE id = ?"
-    ).get("legacy-all-day") as {
-      start_at_utc: string;
-      end_at_utc: string | null;
-      start_on: string;
-      end_on: string;
-    };
-
-    expect(row.start_at_utc).toBe("2026-08-09T22:00:00.000Z");
-    expect(row.end_at_utc).toBe("2026-08-11T22:00:00.000Z");
-    expect(row.start_on).toBe("2026-08-10");
-    expect(row.end_on).toBe("2026-08-11");
-
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("canonicalizes legacy remote event UTC values from absolute start_date", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-remote.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE remote_events (
-        uri TEXT PRIMARY KEY,
-        actor_uri TEXT NOT NULL,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        fetched_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      "INSERT INTO remote_events (uri, actor_uri, title, start_date, fetched_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(
-      "https://remote.example/events/legacy-1",
-      "https://remote.example/users/alice",
-      "Legacy Remote",
-      "2026-03-01T10:00:00+01:00",
-      "2026-01-01 00:00:00"
-    );
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT start_at_utc, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
-    ).get("https://remote.example/events/legacy-1") as {
-      start_at_utc: string;
-      event_timezone: string | null;
-      timezone_quality: string;
-    };
-
-    expect(row.start_at_utc).toBe("2026-03-01T09:00:00.000Z");
-    expect(row.event_timezone).toBeNull();
-    expect(row.timezone_quality).toBe("offset_only");
-
-    migrated.close();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("recomputes legacy remote start_on/end_on in event timezone during canonicalization", () => {
-    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-remote-timezone-dateparts.sqlite");
-    const legacy = new Database(dbPath);
-    legacy.exec(`
-      CREATE TABLE remote_events (
-        uri TEXT PRIMARY KEY,
-        actor_uri TEXT NOT NULL,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        end_date TEXT,
-        all_day INTEGER NOT NULL DEFAULT 0,
-        start_at_utc TEXT,
-        end_at_utc TEXT,
-        start_on TEXT,
-        end_on TEXT,
-        event_timezone TEXT,
-        timezone_quality TEXT NOT NULL,
-        fetched_at TEXT NOT NULL
-      );
-    `);
-    legacy.prepare(
-      `INSERT INTO remote_events (
-        uri, actor_uri, title, start_date, end_date, all_day,
-        start_at_utc, end_at_utc, start_on, end_on,
-        event_timezone, timezone_quality, fetched_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      "https://remote.example/events/legacy-tz-dateparts",
-      "https://remote.example/users/alice",
-      "Legacy TZ Date Parts",
-      "2026-01-01T00:30:00.000Z",
-      "2026-01-01T01:30:00.000Z",
-      0,
-      "2026-01-01T00:30:00.000Z",
-      "2025-12-31T23:30:00.000Z",
-      "2026-01-01",
-      "2026-01-01",
-      "America/Los_Angeles",
-      "exact_tzid",
-      "2026-01-01 00:00:00"
-    );
-    legacy.close();
-
-    const migrated = initDatabase(dbPath);
-    const row = migrated.prepare(
-      "SELECT start_at_utc, end_at_utc, start_on, end_on, event_timezone, timezone_quality FROM remote_events WHERE uri = ?"
-    ).get("https://remote.example/events/legacy-tz-dateparts") as {
-      start_at_utc: string;
-      end_at_utc: string;
-      start_on: string;
-      end_on: string;
-      event_timezone: string | null;
-      timezone_quality: string;
-    };
-
-    expect(row.start_at_utc).toBe("2026-01-01T00:30:00.000Z");
-    expect(row.end_at_utc).toBe("2026-01-01T01:30:00.000Z");
-    expect(row.event_timezone).toBe("America/Los_Angeles");
-    expect(row.timezone_quality).toBe("exact_tzid");
-    expect(row.start_on).toBe("2025-12-31");
-    expect(row.end_on).toBe("2025-12-31");
-
-    migrated.close();
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported legacy database schema/i);
     rmSync(dir, { recursive: true, force: true });
   });
 });
