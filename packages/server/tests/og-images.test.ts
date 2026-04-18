@@ -452,6 +452,11 @@ describe("generateAndSaveOgImage temporal payload", () => {
     const userVersion = db.pragma("user_version", { simple: true }) as number;
     expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
 
+    const generated = await generateAndSaveRemoteOgImage(db, "https://remote.example/events/legacy");
+    expect(generated).toBeNull();
+    expect(generateOgImageMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalled();
+
     await expect(clearRemoteOgImage(db, "https://remote.example/events/legacy")).resolves.toBeUndefined();
     expect(unlinkMock).not.toHaveBeenCalled();
 
