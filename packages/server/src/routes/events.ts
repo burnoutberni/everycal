@@ -26,6 +26,7 @@ import {
 import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
+import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearLocalOgImage, generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
@@ -943,58 +944,24 @@ export function eventRoutes(db: DB): Hono {
       }
     }
 
-    const ogGenerateConcurrency = 3;
-    const pendingOgGenerateJobs = new Set<Promise<void>>();
-    const scheduleOgGenerateJob = async (job: () => Promise<void>): Promise<void> => {
-      const task = job().catch((err) => {
-        console.error("[OG] Unexpected local OG generation failure:", err);
-      });
-      pendingOgGenerateJobs.add(task);
-      task.finally(() => pendingOgGenerateJobs.delete(task));
-      if (pendingOgGenerateJobs.size >= ogGenerateConcurrency) {
-        await Promise.race(pendingOgGenerateJobs);
-      }
-    };
-
     for (const eventId of ogEventIdsToGenerate) {
-      await scheduleOgGenerateJob(() =>
-        generateAndSaveOgImage(db, eventId)
-          .then(() => undefined)
-          .catch((err) => {
-            console.error(`[OG] Failed to create OG image for event ${eventId}:`, err);
-          })
-      );
-    }
-
-    if (pendingOgGenerateJobs.size > 0) {
-      await Promise.all(pendingOgGenerateJobs);
-    }
-
-    const ogClearConcurrency = 3;
-    const pendingOgClearJobs = new Set<Promise<void>>();
-    const scheduleOgClearJob = async (job: () => Promise<void>): Promise<void> => {
-      const task = job().catch((err) => {
-        console.error("[OG] Unexpected local OG clear failure:", err);
+      enqueueOgJob(`local:${eventId}`, async () => {
+        try {
+          await generateAndSaveOgImage(db, eventId);
+        } catch (err) {
+          console.error(`[OG] Failed to create OG image for event ${eventId}:`, err);
+        }
       });
-      pendingOgClearJobs.add(task);
-      task.finally(() => pendingOgClearJobs.delete(task));
-      if (pendingOgClearJobs.size >= ogClearConcurrency) {
-        await Promise.race(pendingOgClearJobs);
-      }
-    };
+    }
 
     for (const eventId of ogEventIdsToClear) {
-      await scheduleOgClearJob(() =>
-        clearLocalOgImage(db, eventId)
-          .then(() => undefined)
-          .catch((err) => {
-            console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err);
-          })
-      );
-    }
-
-    if (pendingOgClearJobs.size > 0) {
-      await Promise.all(pendingOgClearJobs);
+      enqueueOgJob(`local:${eventId}`, async () => {
+        try {
+          await clearLocalOgImage(db, eventId);
+        } catch (err) {
+          console.error(`[OG] Failed to clear OG image for event ${eventId}:`, err);
+        }
+      });
     }
 
     return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });

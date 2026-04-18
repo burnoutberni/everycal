@@ -41,6 +41,7 @@ import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 import { notifyEventUpdated } from "../src/lib/notifications.js";
 import { clearLocalOgImage, generateAndSaveOgImage } from "../src/routes/og-images.js";
+import { __resetOgJobQueueForTests, __waitForOgJobQueueIdleForTests } from "../src/lib/og-job-queue.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
 
 const oneYearMs = 365 * 24 * 60 * 60 * 1000;
@@ -73,6 +74,7 @@ describe("event slug canonical behavior", () => {
     vi.mocked(notifyEventUpdated).mockClear();
     vi.mocked(generateAndSaveOgImage).mockClear();
     vi.mocked(clearLocalOgImage).mockClear();
+    __resetOgJobQueueForTests();
   });
 
   it("keeps local slug immutable on title update", async () => {
@@ -644,6 +646,7 @@ describe("event slug canonical behavior", () => {
     });
 
     expect(sync.status).toBe(200);
+    await __waitForOgJobQueueIdleForTests();
 
     const publicEvent = db.prepare("SELECT id FROM events WHERE external_id = ?").get("sync-public-og") as { id: string };
     const unlistedEvent = db.prepare("SELECT id FROM events WHERE external_id = ?").get("sync-unlisted-og") as { id: string };
@@ -700,6 +703,7 @@ describe("event slug canonical behavior", () => {
     });
 
     expect(sync.status).toBe(200);
+    await __waitForOgJobQueueIdleForTests();
     expect(generateAndSaveOgImage).not.toHaveBeenCalled();
     expect(clearLocalOgImage).toHaveBeenCalledWith(db, "existing-og");
 
@@ -707,6 +711,49 @@ describe("event slug canonical behavior", () => {
       visibility: string;
     };
     expect(row.visibility).toBe("private");
+  });
+
+  it("sync responds even when OG generation is still running", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    let releaseOgGeneration: (() => void) | null = null;
+    vi.mocked(generateAndSaveOgImage).mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseOgGeneration = resolve;
+      });
+      return "/og-images/mock.png?v=1";
+    });
+
+    let responded = false;
+    const syncPromise = app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "sync-async-og",
+            title: "Async OG",
+            startDate: "2026-08-10T08:00:00",
+            eventTimezone: "UTC",
+            visibility: "public",
+          },
+        ],
+      }),
+    }).then((response) => {
+      responded = true;
+      return response;
+    });
+
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 100);
+    });
+    expect(responded).toBe(true);
+
+    const sync = await syncPromise;
+    expect(sync.status).toBe(200);
+
+    releaseOgGeneration?.();
+    await __waitForOgJobQueueIdleForTests();
   });
 
   it("sync keeps missing past events and only cancels missing future events after a second miss", async () => {
