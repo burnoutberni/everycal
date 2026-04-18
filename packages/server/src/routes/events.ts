@@ -618,6 +618,9 @@ export function eventRoutes(db: DB): Hono {
     const normalizedIncomingEvents: typeof body.events = [];
 
     for (const ev of body.events) {
+      const normalizedTimezone = typeof ev.eventTimezone === "string"
+        ? ev.eventTimezone.trim()
+        : "";
       if (typeof ev.externalId !== "string"
         || !ev.externalId.trim()
         || typeof ev.title !== "string"
@@ -625,8 +628,8 @@ export function eventRoutes(db: DB): Hono {
         || typeof ev.startDate !== "string"
         || !ev.startDate.trim()
         || typeof ev.eventTimezone !== "string"
-        || !ev.eventTimezone.trim()
-        || !isValidIanaTimezone(ev.eventTimezone)) {
+        || !normalizedTimezone
+        || !isValidIanaTimezone(normalizedTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
       }
       if ((ev.endDate !== undefined && ev.endDate !== null && typeof ev.endDate !== "string")
@@ -636,7 +639,7 @@ export function eventRoutes(db: DB): Hono {
       const normalizedWrite = normalizeEventWriteInput({
         startDate: ev.startDate,
         endDate: ev.endDate,
-        eventTimezone: ev.eventTimezone,
+        eventTimezone: normalizedTimezone,
         allDay: ev.allDay,
         allowDateTimeFields: false,
       });
@@ -659,6 +662,7 @@ export function eventRoutes(db: DB): Hono {
       normalizedIncomingEvents.push({
         ...ev,
         externalId: normalizedExternalId,
+        eventTimezone: normalizedWrite.eventTimezone,
       });
     }
 

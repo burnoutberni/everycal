@@ -1171,6 +1171,31 @@ describe("event slug canonical behavior", () => {
     expect(row.end_at_utc).toBeNull();
   });
 
+  it("accepts sync with whitespace-padded timezone and stores trimmed value", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "trimmed-sync-timezone-1",
+            title: "Trimmed Sync Timezone",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: " UTC ",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const row = db.prepare("SELECT event_timezone FROM events WHERE external_id = ?").get("trimmed-sync-timezone-1") as {
+      event_timezone: string;
+    };
+    expect(row.event_timezone).toBe("UTC");
+  });
+
   it("normalizes sync external IDs before dedupe and persistence", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
