@@ -67,6 +67,11 @@ describe("ical timezone export/import", () => {
     expect(localInZoneToUtcIso("2024-10-27T02:30:00.500", "Europe/Vienna")).toBe("2024-10-27T01:30:00.500Z");
   });
 
+  it("returns null for invalid timezone or invalid local datetime", () => {
+    expect(localInZoneToUtcIso("2024-01-15T10:00:00", "Mars/Olympus_Mons")).toBeNull();
+    expect(localInZoneToUtcIso("not-a-datetime", "Europe/Vienna")).toBeNull();
+  });
+
   it("exports UTC fallback when timezone is unknown", () => {
     const event = baseEvent({
       startAtUtc: "2026-03-01T09:00:00.000Z",

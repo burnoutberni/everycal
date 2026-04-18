@@ -16,6 +16,11 @@ describe("temporal", () => {
     expect(localDateTimeWithTimezoneToUtcIso("2026-01-15T18:30", "America/New_York")).toBe("2026-01-15T23:30:00.000Z");
   });
 
+  it("rejects invalid local date-time inputs", () => {
+    expect(localDateTimeWithTimezoneToUtcIso("2026-02-30T18:30", "America/New_York")).toBeNull();
+    expect(localDateTimeWithTimezoneToUtcIso("not-a-datetime", "America/New_York")).toBeNull();
+  });
+
   it("maps nonexistent spring-forward local times deterministically", () => {
     expect(localDateTimeWithTimezoneToUtcIso("2026-03-08T02:30", "America/New_York")).toBe("2026-03-08T06:30:00.000Z");
   });

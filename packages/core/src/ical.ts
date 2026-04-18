@@ -1,5 +1,6 @@
 import { getVtimezoneComponent } from "@touch4it/ical-timezones";
 import { EveryCalEvent, type TimezoneQuality } from "./event.js";
+import { deriveUtcFromTemporalInput, isValidIanaTimezone, localDateTimeWithTimezoneToUtcIso } from "./temporal.js";
 
 export interface ToICalOptions {
   tentative?: boolean;
@@ -20,9 +21,7 @@ interface ParsedProperty {
   value: string;
 }
 
-const ISO_HAS_OFFSET = /(Z|[+-]\d{2}:\d{2})$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 
 export function toICalendar(entries: CalendarEntry[], options?: ToICalendarOptions): string {
   const normalized = entries.map((entry) => ("event" in entry ? entry : { event: entry }));
@@ -204,16 +203,10 @@ function resolveTimedUtcForExport(event: EveryCalEvent, isStart: boolean): strin
   if (explicitUtc) return explicitUtc;
 
   const source = isStart ? event.startDate : event.endDate;
-  if (!source) return null;
-  if (ISO_HAS_OFFSET.test(source)) return absoluteIsoToUtcIso(source);
-
-  const tzid = event.eventTimezone;
-  if (!tzid || !isValidIanaTimezone(tzid)) return null;
-
-  if (DATE_ONLY.test(source)) return null;
-  const normalized = source.includes(" ") ? source.replace(" ", "T") : source;
-  if (!LOCAL_DATE_TIME.test(normalized)) return null;
-  return localInZoneToUtcIso(normalized, tzid);
+  return deriveUtcFromTemporalInput(source, {
+    allDay: false,
+    eventTimezone: event.eventTimezone || null,
+  });
 }
 
 function toWallTimeBasic(utc: string, tzid: string): string {
@@ -307,7 +300,7 @@ function parseDateProperty(prop?: ParsedProperty):
     ? `${suffix.slice(0, 3)}:${suffix.slice(3, 5)}`
     : suffix;
   const display = normalizedSuffix ? `${date}T${time}${normalizedSuffix}` : `${date}T${time}`;
-  const utc = absoluteIsoToUtcIso(display);
+  const utc = deriveUtcFromTemporalInput(display, { allDay: false, eventTimezone: null });
 
   return {
     kind: "date-time",
@@ -342,74 +335,8 @@ function addDays(date: string, days: number): string {
   return base.toISOString().slice(0, 10);
 }
 
-function absoluteIsoToUtcIso(value: string | null | undefined): string | null {
-  if (!value) return null;
-  if (!ISO_HAS_OFFSET.test(value)) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
-
-function isValidIanaTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(instant);
-  const map = Object.fromEntries(parts.filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
-  const asUtc = Date.UTC(
-    Number(map.year),
-    Number(map.month) - 1,
-    Number(map.day),
-    Number(map.hour),
-    Number(map.minute),
-    Number(map.second),
-  );
-  const instantUtcSecond = Date.UTC(
-    instant.getUTCFullYear(),
-    instant.getUTCMonth(),
-    instant.getUTCDate(),
-    instant.getUTCHours(),
-    instant.getUTCMinutes(),
-    instant.getUTCSeconds(),
-  );
-  return asUtc - instantUtcSecond;
-}
-
-export function localInZoneToUtcIso(localIso: string, timeZone: string): string {
-  const m = localIso.match(LOCAL_DATE_TIME);
-  if (!m) {
-    const parsed = new Date(localIso);
-    return Number.isNaN(parsed.getTime()) ? localIso : parsed.toISOString();
-  }
-
-  const [, y, mo, d, h, mi, s, frac] = m;
-  const milliseconds = frac ? Number(frac.padEnd(3, "0")) : 0;
-  const naiveUtcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s || "0"), milliseconds);
-
-  let candidateMs = naiveUtcMs;
-  for (let i = 0; i < 4; i += 1) {
-    const offset = getTimeZoneOffsetMs(new Date(candidateMs), timeZone);
-    const next = naiveUtcMs - offset;
-    if (next === candidateMs) break;
-    candidateMs = next;
-  }
-
-  return new Date(candidateMs).toISOString();
+export function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {
+  return localDateTimeWithTimezoneToUtcIso(localIso, timeZone);
 }
 
 function escapeICalText(text: string): string {
