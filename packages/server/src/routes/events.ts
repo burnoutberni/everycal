@@ -670,6 +670,9 @@ export function eventRoutes(db: DB): Hono {
 
     for (const ev of deduped) {
       sanitizeEventWriteFields(ev as Record<string, unknown>);
+      if (typeof ev.title !== "string" || !ev.title.trim()) {
+        return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
+      }
     }
 
     type SyncEventInput = Omit<(typeof body.events)[number], "startDate" | "endDate" | "allDay" | "eventTimezone"> & {

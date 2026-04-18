@@ -605,6 +605,29 @@ describe("event slug canonical behavior", () => {
     expect(typeof payload.error).toBe("string");
   });
 
+  it("rejects sync events when title sanitizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "empty-title-sync",
+            title: "<b></b>",
+            startDate: "2026-01-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(400);
+    const row = db.prepare("SELECT id FROM events WHERE external_id = ?").get("empty-title-sync") as { id: string } | undefined;
+    expect(row).toBeUndefined();
+  });
+
   it("returns a safe 400 for malformed PUT temporal field types", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
