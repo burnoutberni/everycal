@@ -1464,6 +1464,12 @@ export function eventRoutes(db: DB): Hono {
       || (body.allDay !== undefined && typeof body.allDay !== "boolean")) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
+    if ((body.startDate !== undefined && !body.startDate.trim())
+      || (body.startDateTime !== undefined && body.startDateTime !== null && !body.startDateTime.trim())
+      || (body.endDate !== undefined && body.endDate !== null && !body.endDate.trim())
+      || (body.endDateTime !== undefined && body.endDateTime !== null && !body.endDateTime.trim())) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
     if (body.eventTimezone !== undefined && typeof body.eventTimezone !== "string") {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
