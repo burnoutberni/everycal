@@ -1,6 +1,6 @@
 type OgJob = {
   key: string;
-  run: () => Promise<void>;
+  run: () => void | Promise<void>;
 };
 
 const parsedConcurrency = Number.parseInt(process.env.OG_JOB_CONCURRENCY || "3", 10);
@@ -79,8 +79,8 @@ function runDrain(): void {
     activeJobs += 1;
     activeKeys.add(nextKey);
 
-    void nextJob
-      .run()
+    void Promise.resolve()
+      .then(() => nextJob.run())
       .catch((err) => {
         console.error(`[OG] Queued OG job failed for key ${nextKey}:`, err);
       })
@@ -100,7 +100,7 @@ function runDrain(): void {
   logQueueDepthIfNeeded();
 }
 
-export function enqueueOgJob(key: string, run: () => Promise<void>): void {
+export function enqueueOgJob(key: string, run: () => void | Promise<void>): void {
   const job: OgJob = { key, run };
 
   if (pendingJobsByKey.has(key)) {

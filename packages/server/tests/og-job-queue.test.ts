@@ -138,4 +138,25 @@ describe("og job queue", () => {
     expect(getOgJobQueueStats().coalesced).toBe(2);
     expect(getOgJobQueueStats().depth).toBe(0);
   });
+
+  it("releases active slot when a job throws synchronously", async () => {
+    __setOgJobQueueConcurrencyForTests(1);
+
+    const calls: string[] = [];
+
+    enqueueOgJob("remote:event-a", () => {
+      calls.push("boom");
+      throw new Error("sync failure");
+    });
+
+    enqueueOgJob("remote:event-b", async () => {
+      calls.push("after");
+    });
+
+    await __waitForOgJobQueueIdleForTests();
+
+    expect(calls).toEqual(["boom", "after"]);
+    expect(getOgJobQueueStats().depth).toBe(0);
+    expect(getOgJobQueueStats().active).toBe(0);
+  });
 });
