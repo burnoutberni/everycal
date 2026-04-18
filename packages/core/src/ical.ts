@@ -291,13 +291,23 @@ function parseDateProperty(prop?: ParsedProperty):
   const date = `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}`;
   const time = `${m[2].slice(0, 2)}:${m[2].slice(2, 4)}:${m[2].slice(4, 6)}`;
   const suffix = m[3] || "";
+  const year = Number(m[1].slice(0, 4));
+  const month = Number(m[1].slice(4, 6));
+  const day = Number(m[1].slice(6, 8));
+  const hour = Number(m[2].slice(0, 2));
+  const minute = Number(m[2].slice(2, 4));
+  const second = Number(m[2].slice(4, 6));
+
+  if (!isValidDateTimeParts(year, month, day, hour, minute, second)) return null;
 
   if (tzid) {
     const display = `${date}T${time}`;
+    const utc = localInZoneToUtcIso(display, tzid);
+    if (!utc) return null;
     return {
       kind: "date-time",
       display,
-      utc: localInZoneToUtcIso(display, tzid),
+      utc,
       tzid,
       hadOffset: false,
     };
@@ -308,6 +318,7 @@ function parseDateProperty(prop?: ParsedProperty):
     : suffix;
   const display = normalizedSuffix ? `${date}T${time}${normalizedSuffix}` : `${date}T${time}`;
   const utc = deriveUtcFromTemporalInput(display, { allDay: false, eventTimezone: null });
+  if (normalizedSuffix && !utc) return null;
 
   return {
     kind: "date-time",
@@ -352,6 +363,23 @@ function isValidDateOnly(value: string): boolean {
   return parsed.getUTCFullYear() === year
     && parsed.getUTCMonth() === month - 1
     && parsed.getUTCDate() === day;
+}
+
+function isValidDateTimeParts(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): boolean {
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+    && parsed.getUTCHours() === hour
+    && parsed.getUTCMinutes() === minute
+    && parsed.getUTCSeconds() === second;
 }
 
 export function localInZoneToUtcIso(localIso: string, timeZone: string): string | null {

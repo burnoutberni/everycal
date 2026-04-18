@@ -208,6 +208,55 @@ describe("ical timezone export/import", () => {
     expect(parsed.timezoneQuality).toBeUndefined();
   });
 
+  it("rejects invalid iCal DATE-TIME values with TZID", () => {
+    const parsed = fromICal([
+      "BEGIN:VEVENT",
+      "UID:invalid-datetime-tzid-1",
+      "DTSTART;TZID=Europe/Vienna:20260230T100000",
+      "DTEND;TZID=Europe/Vienna:20260230T110000",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(parsed.startDate).toBeUndefined();
+    expect(parsed.endDate).toBeUndefined();
+    expect(parsed.startAtUtc).toBeUndefined();
+    expect(parsed.endAtUtc).toBeUndefined();
+    expect(parsed.eventTimezone).toBeUndefined();
+    expect(parsed.timezoneQuality).toBeUndefined();
+  });
+
+  it("rejects invalid iCal DATE-TIME values with offset", () => {
+    const parsed = fromICal([
+      "BEGIN:VEVENT",
+      "UID:invalid-datetime-offset-1",
+      "DTSTART:20260230T100000Z",
+      "DTEND:20260230T110000Z",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(parsed.startDate).toBeUndefined();
+    expect(parsed.endDate).toBeUndefined();
+    expect(parsed.startAtUtc).toBeUndefined();
+    expect(parsed.endAtUtc).toBeUndefined();
+    expect(parsed.timezoneQuality).toBeUndefined();
+  });
+
+  it("keeps valid floating DATE-TIME values without UTC", () => {
+    const parsed = fromICal([
+      "BEGIN:VEVENT",
+      "UID:floating-datetime-1",
+      "DTSTART:20260301T100000",
+      "DTEND:20260301T110000",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(parsed.startDate).toBe("2026-03-01T10:00:00");
+    expect(parsed.endDate).toBe("2026-03-01T11:00:00");
+    expect(parsed.startAtUtc).toBeUndefined();
+    expect(parsed.endAtUtc).toBeUndefined();
+    expect(parsed.timezoneQuality).toBe("unknown");
+  });
+
   it("keeps folded lines and parameterized keys parseable", () => {
     const parsed = fromICal([
       "BEGIN:VEVENT",
