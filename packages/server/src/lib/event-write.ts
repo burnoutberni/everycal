@@ -41,10 +41,16 @@ export function sanitizeEventWriteFields(body: Record<string, unknown>): void {
     if (!Array.isArray(body.tags)) {
       body.tags = undefined;
     } else {
+      const seenTags = new Set<string>();
       body.tags = body.tags
         .filter((tag): tag is string => typeof tag === "string")
         .map((tag) => stripHtml(tag))
-        .filter(Boolean);
+        .map((tag) => tag.trim())
+        .filter((tag) => {
+          if (!tag || seenTags.has(tag)) return false;
+          seenTags.add(tag);
+          return true;
+        });
     }
   }
 }

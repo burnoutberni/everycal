@@ -217,9 +217,9 @@ describe("event write sanitization", () => {
     expect(body.tags).toBeUndefined();
   });
 
-  it("keeps only string tags and sanitizes HTML", () => {
+  it("keeps only unique string tags and sanitizes HTML", () => {
     const body: Record<string, unknown> = {
-      tags: ["  <b>music</b>  ", 123, "", null, "<i>art</i>", {}, "   "],
+      tags: ["  <b>music</b>  ", 123, "", null, "music", "<i>art</i>", " art ", {}, "   "],
     };
 
     sanitizeEventWriteFields(body);
