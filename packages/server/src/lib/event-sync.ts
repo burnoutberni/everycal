@@ -213,7 +213,7 @@ function eventHash(ev: SyncEventInput): string {
 
 function normalizeTags(tags?: string[]): string[] {
   if (!tags) return [];
-  return tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+  return Array.from(new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0)));
 }
 
 export type ApplySyncBatchArgs = {

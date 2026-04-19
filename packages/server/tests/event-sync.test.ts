@@ -245,4 +245,36 @@ describe("applySyncBatch", () => {
     expect(second).toEqual({ created: 0, updated: 0, unchanged: 1 });
     expect(notifyUpdated).not.toHaveBeenCalled();
   });
+
+  it("dedupes duplicate tags before insert", () => {
+    const db = makeDb();
+    const slugger = vi.fn((_: unknown, __: string, title: string) => title.toLowerCase().replace(/\s+/g, "-"));
+
+    const result = applySyncBatch(db, {
+      events: [{
+        externalId: "ext-dup-tags",
+        title: "Duplicate tags",
+        startDate: "2026-07-10",
+        endDate: null,
+        eventTimezone: "UTC",
+        allDay: true,
+        visibility: "public",
+        tags: ["art", " art ", "", "  ", "music", "music"],
+      }],
+      existingByExtId: new Map(),
+      accountId: "u1",
+      username: "alice",
+      ogEventIdsToGenerate: new Set<string>(),
+      ogEventIdsToClear: new Set<string>(),
+      uniqueLocalEventSlug: slugger,
+      isOgEligibleVisibility: (v) => v === "public" || v === "unlisted",
+      notifyEventUpdated: vi.fn(),
+    });
+
+    expect(result).toEqual({ created: 1, updated: 0, unchanged: 0 });
+    const tags = db.prepare(
+      "SELECT tag FROM event_tags WHERE event_id = (SELECT id FROM events WHERE external_id = ?) ORDER BY tag"
+    ).all("ext-dup-tags") as Array<{ tag: string }>;
+    expect(tags.map((t) => t.tag)).toEqual(["art", "music"]);
+  });
 });
