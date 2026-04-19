@@ -199,15 +199,21 @@ export function reconcileMissingEvents(
 }
 
 function eventHash(ev: SyncEventInput): string {
+  const normalizedTags = normalizeTags(ev.tags);
   const data = JSON.stringify([
     ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
     ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
     ev.location?.latitude ?? "", ev.location?.longitude ?? "",
     ev.location?.url || "", ev.image?.url || "", ev.image?.mediaType || "",
     ev.image?.alt || "", ev.url || "", ev.visibility || "public",
-    (ev.tags || []).slice().sort().join(","),
+    normalizedTags.slice().sort().join(","),
   ]);
   return createHash("sha256").update(data).digest("base64url").slice(0, 22);
+}
+
+function normalizeTags(tags?: string[]): string[] {
+  if (!tags) return [];
+  return tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0);
 }
 
 export type ApplySyncBatchArgs = {
@@ -333,9 +339,7 @@ export function createSyncBatchApplier(
         }
 
         deleteTagsStmt.run(existingRow.id);
-        if (ev.tags) {
-          for (const tag of ev.tags) insertTagStmt.run(existingRow.id, tag.trim());
-        }
+        for (const tag of normalizeTags(ev.tags)) insertTagStmt.run(existingRow.id, tag);
         if (changes.length > 0) {
           args.notifyEventUpdated(existingRow.id, {
             id: existingRow.id,
@@ -383,9 +387,7 @@ export function createSyncBatchApplier(
           args.ogEventIdsToGenerate.add(id);
         }
 
-        if (ev.tags) {
-          for (const tag of ev.tags) insertTagStmt.run(id, tag.trim());
-        }
+        for (const tag of normalizeTags(ev.tags)) insertTagStmt.run(id, tag);
         counters.created++;
       }
     }

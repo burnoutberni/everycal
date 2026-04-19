@@ -134,7 +134,7 @@ describe("applySyncBatch", () => {
       endDate: null,
       eventTimezone: "UTC",
       allDay: true,
-      tags: ["music"],
+      tags: ["  music  ", "   "],
       visibility: "public",
     };
 
@@ -153,7 +153,7 @@ describe("applySyncBatch", () => {
 
     const existingByExtId = new Map(readExisting(db).map((row) => [row.external_id, row]));
     const second = applySyncBatch(db, {
-      events: [{ ...seed, title: "Seed updated", tags: ["art"], visibility: "followers_only" }],
+      events: [{ ...seed, title: "Seed updated", tags: [" art ", "   "], visibility: "followers_only" }],
       existingByExtId,
       accountId: "u1",
       username: "alice",
@@ -167,7 +167,7 @@ describe("applySyncBatch", () => {
 
     const existingAfterUpdate = new Map(readExisting(db).map((row) => [row.external_id, row]));
     const third = applySyncBatch(db, {
-      events: [{ ...seed, title: "Seed updated", tags: ["art"], visibility: "followers_only" }],
+      events: [{ ...seed, title: "Seed updated", tags: ["  art  ", "   "], visibility: "followers_only" }],
       existingByExtId: existingAfterUpdate,
       accountId: "u1",
       username: "alice",

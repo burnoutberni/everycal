@@ -251,7 +251,11 @@ export function eventRoutes(db: DB): Hono {
   /** Insert tags for an event. */
   function saveTags(eventId: string, tags: string[]): void {
     const stmt = db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?)");
-    for (const tag of tags) stmt.run(eventId, tag.trim());
+    for (const tag of tags) {
+      const trimmed = tag.trim();
+      if (!trimmed) continue;
+      stmt.run(eventId, trimmed);
+    }
   }
 
   /** Delete then re-insert tags for an event. */
