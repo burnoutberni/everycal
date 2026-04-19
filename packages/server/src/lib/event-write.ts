@@ -107,13 +107,14 @@ export function normalizeEventWriteInput(input: {
   const startDateTime = normalizedStartDateTime.value ?? undefined;
   const endDate = normalizedEndDate.value;
   const endDateTime = normalizedEndDateTime.value;
+  const eventTimezone = input.eventTimezone?.trim() || undefined;
   const startValue = input.allowDateTimeFields
     ? (startDateTime || startDate)
     : startDate;
   const endValue = input.allowDateTimeFields
     ? (endDateTime !== undefined ? endDateTime : endDate)
     : endDate;
-  if (!startValue || !input.eventTimezone) return null;
+  if (!startValue || !eventTimezone) return null;
 
   const allDay = !!input.allDay;
   if (allDay) {
@@ -127,7 +128,7 @@ export function normalizeEventWriteInput(input: {
   return {
     startValue,
     endValue: endValue ?? null,
-    eventTimezone: input.eventTimezone,
+    eventTimezone,
     allDay,
   };
 }

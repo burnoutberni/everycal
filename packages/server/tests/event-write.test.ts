@@ -85,6 +85,33 @@ describe("event write normalization", () => {
     ).toBeNull();
   });
 
+  it("trims eventTimezone during normalization", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: "2026-01-10",
+      eventTimezone: "  Europe/Vienna  ",
+      allDay: false,
+      allowDateTimeFields: false,
+    });
+
+    expect(normalized).toEqual({
+      startValue: "2026-01-10",
+      endValue: null,
+      eventTimezone: "Europe/Vienna",
+      allDay: false,
+    });
+  });
+
+  it("returns null when eventTimezone is whitespace only", () => {
+    const normalized = normalizeEventWriteInput({
+      startDate: "2026-01-10",
+      eventTimezone: "   ",
+      allDay: false,
+      allowDateTimeFields: false,
+    });
+
+    expect(normalized).toBeNull();
+  });
+
   it("trims whitespace and normalizes empty end values to null", () => {
     const normalized = normalizeEventWriteInput({
       startDate: " 2026-01-10 ",
