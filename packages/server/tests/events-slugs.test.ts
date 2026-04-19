@@ -144,6 +144,53 @@ describe("event slug canonical behavior", () => {
     expect(tags.map((row) => row.tag)).toEqual(["art", "music"]);
   });
 
+  it("skips whitespace-only tags on create", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Whitespace Tag Create",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        tags: ["   ", " art ", "art", "music", "\t\n"],
+      }),
+    });
+    const created = await create.json() as { id: string };
+
+    expect(create.status).toBe(201);
+    const tags = db.prepare("SELECT tag FROM event_tags WHERE event_id = ? ORDER BY tag").all(created.id) as Array<{ tag: string }>;
+    expect(tags.map((row) => row.tag)).toEqual(["art", "music"]);
+  });
+
+  it("skips whitespace-only tags on update", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Whitespace Tag Update",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        tags: ["seed"],
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tags: ["  ", " art ", "art", "music", "\n\t"] }),
+    });
+
+    expect(update.status).toBe(200);
+    const tags = db.prepare("SELECT tag FROM event_tags WHERE event_id = ? ORDER BY tag").all(created.id) as Array<{ tag: string }>;
+    expect(tags.map((row) => row.tag)).toEqual(["art", "music"]);
+  });
+
   it("detects time change and regenerates OG when PUT uses datetime fields", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
