@@ -188,4 +188,61 @@ describe("applySyncBatch", () => {
     expect(row).toEqual({ title: "Seed updated", visibility: "followers_only" });
     expect(tags.map((t) => t.tag)).toEqual(["art"]);
   });
+
+  it("treats canonical-equivalent tags as unchanged", () => {
+    const db = makeDb();
+    const slugger = vi.fn((_: unknown, __: string, title: string, excludeId?: string) =>
+      `${title.toLowerCase().replace(/\s+/g, "-")}${excludeId ? "-updated" : ""}`,
+    );
+    const notifyUpdated = vi.fn();
+    const ogGenerate = new Set<string>();
+    const ogClear = new Set<string>();
+
+    const first = applySyncBatch(db, {
+      events: [{
+        externalId: "ext-canonical-tags",
+        title: "Canonical tags",
+        startDate: "2026-07-01",
+        endDate: null,
+        eventTimezone: "UTC",
+        allDay: true,
+        visibility: "public",
+        tags: ["two", " one ", "", "   "],
+      }],
+      existingByExtId: new Map(),
+      accountId: "u1",
+      username: "alice",
+      ogEventIdsToGenerate: ogGenerate,
+      ogEventIdsToClear: ogClear,
+      uniqueLocalEventSlug: slugger,
+      isOgEligibleVisibility: (v) => v === "public" || v === "unlisted",
+      notifyEventUpdated: notifyUpdated,
+    });
+    expect(first).toEqual({ created: 1, updated: 0, unchanged: 0 });
+
+    const existingByExtId = new Map(readExisting(db).map((row) => [row.external_id, row]));
+    const second = applySyncBatch(db, {
+      events: [{
+        externalId: "ext-canonical-tags",
+        title: "Canonical tags",
+        startDate: "2026-07-01",
+        endDate: null,
+        eventTimezone: "UTC",
+        allDay: true,
+        visibility: "public",
+        tags: ["one", "two"],
+      }],
+      existingByExtId,
+      accountId: "u1",
+      username: "alice",
+      ogEventIdsToGenerate: ogGenerate,
+      ogEventIdsToClear: ogClear,
+      uniqueLocalEventSlug: slugger,
+      isOgEligibleVisibility: (v) => v === "public" || v === "unlisted",
+      notifyEventUpdated: notifyUpdated,
+    });
+
+    expect(second).toEqual({ created: 0, updated: 0, unchanged: 1 });
+    expect(notifyUpdated).not.toHaveBeenCalled();
+  });
 });
