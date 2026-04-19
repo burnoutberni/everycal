@@ -13,7 +13,6 @@
 
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
-import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { deliverToFollowers } from "../lib/federation.js";
@@ -53,6 +52,13 @@ import {
   normalizeEventWriteInput,
   sanitizeEventWriteFields,
 } from "../lib/event-write.js";
+import {
+  applySyncBatch,
+  normalizeSyncEvents,
+  reconcileMissingEvents,
+  type ExistingSyncEventRow,
+  type RawSyncEvent,
+} from "../lib/event-sync.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -618,117 +624,17 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
-    const normalizedSyncTemporalByExternalId = new Map<string, {
-      startDate: string;
-      endDate: string | null;
-      allDay: boolean;
-      eventTimezone: string;
-    }>();
-    const normalizedIncomingEvents: typeof body.events = [];
-
-    for (const ev of body.events) {
-      const normalizedTimezone = typeof ev.eventTimezone === "string"
-        ? ev.eventTimezone.trim()
-        : "";
-      if (typeof ev.externalId !== "string"
-        || !ev.externalId.trim()
-        || typeof ev.title !== "string"
-        || !ev.title.trim()
-        || typeof ev.startDate !== "string"
-        || !ev.startDate.trim()
-        || typeof ev.eventTimezone !== "string"
-        || !normalizedTimezone
-        || !isValidIanaTimezone(normalizedTimezone)) {
-        return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
-      }
-      if ((ev.endDate !== undefined && ev.endDate !== null && typeof ev.endDate !== "string")
-        || (ev.allDay !== undefined && typeof ev.allDay !== "boolean")) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      const normalizedWrite = normalizeEventWriteInput({
-        startDate: ev.startDate,
-        endDate: ev.endDate,
-        eventTimezone: normalizedTimezone,
-        allDay: ev.allDay,
-        allowDateTimeFields: false,
-      });
-      if (!normalizedWrite) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      const { startAtUtc, endAtUtc } = deriveCanonicalTemporalFields(normalizedWrite);
-      if (!startAtUtc
-        || (normalizedWrite.allDay ? !endAtUtc : (normalizedWrite.endValue !== null && !endAtUtc))
-        || (endAtUtc && endAtUtc < startAtUtc)) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      const normalizedExternalId = ev.externalId.trim();
-      normalizedSyncTemporalByExternalId.set(normalizedExternalId, {
-        startDate: normalizedWrite.startValue,
-        endDate: normalizedWrite.endValue,
-        allDay: normalizedWrite.allDay,
-        eventTimezone: normalizedWrite.eventTimezone,
-      });
-      normalizedIncomingEvents.push({
-        ...ev,
-        externalId: normalizedExternalId,
-        eventTimezone: normalizedWrite.eventTimezone,
-      });
+    const normalizationResult = normalizeSyncEvents(body.events as RawSyncEvent[]);
+    if (!normalizationResult.ok) {
+      return c.json({ error: t(getLocale(c), normalizationResult.errorKey) }, 400);
     }
-
-    const deduped = [...new Map(normalizedIncomingEvents.map((ev) => [ev.externalId, ev])).values()];
-
-    for (const ev of deduped) {
-      sanitizeEventWriteFields(ev as Record<string, unknown>);
-      if (typeof ev.title !== "string" || !ev.title.trim()) {
-        return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
-      }
-    }
-
-    type SyncEventInput = Omit<(typeof body.events)[number], "startDate" | "endDate" | "allDay" | "eventTimezone"> & {
-      startDate: string;
-      endDate: string | null;
-      allDay: boolean;
-      eventTimezone: string;
-    };
-    const syncEvents: SyncEventInput[] = [];
-    for (const ev of deduped) {
-      const normalizedTemporal = normalizedSyncTemporalByExternalId.get(ev.externalId);
-      if (!normalizedTemporal) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      syncEvents.push({
-        ...ev,
-        startDate: normalizedTemporal.startDate,
-        endDate: normalizedTemporal.endDate,
-        allDay: normalizedTemporal.allDay,
-        eventTimezone: normalizedTemporal.eventTimezone,
-      });
-    }
+    const syncEvents = normalizationResult.syncEvents;
 
     const existing = db
       .prepare(
         "SELECT id, slug, external_id, content_hash, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, location_name, location_address, url, description, visibility, canceled, missing_since FROM events WHERE account_id = ? AND external_id IS NOT NULL"
       )
-      .all(user.id) as {
-      id: string;
-      slug: string | null;
-      external_id: string;
-      content_hash: string | null;
-      title: string;
-      start_date: string;
-      end_date: string | null;
-      start_at_utc: string;
-      end_at_utc: string | null;
-      all_day: number;
-      location_name: string | null;
-      location_address: string | null;
-      event_timezone: string | null;
-      url: string | null;
-      description: string | null;
-      visibility: string;
-      canceled: number;
-      missing_since: string | null;
-    }[];
+      .all(user.id) as ExistingSyncEventRow[];
 
     const existingByExtId = new Map(existing.map((r) => [r.external_id, r]));
     const incomingExtIds = new Set(syncEvents.map((e) => e.externalId));
@@ -741,238 +647,51 @@ export function eventRoutes(db: DB): Hono {
     const ogEventIdsToGenerate = new Set<string>();
     const ogEventIdsToClear = new Set<string>();
 
-    function eventHash(ev: SyncEventInput): string {
-      const data = JSON.stringify([
-        ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
-        ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
-        ev.location?.latitude ?? "", ev.location?.longitude ?? "",
-        ev.location?.url || "", ev.image?.url || "", ev.image?.mediaType || "",
-        ev.image?.alt || "", ev.url || "", ev.visibility || "public",
-        (ev.tags || []).slice().sort().join(","),
-      ]);
-      return createHash("sha256").update(data).digest("base64url").slice(0, 22);
-    }
-
-    const insertEvent = db.prepare(
-      `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, start_on, end_on,
-        location_name, location_address, location_latitude, location_longitude, location_url,
-        image_url, image_media_type, image_alt, url, visibility, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-
-    const updateEvent = db.prepare(
-      `UPDATE events SET title = ?, slug = ?, description = ?, start_date = ?, end_date = ?, all_day = ?, start_at_utc = ?, end_at_utc = ?, event_timezone = ?, start_on = ?, end_on = ?,
-        location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?, location_url = ?,
-        image_url = ?, image_media_type = ?, image_alt = ?, url = ?, visibility = ?,
-        content_hash = ?, canceled = 0, missing_since = NULL, updated_at = datetime('now')
-       WHERE id = ?`
-    );
-
-    const restoreEventState = db.prepare(
-      "UPDATE events SET canceled = 0, missing_since = NULL, updated_at = datetime('now') WHERE id = ?"
-    );
-
-    const deleteTagsStmt = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
-    const insertTagStmt = db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?)");
-
     const yieldToEventLoop = () => new Promise<void>((r) => setImmediate(r));
 
-    // Batch 1: Handle events no longer present in the scraped set.
-    // Policy:
-    // - Past events are kept as-is (rotated out of source listing).
-    // - Future events are marked canceled (never deleted), but only after
-    //   they are missing in two consecutive syncs to avoid accidental cancels
-    //   from transient scrape issues.
     const nowIso = new Date().toISOString();
-    const missingRows = existing.filter((r) => !incomingExtIds.has(r.external_id));
-    if (missingRows.length > 0) {
-      const markMissingSeen = db.prepare("UPDATE events SET missing_since = COALESCE(missing_since, datetime('now')) WHERE id = ?");
-      const markCanceled = db.prepare("UPDATE events SET canceled = 1, missing_since = datetime('now'), updated_at = datetime('now') WHERE id = ?");
-      const clearMissingForPast = db.prepare("UPDATE events SET missing_since = NULL WHERE id = ?");
+    const missingReconciliation = reconcileMissingEvents(db, {
+      existing,
+      incomingExtIds,
+      nowIso,
+    });
+    canceled += missingReconciliation.canceled;
+    rotatedOutPast += missingReconciliation.rotatedOutPast;
 
-      const missingBatch = db.transaction((rows: typeof missingRows) => {
-        for (const row of rows) {
-          if (row.start_at_utc < nowIso) {
-            clearMissingForPast.run(row.id);
-            rotatedOutPast++;
-            continue;
-          }
-
-          if (!row.missing_since) {
-            markMissingSeen.run(row.id);
-            continue;
-          }
-
-          if (!row.canceled) {
-            markCanceled.run(row.id);
-            canceled++;
-          } else {
-            markMissingSeen.run(row.id);
-          }
-        }
+    for (const row of missingReconciliation.notifications) {
+      notifyEventCancelled(db, row.id, {
+        id: row.id,
+        title: row.title,
+        slug: row.slug || row.id,
+        account: { username: user.username },
+        startDate: row.start_date,
+        endDate: row.end_date,
+        allDay: !!row.all_day,
+        location: row.location_name ? { name: row.location_name } : null,
+        url: row.url,
       });
-
-      missingBatch(missingRows);
-
-      for (const row of missingRows) {
-        if (row.start_at_utc >= nowIso && row.missing_since && !row.canceled) {
-          notifyEventCancelled(db, row.id, {
-            id: row.id,
-            title: row.title,
-            slug: row.slug || row.id,
-            account: { username: user.username },
-            startDate: row.start_date,
-            endDate: row.end_date,
-            allDay: !!row.all_day,
-            location: row.location_name ? { name: row.location_name } : null,
-            url: row.url,
-          });
-        }
-      }
+    }
+    if (missingReconciliation.missingCount > 0) {
       await yieldToEventLoop();
     }
 
-    // Batch 2+: Upsert incoming events in chunks — skip unchanged events
     const BATCH_SIZE = 20;
     for (let i = 0; i < syncEvents.length; i += BATCH_SIZE) {
       const chunk = syncEvents.slice(i, i + BATCH_SIZE);
-
-      const upsertBatch = db.transaction((events: typeof chunk) => {
-        for (const ev of events) {
-          const visibility = ev.visibility || "public";
-          if (!isValidVisibility(visibility)) continue;
-          const hash = eventHash(ev);
-          const existingRow = existingByExtId.get(ev.externalId);
-
-          if (existingRow) {
-            if (existingRow.content_hash === hash) {
-              if (existingRow.canceled || existingRow.missing_since) {
-                restoreEventState.run(existingRow.id);
-              }
-              unchanged++;
-              continue;
-            }
-
-            // Only material changes (title, time, location) trigger notifications
-            const oldAllDay = !!existingRow.all_day;
-            const newAllDay = !!ev.allDay;
-            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveCanonicalTemporalFields({
-              startValue: ev.startDate,
-              endValue: ev.endDate ?? null,
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            });
-            const changes = computeMaterialEventChanges(
-              {
-                title: existingRow.title,
-                startDate: existingRow.start_date,
-                endDate: existingRow.end_date,
-                allDay: oldAllDay,
-                eventTimezone: existingRow.event_timezone,
-                startAtUtc: existingRow.start_at_utc,
-                endAtUtc: existingRow.end_at_utc,
-                locationName: existingRow.location_name,
-                locationAddress: existingRow.location_address,
-              },
-              {
-                title: ev.title,
-                startDate: ev.startDate,
-                endDate: ev.endDate,
-                allDay: newAllDay,
-                eventTimezone: ev.eventTimezone,
-                startAtUtc: nextStartAtUtc,
-                endAtUtc: nextEndAtUtc,
-                locationName: ev.location?.name,
-                locationAddress: ev.location?.address,
-              },
-            );
-
-            const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
-            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            }) || ev.startDate.slice(0, 10);
-            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            });
-            updateEvent.run(
-              ev.title, evSlug, ev.description || null,
-              ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
-              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
-              ev.location?.name || null, ev.location?.address || null,
-              ev.location?.latitude ?? null, ev.location?.longitude ?? null,
-              ev.location?.url || null,
-              ev.image?.url || null, ev.image?.mediaType || null, ev.image?.alt || null,
-              ev.url || null, visibility, hash, existingRow.id,
-            );
-
-            if (isOgEligibleVisibility(visibility)) {
-              ogEventIdsToGenerate.add(existingRow.id);
-            } else {
-              ogEventIdsToClear.add(existingRow.id);
-            }
-
-            deleteTagsStmt.run(existingRow.id);
-            if (ev.tags) {
-              for (const tag of ev.tags) insertTagStmt.run(existingRow.id, tag.trim());
-            }
-            if (changes.length > 0) {
-              notifyEventUpdated(db, existingRow.id, {
-                id: existingRow.id,
-                title: ev.title,
-                slug: evSlug,
-                account: { username: user.username },
-                startDate: ev.startDate,
-                endDate: ev.endDate || null,
-                allDay: ev.allDay ?? false,
-                location: ev.location ? { name: ev.location.name } : null,
-                url: ev.url || null,
-              }, changes);
-            }
-            updated++;
-          } else {
-            const id = nanoid(16);
-            const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
-            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveCanonicalTemporalFields({
-              startValue: ev.startDate,
-              endValue: ev.endDate ?? null,
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            });
-            const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            }) || ev.startDate.slice(0, 10);
-            const nextEndOn = deriveStoredDatePart(ev.endDate ?? null, nextEndAtUtc, {
-              allDay: !!ev.allDay,
-              eventTimezone: ev.eventTimezone,
-            });
-            insertEvent.run(
-              id, user.id, user.id, ev.externalId, evSlug,
-              ev.title, ev.description || null,
-              ev.startDate, ev.endDate || null, ev.allDay ? 1 : 0,
-              nextStartAtUtc, nextEndAtUtc, ev.eventTimezone, nextStartOn, nextEndOn,
-              ev.location?.name || null, ev.location?.address || null,
-              ev.location?.latitude ?? null, ev.location?.longitude ?? null,
-              ev.location?.url || null,
-              ev.image?.url || null, ev.image?.mediaType || null, ev.image?.alt || null,
-              ev.url || null, visibility, hash,
-            );
-
-            if (isOgEligibleVisibility(visibility)) {
-              ogEventIdsToGenerate.add(id);
-            }
-
-            if (ev.tags) {
-              for (const tag of ev.tags) insertTagStmt.run(id, tag.trim());
-            }
-            created++;
-          }
-        }
+      const result = applySyncBatch(db, {
+        events: chunk,
+        existingByExtId,
+        accountId: user.id,
+        username: user.username,
+        ogEventIdsToGenerate,
+        ogEventIdsToClear,
+        uniqueLocalEventSlug,
+        isOgEligibleVisibility,
+        notifyEventUpdated: (eventId, event, changes) => notifyEventUpdated(db, eventId, event, changes),
       });
-
-      upsertBatch(chunk);
+      created += result.created;
+      updated += result.updated;
+      unchanged += result.unchanged;
 
       if (i + BATCH_SIZE < syncEvents.length) {
         await yieldToEventLoop();
