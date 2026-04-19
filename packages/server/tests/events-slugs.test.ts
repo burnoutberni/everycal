@@ -752,6 +752,20 @@ describe("event slug canonical behavior", () => {
     expect(typeof payload.error).toBe("string");
   });
 
+  it("returns a safe 400 when sync events include non-object values", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: [null] }),
+    });
+
+    const payload = await sync.json() as { error?: unknown };
+    expect(sync.status).toBe(400);
+    expect(typeof payload.error).toBe("string");
+  });
+
   it("rejects sync events when title sanitizes to empty html", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 

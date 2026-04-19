@@ -69,6 +69,14 @@ describe("normalizeSyncEvents", () => {
     expect(result).toEqual({ ok: false, errorKey: "events.event_requires_fields" });
   });
 
+  it("returns expected error key when an event is not an object", () => {
+    const nullResult = normalizeSyncEvents([null as unknown as RawSyncEvent]);
+    const primitiveResult = normalizeSyncEvents([123 as unknown as RawSyncEvent]);
+
+    expect(nullResult).toEqual({ ok: false, errorKey: "events.event_requires_fields" });
+    expect(primitiveResult).toEqual({ ok: false, errorKey: "events.event_requires_fields" });
+  });
+
   it("accepts null endDate values", () => {
     const input: RawSyncEvent[] = [
       {

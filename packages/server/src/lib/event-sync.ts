@@ -64,6 +64,9 @@ export function normalizeSyncEvents(events: RawSyncEvent[]): { ok: true; syncEve
   const normalizedIncomingEvents: RawSyncEvent[] = [];
 
   for (const ev of events) {
+    if (!ev || typeof ev !== "object" || Array.isArray(ev)) {
+      return { ok: false, errorKey: "events.event_requires_fields" };
+    }
     const normalizedTimezone = typeof ev.eventTimezone === "string"
       ? ev.eventTimezone.trim()
       : "";
