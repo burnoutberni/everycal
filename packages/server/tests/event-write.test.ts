@@ -438,6 +438,80 @@ describe("partial event update normalization", () => {
   });
 });
 
+describe("partial event update normalization failures", () => {
+  const existingTemporal = {
+    existingStart: "2026-04-10T10:00",
+    existingEnd: "2026-04-10T11:00",
+    existingAllDay: false,
+    existingTimezoneRaw: "Europe/Vienna",
+  };
+
+  it("returns invalid_datetime for invalid temporal types and empty strings", () => {
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        startDate: 123,
+      }),
+    ).toEqual({ ok: false, error: "invalid_datetime" });
+
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        startDate: "   ",
+      }),
+    ).toEqual({ ok: false, error: "invalid_datetime" });
+  });
+
+  it("returns request_failed for invalid timezone payloads", () => {
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        eventTimezone: 123,
+      }),
+    ).toEqual({ ok: false, error: "request_failed" });
+
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        eventTimezone: "   ",
+      }),
+    ).toEqual({ ok: false, error: "request_failed" });
+
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        eventTimezone: "Not/A_Real_Timezone",
+      }),
+    ).toEqual({ ok: false, error: "request_failed" });
+  });
+
+  it("returns request_failed when end instant is before start instant", () => {
+    const normalized = normalizePartialUpdateTemporalFields({
+      ...existingTemporal,
+      startDateTime: "2026-04-10T12:00",
+      endDateTime: "2026-04-10T11:00",
+    });
+
+    expect(normalized).toEqual({ ok: false, error: "request_failed" });
+  });
+
+  it("returns request_failed when UTC derivation fails", () => {
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        startDateTime: "not-a-date",
+      }),
+    ).toEqual({ ok: false, error: "request_failed" });
+
+    expect(
+      normalizePartialUpdateTemporalFields({
+        ...existingTemporal,
+        endDateTime: "not-a-date",
+      }),
+    ).toEqual({ ok: false, error: "request_failed" });
+  });
+});
+
 describe("material event change detection", () => {
   it("returns empty list when snapshots are materially equivalent", () => {
     const changes = computeMaterialEventChanges(
