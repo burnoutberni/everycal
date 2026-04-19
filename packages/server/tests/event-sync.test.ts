@@ -95,6 +95,36 @@ describe("normalizeSyncEvents", () => {
     if (!result.ok) return;
     expect(result.syncEvents[0]?.endDate).toBeNull();
   });
+
+  it("does not mutate nested input objects while sanitizing", () => {
+    const input: RawSyncEvent[] = [
+      {
+        externalId: "ext-nested",
+        title: "Nested",
+        startDate: "2026-08-01",
+        eventTimezone: "UTC",
+        allDay: true,
+        location: {
+          name: "<b>Venue</b>",
+          address: "<i>Main Street</i>",
+        },
+      },
+    ];
+
+    const result = normalizeSyncEvents(input);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.syncEvents[0]?.location).toEqual({
+      name: "Venue",
+      address: "Main Street",
+    });
+    expect(input[0]?.location).toEqual({
+      name: "<b>Venue</b>",
+      address: "<i>Main Street</i>",
+    });
+  });
 });
 
 describe("reconcileMissingEvents", () => {
