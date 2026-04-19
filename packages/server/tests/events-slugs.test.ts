@@ -255,6 +255,115 @@ describe("event slug canonical behavior", () => {
     expect(row.end_on).toBe("2025-12-31");
   });
 
+  it("normalizes create temporal values before persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Trimmed Timed Event",
+        startDate: "2026-01-01",
+        startDateTime: " 2026-01-01T10:00:00 ",
+        endDateTime: "   ",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc FROM events WHERE id = ?").get(body.id) as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+    expect(row.end_date).toBeNull();
+    expect(row.start_at_utc).toBe("2026-01-01T10:00:00.000Z");
+    expect(row.end_at_utc).toBeNull();
+  });
+
+  it("treats whitespace-only startDateTime as omitted on create", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Whitespace DateTime Fallback",
+        startDate: "2026-01-01T10:00:00",
+        startDateTime: "   ",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(body.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+  });
+
+  it("accepts create with whitespace-padded timezone and stores trimmed value", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Trimmed Timezone Create",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: " UTC ",
+      }),
+    });
+
+    const body = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT event_timezone FROM events WHERE id = ?").get(body.id) as {
+      event_timezone: string;
+    };
+    expect(row.event_timezone).toBe("UTC");
+  });
+
+  it("rejects create when title normalizes to empty whitespace", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "   ",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+    const row = db.prepare("SELECT COUNT(*) as count FROM events").get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
+  it("rejects create when title normalizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "<b></b>",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+
+    expect(create.status).toBe(400);
+    const row = db.prepare("SELECT COUNT(*) as count FROM events").get() as { count: number };
+    expect(row.count).toBe(0);
+  });
+
   it("does not generate OG for private event creates", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -324,6 +433,38 @@ describe("event slug canonical behavior", () => {
     });
 
     expect(update.status).toBe(400);
+  });
+
+  it("accepts all-day update when endDateTime is explicitly null", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "All Day Null End DateTime",
+        allDay: true,
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allDay: true,
+        endDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT end_date FROM events WHERE id = ?").get(created.id) as { end_date: string | null };
+    expect(row.end_date).toBe("2026-01-02");
   });
 
   it("accepts switching to all-day when date-only fields are provided", async () => {
@@ -492,6 +633,251 @@ describe("event slug canonical behavior", () => {
     });
 
     expect(sync.status).toBe(400);
+  });
+
+  it("returns a safe 400 for malformed sync temporal field types", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "malformed-sync-1",
+            title: "Malformed Sync",
+            startDate: 123,
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+
+    const payload = await sync.json() as { error?: unknown };
+    expect(sync.status).toBe(400);
+    expect(typeof payload.error).toBe("string");
+  });
+
+  it("rejects sync events when title sanitizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "empty-title-sync",
+            title: "<b></b>",
+            startDate: "2026-01-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+
+    expect(sync.status).toBe(400);
+    const row = db.prepare("SELECT id FROM events WHERE external_id = ?").get("empty-title-sync") as { id: string } | undefined;
+    expect(row).toBeUndefined();
+  });
+
+  it("returns a safe 400 for malformed PUT temporal field types", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Malformed PUT",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ startDateTime: 123 }),
+    });
+
+    const payload = await update.json() as { error?: unknown };
+    expect(update.status).toBe(400);
+    expect(typeof payload.error).toBe("string");
+  });
+
+  it("treats null startDateTime as omitted on create", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null datetime create",
+        startDate: "2026-01-01T10:00:00",
+        startDateTime: null,
+        eventTimezone: "UTC",
+      }),
+    });
+
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(created.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+  });
+
+  it("treats null startDateTime as omitted on update", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null datetime update",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        startDate: "2026-01-01T12:00:00",
+        startDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT start_date FROM events WHERE id = ?").get(created.id) as { start_date: string };
+    expect(row.start_date).toBe("2026-01-01T12:00:00");
+  });
+
+  it("treats null endDateTime as omitted on update", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Null end datetime update",
+        startDate: "2026-01-01T10:00:00",
+        endDate: "2026-01-01T11:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        endDateTime: null,
+      }),
+    });
+
+    expect(update.status).toBe(200);
+
+    const row = db.prepare("SELECT end_date FROM events WHERE id = ?").get(created.id) as { end_date: string | null };
+    expect(row.end_date).toBe("2026-01-01T11:00:00");
+  });
+
+  it("rejects PUT title update when title normalizes to empty whitespace", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Original PUT Title",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "   " }),
+    });
+
+    expect(update.status).toBe(400);
+    const row = db.prepare("SELECT title FROM events WHERE id = ?").get(created.id) as { title: string };
+    expect(row.title).toBe("Original PUT Title");
+  });
+
+  it("rejects PUT title update when title normalizes to empty html", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Original PUT HTML Title",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "<b></b>" }),
+    });
+
+    expect(update.status).toBe(400);
+    const row = db.prepare("SELECT title FROM events WHERE id = ?").get(created.id) as { title: string };
+    expect(row.title).toBe("Original PUT HTML Title");
+  });
+
+  it("rejects PUT update when temporal fields normalize to empty whitespace", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Temporal Whitespace",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    const invalidUpdates: Array<Record<string, string>> = [
+      { startDate: "   " },
+      { startDateTime: "   " },
+      { endDate: "   " },
+      { endDateTime: "   " },
+    ];
+
+    for (const payload of invalidUpdates) {
+      const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      expect(update.status).toBe(400);
+    }
+
+    const row = db.prepare("SELECT start_date, end_date FROM events WHERE id = ?").get(created.id) as {
+      start_date: string;
+      end_date: string | null;
+    };
+    expect(row.start_date).toBe("2026-01-01T10:00:00");
+    expect(row.end_date).toBeNull();
   });
 
   it("stores all-day sync end_at_utc using end-exclusive boundary", async () => {
@@ -896,6 +1282,105 @@ describe("event slug canonical behavior", () => {
     expect(row.event_timezone).toBe("Europe/Vienna");
     expect(row.start_at_utc).toBe("2026-06-01T08:00:00.000Z");
     expect(row.end_at_utc).toBe("2026-06-01T09:00:00.000Z");
+  });
+
+  it("normalizes sync temporal values before persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "trimmed-sync-1",
+            title: "Trimmed Sync Event",
+            startDate: " 2026-06-01T10:00:00 ",
+            endDate: "   ",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const row = db.prepare("SELECT start_date, end_date, start_at_utc, end_at_utc FROM events WHERE external_id = ?").get("trimmed-sync-1") as {
+      start_date: string;
+      end_date: string | null;
+      start_at_utc: string;
+      end_at_utc: string | null;
+    };
+    expect(row.start_date).toBe("2026-06-01T10:00:00");
+    expect(row.end_date).toBeNull();
+    expect(row.start_at_utc).toBe("2026-06-01T10:00:00.000Z");
+    expect(row.end_at_utc).toBeNull();
+  });
+
+  it("accepts sync with whitespace-padded timezone and stores trimmed value", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "trimmed-sync-timezone-1",
+            title: "Trimmed Sync Timezone",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: " UTC ",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const row = db.prepare("SELECT event_timezone FROM events WHERE external_id = ?").get("trimmed-sync-timezone-1") as {
+      event_timezone: string;
+    };
+    expect(row.event_timezone).toBe("UTC");
+  });
+
+  it("normalizes sync external IDs before dedupe and persistence", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const sync = await app.request("http://localhost/api/v1/events/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            externalId: "sync-ext-trim",
+            title: "First Variant",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+          {
+            externalId: "  sync-ext-trim  ",
+            title: "Second Variant",
+            startDate: "2026-06-01T10:00:00",
+            eventTimezone: "UTC",
+          },
+        ],
+      }),
+    });
+    expect(sync.status).toBe(200);
+
+    const payload = await sync.json() as { total: number; created: number };
+    expect(payload.total).toBe(1);
+    expect(payload.created).toBe(1);
+
+    const row = db.prepare("SELECT external_id, title FROM events WHERE external_id = ?").get("sync-ext-trim") as {
+      external_id: string;
+      title: string;
+    };
+    expect(row.external_id).toBe("sync-ext-trim");
+    expect(row.title).toBe("Second Variant");
+
+    const countRow = db.prepare("SELECT COUNT(*) AS count FROM events WHERE external_id = ?").get("sync-ext-trim") as {
+      count: number;
+    };
+    expect(countRow.count).toBe(1);
   });
 
   it("creates remote slug once and keeps it immutable on update", () => {

@@ -23,7 +23,6 @@ import {
   buildDateRangeFilter,
   DateQueryParamError,
 } from "../lib/date-query.js";
-import { stripHtml, sanitizeHtml } from "../lib/security.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
@@ -33,10 +32,6 @@ import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/feder
 import { uniqueLocalEventSlug, uniqueRemoteEventSlug } from "../lib/slugs.js";
 import { upsertRemoteEvent } from "../lib/remote-events.js";
 import {
-  datePartFromUtcInstantInTimezone,
-  deriveEventEndAtUtc,
-  deriveEventUtcRange,
-  deriveUtcFromTemporalInput,
   isValidIanaTimezone,
   normalizeApTemporal,
 } from "../lib/timezone.js";
@@ -50,6 +45,15 @@ import {
 } from "../lib/actor-selection.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "../lib/event-serializers.js";
 import { AP_CONTEXT, EVERYCAL_CONTEXT, buildApEventObject } from "../lib/activitypub-event.js";
+import {
+  computeMaterialEventChanges,
+  deriveCanonicalTemporalFields,
+  deriveStoredDatePart,
+  deriveUpdateTemporalFields,
+  isDateOnly,
+  normalizeEventWriteInput,
+  sanitizeEventWriteFields,
+} from "../lib/event-write.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -66,23 +70,7 @@ const REMOTE_EVENT_SELECT = `
   FROM remote_events re
   LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri`;
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
 // ─── Pure utility functions ─────────────────────────────────────────────────
-
-
-function sanitizeEventFields(body: Record<string, unknown>): void {
-  if (typeof body.title === "string") body.title = stripHtml(body.title);
-  if (typeof body.description === "string") body.description = sanitizeHtml(body.description);
-  if (body.location && typeof body.location === "object") {
-    const loc = body.location as Record<string, unknown>;
-    if (typeof loc.name === "string") loc.name = stripHtml(loc.name);
-    if (typeof loc.address === "string") loc.address = stripHtml(loc.address);
-  }
-  if (body.tags && Array.isArray(body.tags)) {
-    body.tags = (body.tags as string[]).map((t) => stripHtml(t));
-  }
-}
 
 /** Decode an event ID that may be URL-encoded into a URI. */
 function resolveEventUri(id: string): string {
@@ -94,25 +82,6 @@ function resolveEventUri(id: string): string {
   return id;
 }
 
-function formatTimeChangeValue(start: string, end: string | null | undefined): string {
-  return [start, end || ""].filter(Boolean).join(" – ");
-}
-
-function isDateOnly(value: string): boolean {
-  return DATE_ONLY.test(value);
-}
-
-function deriveStoredDatePart(
-  rawValue: string | null | undefined,
-  utcValue: string | null | undefined,
-  options: { allDay: boolean; eventTimezone: string },
-): string | null {
-  if (!rawValue) return null;
-  const trimmed = rawValue.trim();
-  if (!trimmed) return null;
-  if (options.allDay || isDateOnly(trimmed)) return trimmed.slice(0, 10);
-  return datePartFromUtcInstantInTimezone(utcValue, options.eventTimezone) || trimmed.slice(0, 10);
-}
 
 /** Check whether a user is allowed to view an event based on its visibility. */
 function canViewEvent(
@@ -619,7 +588,7 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/sync", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    type SyncRequestBody = {
       events: {
         externalId: string;
         title: string;
@@ -634,35 +603,107 @@ export function eventRoutes(db: DB): Hono {
         tags?: string[];
         visibility?: string;
       }[];
-    }>();
+    };
+    let body: SyncRequestBody;
+
+    try {
+      body = await c.req.json<SyncRequestBody>();
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
+      }
+      throw error;
+    }
 
     if (!Array.isArray(body.events)) {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
     }
 
+    const normalizedSyncTemporalByExternalId = new Map<string, {
+      startDate: string;
+      endDate: string | null;
+      allDay: boolean;
+      eventTimezone: string;
+    }>();
+    const normalizedIncomingEvents: typeof body.events = [];
+
     for (const ev of body.events) {
-      if (!ev.externalId || !ev.title || !ev.startDate || !ev.eventTimezone || !isValidIanaTimezone(ev.eventTimezone)) {
+      const normalizedTimezone = typeof ev.eventTimezone === "string"
+        ? ev.eventTimezone.trim()
+        : "";
+      if (typeof ev.externalId !== "string"
+        || !ev.externalId.trim()
+        || typeof ev.title !== "string"
+        || !ev.title.trim()
+        || typeof ev.startDate !== "string"
+        || !ev.startDate.trim()
+        || typeof ev.eventTimezone !== "string"
+        || !normalizedTimezone
+        || !isValidIanaTimezone(normalizedTimezone)) {
         return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
       }
-      if (ev.allDay) {
-        if (!isDateOnly(ev.startDate) || (ev.endDate !== undefined && !isDateOnly(ev.endDate))) {
-          return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-        }
-      }
-      const { startAtUtc, endAtUtc } = deriveEventUtcRange(
-        ev.startDate,
-        ev.endDate,
-        { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
-      );
-      if (!startAtUtc || (ev.allDay ? !endAtUtc : (ev.endDate && !endAtUtc)) || (endAtUtc && endAtUtc < startAtUtc)) {
+      if ((ev.endDate !== undefined && ev.endDate !== null && typeof ev.endDate !== "string")
+        || (ev.allDay !== undefined && typeof ev.allDay !== "boolean")) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      const normalizedWrite = normalizeEventWriteInput({
+        startDate: ev.startDate,
+        endDate: ev.endDate,
+        eventTimezone: normalizedTimezone,
+        allDay: ev.allDay,
+        allowDateTimeFields: false,
+      });
+      if (!normalizedWrite) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      const { startAtUtc, endAtUtc } = deriveCanonicalTemporalFields(normalizedWrite);
+      if (!startAtUtc
+        || (normalizedWrite.allDay ? !endAtUtc : (normalizedWrite.endValue !== null && !endAtUtc))
+        || (endAtUtc && endAtUtc < startAtUtc)) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      const normalizedExternalId = ev.externalId.trim();
+      normalizedSyncTemporalByExternalId.set(normalizedExternalId, {
+        startDate: normalizedWrite.startValue,
+        endDate: normalizedWrite.endValue,
+        allDay: normalizedWrite.allDay,
+        eventTimezone: normalizedWrite.eventTimezone,
+      });
+      normalizedIncomingEvents.push({
+        ...ev,
+        externalId: normalizedExternalId,
+        eventTimezone: normalizedWrite.eventTimezone,
+      });
+    }
+
+    const deduped = [...new Map(normalizedIncomingEvents.map((ev) => [ev.externalId, ev])).values()];
+
+    for (const ev of deduped) {
+      sanitizeEventWriteFields(ev as Record<string, unknown>);
+      if (typeof ev.title !== "string" || !ev.title.trim()) {
+        return c.json({ error: t(getLocale(c), "events.event_requires_fields") }, 400);
       }
     }
 
-    const deduped = [...new Map(body.events.map((ev) => [ev.externalId, ev])).values()];
-
+    type SyncEventInput = Omit<(typeof body.events)[number], "startDate" | "endDate" | "allDay" | "eventTimezone"> & {
+      startDate: string;
+      endDate: string | null;
+      allDay: boolean;
+      eventTimezone: string;
+    };
+    const syncEvents: SyncEventInput[] = [];
     for (const ev of deduped) {
-      sanitizeEventFields(ev as Record<string, unknown>);
+      const normalizedTemporal = normalizedSyncTemporalByExternalId.get(ev.externalId);
+      if (!normalizedTemporal) {
+        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+      }
+      syncEvents.push({
+        ...ev,
+        startDate: normalizedTemporal.startDate,
+        endDate: normalizedTemporal.endDate,
+        allDay: normalizedTemporal.allDay,
+        eventTimezone: normalizedTemporal.eventTimezone,
+      });
     }
 
     const existing = db
@@ -691,7 +732,7 @@ export function eventRoutes(db: DB): Hono {
     }[];
 
     const existingByExtId = new Map(existing.map((r) => [r.external_id, r]));
-    const incomingExtIds = new Set(deduped.map((e) => e.externalId));
+    const incomingExtIds = new Set(syncEvents.map((e) => e.externalId));
 
     let created = 0;
     let updated = 0;
@@ -701,7 +742,7 @@ export function eventRoutes(db: DB): Hono {
     const ogEventIdsToGenerate = new Set<string>();
     const ogEventIdsToClear = new Set<string>();
 
-    function eventHash(ev: (typeof body.events)[number]): string {
+    function eventHash(ev: SyncEventInput): string {
       const data = JSON.stringify([
         ev.title, ev.description || "", ev.startDate, ev.endDate || "", ev.eventTimezone,
         ev.allDay ? 1 : 0, ev.location?.name || "", ev.location?.address || "",
@@ -794,8 +835,8 @@ export function eventRoutes(db: DB): Hono {
 
     // Batch 2+: Upsert incoming events in chunks — skip unchanged events
     const BATCH_SIZE = 20;
-    for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
-      const chunk = deduped.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < syncEvents.length; i += BATCH_SIZE) {
+      const chunk = syncEvents.slice(i, i + BATCH_SIZE);
 
       const upsertBatch = db.transaction((events: typeof chunk) => {
         for (const ev of events) {
@@ -814,44 +855,38 @@ export function eventRoutes(db: DB): Hono {
             }
 
             // Only material changes (title, time, location) trigger notifications
-            const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
-            if (existingRow.title !== ev.title) {
-              changes.push({ field: "title", before: existingRow.title, after: ev.title });
-            }
             const oldAllDay = !!existingRow.all_day;
             const newAllDay = !!ev.allDay;
-            const oldTime = formatTimeChangeValue(existingRow.start_date, existingRow.end_date);
-            const newTime = formatTimeChangeValue(ev.startDate, ev.endDate || "");
-            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveEventUtcRange(
-              ev.startDate,
-              ev.endDate,
-              { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
+            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveCanonicalTemporalFields({
+              startValue: ev.startDate,
+              endValue: ev.endDate ?? null,
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
+            const changes = computeMaterialEventChanges(
+              {
+                title: existingRow.title,
+                startDate: existingRow.start_date,
+                endDate: existingRow.end_date,
+                allDay: oldAllDay,
+                eventTimezone: existingRow.event_timezone,
+                startAtUtc: existingRow.start_at_utc,
+                endAtUtc: existingRow.end_at_utc,
+                locationName: existingRow.location_name,
+                locationAddress: existingRow.location_address,
+              },
+              {
+                title: ev.title,
+                startDate: ev.startDate,
+                endDate: ev.endDate,
+                allDay: newAllDay,
+                eventTimezone: ev.eventTimezone,
+                startAtUtc: nextStartAtUtc,
+                endAtUtc: nextEndAtUtc,
+                locationName: ev.location?.name,
+                locationAddress: ev.location?.address,
+              },
             );
-            const existingEffectiveStart = existingRow.start_date;
-            const existingEffectiveEnd = existingRow.end_date;
-            const nextEffectiveStart = ev.startDate;
-            const nextEffectiveEnd = ev.endDate;
-            const oldTimezone = existingRow.event_timezone || "";
-            const newTimezone = ev.eventTimezone || "";
-            const oldStartAtUtc = existingRow.start_at_utc || "";
-            const oldEndAtUtc = existingRow.end_at_utc || "";
-            const newStartAtUtc = nextStartAtUtc || "";
-            const newEndAtUtc = nextEndAtUtc || "";
-            if (
-              existingEffectiveStart !== nextEffectiveStart
-              || (existingEffectiveEnd || "") !== (nextEffectiveEnd || "")
-              || oldAllDay !== newAllDay
-              || oldTimezone !== newTimezone
-              || oldStartAtUtc !== newStartAtUtc
-              || oldEndAtUtc !== newEndAtUtc
-            ) {
-              changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
-            }
-            const oldLoc = [existingRow.location_name || "", existingRow.location_address || ""].filter(Boolean).join(", ");
-            const newLoc = [ev.location?.name || "", ev.location?.address || ""].filter(Boolean).join(", ");
-            if (oldLoc !== newLoc) {
-              changes.push({ field: "location", before: oldLoc, after: newLoc });
-            }
 
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title, existingRow.id);
             const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
@@ -900,11 +935,12 @@ export function eventRoutes(db: DB): Hono {
           } else {
             const id = nanoid(16);
             const evSlug = uniqueLocalEventSlug(db, user.id, ev.title);
-            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveEventUtcRange(
-              ev.startDate,
-              ev.endDate,
-              { allDay: !!ev.allDay, eventTimezone: ev.eventTimezone },
-            );
+            const { startAtUtc: nextStartAtUtc, endAtUtc: nextEndAtUtc } = deriveCanonicalTemporalFields({
+              startValue: ev.startDate,
+              endValue: ev.endDate ?? null,
+              allDay: !!ev.allDay,
+              eventTimezone: ev.eventTimezone,
+            });
             const nextStartOn = deriveStoredDatePart(ev.startDate, nextStartAtUtc, {
               allDay: !!ev.allDay,
               eventTimezone: ev.eventTimezone,
@@ -939,7 +975,7 @@ export function eventRoutes(db: DB): Hono {
 
       upsertBatch(chunk);
 
-      if (i + BATCH_SIZE < deduped.length) {
+      if (i + BATCH_SIZE < syncEvents.length) {
         await yieldToEventLoop();
       }
     }
@@ -964,7 +1000,7 @@ export function eventRoutes(db: DB): Hono {
       });
     }
 
-    return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: deduped.length });
+    return c.json({ ok: true, created, updated, unchanged, canceled, rotatedOutPast, total: syncEvents.length });
   });
 
   // ─── POST /:id/repost ──────────────────────────────────────────────────
@@ -1215,7 +1251,7 @@ export function eventRoutes(db: DB): Hono {
       description?: string;
       startDate: string;
       endDate?: string;
-      startDateTime?: string;
+      startDateTime?: string | null;
       endDateTime?: string;
       eventTimezone?: string;
       allDay?: boolean;
@@ -1233,28 +1269,20 @@ export function eventRoutes(db: DB): Hono {
       postAsAccountId?: string;
     }>();
 
-    const startDateInput = body.startDateTime || body.startDate;
-    const endDateInput = body.endDateTime || body.endDate;
-    const eventTimezone = body.eventTimezone;
-    if (!body.title || !startDateInput) {
+    sanitizeEventWriteFields(body as Record<string, unknown>);
+
+    const startDateInput = (typeof body.startDateTime === "string"
+      ? body.startDateTime.trim()
+      : "") || (typeof body.startDate === "string" ? body.startDate.trim() : "");
+    const eventTimezone = typeof body.eventTimezone === "string"
+      ? body.eventTimezone.trim()
+      : "";
+    if (typeof body.title !== "string" || !body.title || !startDateInput) {
       return c.json({ error: t(getLocale(c), "events.title_startdate_required") }, 400);
     }
     if (!eventTimezone || !isValidIanaTimezone(eventTimezone)) {
       return c.json({ error: t(getLocale(c), "events.invalid_timezone") }, 400);
     }
-    if (body.allDay) {
-      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      if (!body.startDate || !isDateOnly(body.startDate)) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      if (body.endDate !== undefined && !isDateOnly(body.endDate)) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-    }
-
-    sanitizeEventFields(body as Record<string, unknown>);
 
     const postAsAccountId = body.postAsAccountId || user.id;
     const postingAccount = db
@@ -1296,29 +1324,30 @@ export function eventRoutes(db: DB): Hono {
     const imageAttributionJson = body.image?.attribution
       ? JSON.stringify(body.image.attribution)
       : null;
-    const { startAtUtc, endAtUtc } = deriveEventUtcRange(
-      startDateInput,
-      endDateInput,
-      { allDay: !!body.allDay, eventTimezone },
-    );
+    const normalizedWrite = normalizeEventWriteInput({
+      startDate: body.startDate,
+      startDateTime: body.startDateTime,
+      endDate: body.endDate,
+      endDateTime: body.endDateTime,
+      eventTimezone,
+      allDay: body.allDay,
+      allowDateTimeFields: true,
+    });
+    if (!normalizedWrite) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    const { startAtUtc, endAtUtc, startOn, endOn } = deriveCanonicalTemporalFields(normalizedWrite);
     if (!startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    if ((body.allDay || endDateInput) && !endAtUtc) {
+    const startDateValue = normalizedWrite.startValue;
+    const endDateValue = normalizedWrite.endValue;
+    if ((normalizedWrite.allDay || endDateValue !== null) && !endAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
     if (endAtUtc && endAtUtc < startAtUtc) {
       return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
     }
-    const startOn = deriveStoredDatePart(startDateInput, startAtUtc, {
-      allDay: !!body.allDay,
-      eventTimezone,
-    }) || startDateInput.slice(0, 10);
-    const endOn = deriveStoredDatePart(endDateInput || null, endAtUtc, {
-      allDay: !!body.allDay,
-      eventTimezone,
-    });
-
     db.prepare(
       `INSERT INTO events (id, account_id, created_by_account_id, slug, title, description, start_date, end_date, all_day,
         start_at_utc, end_at_utc, event_timezone, start_on, end_on,
@@ -1327,7 +1356,7 @@ export function eventRoutes(db: DB): Hono {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, postingAccount.id, user.id, slug, body.title, body.description || null,
-      startDateInput, endDateInput || null, body.allDay ? 1 : 0,
+      startDateValue, endDateValue, normalizedWrite.allDay ? 1 : 0,
       startAtUtc,
       endAtUtc,
       eventTimezone,
@@ -1366,8 +1395,8 @@ export function eventRoutes(db: DB): Hono {
           to: ["https://www.w3.org/ns/activitystreams#Public"],
           cc: [`${actorUrl}/followers`],
           allDay: !!body.allDay,
-          startDate: startDateInput,
-          endDate: endDateInput || undefined,
+          startDate: startDateValue,
+          endDate: endDateValue || undefined,
           startAtUtc,
           endAtUtc,
           content: body.description || undefined,
@@ -1420,7 +1449,7 @@ export function eventRoutes(db: DB): Hono {
       title?: string;
       description?: string;
       startDate?: string;
-      startDateTime?: string;
+      startDateTime?: string | null;
       endDate?: string | null;
       endDateTime?: string | null;
       eventTimezone?: string;
@@ -1432,7 +1461,43 @@ export function eventRoutes(db: DB): Hono {
       visibility?: string;
     }>();
 
-    sanitizeEventFields(body as Record<string, unknown>);
+    sanitizeEventWriteFields(body as Record<string, unknown>);
+
+    if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
+    if ((body.startDate !== undefined && typeof body.startDate !== "string")
+      || (body.startDateTime !== undefined && body.startDateTime !== null && typeof body.startDateTime !== "string")
+      || (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== "string")
+      || (body.endDateTime !== undefined && body.endDateTime !== null && typeof body.endDateTime !== "string")
+      || (body.allDay !== undefined && typeof body.allDay !== "boolean")) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    if ((body.startDate !== undefined && !body.startDate.trim())
+      || (body.startDateTime !== undefined && body.startDateTime !== null && !body.startDateTime.trim())
+      || (body.endDate !== undefined && body.endDate !== null && !body.endDate.trim())
+      || (body.endDateTime !== undefined && body.endDateTime !== null && !body.endDateTime.trim())) {
+      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
+    }
+    if (body.eventTimezone !== undefined && typeof body.eventTimezone !== "string") {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+
+    const normalizedStartDate = body.startDate?.trim() || undefined;
+    const normalizedStartDateTime = body.startDateTime === null
+      ? undefined
+      : (body.startDateTime?.trim() || undefined);
+    const normalizedEndDate = body.endDate === null
+      ? null
+      : (body.endDate?.trim() || undefined);
+    const normalizedEndDateTime = body.endDateTime === null
+      ? undefined
+      : (body.endDateTime?.trim() || undefined);
+    const normalizedTimezone = body.eventTimezone?.trim() || undefined;
+    if (body.eventTimezone !== undefined && !normalizedTimezone) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -1441,9 +1506,9 @@ export function eventRoutes(db: DB): Hono {
       fields.push("title = ?"); values.push(body.title);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
-    const nextStart = body.startDateTime ?? body.startDate;
-    const nextEnd = body.endDateTime ?? body.endDate;
-    const nextTimezone = body.eventTimezone;
+    const nextStart = normalizedStartDateTime ?? normalizedStartDate;
+    const nextEnd = normalizedEndDateTime ?? normalizedEndDate;
+    const nextTimezone = normalizedTimezone;
     if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
@@ -1452,36 +1517,31 @@ export function eventRoutes(db: DB): Hono {
       : "UTC";
     const nextAllDay = body.allDay ?? !!existing.all_day;
     if (nextAllDay) {
-      if (body.startDateTime !== undefined || body.endDateTime !== undefined) {
+      if (normalizedStartDateTime !== undefined || normalizedEndDateTime !== undefined) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
-      const candidateStart = body.startDate ?? existing.start_date;
-      const candidateEnd = body.endDate !== undefined ? body.endDate : existing.end_date;
+      const candidateStart = normalizedStartDate ?? existing.start_date;
+      const candidateEnd = normalizedEndDate !== undefined ? normalizedEndDate : existing.end_date;
       if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
         return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
       }
     }
-    const tzForConvert = nextTimezone ?? existingTimezone;
     const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
-    const startForUtc = nextStart ?? (shouldRecomputeUtcForTimezoneChange ? existing.start_date : undefined);
     const shouldRecomputeAllDayEndBoundary = nextAllDay && (nextStart !== undefined || body.allDay !== undefined);
-    const endForUtc = nextEnd !== undefined
-      ? nextEnd
-      : ((shouldRecomputeUtcForTimezoneChange || shouldRecomputeAllDayEndBoundary) ? existing.end_date : undefined);
-    const nextStartAtUtc = startForUtc !== undefined
-      ? deriveUtcFromTemporalInput(startForUtc, { allDay: nextAllDay, eventTimezone: tzForConvert })
-      : null;
+    const { startForUtc, endForUtc, nextStartAtUtc, nextEndAtUtc, tzForConvert } = deriveUpdateTemporalFields({
+      nextStart,
+      nextEnd,
+      nextTimezone,
+      nextAllDay,
+      existingStart: existing.start_date,
+      existingEnd: existing.end_date,
+      existingTimezone,
+      shouldRecomputeUtcForTimezoneChange,
+      shouldRecomputeAllDayEndBoundary,
+    });
     if (startForUtc !== undefined && !nextStartAtUtc) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
-    const baseStartForAllDayEnd = nextStart ?? existing.start_date;
-    const nextEndAtUtc = endForUtc !== undefined
-      ? deriveEventEndAtUtc(endForUtc, {
-        allDay: nextAllDay,
-        eventTimezone: tzForConvert,
-        startValueForAllDay: baseStartForAllDayEnd,
-      })
-      : null;
     if (endForUtc !== undefined && (nextAllDay ? !nextEndAtUtc : (endForUtc !== null && !nextEndAtUtc))) {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
@@ -1560,33 +1620,33 @@ export function eventRoutes(db: DB): Hono {
 
     const oldAllDay = !!existing.all_day;
     const newAllDay = body.allDay !== undefined ? !!body.allDay : oldAllDay;
-    const oldTime = formatTimeChangeValue(existing.start_date, existing.end_date);
-    const newTime = formatTimeChangeValue(nextStart ?? existing.start_date, nextEnd !== undefined ? (nextEnd || "") : (existing.end_date || ""));
-    const oldTimezone = existingTimezone;
-    const newTimezone = body.eventTimezone !== undefined ? body.eventTimezone : oldTimezone;
-    const timeChanged = oldTime !== newTime || oldAllDay !== newAllDay || oldTimezone !== newTimezone;
-    const oldLoc = [existing.location_name || "", existing.location_address || ""].filter(Boolean).join(", ");
-    const newLoc = body.location === undefined
-      ? oldLoc
-      : body.location === null
-        ? ""
-        : [body.location.name || "", body.location.address || ""].filter(Boolean).join(", ");
-    const locationChanged = oldLoc !== newLoc;
-    const titleChanged = body.title !== undefined && existing.title !== body.title;
+    const materialChanges = computeMaterialEventChanges(
+      {
+        title: existing.title,
+        startDate: existing.start_date,
+        endDate: existing.end_date,
+        allDay: oldAllDay,
+        eventTimezone: existingTimezone,
+        locationName: existing.location_name,
+        locationAddress: existing.location_address,
+      },
+      {
+        title: body.title !== undefined ? body.title : existing.title,
+        startDate: nextStart ?? existing.start_date,
+        endDate: nextEnd !== undefined ? nextEnd : existing.end_date,
+        allDay: newAllDay,
+        eventTimezone: nextTimezone !== undefined ? nextTimezone : existingTimezone,
+        locationName: body.location === undefined ? existing.location_name : (body.location?.name ?? null),
+        locationAddress: body.location === undefined ? existing.location_address : (body.location?.address ?? null),
+      },
+    );
+    const titleChanged = materialChanges.some((change) => change.field === "title");
+    const timeChanged = materialChanges.some((change) => change.field === "time");
+    const locationChanged = materialChanges.some((change) => change.field === "location");
 
     if (fields.length > 0) {
       // Only material changes (title, time, location) trigger notifications
-      const changes: { field: "title" | "time" | "location"; before?: string; after?: string; beforeAllDay?: boolean; afterAllDay?: boolean }[] = [];
-      if (titleChanged) {
-        changes.push({ field: "title", before: existing.title, after: body.title });
-      }
-      if (timeChanged) {
-        changes.push({ field: "time", before: oldTime, after: newTime, beforeAllDay: oldAllDay, afterAllDay: newAllDay });
-      }
-      if (locationChanged) {
-        changes.push({ field: "location", before: oldLoc, after: newLoc });
-      }
-      if (changes.length > 0) {
+      if (materialChanges.length > 0) {
         const ev = readLocalEventById(id);
         if (ev) {
           notifyEventUpdated(db, id, {
@@ -1599,7 +1659,7 @@ export function eventRoutes(db: DB): Hono {
             allDay: ev.allDay as boolean,
             location: ev.location as { name?: string } | null,
             url: ev.url as string | null,
-          }, changes);
+          }, materialChanges);
         }
       }
     }
