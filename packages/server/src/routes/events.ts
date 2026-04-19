@@ -49,8 +49,7 @@ import {
   computeMaterialEventChanges,
   deriveCanonicalTemporalFields,
   deriveStoredDatePart,
-  deriveUpdateTemporalFields,
-  isDateOnly,
+  normalizePartialUpdateTemporalFields,
   normalizeEventWriteInput,
   sanitizeEventWriteFields,
 } from "../lib/event-write.js";
@@ -1467,38 +1466,6 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
 
-    if ((body.startDate !== undefined && typeof body.startDate !== "string")
-      || (body.startDateTime !== undefined && body.startDateTime !== null && typeof body.startDateTime !== "string")
-      || (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== "string")
-      || (body.endDateTime !== undefined && body.endDateTime !== null && typeof body.endDateTime !== "string")
-      || (body.allDay !== undefined && typeof body.allDay !== "boolean")) {
-      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-    }
-    if ((body.startDate !== undefined && !body.startDate.trim())
-      || (body.startDateTime !== undefined && body.startDateTime !== null && !body.startDateTime.trim())
-      || (body.endDate !== undefined && body.endDate !== null && !body.endDate.trim())
-      || (body.endDateTime !== undefined && body.endDateTime !== null && !body.endDateTime.trim())) {
-      return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-    }
-    if (body.eventTimezone !== undefined && typeof body.eventTimezone !== "string") {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
-
-    const normalizedStartDate = body.startDate?.trim() || undefined;
-    const normalizedStartDateTime = body.startDateTime === null
-      ? undefined
-      : (body.startDateTime?.trim() || undefined);
-    const normalizedEndDate = body.endDate === null
-      ? null
-      : (body.endDate?.trim() || undefined);
-    const normalizedEndDateTime = body.endDateTime === null
-      ? undefined
-      : (body.endDateTime?.trim() || undefined);
-    const normalizedTimezone = body.eventTimezone?.trim() || undefined;
-    if (body.eventTimezone !== undefined && !normalizedTimezone) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
-
     const fields: string[] = [];
     const values: unknown[] = [];
 
@@ -1506,48 +1473,34 @@ export function eventRoutes(db: DB): Hono {
       fields.push("title = ?"); values.push(body.title);
     }
     if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description || null); }
-    const nextStart = normalizedStartDateTime ?? normalizedStartDate;
-    const nextEnd = normalizedEndDateTime ?? normalizedEndDate;
-    const nextTimezone = normalizedTimezone;
-    if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    const temporal = normalizePartialUpdateTemporalFields({
+      startDate: body.startDate,
+      startDateTime: body.startDateTime,
+      endDate: body.endDate,
+      endDateTime: body.endDateTime,
+      eventTimezone: body.eventTimezone,
+      allDay: body.allDay,
+      existingStart: existing.start_date,
+      existingEnd: existing.end_date,
+      existingAllDay: !!existing.all_day,
+      existingTimezoneRaw: existing.event_timezone,
+    });
+    if (!temporal.ok) {
+      const key = temporal.error === "invalid_datetime" ? "events.invalid_datetime" : "common.requestFailed";
+      return c.json({ error: t(getLocale(c), key) }, 400);
     }
-    const existingTimezone = isValidIanaTimezone(existing.event_timezone || "")
-      ? (existing.event_timezone as string)
-      : "UTC";
-    const nextAllDay = body.allDay ?? !!existing.all_day;
-    if (nextAllDay) {
-      if (normalizedStartDateTime !== undefined || normalizedEndDateTime !== undefined) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-      const candidateStart = normalizedStartDate ?? existing.start_date;
-      const candidateEnd = normalizedEndDate !== undefined ? normalizedEndDate : existing.end_date;
-      if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
-        return c.json({ error: t(getLocale(c), "events.invalid_datetime") }, 400);
-      }
-    }
-    const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
-    const shouldRecomputeAllDayEndBoundary = nextAllDay && (nextStart !== undefined || body.allDay !== undefined);
-    const { startForUtc, endForUtc, nextStartAtUtc, nextEndAtUtc, tzForConvert } = deriveUpdateTemporalFields({
+    const {
       nextStart,
       nextEnd,
       nextTimezone,
       nextAllDay,
-      existingStart: existing.start_date,
-      existingEnd: existing.end_date,
       existingTimezone,
-      shouldRecomputeUtcForTimezoneChange,
-      shouldRecomputeAllDayEndBoundary,
-    });
-    if (startForUtc !== undefined && !nextStartAtUtc) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
-    if (endForUtc !== undefined && (nextAllDay ? !nextEndAtUtc : (endForUtc !== null && !nextEndAtUtc))) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
-    if (nextStartAtUtc && nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
-    }
+      startForUtc,
+      endForUtc,
+      nextStartAtUtc,
+      nextEndAtUtc,
+      tzForConvert,
+    } = temporal.value;
     if (nextStart !== undefined) { fields.push("start_date = ?"); values.push(nextStart); }
     if (nextEnd !== undefined) { fields.push("end_date = ?"); values.push(nextEnd); }
     if (nextTimezone !== undefined) {

@@ -5,6 +5,7 @@ import {
   deriveStoredDatePart,
   deriveUpdateTemporalFields,
   normalizeEventWriteInput,
+  normalizePartialUpdateTemporalFields,
   sanitizeEventWriteFields,
 } from "../src/lib/event-write.js";
 
@@ -352,6 +353,88 @@ describe("event write update temporal derivation", () => {
 
     expect(explicitNull.endForUtc).toBeNull();
     expect(implicitUndefined.endForUtc).toBeUndefined();
+  });
+});
+
+describe("partial event update normalization", () => {
+  it("supports flipping to all-day with date-only patch values", () => {
+    const normalized = normalizePartialUpdateTemporalFields({
+      startDate: "2026-08-10",
+      endDate: "2026-08-12",
+      allDay: true,
+      existingStart: "2026-08-10T10:00",
+      existingEnd: "2026-08-10T11:00",
+      existingAllDay: false,
+      existingTimezoneRaw: "Europe/Vienna",
+    });
+
+    expect(normalized).toEqual({
+      ok: true,
+      value: {
+        nextStart: "2026-08-10",
+        nextEnd: "2026-08-12",
+        nextTimezone: undefined,
+        nextAllDay: true,
+        existingTimezone: "Europe/Vienna",
+        startForUtc: "2026-08-10",
+        endForUtc: "2026-08-12",
+        nextStartAtUtc: "2026-08-09T22:00:00.000Z",
+        nextEndAtUtc: "2026-08-12T22:00:00.000Z",
+        tzForConvert: "Europe/Vienna",
+      },
+    });
+  });
+
+  it("recomputes utc values for timezone-only update", () => {
+    const normalized = normalizePartialUpdateTemporalFields({
+      eventTimezone: "UTC",
+      existingStart: "2026-04-10T10:00",
+      existingEnd: "2026-04-10T11:00",
+      existingAllDay: false,
+      existingTimezoneRaw: "Europe/Vienna",
+    });
+
+    expect(normalized).toEqual({
+      ok: true,
+      value: {
+        nextStart: undefined,
+        nextEnd: undefined,
+        nextTimezone: "UTC",
+        nextAllDay: false,
+        existingTimezone: "Europe/Vienna",
+        startForUtc: "2026-04-10T10:00",
+        endForUtc: "2026-04-10T11:00",
+        nextStartAtUtc: "2026-04-10T10:00:00.000Z",
+        nextEndAtUtc: "2026-04-10T11:00:00.000Z",
+        tzForConvert: "UTC",
+      },
+    });
+  });
+
+  it("preserves explicit null when clearing end date", () => {
+    const normalized = normalizePartialUpdateTemporalFields({
+      endDate: null,
+      existingStart: "2026-04-10T10:00",
+      existingEnd: "2026-04-10T11:00",
+      existingAllDay: false,
+      existingTimezoneRaw: "Europe/Vienna",
+    });
+
+    expect(normalized).toEqual({
+      ok: true,
+      value: {
+        nextStart: undefined,
+        nextEnd: null,
+        nextTimezone: undefined,
+        nextAllDay: false,
+        existingTimezone: "Europe/Vienna",
+        startForUtc: undefined,
+        endForUtc: null,
+        nextStartAtUtc: null,
+        nextEndAtUtc: null,
+        tzForConvert: "Europe/Vienna",
+      },
+    });
   });
 });
 
