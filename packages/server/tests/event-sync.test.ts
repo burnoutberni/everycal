@@ -68,6 +68,25 @@ describe("normalizeSyncEvents", () => {
 
     expect(result).toEqual({ ok: false, errorKey: "events.event_requires_fields" });
   });
+
+  it("accepts null endDate values", () => {
+    const input: RawSyncEvent[] = [
+      {
+        externalId: "ext-null-end",
+        title: "No explicit end",
+        startDate: "2026-01-01",
+        endDate: null,
+        eventTimezone: "UTC",
+        allDay: true,
+      },
+    ];
+
+    const result = normalizeSyncEvents(input);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.syncEvents[0]?.endDate).toBeNull();
+  });
 });
 
 describe("reconcileMissingEvents", () => {

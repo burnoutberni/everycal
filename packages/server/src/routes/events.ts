@@ -599,7 +599,7 @@ export function eventRoutes(db: DB): Hono {
         title: string;
         description?: string;
         startDate: string;
-        endDate?: string;
+        endDate?: string | null;
         eventTimezone: string;
         allDay?: boolean;
         location?: { name: string; address?: string; latitude?: number; longitude?: number; url?: string };
