@@ -112,7 +112,7 @@ export function normalizeSyncEvents(events: RawSyncEvent[]): { ok: true; syncEve
       ...ev,
       location: ev.location ? { ...ev.location } : undefined,
       image: ev.image ? { ...ev.image } : undefined,
-      tags: ev.tags ? [...ev.tags] : undefined,
+      tags: Array.isArray(ev.tags) ? [...ev.tags] : ev.tags,
       externalId: normalizedExternalId,
       eventTimezone: normalizedWrite.eventTimezone,
     });
