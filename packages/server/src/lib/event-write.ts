@@ -4,6 +4,7 @@ import {
   deriveEventEndAtUtc,
   deriveEventUtcRange,
   deriveUtcFromTemporalInput,
+  isValidIanaTimezone,
 } from "./timezone.js";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -190,6 +191,147 @@ export function deriveUpdateTemporalFields(input: {
     })
     : null;
   return { startForUtc, endForUtc, nextStartAtUtc, nextEndAtUtc, tzForConvert };
+}
+
+type TemporalValidationError = "invalid_datetime" | "request_failed";
+
+type NormalizePartialTemporalUpdateInput = {
+  startDate?: unknown;
+  startDateTime?: unknown;
+  endDate?: unknown;
+  endDateTime?: unknown;
+  eventTimezone?: unknown;
+  allDay?: unknown;
+  existingStart: string;
+  existingEnd: string | null;
+  existingAllDay: boolean;
+  existingTimezoneRaw: string | null;
+};
+
+export type NormalizedPartialTemporalUpdate = {
+  nextStart: string | undefined;
+  nextEnd: string | null | undefined;
+  nextTimezone: string | undefined;
+  nextAllDay: boolean;
+  existingTimezone: string;
+  startForUtc: string | undefined;
+  endForUtc: string | null | undefined;
+  nextStartAtUtc: string | null;
+  nextEndAtUtc: string | null;
+  tzForConvert: string;
+};
+
+function normalizeOptionalTemporalString(
+  value: unknown,
+  options?: { allowNull?: boolean; nullMeansUndefined?: boolean },
+): { value: string | null | undefined; invalid: boolean } {
+  if (value === undefined) return { value: undefined, invalid: false };
+  if (value === null) {
+    if (!options?.allowNull) return { value: undefined, invalid: true };
+    return { value: options.nullMeansUndefined ? undefined : null, invalid: false };
+  }
+  if (typeof value !== "string") return { value: undefined, invalid: true };
+  const trimmed = value.trim();
+  if (!trimmed) return { value: undefined, invalid: true };
+  return { value: trimmed, invalid: false };
+}
+
+export function normalizePartialUpdateTemporalFields(
+  input: NormalizePartialTemporalUpdateInput,
+): { ok: true; value: NormalizedPartialTemporalUpdate } | { ok: false; error: TemporalValidationError } {
+  const normalizedStartDate = normalizeOptionalTemporalString(input.startDate);
+  const normalizedStartDateTime = normalizeOptionalTemporalString(input.startDateTime, {
+    allowNull: true,
+    nullMeansUndefined: true,
+  });
+  const normalizedEndDate = normalizeOptionalTemporalString(input.endDate, { allowNull: true });
+  const normalizedEndDateTime = normalizeOptionalTemporalString(input.endDateTime, {
+    allowNull: true,
+    nullMeansUndefined: true,
+  });
+  if (
+    normalizedStartDate.invalid
+    || normalizedStartDateTime.invalid
+    || normalizedEndDate.invalid
+    || normalizedEndDateTime.invalid
+  ) {
+    return { ok: false, error: "invalid_datetime" };
+  }
+  if (input.allDay !== undefined && typeof input.allDay !== "boolean") {
+    return { ok: false, error: "invalid_datetime" };
+  }
+
+  if (input.eventTimezone !== undefined && typeof input.eventTimezone !== "string") {
+    return { ok: false, error: "request_failed" };
+  }
+
+  const nextTimezone = input.eventTimezone?.trim() || undefined;
+  if (input.eventTimezone !== undefined && !nextTimezone) {
+    return { ok: false, error: "request_failed" };
+  }
+  if (nextTimezone !== undefined && !isValidIanaTimezone(nextTimezone)) {
+    return { ok: false, error: "request_failed" };
+  }
+
+  const nextStart = normalizedStartDateTime.value ?? normalizedStartDate.value ?? undefined;
+  const nextEnd = normalizedEndDateTime.value !== undefined
+    ? normalizedEndDateTime.value
+    : normalizedEndDate.value;
+  const existingTimezone = isValidIanaTimezone(input.existingTimezoneRaw || "")
+    ? (input.existingTimezoneRaw as string)
+    : "UTC";
+  const nextAllDay = (input.allDay as boolean | undefined) ?? input.existingAllDay;
+  if (nextAllDay) {
+    if (normalizedStartDateTime.value !== undefined || normalizedEndDateTime.value !== undefined) {
+      return { ok: false, error: "invalid_datetime" };
+    }
+    const candidateStart = (normalizedStartDate.value as string | undefined) ?? input.existingStart;
+    const candidateEnd = normalizedEndDate.value !== undefined
+      ? normalizedEndDate.value
+      : input.existingEnd;
+    if (!isDateOnly(candidateStart) || (candidateEnd !== null && candidateEnd !== undefined && !isDateOnly(candidateEnd))) {
+      return { ok: false, error: "invalid_datetime" };
+    }
+  }
+  const shouldRecomputeUtcForTimezoneChange = nextTimezone !== undefined;
+  const shouldRecomputeAllDayEndBoundary = nextAllDay && (nextStart !== undefined || input.allDay !== undefined);
+  const { startForUtc, endForUtc, nextStartAtUtc, nextEndAtUtc, tzForConvert } = deriveUpdateTemporalFields({
+    nextStart,
+    nextEnd,
+    nextTimezone,
+    nextAllDay,
+    existingStart: input.existingStart,
+    existingEnd: input.existingEnd,
+    existingTimezone,
+    shouldRecomputeUtcForTimezoneChange,
+    shouldRecomputeAllDayEndBoundary,
+  });
+
+  if (startForUtc !== undefined && !nextStartAtUtc) {
+    return { ok: false, error: "request_failed" };
+  }
+  if (endForUtc !== undefined && (nextAllDay ? !nextEndAtUtc : (endForUtc !== null && !nextEndAtUtc))) {
+    return { ok: false, error: "request_failed" };
+  }
+  if (nextStartAtUtc && nextEndAtUtc && nextEndAtUtc < nextStartAtUtc) {
+    return { ok: false, error: "request_failed" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      nextStart,
+      nextEnd,
+      nextTimezone,
+      nextAllDay,
+      existingTimezone,
+      startForUtc,
+      endForUtc,
+      nextStartAtUtc,
+      nextEndAtUtc,
+      tzForConvert,
+    },
+  };
 }
 
 function formatTimeChangeValue(start: string, end: string | null | undefined): string {
