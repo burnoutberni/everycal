@@ -210,34 +210,31 @@ function eventHash(ev: SyncEventInput): string {
   return createHash("sha256").update(data).digest("base64url").slice(0, 22);
 }
 
-export function applySyncBatch(
-  db: DB,
-  args: {
-    events: SyncEventInput[];
-    existingByExtId: Map<string, ExistingSyncEventRow>;
-    accountId: string;
-    username: string;
-    ogEventIdsToGenerate: Set<string>;
-    ogEventIdsToClear: Set<string>;
-    uniqueLocalEventSlug: (db: DB, accountId: string, title: string, excludeId?: string) => string;
-    isOgEligibleVisibility: (visibility: string) => boolean;
-    notifyEventUpdated: (eventId: string, event: {
-      id: string;
-      title: string;
-      slug: string;
-      account: { username: string };
-      startDate: string;
-      endDate: string | null;
-      allDay: boolean;
-      location: { name: string } | null;
-      url: string | null;
-    }, changes: ReturnType<typeof computeMaterialEventChanges>) => void;
-  },
-): { created: number; updated: number; unchanged: number } {
-  let created = 0;
-  let updated = 0;
-  let unchanged = 0;
+export type ApplySyncBatchArgs = {
+  events: SyncEventInput[];
+  existingByExtId: Map<string, ExistingSyncEventRow>;
+  accountId: string;
+  username: string;
+  ogEventIdsToGenerate: Set<string>;
+  ogEventIdsToClear: Set<string>;
+  uniqueLocalEventSlug: (db: DB, accountId: string, title: string, excludeId?: string) => string;
+  isOgEligibleVisibility: (visibility: string) => boolean;
+  notifyEventUpdated: (eventId: string, event: {
+    id: string;
+    title: string;
+    slug: string;
+    account: { username: string };
+    startDate: string;
+    endDate: string | null;
+    allDay: boolean;
+    location: { name: string } | null;
+    url: string | null;
+  }, changes: ReturnType<typeof computeMaterialEventChanges>) => void;
+};
 
+export function createSyncBatchApplier(
+  db: DB,
+): (args: ApplySyncBatchArgs) => { created: number; updated: number; unchanged: number } {
   const insertEvent = db.prepare(
     `INSERT INTO events (id, account_id, created_by_account_id, external_id, slug, title, description, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, start_on, end_on,
       location_name, location_address, location_latitude, location_longitude, location_url,
@@ -260,8 +257,8 @@ export function applySyncBatch(
   const deleteTagsStmt = db.prepare("DELETE FROM event_tags WHERE event_id = ?");
   const insertTagStmt = db.prepare("INSERT INTO event_tags (event_id, tag) VALUES (?, ?)");
 
-  const upsertBatch = db.transaction((events: SyncEventInput[]) => {
-    for (const ev of events) {
+  const upsertBatch = db.transaction((args: ApplySyncBatchArgs, counters: { created: number; updated: number; unchanged: number }) => {
+    for (const ev of args.events) {
       const visibility = ev.visibility || "public";
       if (!isValidVisibility(visibility)) continue;
       const hash = eventHash(ev);
@@ -272,7 +269,7 @@ export function applySyncBatch(
           if (existingRow.canceled || existingRow.missing_since) {
             restoreEventState.run(existingRow.id);
           }
-          unchanged++;
+          counters.unchanged++;
           continue;
         }
 
@@ -352,7 +349,7 @@ export function applySyncBatch(
             url: ev.url || null,
           }, changes);
         }
-        updated++;
+        counters.updated++;
       } else {
         const id = nanoid(16);
         const evSlug = args.uniqueLocalEventSlug(db, args.accountId, ev.title);
@@ -389,12 +386,21 @@ export function applySyncBatch(
         if (ev.tags) {
           for (const tag of ev.tags) insertTagStmt.run(id, tag.trim());
         }
-        created++;
+        counters.created++;
       }
     }
   });
 
-  upsertBatch(args.events);
+  return (args: ApplySyncBatchArgs) => {
+    const counters = { created: 0, updated: 0, unchanged: 0 };
+    upsertBatch(args, counters);
+    return counters;
+  };
+}
 
-  return { created, updated, unchanged };
+export function applySyncBatch(
+  db: DB,
+  args: ApplySyncBatchArgs,
+): { created: number; updated: number; unchanged: number } {
+  return createSyncBatchApplier(db)(args);
 }

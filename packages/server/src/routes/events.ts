@@ -53,7 +53,7 @@ import {
   sanitizeEventWriteFields,
 } from "../lib/event-write.js";
 import {
-  applySyncBatch,
+  createSyncBatchApplier,
   normalizeSyncEvents,
   reconcileMissingEvents,
   type ExistingSyncEventRow,
@@ -676,9 +676,10 @@ export function eventRoutes(db: DB): Hono {
     }
 
     const BATCH_SIZE = 20;
+    const applySyncBatch = createSyncBatchApplier(db);
     for (let i = 0; i < syncEvents.length; i += BATCH_SIZE) {
       const chunk = syncEvents.slice(i, i + BATCH_SIZE);
-      const result = applySyncBatch(db, {
+      const result = applySyncBatch({
         events: chunk,
         existingByExtId,
         accountId: user.id,
