@@ -197,7 +197,7 @@ export function Header() {
             </>
           ) : showAnonymous ? (
             <>
-              <div className="header-nav-desktop">
+              <div className="header-nav-desktop flex items-center gap-2">
                 <Link href="/login">
                   <button className="btn-ghost btn-sm">{t("logIn")}</button>
                 </Link>
