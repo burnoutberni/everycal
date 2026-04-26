@@ -38,12 +38,8 @@ function baseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
-function isProduction(): boolean {
-  return process.env.NODE_ENV === "production";
-}
-
 function shouldLogTokenLinksForMissingSmtp(): boolean {
-  return !isProduction();
+  return process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 }
 
 function tokenUrl(path: "/verify-email" | "/reset-password", token: string): string {

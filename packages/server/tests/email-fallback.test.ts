@@ -47,7 +47,7 @@ afterAll(() => {
 });
 
 describe("email fallback when SMTP is missing", () => {
-  it("logs registration verification link in non-production", async () => {
+  it("logs registration verification link in development", async () => {
     process.env.NODE_ENV = "development";
     delete process.env.BASE_URL;
 
@@ -65,7 +65,7 @@ describe("email fallback when SMTP is missing", () => {
     warnSpy.mockRestore();
   });
 
-  it("logs email change and password reset links in non-production", async () => {
+  it("logs email change and password reset links in development", async () => {
     process.env.NODE_ENV = "development";
     process.env.BASE_URL = "http://localhost:4173";
 
@@ -105,6 +105,30 @@ describe("email fallback when SMTP is missing", () => {
     expect(warnedText).not.toContain("verify-prod-token");
     expect(warnedText).not.toContain("change-prod-token");
     expect(warnedText).not.toContain("reset-prod-token");
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("does not log token links in staging", async () => {
+    process.env.NODE_ENV = "staging";
+    process.env.BASE_URL = "https://calendar.example.com";
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { sendVerificationEmail, sendEmailChangeVerificationEmail, sendPasswordResetEmail } = await import("../src/lib/email.js");
+
+    await sendVerificationEmail("stage@example.com", "verify-stage-token", "en");
+    await sendEmailChangeVerificationEmail("stage@example.com", "change-stage-token", "en");
+    await sendPasswordResetEmail("stage@example.com", "reset-stage-token", "en");
+
+    expect(logSpy).not.toHaveBeenCalled();
+    const warnedText = warnSpy.mock.calls.flat().join(" ");
+    expect(warnedText).toContain("verification email not sent");
+    expect(warnedText).toContain("email change verification not sent");
+    expect(warnedText).toContain("password reset email not sent");
+    expect(warnedText).not.toContain("verify-stage-token");
+    expect(warnedText).not.toContain("change-stage-token");
+    expect(warnedText).not.toContain("reset-stage-token");
     logSpy.mockRestore();
     warnSpy.mockRestore();
   });
