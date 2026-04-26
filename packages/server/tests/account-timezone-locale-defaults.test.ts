@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
-import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
+import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "../src/db/migrations.js";
 
 describe("account timezone/locale defaults", () => {
   it("defaults new accounts to system timezone, locale, and theme", () => {
@@ -21,22 +21,18 @@ describe("account timezone/locale defaults", () => {
     expect(row.theme_preference).toBe("system");
   });
 
-  it("adopts the schema version marker for already-current schema", () => {
+  it("initializes a fresh empty database to the current schema version", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "current.sqlite");
-    const initial = initDatabase(dbPath);
-    initial.pragma("user_version = 0");
-    initial.close();
-
-    const reopened = initDatabase(dbPath);
-    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    const dbPath = join(dir, "fresh.sqlite");
+    const db = initDatabase(dbPath);
+    const userVersion = db.pragma("user_version", { simple: true }) as number;
     expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
 
-    reopened.close();
+    db.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("assumes legacy account schemas are current and marks schema version", () => {
+  it("rejects unversioned non-empty legacy schemas", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy.sqlite");
     const legacy = new Database(dbPath);
@@ -50,64 +46,56 @@ describe("account timezone/locale defaults", () => {
     `);
     legacy.close();
 
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported unversioned database detected/);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("migrates a versioned database forward to current schema version", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "versioned-old.sqlite");
+    const versioned = new Database(dbPath);
+    const baselineMigration = MIGRATIONS.find((migration) => migration.version === 1);
+    if (!baselineMigration) {
+      throw new Error("Missing baseline migration");
+    }
+    baselineMigration.up(versioned);
+    versioned.pragma("user_version = 1");
+    versioned.close();
+
     const reopened = initDatabase(dbPath);
     const userVersion = reopened.pragma("user_version", { simple: true }) as number;
     expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const columns = reopened.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+    expect(columns.some((column) => column.name === "og_image_url")).toBe(true);
     reopened.close();
 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("assumes calendar_feed_tokens schemas missing token are current", () => {
+  it("fails startup when a required schema column is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-calendar-feed-tokens.sqlite");
-    const db = initDatabase(dbPath);
-    db.exec(`
-      CREATE TABLE calendar_feed_tokens_new (
-        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-        token_hash TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      INSERT INTO calendar_feed_tokens_new (account_id, token_hash, created_at)
-      SELECT account_id, token, created_at FROM calendar_feed_tokens;
-      DROP TABLE calendar_feed_tokens;
-      ALTER TABLE calendar_feed_tokens_new RENAME TO calendar_feed_tokens;
-    `);
+    const dbPath = join(dir, "missing-column.sqlite");
+    const initialized = initDatabase(dbPath);
+    initialized.close();
+    const db = new Database(dbPath);
+    db.exec("ALTER TABLE events DROP COLUMN og_image_url");
     db.close();
 
-    const reopened = initDatabase(dbPath);
-    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
-    reopened.close();
-
+    expect(() => initDatabase(dbPath)).toThrow(/missing required column "events.og_image_url"/);
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("assumes legacy event_rsvps status values are current", () => {
+  it("fails startup when a required schema index is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "legacy-event-rsvps-status.sqlite");
-    const db = initDatabase(dbPath);
-    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u1", "user1");
-    db.exec(`
-      CREATE TABLE event_rsvps_new (
-        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        event_uri TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (account_id, event_uri)
-      );
-      DROP TABLE event_rsvps;
-      ALTER TABLE event_rsvps_new RENAME TO event_rsvps;
-    `);
-    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)")
-      .run("u1", "event:1", "interested");
+    const dbPath = join(dir, "missing-index.sqlite");
+    const initialized = initDatabase(dbPath);
+    initialized.close();
+    const db = new Database(dbPath);
+    db.exec("DROP INDEX idx_remote_events_actor_slug");
     db.close();
 
-    const reopened = initDatabase(dbPath);
-    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
-    reopened.close();
-
+    expect(() => initDatabase(dbPath)).toThrow(/invalid required index "idx_remote_events_actor_slug".*\(missing\)/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

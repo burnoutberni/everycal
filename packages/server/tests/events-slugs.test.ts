@@ -1912,22 +1912,18 @@ describe("event slug canonical behavior", () => {
     expect(res.status).toBe(404);
   });
 
-  it("adopts the schema version marker for an already-current database", () => {
+  it("initializes an empty database to current schema version", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
-    const dbPath = join(dir, "current.sqlite");
-    const initial = initDatabase(dbPath);
-    initial.pragma("user_version = 0");
-    initial.close();
-
-    const reopened = initDatabase(dbPath);
-    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
+    const dbPath = join(dir, "fresh.sqlite");
+    const db = initDatabase(dbPath);
+    const userVersion = db.pragma("user_version", { simple: true }) as number;
     expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
 
-    reopened.close();
+    db.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("assumes unsupported legacy schemas are current and marks schema version", () => {
+  it("rejects unsupported unversioned legacy schemas", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy.sqlite");
     const legacy = new Database(dbPath);
@@ -1941,10 +1937,7 @@ describe("event slug canonical behavior", () => {
     `);
     legacy.close();
 
-    const reopened = initDatabase(dbPath);
-    const userVersion = reopened.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
-    reopened.close();
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported unversioned database detected/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

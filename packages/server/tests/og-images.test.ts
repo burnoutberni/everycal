@@ -427,7 +427,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
     expect(unlinkMock).not.toHaveBeenCalled();
   });
 
-  it("no-ops when legacy remote_events schema has no og_image_url column", async () => {
+  it("fails init for unversioned legacy remote_events schema", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-og.sqlite");
     const legacy = new Database(dbPath);
@@ -448,19 +448,7 @@ describe("generateAndSaveOgImage temporal payload", () => {
       );
     legacy.close();
 
-    const db = initDatabase(dbPath);
-    const userVersion = db.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(CURRENT_SCHEMA_VERSION);
-
-    const generated = await generateAndSaveRemoteOgImage(db, "https://remote.example/events/legacy");
-    expect(generated).toBeNull();
-    expect(generateOgImageMock).not.toHaveBeenCalled();
-    expect(writeFileMock).not.toHaveBeenCalled();
-
-    await expect(clearRemoteOgImage(db, "https://remote.example/events/legacy")).resolves.toBeUndefined();
-    expect(unlinkMock).not.toHaveBeenCalled();
-
-    db.close();
+    expect(() => initDatabase(dbPath)).toThrow(/Unsupported unversioned database detected/);
     rmSync(dir, { recursive: true, force: true });
   });
 

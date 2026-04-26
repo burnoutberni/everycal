@@ -12,31 +12,6 @@ import { validateFederationUrl } from "../lib/federation.js";
 
 const PUBLIC_ADDRESS = "https://www.w3.org/ns/activitystreams#Public";
 const REMOTE_OG_FILENAME_RE = /^remote-[a-f0-9]{64}\.png$/;
-const remoteEventsOgImageColumnCache = new WeakMap<DB, boolean>();
-const warnedMissingRemoteEventsOgImageColumn = new WeakSet<DB>();
-
-function isNoSuchColumnError(err: unknown): boolean {
-  return err instanceof Error && err.message.toLowerCase().includes("no such column");
-}
-
-function warnMissingRemoteEventsOgImageColumnOnce(db: DB): void {
-  if (warnedMissingRemoteEventsOgImageColumn.has(db)) return;
-  warnedMissingRemoteEventsOgImageColumn.add(db);
-  console.warn("[OG] Skipping remote OG image persistence: remote_events.og_image_url column is missing");
-}
-
-function hasRemoteEventsOgImageColumn(db: DB): boolean {
-  const cached = remoteEventsOgImageColumnCache.get(db);
-  if (cached !== undefined) return cached;
-
-  const columns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
-  const hasColumn = columns.some((column) => column.name === "og_image_url");
-  remoteEventsOgImageColumnCache.set(db, hasColumn);
-  if (!hasColumn) {
-    warnMissingRemoteEventsOgImageColumnOnce(db);
-  }
-  return hasColumn;
-}
 
 function normalizeRecipients(input: unknown): string[] {
   if (typeof input === "string") return [input];
@@ -74,31 +49,11 @@ export function isRemoteActivityOgEligible(
 }
 
 function updateLocalOgImageUrl(db: DB, eventId: string, ogImageUrl: string | null): void {
-  try {
-    db.prepare("UPDATE events SET og_image_url = ? WHERE id = ?").run(ogImageUrl, eventId);
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      return;
-    }
-    throw err;
-  }
+  db.prepare("UPDATE events SET og_image_url = ? WHERE id = ?").run(ogImageUrl, eventId);
 }
 
 function updateRemoteOgImageUrl(db: DB, eventUri: string, ogImageUrl: string | null): void {
-  if (!hasRemoteEventsOgImageColumn(db)) {
-    return;
-  }
-
-  try {
-    db.prepare("UPDATE remote_events SET og_image_url = ? WHERE uri = ?").run(ogImageUrl, eventUri);
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      remoteEventsOgImageColumnCache.set(db, false);
-      warnMissingRemoteEventsOgImageColumnOnce(db);
-      return;
-    }
-    throw err;
-  }
+  db.prepare("UPDATE remote_events SET og_image_url = ? WHERE uri = ?").run(ogImageUrl, eventUri);
 }
 
 function remoteOgFilenameFromUrl(ogImageUrl: string): string | null {
@@ -122,17 +77,9 @@ function localOgFilenameFromUrl(ogImageUrl: string, eventId: string): string | n
 }
 
 export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> {
-  let row: { og_image_url: string | null } | undefined;
-  try {
-    row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get(eventId) as {
-      og_image_url: string | null;
-    } | undefined;
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      return;
-    }
-    throw err;
-  }
+  const row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get(eventId) as
+    | { og_image_url: string | null }
+    | undefined;
 
   updateLocalOgImageUrl(db, eventId, null);
 
@@ -153,23 +100,10 @@ export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> 
 }
 
 export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void> {
-  if (!hasRemoteEventsOgImageColumn(db)) {
-    return;
-  }
-
   let row: { og_image_url: string | null } | undefined;
-  try {
-    row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
-      og_image_url: string | null;
-    } | undefined;
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      remoteEventsOgImageColumnCache.set(db, false);
-      warnMissingRemoteEventsOgImageColumnOnce(db);
-      return;
-    }
-    throw err;
-  }
+  row = db.prepare("SELECT og_image_url FROM remote_events WHERE uri = ?").get(eventUri) as {
+    og_image_url: string | null;
+  } | undefined;
 
   updateRemoteOgImageUrl(db, eventUri, null);
 
@@ -306,8 +240,6 @@ function getRemoteOgFilename(eventUri: string): string {
 }
 
 export async function generateAndSaveRemoteOgImage(db: DB, eventUri: string): Promise<string | null> {
-  if (!hasRemoteEventsOgImageColumn(db)) return null;
-
   const { writeFile } = await import("node:fs/promises");
   const { existsSync, mkdirSync } = await import("node:fs");
 
