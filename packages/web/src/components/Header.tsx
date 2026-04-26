@@ -197,12 +197,12 @@ export function Header() {
             </>
           ) : showAnonymous ? (
             <>
-              <div className="header-nav-desktop">
+              <div className="header-nav-desktop flex items-center gap-1">
                 <Link href="/login">
-                  <button className="btn-ghost btn-sm">{t("logIn")}</button>
+                  <button className="btn-ghost btn-sm header-auth-btn">{t("logIn")}</button>
                 </Link>
                 <Link href="/register">
-                  <button className="btn-primary btn-sm">{t("signUp")}</button>
+                  <button className="btn-primary btn-sm header-auth-btn">{t("signUp")}</button>
                 </Link>
               </div>
               <div className="header-nav-mobile">

@@ -365,6 +365,9 @@ button,
   height: 1.25rem;
   background: var(--border);
 }
+.header-auth-btn {
+  min-height: 2rem;
+}
 .header-icon-btn-active {
   background: var(--accent) !important;
   color: var(--text-on-accent) !important;
