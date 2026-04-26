@@ -21,11 +21,6 @@ function hasTable(db: DB, tableName: string): boolean {
   return !!row?.ok;
 }
 
-function hasColumn(db: DB, tableName: string, columnName: string): boolean {
-  const rows = db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all() as Array<{ name: string }>;
-  return rows.some((row) => row.name === columnName);
-}
-
 type RequiredIndex = {
   table: string;
   name: string;
@@ -429,9 +424,19 @@ export function validateSchema(db: DB): void {
     }
   }
 
+  const tableColumns = new Map<string, Set<string>>();
+  for (const table of requiredTables) {
+    const rows = db.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all() as Array<{ name: string }>;
+    tableColumns.set(
+      table,
+      new Set(rows.map((row) => row.name))
+    );
+  }
+
   for (const [table, columns] of Object.entries(REQUIRED_TABLE_COLUMNS)) {
+    const columnsForTable = tableColumns.get(table) ?? new Set<string>();
     for (const column of columns) {
-      if (!hasColumn(db, table, column)) {
+      if (!columnsForTable.has(column)) {
         throw new Error(`Database schema validation failed: missing required column "${table}.${column}".`);
       }
     }
