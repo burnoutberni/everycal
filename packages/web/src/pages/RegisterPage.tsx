@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function RegisterPage() {
   const { t } = useTranslation("auth");
@@ -95,16 +96,15 @@ export function RegisterPage() {
         </div>
         <div className="field">
           <label htmlFor="password">{t("password")}</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             required
             minLength={8}
+            showStrengthFeedback
           />
-          <p className="text-sm text-dim mt-1">{t("atLeast8Chars")}</p>
         </div>
         <div className="field">
           <label htmlFor="city">{t("cityRequired")}</label>
