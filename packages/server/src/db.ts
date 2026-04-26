@@ -233,7 +233,7 @@ export function initDatabase(path: string): DB {
         applyPendingMigrations(db, 0);
       } else {
         throw new Error(
-          "Unsupported unversioned database detected (user_version=0 with existing tables). Start from an empty database or migrate using a versioned EveryCal database."
+          `Unsupported unversioned database detected at path "${path}" (user_version=0 with existing tables). Start from an empty database or migrate using a versioned EveryCal database.`
         );
       }
     } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
