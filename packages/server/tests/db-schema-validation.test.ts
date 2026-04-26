@@ -6,9 +6,9 @@ function createBaseSchema(db: DB): void {
   db.exec(`
     CREATE TABLE accounts (id TEXT PRIMARY KEY, theme_preference TEXT);
     CREATE TABLE events (id TEXT PRIMARY KEY, account_id TEXT, slug TEXT, og_image_url TEXT);
-    CREATE TABLE remote_events (id TEXT PRIMARY KEY, actor_uri TEXT, slug TEXT, og_image_url TEXT);
-    CREATE TABLE sessions (id TEXT PRIMARY KEY, account_id TEXT, expires_at TEXT);
-    CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT, key_prefix TEXT);
+    CREATE TABLE remote_events (uri TEXT PRIMARY KEY, actor_uri TEXT, slug TEXT, og_image_url TEXT);
+    CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT, expires_at TEXT);
+    CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT, key_hash TEXT, key_prefix TEXT);
   `);
 }
 
@@ -68,5 +68,19 @@ describe("schema index definition validation", () => {
 
     expect(() => validateSchema(db)).toThrow(/invalid required index "idx_events_slug"/);
     expect(() => validateSchema(db)).toThrow(/expected partial=1 but found partial=0/);
+  });
+
+  it("rejects required key columns when schema drifts", () => {
+    db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE accounts (id TEXT PRIMARY KEY, theme_preference TEXT);
+      CREATE TABLE events (id TEXT PRIMARY KEY, account_id TEXT, slug TEXT, og_image_url TEXT);
+      CREATE TABLE remote_events (id TEXT PRIMARY KEY, actor_uri TEXT, slug TEXT, og_image_url TEXT);
+      CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT, expires_at TEXT);
+      CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT, key_hash TEXT, key_prefix TEXT);
+    `);
+    createRequiredIndexes(db);
+
+    expect(() => validateSchema(db)).toThrow(/missing required column "remote_events.uri"/);
   });
 });

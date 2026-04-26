@@ -158,9 +158,22 @@ export function validateSchema(db: DB): void {
   }
 
   const requiredColumns: Array<{ table: string; column: string }> = [
+    { table: "accounts", column: "id" },
     { table: "accounts", column: "theme_preference" },
+    { table: "events", column: "id" },
+    { table: "events", column: "account_id" },
+    { table: "events", column: "slug" },
     { table: "events", column: "og_image_url" },
+    { table: "remote_events", column: "uri" },
+    { table: "remote_events", column: "actor_uri" },
+    { table: "remote_events", column: "slug" },
     { table: "remote_events", column: "og_image_url" },
+    { table: "sessions", column: "token" },
+    { table: "sessions", column: "account_id" },
+    { table: "sessions", column: "expires_at" },
+    { table: "api_keys", column: "id" },
+    { table: "api_keys", column: "account_id" },
+    { table: "api_keys", column: "key_hash" },
   ];
   for (const { table, column } of requiredColumns) {
     if (!hasColumn(db, table, column)) {
