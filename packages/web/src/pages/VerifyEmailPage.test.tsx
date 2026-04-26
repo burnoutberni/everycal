@@ -34,8 +34,8 @@ vi.mock("../lib/api", () => ({
   },
 }));
 
-import { VerifyEmailPage } from "./VerifyEmailPage";
-import { auth as authApi } from "../lib/api";
+let VerifyEmailPage: (typeof import("./VerifyEmailPage"))["VerifyEmailPage"];
+let authApi: (typeof import("../lib/api"))["auth"];
 
 describe("VerifyEmailPage", () => {
   const registrationResponse = (overrides: Partial<VerifyEmailRegistrationResponse> = {}): VerifyEmailRegistrationResponse => ({
@@ -71,9 +71,12 @@ describe("VerifyEmailPage", () => {
     vi.restoreAllMocks();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     vi.clearAllMocks();
     mocks.search = "?token=token-default";
+    ({ VerifyEmailPage } = await import("./VerifyEmailPage"));
+    ({ auth: authApi } = await import("../lib/api"));
   });
 
   it("shows an error when token is missing", async () => {
