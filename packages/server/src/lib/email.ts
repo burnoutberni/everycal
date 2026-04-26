@@ -8,6 +8,7 @@ import { emailT } from "./email-i18n.js";
 import type { Transporter } from "nodemailer";
 
 let transporter: Transporter | null = null;
+let warnedAboutMissingBaseUrlForTokenLinks = false;
 
 function getTransporter(): Transporter | null {
   if (transporter) return transporter;
@@ -37,6 +38,22 @@ function baseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+function shouldLogTokenLinksForMissingSmtp(): boolean {
+  return !isProduction();
+}
+
+function tokenUrl(path: "/verify-email" | "/reset-password", token: string): string {
+  if (!process.env.BASE_URL && shouldLogTokenLinksForMissingSmtp() && !warnedAboutMissingBaseUrlForTokenLinks) {
+    warnedAboutMissingBaseUrlForTokenLinks = true;
+    console.warn("[dev] BASE_URL is not set; email links will use http://localhost:3000. Set BASE_URL to your local app URL if needed.");
+  }
+  return `${baseUrl()}${path}?token=${token}`;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -59,16 +76,16 @@ export async function sendVerificationEmail(
   locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
+  const url = tokenUrl("/verify-email", token);
   if (!transport) {
-    if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
-      console.log(`[dev] Verification link: ${baseUrl()}/verify-email?token=${token}`);
+    if (shouldLogTokenLinksForMissingSmtp()) {
+      console.log(`[dev] Verification link: ${url}`);
       return;
     }
     console.warn("SMTP not configured; verification email not sent");
     return;
   }
 
-  const url = `${baseUrl()}/verify-email?token=${token}`;
   const body = emailT(locale, "verification.body");
   const expires = emailT(locale, "verification.expires");
   await transport.sendMail({
@@ -114,16 +131,16 @@ export async function sendEmailChangeVerificationEmail(
   locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
+  const url = tokenUrl("/verify-email", token);
   if (!transport) {
-    if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
-      console.log(`[dev] Email change verification link: ${baseUrl()}/verify-email?token=${token}`);
+    if (shouldLogTokenLinksForMissingSmtp()) {
+      console.log(`[dev] Email change verification link: ${url}`);
       return;
     }
     console.warn("SMTP not configured; email change verification not sent");
     return;
   }
 
-  const url = `${baseUrl()}/verify-email?token=${token}`;
   const body = emailT(locale, "emailChange.body");
   const expires = emailT(locale, "emailChange.expires");
   await transport.sendMail({
@@ -142,16 +159,16 @@ export async function sendPasswordResetEmail(
   locale = "en"
 ): Promise<void> {
   const transport = getTransporter();
+  const url = tokenUrl("/reset-password", token);
   if (!transport) {
-    if (process.env.SKIP_EMAIL_VERIFICATION === "true") {
-      console.log(`[dev] Reset link: ${baseUrl()}/reset-password?token=${token}`);
+    if (shouldLogTokenLinksForMissingSmtp()) {
+      console.log(`[dev] Reset link: ${url}`);
       return;
     }
     console.warn("SMTP not configured; password reset email not sent");
     return;
   }
 
-  const url = `${baseUrl()}/reset-password?token=${token}`;
   const body = emailT(locale, "passwordReset.body");
   const expires = emailT(locale, "passwordReset.expires");
   await transport.sendMail({

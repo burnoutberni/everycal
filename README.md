@@ -63,6 +63,12 @@ Container defaults:
 - `RUN_JOBS_INTERNALLY`: run jobs in same container (`true`/`false`)
 - `SCRAPER_API_KEYS_FILE` or `SCRAPER_API_KEYS_JSON`: scraper auth mapping
 
+Auth email behavior:
+
+- In non-production (`NODE_ENV != production`), if SMTP is not configured, verification, email-change, and password reset links are logged to the server console for local testing.
+- In production, token-bearing links are never logged; configure SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and auth if required).
+- Set `BASE_URL` to the actual app origin so logged links point to the correct host/port.
+
 CORS behavior:
 
 - Public feeds (`GET /api/v1/feeds/:username.json` and `.ics`) use wildcard CORS (`Access-Control-Allow-Origin: *`), no credentials, and short shared-cache headers.
