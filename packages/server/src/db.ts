@@ -22,7 +22,7 @@ function hasTable(db: DB, tableName: string): boolean {
 }
 
 function hasColumn(db: DB, tableName: string, columnName: string): boolean {
-  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  const rows = db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all() as Array<{ name: string }>;
   return rows.some((row) => row.name === columnName);
 }
 
