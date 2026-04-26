@@ -158,4 +158,27 @@ describe("VerifyEmailPage", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings");
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
   });
+
+  it("only reuses the most recent successful token", async () => {
+    vi.mocked(authApi.verifyEmail).mockResolvedValue(registrationResponse());
+
+    mocks.search = "?token=token-a";
+    const firstRender = render(<VerifyEmailPage />);
+    await settleVerification();
+    firstRender.unmount();
+
+    mocks.search = "?token=token-b";
+    const secondRender = render(<VerifyEmailPage />);
+    await settleVerification();
+    secondRender.unmount();
+
+    mocks.search = "?token=token-a";
+    render(<VerifyEmailPage />);
+    await settleVerification();
+
+    expect(authApi.verifyEmail).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(authApi.verifyEmail)).toHaveBeenNthCalledWith(1, "token-a");
+    expect(vi.mocked(authApi.verifyEmail)).toHaveBeenNthCalledWith(2, "token-b");
+    expect(vi.mocked(authApi.verifyEmail)).toHaveBeenNthCalledWith(3, "token-a");
+  });
 });

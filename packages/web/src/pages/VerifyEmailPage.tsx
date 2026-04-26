@@ -5,18 +5,19 @@ import { useAuth } from "../hooks/useAuth";
 import { auth as authApi, type VerifyEmailResponse } from "../lib/api";
 
 const verifyEmailInFlight = new Map<string, Promise<VerifyEmailResponse>>();
-const verifyEmailSucceeded = new Map<string, VerifyEmailResponse>();
+let verifyEmailLastSucceeded: { token: string; response: VerifyEmailResponse } | null = null;
 
 function verifyEmailOnce(token: string): Promise<VerifyEmailResponse> {
-  const succeeded = verifyEmailSucceeded.get(token);
-  if (succeeded) return Promise.resolve(succeeded);
+  if (verifyEmailLastSucceeded?.token === token) {
+    return Promise.resolve(verifyEmailLastSucceeded.response);
+  }
 
   const inFlight = verifyEmailInFlight.get(token);
   if (inFlight) return inFlight;
 
   const request = authApi.verifyEmail(token)
     .then((response) => {
-      verifyEmailSucceeded.set(token, response);
+      verifyEmailLastSucceeded = { token, response };
       return response;
     })
     .finally(() => {
