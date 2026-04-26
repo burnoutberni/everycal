@@ -40,6 +40,7 @@ describe("VerifyEmailPage", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   beforeEach(() => {
