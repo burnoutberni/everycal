@@ -13,10 +13,6 @@ import { validateFederationUrl } from "../lib/federation.js";
 const PUBLIC_ADDRESS = "https://www.w3.org/ns/activitystreams#Public";
 const REMOTE_OG_FILENAME_RE = /^remote-[a-f0-9]{64}\.png$/;
 
-function isNoSuchColumnError(err: unknown): boolean {
-  return err instanceof Error && err.message.toLowerCase().includes("no such column");
-}
-
 function normalizeRecipients(input: unknown): string[] {
   if (typeof input === "string") return [input];
   if (!Array.isArray(input)) return [];
@@ -53,14 +49,7 @@ export function isRemoteActivityOgEligible(
 }
 
 function updateLocalOgImageUrl(db: DB, eventId: string, ogImageUrl: string | null): void {
-  try {
-    db.prepare("UPDATE events SET og_image_url = ? WHERE id = ?").run(ogImageUrl, eventId);
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      return;
-    }
-    throw err;
-  }
+  db.prepare("UPDATE events SET og_image_url = ? WHERE id = ?").run(ogImageUrl, eventId);
 }
 
 function updateRemoteOgImageUrl(db: DB, eventUri: string, ogImageUrl: string | null): void {
@@ -88,17 +77,9 @@ function localOgFilenameFromUrl(ogImageUrl: string, eventId: string): string | n
 }
 
 export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> {
-  let row: { og_image_url: string | null } | undefined;
-  try {
-    row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get(eventId) as {
-      og_image_url: string | null;
-    } | undefined;
-  } catch (err) {
-    if (isNoSuchColumnError(err)) {
-      return;
-    }
-    throw err;
-  }
+  const row = db.prepare("SELECT og_image_url FROM events WHERE id = ?").get(eventId) as
+    | { og_image_url: string | null }
+    | undefined;
 
   updateLocalOgImageUrl(db, eventId, null);
 
