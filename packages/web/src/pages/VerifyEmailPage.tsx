@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
-import { auth as authApi } from "../lib/api";
-
-type VerifyEmailResponse = Awaited<ReturnType<typeof authApi.verifyEmail>>;
+import { auth as authApi, type VerifyEmailResponse } from "../lib/api";
 
 const verifyEmailInFlight = new Map<string, Promise<VerifyEmailResponse>>();
 const verifyEmailSucceeded = new Map<string, VerifyEmailResponse>();
@@ -53,13 +51,12 @@ export function VerifyEmailPage() {
     verifyEmailOnce(token)
       .then(async (res) => {
         if (cancelled) return;
-        const wasEmailChange = !!(res && "emailChanged" in res && res.emailChanged);
+        const wasEmailChange = res.emailChanged === true;
         setEmailChanged(wasEmailChange);
         setStatus("success");
         await refreshUser();
         if (cancelled) return;
-        const responseRedirect = res && "redirectTo" in res ? res.redirectTo : undefined;
-        const redirectTo = responseRedirect || (wasEmailChange ? "/settings" : "/onboarding");
+        const redirectTo = res.redirectTo || (wasEmailChange ? "/settings" : "/onboarding");
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
         redirectTimeoutRef.current = setTimeout(() => navigate(redirectTo), 2500);
       })

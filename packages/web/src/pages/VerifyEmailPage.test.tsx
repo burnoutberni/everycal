@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { VerifyEmailChangeResponse, VerifyEmailRegistrationResponse, VerifyEmailResponse } from "../lib/api";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -37,6 +38,24 @@ import { VerifyEmailPage } from "./VerifyEmailPage";
 import { auth as authApi } from "../lib/api";
 
 describe("VerifyEmailPage", () => {
+  const registrationResponse = (overrides: Partial<VerifyEmailRegistrationResponse> = {}): VerifyEmailRegistrationResponse => ({
+    user: {
+      id: "account-1",
+      username: "testuser",
+      displayName: "Test User",
+      email: "test@example.com",
+      emailVerified: true,
+    },
+    expiresAt: "2030-01-01T00:00:00.000Z",
+    ...overrides,
+  });
+
+  const emailChangeResponse = (overrides: Partial<VerifyEmailChangeResponse> = {}): VerifyEmailChangeResponse => ({
+    ok: true,
+    emailChanged: true,
+    ...overrides,
+  });
+
   const settleVerification = async () => {
     await act(async () => {
       await Promise.resolve();
@@ -68,10 +87,10 @@ describe("VerifyEmailPage", () => {
 
   it("deduplicates concurrent verification requests for the same token", async () => {
     mocks.search = "?token=token-dedupe";
-    let resolveVerify: ((value: any) => void) | undefined;
+    let resolveVerify: ((value: VerifyEmailResponse) => void) | undefined;
     vi.mocked(authApi.verifyEmail).mockImplementation(() => new Promise((resolve) => {
       resolveVerify = resolve;
-    }) as Promise<any>);
+    }));
 
     render(
       <>
@@ -85,7 +104,7 @@ describe("VerifyEmailPage", () => {
     });
 
     if (!resolveVerify) throw new Error("Expected verify resolver to be set");
-    resolveVerify({ emailChanged: false });
+    resolveVerify(registrationResponse());
 
     expect(await screen.findAllByText("emailVerified")).toHaveLength(2);
   });
@@ -93,7 +112,7 @@ describe("VerifyEmailPage", () => {
   it("uses server-provided redirect destination", async () => {
     vi.useFakeTimers();
     mocks.search = "?token=token-email-change";
-    vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: false, redirectTo: "/settings" } as any);
+    vi.mocked(authApi.verifyEmail).mockResolvedValue(registrationResponse({ redirectTo: "/settings" }));
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     render(<VerifyEmailPage />);
@@ -118,7 +137,7 @@ describe("VerifyEmailPage", () => {
   it("falls back to emailChanged redirect when server redirect is missing", async () => {
     vi.useFakeTimers();
     mocks.search = "?token=token-email-change-fallback";
-    vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: true } as any);
+    vi.mocked(authApi.verifyEmail).mockResolvedValue(emailChangeResponse());
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     render(<VerifyEmailPage />);

@@ -205,6 +205,22 @@ export interface AuthResponse {
   expiresAt: string;
 }
 
+export interface VerifyEmailRegistrationResponse extends AuthResponse {
+  redirectTo?: string;
+  ok?: false;
+  emailChanged?: false;
+}
+
+export interface VerifyEmailChangeResponse {
+  ok: true;
+  emailChanged: true;
+  redirectTo?: string;
+  user?: never;
+  expiresAt?: never;
+}
+
+export type VerifyEmailResponse = VerifyEmailRegistrationResponse | VerifyEmailChangeResponse;
+
 export const auth = {
   register(
     username: string,
@@ -222,7 +238,7 @@ export const auth = {
   },
 
   verifyEmail(token: string) {
-    return request<AuthResponse & { redirectTo?: string; ok?: boolean; emailChanged?: boolean }>(
+    return request<VerifyEmailResponse>(
       "/auth/verify-email?token=" + encodeURIComponent(token)
     );
   },
