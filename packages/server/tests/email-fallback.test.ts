@@ -13,6 +13,18 @@ vi.mock("nodemailer", () => ({
 
 const originalEnv = { ...process.env };
 
+function restoreEnv(envSnapshot: NodeJS.ProcessEnv): void {
+  const existingKeys = Object.keys(process.env);
+
+  Object.assign(process.env, envSnapshot);
+
+  for (const key of existingKeys) {
+    if (!(key in envSnapshot)) {
+      delete process.env[key];
+    }
+  }
+}
+
 function clearSmtpEnv(): void {
   delete process.env.SMTP_HOST;
   delete process.env.SMTP_PORT;
@@ -25,13 +37,13 @@ function clearSmtpEnv(): void {
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-  process.env = { ...originalEnv };
+  restoreEnv(originalEnv);
   clearSmtpEnv();
   createTransportMock.mockReturnValue({ sendMail: sendMailMock });
 });
 
 afterAll(() => {
-  process.env = originalEnv;
+  restoreEnv(originalEnv);
 });
 
 describe("email fallback when SMTP is missing", () => {
