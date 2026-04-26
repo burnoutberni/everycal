@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AppBootstrap } from "@everycal/core";
 import { bootstrapViewerToUser } from "@everycal/core";
 import { auth as authApi, type User, type AuthResponse } from "../lib/api";
@@ -63,7 +63,7 @@ export function AuthProvider({
     return { status: initialUser ? "authenticated" : "anonymous", user: initialUser ?? null };
   });
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const u = await authApi.me();
       setAuthState({ status: "authenticated", user: u });
@@ -71,7 +71,7 @@ export function AuthProvider({
     } catch {
       setAuthState({ status: "anonymous", user: null });
     }
-  };
+  }, []);
 
   const previousUserIdRef = useRef<string | null>(authState.user?.id ?? null);
   useEffect(() => {
@@ -103,16 +103,16 @@ export function AuthProvider({
 
     refreshUser().catch(() => {});
     return undefined;
-  }, []);
+  }, [hasBootstrap, refreshUser]);
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     const res = await authApi.login(username, password);
     setAuthState({ status: "authenticated", user: res.user });
     syncLanguageFromUser(res.user.preferredLanguage);
     return res.user;
-  };
+  }, []);
 
-  const register = async (
+  const register = useCallback(async (
     username: string,
     password: string,
     displayName?: string,
@@ -127,9 +127,9 @@ export function AuthProvider({
     }
     setAuthState({ status: "authenticated", user: (res as AuthResponse).user });
     return undefined;
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await authApi.logout();
     } catch {
@@ -137,20 +137,20 @@ export function AuthProvider({
     }
     // Server clears HttpOnly cookie
     setAuthState({ status: "anonymous", user: null });
-  };
+  }, []);
+
+  const value = useMemo<AuthContextValue>(() => ({
+    user: authState.user,
+    loading: authState.status === "unknown",
+    authStatus: authState.status,
+    login,
+    register,
+    logout,
+    refreshUser,
+  }), [authState.user, authState.status, login, register, logout, refreshUser]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user: authState.user,
-        loading: authState.status === "unknown",
-        authStatus: authState.status,
-        login,
-        register,
-        logout,
-        refreshUser,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
