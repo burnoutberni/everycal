@@ -147,6 +147,8 @@ export function validateMigrationConfiguration(): void {
   }
 }
 
+validateMigrationConfiguration();
+
 export function validateSchema(db: DB): void {
   const requiredTables = ["accounts", "events", "remote_events", "sessions", "api_keys"];
   for (const table of requiredTables) {
@@ -213,8 +215,6 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
 export function initDatabase(path: string): DB {
   const db = new Database(path);
   try {
-    validateMigrationConfiguration();
-
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
 
