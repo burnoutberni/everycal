@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -37,6 +37,15 @@ import { VerifyEmailPage } from "./VerifyEmailPage";
 import { auth as authApi } from "../lib/api";
 
 describe("VerifyEmailPage", () => {
+  const settleVerification = async () => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
@@ -82,40 +91,52 @@ describe("VerifyEmailPage", () => {
   });
 
   it("uses server-provided redirect destination", async () => {
+    vi.useFakeTimers();
     mocks.search = "?token=token-email-change";
     vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: false, redirectTo: "/settings" } as any);
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     render(<VerifyEmailPage />);
 
-    expect(await screen.findByText("emailVerified")).toBeTruthy();
-    await waitFor(() => {
-      expect(mocks.refreshUser).toHaveBeenCalled();
-    });
+    await settleVerification();
+    expect(screen.getByText("emailVerified")).toBeTruthy();
+    expect(mocks.refreshUser).toHaveBeenCalled();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2500);
+    expect(mocks.navigate).not.toHaveBeenCalled();
 
-    const redirectTimeoutCall = setTimeoutSpy.mock.calls.find((call) => call[1] === 2500);
-    const callback = redirectTimeoutCall?.[0] as (() => void) | undefined;
-    expect(callback).toBeTypeOf("function");
-    callback?.();
+    act(() => {
+      vi.advanceTimersByTime(2499);
+    });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(mocks.navigate).toHaveBeenCalledWith("/settings");
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to emailChanged redirect when server redirect is missing", async () => {
+    vi.useFakeTimers();
     mocks.search = "?token=token-email-change-fallback";
     vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: true } as any);
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 
     render(<VerifyEmailPage />);
 
-    expect(await screen.findByText("emailUpdated")).toBeTruthy();
-    await waitFor(() => {
-      expect(mocks.refreshUser).toHaveBeenCalled();
-    });
+    await settleVerification();
+    expect(screen.getByText("emailUpdated")).toBeTruthy();
+    expect(mocks.refreshUser).toHaveBeenCalled();
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2500);
+    expect(mocks.navigate).not.toHaveBeenCalled();
 
-    const redirectTimeoutCall = setTimeoutSpy.mock.calls.find((call) => call[1] === 2500);
-    const callback = redirectTimeoutCall?.[0] as (() => void) | undefined;
-    expect(callback).toBeTypeOf("function");
-    callback?.();
+    act(() => {
+      vi.advanceTimersByTime(2499);
+    });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(mocks.navigate).toHaveBeenCalledWith("/settings");
+    expect(mocks.navigate).toHaveBeenCalledTimes(1);
   });
 });
