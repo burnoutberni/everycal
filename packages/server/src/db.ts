@@ -110,32 +110,37 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
 
 export function initDatabase(path: string): DB {
   const db = new Database(path);
-  validateMigrationConfiguration();
+  try {
+    validateMigrationConfiguration();
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
 
-  const currentVersion = db.pragma("user_version", { simple: true }) as number;
-  if (currentVersion < 0) {
-    throw new Error(`Invalid SQLite user_version: ${currentVersion}`);
-  }
-  if (currentVersion > CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `Database schema version ${currentVersion} is newer than this server supports (${CURRENT_SCHEMA_VERSION}).`
-    );
-  }
-
-  if (currentVersion === 0) {
-    if (!hasUserTables(db)) {
-      applyPendingMigrations(db, 0);
-    } else {
+    const currentVersion = db.pragma("user_version", { simple: true }) as number;
+    if (currentVersion < 0) {
+      throw new Error(`Invalid SQLite user_version: ${currentVersion}`);
+    }
+    if (currentVersion > CURRENT_SCHEMA_VERSION) {
       throw new Error(
-        "Unsupported unversioned database detected (user_version=0 with existing tables). Start from an empty database or migrate using a versioned EveryCal database."
+        `Database schema version ${currentVersion} is newer than this server supports (${CURRENT_SCHEMA_VERSION}).`
       );
     }
-  } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
-    applyPendingMigrations(db, currentVersion);
+
+    if (currentVersion === 0) {
+      if (!hasUserTables(db)) {
+        applyPendingMigrations(db, 0);
+      } else {
+        throw new Error(
+          "Unsupported unversioned database detected (user_version=0 with existing tables). Start from an empty database or migrate using a versioned EveryCal database."
+        );
+      }
+    } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+      applyPendingMigrations(db, currentVersion);
+    }
+    validateSchema(db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
   }
-  validateSchema(db);
-  return db;
 }
