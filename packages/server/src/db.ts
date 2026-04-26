@@ -127,13 +127,13 @@ export function validateMigrationConfiguration(): void {
         `Invalid migration configuration: migration "${migration.name}" has version ${migration.version}, expected a positive integer.`
       );
     }
+    if (seen.has(migration.version)) {
+      throw new Error(`Invalid migration configuration: duplicate migration version ${migration.version}.`);
+    }
     if (migration.version <= previousVersion) {
       throw new Error(
         `Invalid migration configuration: migration versions must be strictly increasing; got ${migration.version} after ${previousVersion}.`
       );
-    }
-    if (seen.has(migration.version)) {
-      throw new Error(`Invalid migration configuration: duplicate migration version ${migration.version}.`);
     }
     seen.add(migration.version);
     previousVersion = migration.version;
