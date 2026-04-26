@@ -80,8 +80,27 @@ describe("VerifyEmailPage", () => {
     expect(await screen.findAllByText("emailVerified")).toHaveLength(2);
   });
 
-  it("redirects to settings after email change verification", async () => {
+  it("uses server-provided redirect destination", async () => {
     mocks.search = "?token=token-email-change";
+    vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: false, redirectTo: "/settings" } as any);
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    render(<VerifyEmailPage />);
+
+    expect(await screen.findByText("emailVerified")).toBeTruthy();
+    await waitFor(() => {
+      expect(mocks.refreshUser).toHaveBeenCalled();
+    });
+
+    const redirectTimeoutCall = setTimeoutSpy.mock.calls.find((call) => call[1] === 2500);
+    const callback = redirectTimeoutCall?.[0] as (() => void) | undefined;
+    expect(callback).toBeTypeOf("function");
+    callback?.();
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings");
+  });
+
+  it("falls back to emailChanged redirect when server redirect is missing", async () => {
+    mocks.search = "?token=token-email-change-fallback";
     vi.mocked(authApi.verifyEmail).mockResolvedValue({ emailChanged: true } as any);
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 

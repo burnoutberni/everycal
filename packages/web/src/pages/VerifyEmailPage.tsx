@@ -58,7 +58,8 @@ export function VerifyEmailPage() {
         setStatus("success");
         await refreshUser();
         if (cancelled) return;
-        const redirectTo = wasEmailChange ? "/settings" : "/onboarding";
+        const responseRedirect = res && "redirectTo" in res ? res.redirectTo : undefined;
+        const redirectTo = responseRedirect || (wasEmailChange ? "/settings" : "/onboarding");
         if (redirectTimeoutRef.current) clearTimeout(redirectTimeoutRef.current);
         redirectTimeoutRef.current = setTimeout(() => navigate(redirectTo), 2500);
       })
