@@ -355,4 +355,4 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
-export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+export const CURRENT_SCHEMA_VERSION = 2;
