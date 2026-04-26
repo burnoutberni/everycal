@@ -81,6 +81,7 @@ describe("account timezone/locale defaults", () => {
       CREATE TABLE events (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL REFERENCES accounts(id),
+        slug TEXT,
         title TEXT NOT NULL,
         start_date TEXT NOT NULL,
         start_at_utc TEXT NOT NULL,
@@ -97,7 +98,7 @@ describe("account timezone/locale defaults", () => {
         start_at_utc TEXT NOT NULL,
         timezone_quality TEXT NOT NULL
       );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, id);
+      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
       CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     `);
     versioned.pragma("user_version = 1");
@@ -124,6 +125,7 @@ describe("account timezone/locale defaults", () => {
       CREATE TABLE events (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL,
+        slug TEXT,
         title TEXT NOT NULL,
         start_date TEXT NOT NULL,
         start_at_utc TEXT NOT NULL,
@@ -139,7 +141,7 @@ describe("account timezone/locale defaults", () => {
         timezone_quality TEXT NOT NULL,
         og_image_url TEXT
       );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, id);
+      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
       CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     `);
     db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
@@ -160,6 +162,7 @@ describe("account timezone/locale defaults", () => {
       CREATE TABLE events (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL,
+        slug TEXT,
         title TEXT NOT NULL,
         start_date TEXT NOT NULL,
         start_at_utc TEXT NOT NULL,
@@ -176,12 +179,12 @@ describe("account timezone/locale defaults", () => {
         timezone_quality TEXT NOT NULL,
         og_image_url TEXT
       );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, id);
+      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
     `);
     db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
     db.close();
 
-    expect(() => initDatabase(dbPath)).toThrow(/missing required index "idx_remote_events_actor_slug"/);
+    expect(() => initDatabase(dbPath)).toThrow(/invalid required index "idx_remote_events_actor_slug".*\(missing\)/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

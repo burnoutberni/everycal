@@ -26,11 +26,95 @@ function hasColumn(db: DB, tableName: string, columnName: string): boolean {
   return rows.some((row) => row.name === columnName);
 }
 
-function hasIndex(db: DB, indexName: string): boolean {
-  const row = db
-    .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'index' AND name = ? LIMIT 1")
-    .get(indexName) as { ok: number } | undefined;
-  return !!row?.ok;
+type RequiredIndex = {
+  table: string;
+  name: string;
+  unique: boolean;
+  columns: string[];
+  where?: string;
+};
+
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+function normalizeSqlFragment(fragment: string): string {
+  return fragment.replace(/;\s*$/g, "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function extractWhereClause(indexSql: string): string | null {
+  const whereMatch = /\bwhere\b([\s\S]*)$/i.exec(indexSql);
+  if (!whereMatch) return null;
+  const clause = normalizeSqlFragment(whereMatch[1] ?? "");
+  return clause.length > 0 ? clause : null;
+}
+
+function validateIndexDefinition(db: DB, requiredIndex: RequiredIndex): { ok: boolean; reason?: string } {
+  const indexList = db.prepare(`PRAGMA index_list(${quoteIdentifier(requiredIndex.table)})`).all() as Array<{
+    name: string;
+    unique: number;
+    partial: number;
+  }>;
+
+  const indexMeta = indexList.find((row) => row.name === requiredIndex.name);
+  if (!indexMeta) {
+    return { ok: false, reason: "missing" };
+  }
+
+  if (!!indexMeta.unique !== requiredIndex.unique) {
+    return {
+      ok: false,
+      reason: `expected unique=${requiredIndex.unique ? 1 : 0} but found unique=${indexMeta.unique ? 1 : 0}`,
+    };
+  }
+
+  if (!!requiredIndex.where !== !!indexMeta.partial) {
+    return {
+      ok: false,
+      reason: `expected partial=${requiredIndex.where ? 1 : 0} but found partial=${indexMeta.partial ? 1 : 0}`,
+    };
+  }
+
+  const indexColumns = db.prepare(`PRAGMA index_xinfo(${quoteIdentifier(requiredIndex.name)})`).all() as Array<{
+    seqno: number;
+    name: string | null;
+    key: number;
+  }>;
+  const actualColumns = indexColumns
+    .filter((row) => row.key === 1)
+    .sort((a, b) => a.seqno - b.seqno)
+    .map((row) => row.name)
+    .filter((name): name is string => typeof name === "string");
+
+  if (
+    actualColumns.length !== requiredIndex.columns.length ||
+    actualColumns.some((column, idx) => column !== requiredIndex.columns[idx])
+  ) {
+    return {
+      ok: false,
+      reason: `expected columns (${requiredIndex.columns.join(", ")}) but found (${actualColumns.join(", ")})`,
+    };
+  }
+
+  if (requiredIndex.where) {
+    const row = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ? LIMIT 1")
+      .get(requiredIndex.table, requiredIndex.name) as { sql: string | null } | undefined;
+    const indexSql = row?.sql;
+    if (!indexSql) {
+      return { ok: false, reason: "missing index SQL definition in sqlite_master" };
+    }
+    const actualWhere = extractWhereClause(indexSql);
+    const expectedWhere = normalizeSqlFragment(requiredIndex.where);
+    if (actualWhere !== expectedWhere) {
+      return {
+        ok: false,
+        reason: `expected WHERE ${requiredIndex.where} but found ${actualWhere ? `WHERE ${actualWhere}` : "none"}`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 export function validateMigrationConfiguration(): void {
@@ -82,10 +166,28 @@ export function validateSchema(db: DB): void {
     }
   }
 
-  const requiredIndexes = ["idx_events_slug", "idx_remote_events_actor_slug"];
+  const requiredIndexes: RequiredIndex[] = [
+    {
+      table: "events",
+      name: "idx_events_slug",
+      unique: true,
+      columns: ["account_id", "slug"],
+      where: "slug IS NOT NULL",
+    },
+    {
+      table: "remote_events",
+      name: "idx_remote_events_actor_slug",
+      unique: true,
+      columns: ["actor_uri", "slug"],
+      where: "slug IS NOT NULL",
+    },
+  ];
   for (const index of requiredIndexes) {
-    if (!hasIndex(db, index)) {
-      throw new Error(`Database schema validation failed: missing required index "${index}".`);
+    const result = validateIndexDefinition(db, index);
+    if (!result.ok) {
+      throw new Error(
+        `Database schema validation failed: invalid required index "${index.name}" on table "${index.table}" (${result.reason}).`
+      );
     }
   }
 }
