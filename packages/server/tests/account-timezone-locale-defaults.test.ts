@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
-import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations.js";
+import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "../src/db/migrations.js";
 
 describe("account timezone/locale defaults", () => {
   it("defaults new accounts to system timezone, locale, and theme", () => {
@@ -55,52 +55,11 @@ describe("account timezone/locale defaults", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "versioned-old.sqlite");
     const versioned = new Database(dbPath);
-    versioned.exec(`
-      CREATE TABLE accounts (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        timezone TEXT NOT NULL DEFAULT 'system',
-        date_time_locale TEXT NOT NULL DEFAULT 'system',
-        theme_preference TEXT NOT NULL DEFAULT 'system'
-      );
-      CREATE TABLE sessions (
-        token TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        expires_at TEXT NOT NULL
-      );
-      CREATE TABLE api_keys (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        key_hash TEXT NOT NULL,
-        label TEXT NOT NULL DEFAULT '',
-        last_used_at TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        key_prefix TEXT
-      );
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL REFERENCES accounts(id),
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        event_timezone TEXT NOT NULL,
-        visibility TEXT NOT NULL DEFAULT 'public',
-        og_image_url TEXT
-      );
-      CREATE TABLE remote_events (
-        uri TEXT PRIMARY KEY,
-        actor_uri TEXT NOT NULL,
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        timezone_quality TEXT NOT NULL
-      );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
-      CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
-    `);
+    const baselineMigration = MIGRATIONS.find((migration) => migration.version === 1);
+    if (!baselineMigration) {
+      throw new Error("Missing baseline migration");
+    }
+    baselineMigration.up(versioned);
     versioned.pragma("user_version = 1");
     versioned.close();
 
@@ -117,34 +76,10 @@ describe("account timezone/locale defaults", () => {
   it("fails startup when a required schema column is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "missing-column.sqlite");
+    const initialized = initDatabase(dbPath);
+    initialized.close();
     const db = new Database(dbPath);
-    db.exec(`
-      CREATE TABLE accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, theme_preference TEXT NOT NULL);
-      CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
-      CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, key_hash TEXT NOT NULL);
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL,
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        event_timezone TEXT NOT NULL
-      );
-      CREATE TABLE remote_events (
-        uri TEXT PRIMARY KEY,
-        actor_uri TEXT NOT NULL,
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        timezone_quality TEXT NOT NULL,
-        og_image_url TEXT
-      );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
-      CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
-    `);
-    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+    db.exec("ALTER TABLE events DROP COLUMN og_image_url");
     db.close();
 
     expect(() => initDatabase(dbPath)).toThrow(/missing required column "events.og_image_url"/);
@@ -154,34 +89,10 @@ describe("account timezone/locale defaults", () => {
   it("fails startup when a required schema index is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "missing-index.sqlite");
+    const initialized = initDatabase(dbPath);
+    initialized.close();
     const db = new Database(dbPath);
-    db.exec(`
-      CREATE TABLE accounts (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, theme_preference TEXT NOT NULL);
-      CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
-      CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, key_hash TEXT NOT NULL);
-      CREATE TABLE events (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL,
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        event_timezone TEXT NOT NULL,
-        og_image_url TEXT
-      );
-      CREATE TABLE remote_events (
-        uri TEXT PRIMARY KEY,
-        actor_uri TEXT NOT NULL,
-        slug TEXT,
-        title TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        start_at_utc TEXT NOT NULL,
-        timezone_quality TEXT NOT NULL,
-        og_image_url TEXT
-      );
-      CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
-    `);
-    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+    db.exec("DROP INDEX idx_remote_events_actor_slug");
     db.close();
 
     expect(() => initDatabase(dbPath)).toThrow(/invalid required index "idx_remote_events_actor_slug".*\(missing\)/);

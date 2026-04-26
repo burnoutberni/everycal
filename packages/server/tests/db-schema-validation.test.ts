@@ -1,22 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { validateSchema, type DB } from "../src/db.js";
+import { MIGRATIONS } from "../src/db/migrations.js";
 
 function createBaseSchema(db: DB): void {
-  db.exec(`
-    CREATE TABLE accounts (id TEXT PRIMARY KEY, theme_preference TEXT);
-    CREATE TABLE events (id TEXT PRIMARY KEY, account_id TEXT, slug TEXT, og_image_url TEXT);
-    CREATE TABLE remote_events (uri TEXT PRIMARY KEY, actor_uri TEXT, slug TEXT, og_image_url TEXT);
-    CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT, expires_at TEXT);
-    CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT, key_hash TEXT, key_prefix TEXT);
-  `);
-}
-
-function createRequiredIndexes(db: DB): void {
-  db.exec(`
-    CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
-    CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
-  `);
+  for (const migration of MIGRATIONS) {
+    migration.up(db);
+  }
 }
 
 describe("schema index definition validation", () => {
@@ -29,7 +19,6 @@ describe("schema index definition validation", () => {
   it("accepts required indexes when definitions match", () => {
     db = new Database(":memory:");
     createBaseSchema(db);
-    createRequiredIndexes(db);
 
     expect(() => validateSchema(db)).not.toThrow();
   });
@@ -38,8 +27,8 @@ describe("schema index definition validation", () => {
     db = new Database(":memory:");
     createBaseSchema(db);
     db.exec(`
+      DROP INDEX idx_events_slug;
       CREATE INDEX idx_events_slug ON events(account_id, slug) WHERE slug IS NOT NULL;
-      CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     `);
 
     expect(() => validateSchema(db)).toThrow(/invalid required index "idx_events_slug"/);
@@ -50,8 +39,8 @@ describe("schema index definition validation", () => {
     db = new Database(":memory:");
     createBaseSchema(db);
     db.exec(`
+      DROP INDEX idx_events_slug;
       CREATE UNIQUE INDEX idx_events_slug ON events(slug, account_id) WHERE slug IS NOT NULL;
-      CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     `);
 
     expect(() => validateSchema(db)).toThrow(/invalid required index "idx_events_slug"/);
@@ -62,25 +51,31 @@ describe("schema index definition validation", () => {
     db = new Database(":memory:");
     createBaseSchema(db);
     db.exec(`
+      DROP INDEX idx_events_slug;
       CREATE UNIQUE INDEX idx_events_slug ON events(account_id, slug);
-      CREATE UNIQUE INDEX idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
     `);
 
     expect(() => validateSchema(db)).toThrow(/invalid required index "idx_events_slug"/);
     expect(() => validateSchema(db)).toThrow(/expected partial=1 but found partial=0/);
   });
 
-  it("rejects required key columns when schema drifts", () => {
+  it("rejects required columns when schema drifts", () => {
     db = new Database(":memory:");
-    db.exec(`
-      CREATE TABLE accounts (id TEXT PRIMARY KEY, theme_preference TEXT);
-      CREATE TABLE events (id TEXT PRIMARY KEY, account_id TEXT, slug TEXT, og_image_url TEXT);
-      CREATE TABLE remote_events (id TEXT PRIMARY KEY, actor_uri TEXT, slug TEXT, og_image_url TEXT);
-      CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id TEXT, expires_at TEXT);
-      CREATE TABLE api_keys (id TEXT PRIMARY KEY, account_id TEXT, key_hash TEXT, key_prefix TEXT);
-    `);
-    createRequiredIndexes(db);
+    createBaseSchema(db);
+    db.exec("ALTER TABLE remote_events DROP COLUMN title;");
 
-    expect(() => validateSchema(db)).toThrow(/missing required column "remote_events.uri"/);
+    expect(() => validateSchema(db)).toThrow(/missing required column "remote_events.title"/);
+  });
+
+  it("rejects required index when sort order drifts", () => {
+    db = new Database(":memory:");
+    createBaseSchema(db);
+    db.exec(`
+      DROP INDEX idx_saved_locations_account;
+      CREATE INDEX idx_saved_locations_account ON saved_locations(account_id, used_at);
+    `);
+
+    expect(() => validateSchema(db)).toThrow(/invalid required index "idx_saved_locations_account"/);
+    expect(() => validateSchema(db)).toThrow(/expected columns \(account_id, used_at DESC\) but found \(account_id, used_at\)/);
   });
 });

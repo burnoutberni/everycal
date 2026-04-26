@@ -30,9 +30,273 @@ type RequiredIndex = {
   table: string;
   name: string;
   unique: boolean;
-  columns: string[];
+  columns: Array<{ name: string; desc?: boolean }>;
   where?: string;
 };
+
+const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
+  accounts: [
+    "id",
+    "username",
+    "account_type",
+    "display_name",
+    "bio",
+    "avatar_url",
+    "password_hash",
+    "private_key",
+    "public_key",
+    "is_bot",
+    "discoverable",
+    "timezone",
+    "date_time_locale",
+    "theme_preference",
+    "default_event_visibility",
+    "created_at",
+    "updated_at",
+    "website",
+    "city",
+    "city_lat",
+    "city_lng",
+    "email",
+    "email_verified",
+    "email_verified_at",
+    "preferred_language",
+  ],
+  sessions: ["token", "account_id", "created_at", "expires_at"],
+  api_keys: ["id", "account_id", "key_hash", "label", "last_used_at", "created_at", "key_prefix"],
+  events: [
+    "id",
+    "account_id",
+    "created_by_account_id",
+    "external_id",
+    "slug",
+    "title",
+    "description",
+    "start_date",
+    "end_date",
+    "start_at_utc",
+    "end_at_utc",
+    "event_timezone",
+    "start_on",
+    "end_on",
+    "all_day",
+    "location_name",
+    "location_address",
+    "location_latitude",
+    "location_longitude",
+    "location_url",
+    "image_url",
+    "image_media_type",
+    "image_alt",
+    "image_attribution",
+    "og_image_url",
+    "url",
+    "visibility",
+    "content_hash",
+    "canceled",
+    "missing_since",
+    "created_at",
+    "updated_at",
+  ],
+  event_tags: ["event_id", "tag"],
+  follows: ["follower_id", "following_id", "created_at"],
+  identity_memberships: ["identity_account_id", "member_account_id", "role", "created_at"],
+  remote_follows: ["account_id", "follower_actor_uri", "follower_inbox", "follower_shared_inbox", "created_at"],
+  remote_actors: [
+    "uri",
+    "type",
+    "preferred_username",
+    "display_name",
+    "summary",
+    "inbox",
+    "outbox",
+    "shared_inbox",
+    "followers_url",
+    "following_url",
+    "icon_url",
+    "image_url",
+    "public_key_id",
+    "public_key_pem",
+    "domain",
+    "followers_count",
+    "following_count",
+    "last_fetched_at",
+    "fetch_status",
+    "last_error",
+    "next_retry_at",
+    "gone_at",
+    "created_at",
+  ],
+  remote_events: [
+    "uri",
+    "actor_uri",
+    "slug",
+    "title",
+    "description",
+    "start_date",
+    "end_date",
+    "all_day",
+    "start_at_utc",
+    "end_at_utc",
+    "start_on",
+    "end_on",
+    "event_timezone",
+    "timezone_quality",
+    "location_name",
+    "location_address",
+    "location_latitude",
+    "location_longitude",
+    "image_url",
+    "image_media_type",
+    "image_alt",
+    "image_attribution",
+    "url",
+    "tags",
+    "raw_json",
+    "published",
+    "updated",
+    "fetched_at",
+    "canceled",
+    "og_image_url",
+  ],
+  remote_following: ["account_id", "actor_uri", "actor_inbox", "follow_activity_id", "follow_object_uri", "created_at"],
+  domain_discovery: ["domain", "last_discovered_at", "software_type"],
+  event_rsvps: ["account_id", "event_uri", "status", "created_at"],
+  reposts: ["account_id", "event_id", "created_at"],
+  auto_reposts: ["account_id", "source_account_id", "created_at"],
+  actor_selection_operations: [
+    "id",
+    "action_kind",
+    "target_type",
+    "target_id",
+    "initiated_by_account_id",
+    "status",
+    "created_at",
+    "completed_at",
+  ],
+  actor_selection_operation_items: [
+    "operation_id",
+    "account_id",
+    "before_state",
+    "after_state",
+    "status",
+    "remote_status",
+    "message",
+    "created_at",
+  ],
+  login_attempts: ["username", "attempts", "locked_until", "last_attempt"],
+  calendar_feed_tokens: ["account_id", "token", "created_at"],
+  saved_locations: ["id", "account_id", "name", "address", "latitude", "longitude", "used_at"],
+  email_verification_tokens: ["account_id", "token", "expires_at"],
+  password_reset_tokens: ["account_id", "token", "expires_at"],
+  account_notification_prefs: [
+    "account_id",
+    "reminder_enabled",
+    "reminder_hours_before",
+    "event_updated_enabled",
+    "event_cancelled_enabled",
+    "onboarding_completed",
+  ],
+  email_change_requests: ["account_id", "new_email", "token", "expires_at"],
+  event_reminder_sent: ["account_id", "event_uri", "reminder_type", "sent_at"],
+};
+
+const REQUIRED_INDEXES: RequiredIndex[] = [
+  { table: "sessions", name: "idx_sessions_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "sessions", name: "idx_sessions_expires", unique: false, columns: [{ name: "expires_at" }] },
+  { table: "api_keys", name: "idx_api_keys_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "api_keys", name: "idx_api_keys_prefix", unique: false, columns: [{ name: "key_prefix" }] },
+  { table: "events", name: "idx_events_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "events", name: "idx_events_visibility", unique: false, columns: [{ name: "visibility" }] },
+  {
+    table: "events",
+    name: "idx_events_external",
+    unique: true,
+    columns: [{ name: "account_id" }, { name: "external_id" }],
+    where: "external_id IS NOT NULL",
+  },
+  {
+    table: "events",
+    name: "idx_events_slug",
+    unique: true,
+    columns: [{ name: "account_id" }, { name: "slug" }],
+    where: "slug IS NOT NULL",
+  },
+  { table: "events", name: "idx_events_start_at_utc", unique: false, columns: [{ name: "start_at_utc" }] },
+  { table: "events", name: "idx_events_start_on", unique: false, columns: [{ name: "start_on" }] },
+  { table: "follows", name: "idx_follows_follower", unique: false, columns: [{ name: "follower_id" }] },
+  { table: "follows", name: "idx_follows_following", unique: false, columns: [{ name: "following_id" }] },
+  {
+    table: "identity_memberships",
+    name: "idx_identity_memberships_member",
+    unique: false,
+    columns: [{ name: "member_account_id" }],
+  },
+  {
+    table: "identity_memberships",
+    name: "idx_identity_memberships_identity_role",
+    unique: false,
+    columns: [{ name: "identity_account_id" }, { name: "role" }],
+  },
+  { table: "remote_actors", name: "idx_remote_actors_domain", unique: false, columns: [{ name: "domain" }] },
+  {
+    table: "remote_actors",
+    name: "idx_remote_actors_username",
+    unique: false,
+    columns: [{ name: "preferred_username" }, { name: "domain" }],
+  },
+  { table: "remote_events", name: "idx_remote_events_actor", unique: false, columns: [{ name: "actor_uri" }] },
+  {
+    table: "remote_events",
+    name: "idx_remote_events_actor_slug",
+    unique: true,
+    columns: [{ name: "actor_uri" }, { name: "slug" }],
+    where: "slug IS NOT NULL",
+  },
+  {
+    table: "remote_events",
+    name: "idx_remote_events_start_at_utc",
+    unique: false,
+    columns: [{ name: "start_at_utc" }],
+  },
+  { table: "remote_events", name: "idx_remote_events_start_on", unique: false, columns: [{ name: "start_on" }] },
+  {
+    table: "remote_following",
+    name: "idx_remote_following_account",
+    unique: false,
+    columns: [{ name: "account_id" }],
+  },
+  { table: "event_rsvps", name: "idx_event_rsvps_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "event_rsvps", name: "idx_event_rsvps_event", unique: false, columns: [{ name: "event_uri" }] },
+  { table: "reposts", name: "idx_reposts_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "reposts", name: "idx_reposts_event", unique: false, columns: [{ name: "event_id" }] },
+  { table: "auto_reposts", name: "idx_auto_reposts_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "auto_reposts", name: "idx_auto_reposts_source", unique: false, columns: [{ name: "source_account_id" }] },
+  {
+    table: "actor_selection_operations",
+    name: "idx_actor_selection_ops_initiated_by",
+    unique: false,
+    columns: [{ name: "initiated_by_account_id" }, { name: "created_at" }],
+  },
+  {
+    table: "actor_selection_operation_items",
+    name: "idx_actor_selection_items_operation",
+    unique: false,
+    columns: [{ name: "operation_id" }],
+  },
+  {
+    table: "saved_locations",
+    name: "idx_saved_locations_account",
+    unique: false,
+    columns: [{ name: "account_id" }, { name: "used_at", desc: true }],
+  },
+  {
+    table: "event_reminder_sent",
+    name: "idx_event_reminder_sent_account",
+    unique: false,
+    columns: [{ name: "account_id" }],
+  },
+];
 
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -79,20 +343,28 @@ function validateIndexDefinition(db: DB, requiredIndex: RequiredIndex): { ok: bo
     seqno: number;
     name: string | null;
     key: number;
+    desc: number;
   }>;
   const actualColumns = indexColumns
     .filter((row) => row.key === 1)
     .sort((a, b) => a.seqno - b.seqno)
-    .map((row) => row.name)
-    .filter((name): name is string => typeof name === "string");
+    .map((row) => ({ name: row.name, desc: !!row.desc }))
+    .filter((column): column is { name: string; desc: boolean } => typeof column.name === "string");
+
+  const expectedColumns = requiredIndex.columns.map((column) => ({ name: column.name, desc: !!column.desc }));
 
   if (
-    actualColumns.length !== requiredIndex.columns.length ||
-    actualColumns.some((column, idx) => column !== requiredIndex.columns[idx])
+    actualColumns.length !== expectedColumns.length ||
+    actualColumns.some((column, idx) => {
+      const expected = expectedColumns[idx];
+      return !expected || column.name !== expected.name || column.desc !== expected.desc;
+    })
   ) {
+    const formatColumnList = (columns: Array<{ name: string; desc: boolean }>) =>
+      columns.map((column) => `${column.name}${column.desc ? " DESC" : ""}`).join(", ");
     return {
       ok: false,
-      reason: `expected columns (${requiredIndex.columns.join(", ")}) but found (${actualColumns.join(", ")})`,
+      reason: `expected columns (${formatColumnList(expectedColumns)}) but found (${formatColumnList(actualColumns)})`,
     };
   }
 
@@ -150,54 +422,22 @@ export function validateMigrationConfiguration(): void {
 validateMigrationConfiguration();
 
 export function validateSchema(db: DB): void {
-  const requiredTables = ["accounts", "events", "remote_events", "sessions", "api_keys"];
+  const requiredTables = Object.keys(REQUIRED_TABLE_COLUMNS);
   for (const table of requiredTables) {
     if (!hasTable(db, table)) {
       throw new Error(`Database schema validation failed: missing required table "${table}".`);
     }
   }
 
-  const requiredColumns: Array<{ table: string; column: string }> = [
-    { table: "accounts", column: "id" },
-    { table: "accounts", column: "theme_preference" },
-    { table: "events", column: "id" },
-    { table: "events", column: "account_id" },
-    { table: "events", column: "slug" },
-    { table: "events", column: "og_image_url" },
-    { table: "remote_events", column: "uri" },
-    { table: "remote_events", column: "actor_uri" },
-    { table: "remote_events", column: "slug" },
-    { table: "remote_events", column: "og_image_url" },
-    { table: "sessions", column: "token" },
-    { table: "sessions", column: "account_id" },
-    { table: "sessions", column: "expires_at" },
-    { table: "api_keys", column: "id" },
-    { table: "api_keys", column: "account_id" },
-    { table: "api_keys", column: "key_hash" },
-  ];
-  for (const { table, column } of requiredColumns) {
-    if (!hasColumn(db, table, column)) {
-      throw new Error(`Database schema validation failed: missing required column "${table}.${column}".`);
+  for (const [table, columns] of Object.entries(REQUIRED_TABLE_COLUMNS)) {
+    for (const column of columns) {
+      if (!hasColumn(db, table, column)) {
+        throw new Error(`Database schema validation failed: missing required column "${table}.${column}".`);
+      }
     }
   }
 
-  const requiredIndexes: RequiredIndex[] = [
-    {
-      table: "events",
-      name: "idx_events_slug",
-      unique: true,
-      columns: ["account_id", "slug"],
-      where: "slug IS NOT NULL",
-    },
-    {
-      table: "remote_events",
-      name: "idx_remote_events_actor_slug",
-      unique: true,
-      columns: ["actor_uri", "slug"],
-      where: "slug IS NOT NULL",
-    },
-  ];
-  for (const index of requiredIndexes) {
+  for (const index of REQUIRED_INDEXES) {
     const result = validateIndexDefinition(db, index);
     if (!result.ok) {
       throw new Error(
