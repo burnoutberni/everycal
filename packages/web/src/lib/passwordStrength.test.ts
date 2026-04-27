@@ -31,4 +31,23 @@ describe("evaluatePasswordStrength", () => {
     expect(result.level).toBe("strong");
     expect(result.score).toBe(4);
   });
+
+  it("treats non-ASCII letters as letters for mixed case and symbol checks", () => {
+    const result = evaluatePasswordStrength("Äßbcdef1!");
+    expect(result.checks.mixedCase).toBe(true);
+    expect(result.checks.number).toBe(true);
+    expect(result.checks.symbol).toBe(true);
+  });
+
+  it("does not count whitespace as a symbol", () => {
+    const result = evaluatePasswordStrength("Password1 ");
+    expect(result.level).toBe("good");
+    expect(result.score).toBe(3);
+    expect(result.checks.symbol).toBe(false);
+  });
+
+  it("does not treat umlauts alone as symbols", () => {
+    const result = evaluatePasswordStrength("PasswordÄ1");
+    expect(result.checks.symbol).toBe(false);
+  });
 });
