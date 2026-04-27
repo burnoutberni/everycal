@@ -14,6 +14,10 @@ const MAX_DIMENSION = 2048; // Cap to prevent image bombs
 
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"]);
 
+function isENOENT(error: unknown): boolean {
+  return !!error && typeof error === "object" && "code" in error && error.code === "ENOENT";
+}
+
 export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
   const DERIVATIVE_DIR = join(uploadDir, ".derived");
@@ -22,10 +26,21 @@ export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: str
     await mkdir(DERIVATIVE_DIR, { recursive: true });
     const sourceStat = await stat(filepath);
     const outPath = join(DERIVATIVE_DIR, `${basename(filepath)}.jpg`);
-    if (existsSync(outPath)) {
+
+    try {
       const outStat = await stat(outPath);
       if (outStat.mtimeMs >= sourceStat.mtimeMs) {
-        return readFile(outPath);
+        try {
+          return await readFile(outPath);
+        } catch (error) {
+          if (!isENOENT(error)) {
+            throw error;
+          }
+        }
+      }
+    } catch (error) {
+      if (!isENOENT(error)) {
+        throw error;
       }
     }
 
@@ -41,7 +56,13 @@ export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: str
     await writeFile(tempPath, processed);
     await rename(tempPath, outPath).catch(async () => {
       // Race: another request wrote it first.
-      await readFile(outPath);
+      try {
+        await readFile(outPath);
+      } catch (error) {
+        if (!isENOENT(error)) {
+          throw error;
+        }
+      }
     });
     return processed;
   }
