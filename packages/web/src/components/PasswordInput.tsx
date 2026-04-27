@@ -26,6 +26,11 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
+  const getRequirementStateLabel = (rule: string, isMet: boolean) =>
+    t("passwordRequirementStateLabel", {
+      rule,
+      status: t(isMet ? "passwordRequirementMet" : "passwordRequirementNotMet"),
+    });
   const strength = useMemo(() => {
     if (!showStrengthFeedback) {
       return null;
@@ -87,19 +92,34 @@ export function PasswordInput({
           <div id={`${id}-requirements`}>
             <p className="text-sm text-dim mt-1">{t("passwordRequiredLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequiredLabel")}>
-              <li role="checkbox" aria-checked={strength.checks.minLength} className={strength.checks.minLength ? "is-met" : ""}>
+              <li
+                className={strength.checks.minLength ? "is-met" : ""}
+                aria-label={getRequirementStateLabel(
+                  t("passwordRuleMinLength", { min: PASSWORD_MIN_LENGTH }),
+                  strength.checks.minLength
+                )}
+              >
                 {t("passwordRuleMinLength", { min: PASSWORD_MIN_LENGTH })}
               </li>
             </ul>
             <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordTipsLabel")}>
-              <li role="checkbox" aria-checked={strength.checks.mixedCase} className={strength.checks.mixedCase ? "is-met" : ""}>
+              <li
+                className={strength.checks.mixedCase ? "is-met" : ""}
+                aria-label={getRequirementStateLabel(t("passwordRuleMixedCase"), strength.checks.mixedCase)}
+              >
                 {t("passwordRuleMixedCase")}
               </li>
-              <li role="checkbox" aria-checked={strength.checks.number} className={strength.checks.number ? "is-met" : ""}>
+              <li
+                className={strength.checks.number ? "is-met" : ""}
+                aria-label={getRequirementStateLabel(t("passwordRuleNumber"), strength.checks.number)}
+              >
                 {t("passwordRuleNumber")}
               </li>
-              <li role="checkbox" aria-checked={strength.checks.symbol} className={strength.checks.symbol ? "is-met" : ""}>
+              <li
+                className={strength.checks.symbol ? "is-met" : ""}
+                aria-label={getRequirementStateLabel(t("passwordRuleSymbol"), strength.checks.symbol)}
+              >
                 {t("passwordRuleSymbol")}
               </li>
             </ul>

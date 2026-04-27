@@ -8,7 +8,21 @@ import * as passwordStrength from "../lib/passwordStrength";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, options?: { rule?: string; status?: string }) => {
+      if (key === "passwordRequirementMet") {
+        return "met";
+      }
+
+      if (key === "passwordRequirementNotMet") {
+        return "not met";
+      }
+
+      if (key === "passwordRequirementStateLabel") {
+        return `${options?.rule} - ${options?.status}`;
+      }
+
+      return key;
+    },
   }),
 }));
 
@@ -62,10 +76,14 @@ describe("PasswordInput", () => {
     expect(status.getAttribute("aria-atomic")).toBe("true");
     expect(status.parentElement?.getAttribute("aria-live")).toBeNull();
 
-    expect(screen.getByRole("checkbox", { name: "passwordRuleMinLength" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleMixedCase" }).getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleNumber" }).getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleSymbol" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("checkbox", { name: "passwordRuleMinLength" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "passwordRuleMixedCase" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "passwordRuleNumber" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "passwordRuleSymbol" })).toBeNull();
+    expect(screen.getByRole("listitem", { name: "passwordRuleMinLength - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleMixedCase - not met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleNumber - not met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - not met" })).toBeTruthy();
 
     rerender(
       <PasswordInput
@@ -77,10 +95,10 @@ describe("PasswordInput", () => {
     );
 
     expect(screen.getByText("passwordStrength.strong")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "passwordRuleMinLength" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleMixedCase" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleNumber" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("checkbox", { name: "passwordRuleSymbol" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("listitem", { name: "passwordRuleMinLength - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleMixedCase - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleNumber - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - met" })).toBeTruthy();
   });
 
   it("does not fill strength meter segments when minimum length is not met", () => {
