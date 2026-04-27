@@ -1,0 +1,99 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import sharp from "sharp";
+import { initDatabase, type DB } from "../src/db.js";
+import { authRoutes } from "../src/routes/auth.js";
+import { uploadRoutes } from "../src/routes/uploads.js";
+import { serveUploadsRoutes } from "../src/routes/serve-uploads.js";
+import { UPLOAD_DIR } from "../src/lib/paths.js";
+
+function makeApp(db: DB, user: { id: string; username: string } | null = null) {
+  const app = new Hono();
+  app.use("/api/v1/uploads*", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) }));
+  const defaultApiBodyLimit = bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) });
+  app.use("/api/*", async (c, next) => {
+    if (c.req.path.startsWith("/api/v1/uploads")) {
+      await next();
+      return;
+    }
+    return defaultApiBodyLimit(c, next);
+  });
+  app.use("*", async (c, next) => {
+    if (user) c.set("user", user);
+    await next();
+  });
+  app.route("/api/v1/auth", authRoutes(db));
+  app.route("/api/v1/uploads", uploadRoutes());
+  app.route("/uploads", serveUploadsRoutes());
+  return app;
+}
+
+describe("uploads routes", () => {
+  let db: DB;
+
+  beforeEach(() => {
+    process.env.OPEN_REGISTRATIONS = "true";
+    db = initDatabase(":memory:");
+  });
+
+  it("keeps upload source bytes unchanged across repeated reads", async () => {
+    mkdirSync(UPLOAD_DIR, { recursive: true });
+    const filename = "idempotent-test.png";
+    const filePath = join(UPLOAD_DIR, filename);
+    const derivativePath = join(UPLOAD_DIR, ".derived", `${filename}.jpg`);
+    const derivativeDir = join(UPLOAD_DIR, ".derived");
+    const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: { r: 0, g: 120, b: 240, alpha: 1 } } }).png().toBuffer();
+    writeFileSync(filePath, source);
+
+    const app = makeApp(db);
+    const before = readFileSync(filePath);
+    const first = await app.request(`http://localhost/uploads/${filename}`);
+    const second = await app.request(`http://localhost/uploads/${filename}`);
+    const after = readFileSync(filePath);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("image/jpeg");
+    expect(Buffer.compare(before, after)).toBe(0);
+
+    rmSync(filePath, { force: true });
+    rmSync(derivativePath, { force: true });
+    try {
+      rmSync(derivativeDir);
+    } catch {}
+  });
+
+  it("allows uploads above 1MB while keeping 1MB default API limit", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u7", "gina");
+    const app = makeApp(db, { id: "u7", username: "gina" });
+
+    const width = 900;
+    const height = 900;
+    const raw = Buffer.alloc(width * height * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
+    const image = await sharp(raw, { raw: { width, height, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    expect(image.length).toBeGreaterThan(1024 * 1024);
+    expect(image.length).toBeLessThan(6 * 1024 * 1024);
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "big.png", { type: "image/png" }));
+    const uploadRes = await app.request("http://localhost/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+    });
+    expect(uploadRes.status).toBe(201);
+
+    const tooLargeJson = JSON.stringify({ username: "x", password: "y".repeat(1024 * 1024) });
+    const authRes = await app.request("http://localhost/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: tooLargeJson,
+    });
+    expect(authRes.status).toBe(413);
+  });
+});
