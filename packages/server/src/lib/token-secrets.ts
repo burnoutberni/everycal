@@ -12,8 +12,14 @@ export function storeHashedToken(
   tokenIndex: number,
 ): void {
   const args = [...params];
+  if (!Number.isInteger(tokenIndex) || tokenIndex < 0 || tokenIndex >= args.length) {
+    throw new Error(`tokenIndex ${tokenIndex} out of range for ${args.length} params`);
+  }
   const raw = args[tokenIndex];
-  if (typeof raw !== "string") throw new Error("Token parameter must be a string");
+  if (typeof raw !== "string") {
+    const receivedType = raw === null ? "null" : typeof raw;
+    throw new Error(`Token parameter at index ${tokenIndex} must be a string (got ${receivedType})`);
+  }
   args[tokenIndex] = hashTokenSecret(raw);
   db.prepare(sql).run(...args);
 }
