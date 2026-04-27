@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import {
   isValidHttpUrl,
   isValidIdentityHandle,
+  PASSWORD_MIN_LENGTH,
+  meetsPasswordMinLength,
   normalizeHttpUrlInput,
   normalizeHandle,
 } from "@everycal/core";
@@ -940,7 +942,7 @@ export function SettingsPage() {
       setPasswordChangeError(t("passwordsDoNotMatch"));
       return;
     }
-    if (newPassword.length < 8) {
+    if (!meetsPasswordMinLength(newPassword, PASSWORD_MIN_LENGTH)) {
       setPasswordChangeError(t("passwordMinLength"));
       return;
     }

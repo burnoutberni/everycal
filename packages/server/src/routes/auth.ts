@@ -20,6 +20,7 @@ import { stripHtml, sanitizeHtml, isValidHttpUrl, normalizeHttpUrlInput } from "
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
@@ -108,10 +109,10 @@ export function authRoutes(db: DB): Hono {
       if (!body.password || typeof body.password !== "string") {
         return c.json({ error: t(getLocale(c), "auth.password_required") }, 400);
       }
-      if (body.password.length < 8) {
+      if (!meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
         return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
       }
-    } else if (body.password !== undefined && body.password.length > 0 && body.password.length < 8) {
+    } else if (body.password !== undefined && body.password.length > 0 && !meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
       return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
     }
 
@@ -293,7 +294,7 @@ export function authRoutes(db: DB): Hono {
     if (!body.currentPassword || !body.newPassword) {
       return c.json({ error: t(getLocale(c), "auth.current_and_new_password_required") }, 400);
     }
-    if (body.newPassword.length < 8) {
+    if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
       return c.json({ error: t(getLocale(c), "auth.new_password_min_length") }, 400);
     }
 
@@ -440,7 +441,7 @@ export function authRoutes(db: DB): Hono {
     if (!body.token || !body.newPassword) {
       return c.json({ error: t(getLocale(c), "auth.token_and_password_required") }, 400);
     }
-    if (body.newPassword.length < 8) {
+    if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
       return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
     }
 

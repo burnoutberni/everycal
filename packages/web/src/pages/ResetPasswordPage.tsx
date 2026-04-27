@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { Link, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { auth as authApi } from "../lib/api";
@@ -23,7 +24,7 @@ export function ResetPasswordPage() {
       setError(t("passwordsDoNotMatch"));
       return;
     }
-    if (password.length < 8) {
+    if (!meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH)) {
       setError(t("passwordMinLength"));
       return;
     }
@@ -88,7 +89,7 @@ export function ResetPasswordPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             autoFocus
             showStrengthFeedback
           />
@@ -101,7 +102,7 @@ export function ResetPasswordPage() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
           />
         </div>
         {error && <p className="error-text mb-2">{error}</p>}

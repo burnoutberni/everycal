@@ -1,5 +1,6 @@
 const REGISTRATION_USERNAME_PATTERN = /^[a-z0-9_]{2,40}$/;
 const IDENTITY_HANDLE_PATTERN = /^[a-z0-9_]{2,40}$/;
+export const PASSWORD_MIN_LENGTH = 8;
 const IPV4_OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
 const IPV4_PATTERN = new RegExp(`^(?:${IPV4_OCTET}\\.){3}${IPV4_OCTET}$`);
 
@@ -62,6 +63,10 @@ export function isValidIdentityHandle(username: string): boolean {
   if (username.includes("@")) return false;
   if (/\s/.test(username)) return false;
   return IDENTITY_HANDLE_PATTERN.test(username);
+}
+
+export function meetsPasswordMinLength(password: string, minLength = PASSWORD_MIN_LENGTH): boolean {
+  return password.length >= minLength;
 }
 
 export function normalizeHttpUrlInput(input: string): string {

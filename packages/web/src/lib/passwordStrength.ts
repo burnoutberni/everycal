@@ -1,3 +1,5 @@
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
+
 export type PasswordStrengthLevel = "weak" | "fair" | "good" | "strong";
 
 export type PasswordStrengthResult = {
@@ -13,7 +15,7 @@ export type PasswordStrengthResult = {
 
 export function evaluatePasswordStrength(password: string): PasswordStrengthResult {
   const checks = {
-    minLength: password.length >= 8,
+    minLength: meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH),
     mixedCase: /[a-z]/.test(password) && /[A-Z]/.test(password),
     number: /\d/.test(password),
     symbol: /[^A-Za-z0-9]/.test(password),
