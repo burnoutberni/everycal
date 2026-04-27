@@ -91,7 +91,7 @@ describe("account timezone/locale defaults", () => {
       .run("u-token", hashTokenSecret("reset-token"), "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)")
-      .run("u-token", "updated@example.com", "change-token", "2026-04-27T09:30:00.000Z");
+      .run("u-token", "updated@example.com", hashTokenSecret("change-token"), "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)")
       .run("session-token", "u-token", "2026-04-27T09:30:00.000Z");
