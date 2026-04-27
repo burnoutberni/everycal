@@ -100,8 +100,11 @@ function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
 }
 
 function regenerateCalendarFeedToken(db: DB, accountId: string): string {
-  db.prepare("UPDATE accounts SET calendar_feed_token_version = calendar_feed_token_version + 1 WHERE id = ?").run(accountId);
-  db.prepare("DELETE FROM calendar_feed_tokens WHERE account_id = ?").run(accountId);
+  const rotate = db.transaction((id: string) => {
+    db.prepare("UPDATE accounts SET calendar_feed_token_version = calendar_feed_token_version + 1 WHERE id = ?").run(id);
+    db.prepare("DELETE FROM calendar_feed_tokens WHERE account_id = ?").run(id);
+  });
+  rotate(accountId);
   return getOrCreateCalendarFeedToken(db, accountId);
 }
 

@@ -249,6 +249,32 @@ describe("feed CORS policy", () => {
     const newFeed = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(rotatedToken!)}`);
     expect(newFeed.status).toBe(200);
   });
+
+  it("rolls back token version bump if legacy token cleanup fails", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("legacy-token"));
+    db.exec(`
+      CREATE TRIGGER deny_calendar_feed_token_delete
+      BEFORE DELETE ON calendar_feed_tokens
+      BEGIN
+        SELECT RAISE(FAIL, 'delete denied for test');
+      END;
+    `);
+    const { token } = createSession(db, "u1");
+
+    const regenerateRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url/regenerate", {
+      method: "POST",
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(regenerateRes.status).toBe(500);
+
+    const account = db
+      .prepare("SELECT calendar_feed_token_version FROM accounts WHERE id = ?")
+      .get("u1") as { calendar_feed_token_version: number };
+    expect(account.calendar_feed_token_version).toBe(1);
+  });
 });
 
 describe("public feed visibility", () => {
