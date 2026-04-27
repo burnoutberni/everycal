@@ -329,6 +329,10 @@ label {
   color: var(--text);
 }
 
+.password-visibility-toggle:focus-visible {
+  outline: none;
+}
+
 .password-strength-feedback {
   margin-top: 0.35rem;
 }
