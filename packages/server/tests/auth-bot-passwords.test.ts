@@ -183,6 +183,52 @@ describe("auth bot password restrictions", () => {
     expect(account.password_hash).toBe(oldHash);
   });
 
+  it("rejects change-password when currentPassword is non-string", async () => {
+    const oldHash = hashPassword("old-person-password");
+    db.prepare("INSERT INTO accounts (id, username, password_hash, is_bot) VALUES (?, ?, ?, ?)").run(
+      "person-change-1",
+      "person_change_1",
+      oldHash,
+      0
+    );
+
+    const app = makeApp(db, { id: "person-change-1", username: "person_change_1" });
+    const res = await app.request("http://localhost/api/v1/auth/change-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: { value: "old-person-password" }, newPassword: "new-strong-password" }),
+    });
+
+    expect(res.status).toBe(400);
+    const account = db.prepare("SELECT password_hash FROM accounts WHERE id = ?").get("person-change-1") as {
+      password_hash: string;
+    };
+    expect(account.password_hash).toBe(oldHash);
+  });
+
+  it("rejects change-password when newPassword is non-string", async () => {
+    const oldHash = hashPassword("old-person-password");
+    db.prepare("INSERT INTO accounts (id, username, password_hash, is_bot) VALUES (?, ?, ?, ?)").run(
+      "person-change-2",
+      "person_change_2",
+      oldHash,
+      0
+    );
+
+    const app = makeApp(db, { id: "person-change-2", username: "person_change_2" });
+    const res = await app.request("http://localhost/api/v1/auth/change-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: "old-person-password", newPassword: true }),
+    });
+
+    expect(res.status).toBe(400);
+    const account = db.prepare("SELECT password_hash FROM accounts WHERE id = ?").get("person-change-2") as {
+      password_hash: string;
+    };
+    expect(account.password_hash).toBe(oldHash);
+  });
+
   it("still allows password login for non-bot accounts", async () => {
     db.prepare(
       "INSERT INTO accounts (id, username, password_hash, email_verified, is_bot) VALUES (?, ?, ?, ?, ?)"

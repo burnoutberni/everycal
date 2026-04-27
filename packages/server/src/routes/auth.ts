@@ -291,9 +291,14 @@ export function authRoutes(db: DB): Hono {
   // Change password (logged-in user)
   router.post("/change-password", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ currentPassword?: string; newPassword?: string }>();
+    const body = await c.req.json<{ currentPassword?: unknown; newPassword?: unknown }>();
 
-    if (!body.currentPassword || !body.newPassword) {
+    if (
+      typeof body.currentPassword !== "string" ||
+      typeof body.newPassword !== "string" ||
+      !body.currentPassword ||
+      !body.newPassword
+    ) {
       return c.json({ error: t(getLocale(c), "auth.current_and_new_password_required") }, 400);
     }
     if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
