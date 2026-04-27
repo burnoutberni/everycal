@@ -134,6 +134,62 @@ describe("api hardening and pagination", () => {
     expect(ids).toEqual(["l1", "l2", "r1"]);
   });
 
+  it("applies merged offset pagination without loading a single source only", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u40", "local-a");
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u41", "local-b");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote/users/off", "off", "https://remote/inbox", "remote");
+
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("l1", "u40", "l1", "Local1", "2026-02-01", "2026-02-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("l2", "u41", "l2", "Local2", "2026-02-02", "2026-02-02T00:00:00.000Z");
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("r1", "https://remote/users/off", "Remote1", "2026-02-03", "2026-02-03T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("l3", "u40", "l3", "Local3", "2026-02-04", "2026-02-04T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("l4", "u41", "l4", "Local4", "2026-02-05", "2026-02-05T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("l5", "u40", "l5", "Local5", "2026-02-06", "2026-02-06T00:00:00.000Z");
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events?limit=2&offset=4");
+    const body = await res.json() as { events: Array<{ id: string }> };
+
+    expect(res.status).toBe(200);
+    expect(body.events.map((event) => event.id)).toEqual(["l4", "l5"]);
+  });
+
+  it("paginates timeline local+remote events without duplicates across cursor pages", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("local-author", "local-author");
+    db.prepare("INSERT INTO follows (follower_id, following_id) VALUES (?, ?)").run("viewer", "local-author");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote/users/timeline", "timeline", "https://remote/inbox", "remote");
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("viewer", "https://remote/users/timeline", "https://remote/inbox");
+
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("t-local-1", "local-author", "t-local-1", "Timeline Local 1", "2026-07-01", "2026-07-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("t-local-2", "local-author", "t-local-2", "Timeline Local 2", "2026-07-02", "2026-07-02T00:00:00.000Z");
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("t-remote-1", "https://remote/users/timeline", "Timeline Remote 1", "2026-07-03", "2026-07-03T00:00:00.000Z");
+
+    const app = makeApp(db, { id: "viewer", username: "viewer" });
+    const first = await app.request("http://localhost/api/v1/events/timeline?limit=2&from=2026-06-01T00:00:00.000Z");
+    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const second = await app.request(`http://localhost/api/v1/events/timeline?limit=2&from=2026-06-01T00:00:00.000Z&cursor=${encodeURIComponent(firstBody.nextCursor || "")}`);
+    const secondBody = await second.json() as { events: Array<{ id: string }> };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const ids = [...firstBody.events, ...secondBody.events].map((event) => event.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(["t-local-1", "t-local-2", "t-remote-1"]);
+  });
+
   it("keeps upload source bytes unchanged across repeated reads", async () => {
     mkdirSync(UPLOAD_DIR, { recursive: true });
     const filename = "idempotent-test.png";
