@@ -13,9 +13,9 @@ export type PasswordStrengthResult = {
   };
 };
 
-export function evaluatePasswordStrength(password: string): PasswordStrengthResult {
+export function evaluatePasswordStrength(password: string, minLength = PASSWORD_MIN_LENGTH): PasswordStrengthResult {
   const checks = {
-    minLength: meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH),
+    minLength: meetsPasswordMinLength(password, minLength),
     mixedCase: /\p{Ll}/u.test(password) && /\p{Lu}/u.test(password),
     number: /\p{Nd}/u.test(password),
     symbol: /[^\p{L}\p{M}\p{N}\s]/u.test(password),

@@ -51,4 +51,11 @@ describe("evaluatePasswordStrength", () => {
     const result = evaluatePasswordStrength("PasswordÄ1");
     expect(result.checks.symbol).toBe(false);
   });
+
+  it("supports a custom minimum length", () => {
+    const result = evaluatePasswordStrength("Password1!", 12);
+    expect(result.level).toBe("weak");
+    expect(result.score).toBe(0);
+    expect(result.checks.minLength).toBe(false);
+  });
 });

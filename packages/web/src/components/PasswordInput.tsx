@@ -28,6 +28,7 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
+  const resolvedMinLength = minLength ?? PASSWORD_MIN_LENGTH;
   const getRequirementStateLabel = (rule: string, isMet: boolean) =>
     t("passwordRequirementStateLabel", {
       rule,
@@ -38,8 +39,8 @@ export function PasswordInput({
       return null;
     }
 
-    return evaluatePasswordStrength(value);
-  }, [showStrengthFeedback, value]);
+    return evaluatePasswordStrength(value, resolvedMinLength);
+  }, [resolvedMinLength, showStrengthFeedback, value]);
 
   const strengthText = useMemo(() => {
     if (!showStrengthFeedback || strength === null) {
@@ -97,11 +98,11 @@ export function PasswordInput({
               <li
                 className={strength.checks.minLength ? "is-met" : ""}
                 aria-label={getRequirementStateLabel(
-                  t("passwordRuleMinLength", { min: PASSWORD_MIN_LENGTH }),
+                  t("passwordRuleMinLength", { min: resolvedMinLength }),
                   strength.checks.minLength
                 )}
               >
-                {t("passwordRuleMinLength", { min: PASSWORD_MIN_LENGTH })}
+                {t("passwordRuleMinLength", { min: resolvedMinLength })}
               </li>
             </ul>
             <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>

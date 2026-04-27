@@ -8,7 +8,7 @@ import * as passwordStrength from "../lib/passwordStrength";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { rule?: string; status?: string }) => {
+    t: (key: string, options?: { min?: number; rule?: string; status?: string }) => {
       if (key === "passwordRequirementMet") {
         return "met";
       }
@@ -19,6 +19,10 @@ vi.mock("react-i18next", () => ({
 
       if (key === "passwordRequirementStateLabel") {
         return `${options?.rule} - ${options?.status}`;
+      }
+
+      if (key === "passwordRuleMinLength") {
+        return `${key}:${options?.min}`;
       }
 
       return key;
@@ -94,7 +98,7 @@ describe("PasswordInput", () => {
     expect(screen.queryByRole("checkbox", { name: "passwordRuleMixedCase" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "passwordRuleNumber" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "passwordRuleSymbol" })).toBeNull();
-    expect(screen.getByRole("listitem", { name: "passwordRuleMinLength - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: `passwordRuleMinLength:${PASSWORD_MIN_LENGTH} - met` })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleMixedCase - not met" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleNumber - not met" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - not met" })).toBeTruthy();
@@ -109,7 +113,7 @@ describe("PasswordInput", () => {
     );
 
     expect(screen.getByText("passwordStrength.strong")).toBeTruthy();
-    expect(screen.getByRole("listitem", { name: "passwordRuleMinLength - met" })).toBeTruthy();
+    expect(screen.getByRole("listitem", { name: `passwordRuleMinLength:${PASSWORD_MIN_LENGTH} - met` })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleMixedCase - met" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleNumber - met" })).toBeTruthy();
     expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - met" })).toBeTruthy();
@@ -163,6 +167,26 @@ describe("PasswordInput", () => {
     );
 
     expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("uses provided minLength for evaluator and requirement label", () => {
+    const customMinLength = PASSWORD_MIN_LENGTH + 4;
+    const spy = vi.spyOn(passwordStrength, "evaluatePasswordStrength");
+
+    render(
+      <PasswordInput
+        id="password"
+        value="Password1!"
+        onChange={() => {}}
+        minLength={customMinLength}
+        showStrengthFeedback
+      />
+    );
+
+    expect(spy).toHaveBeenCalledWith("Password1!", customMinLength);
+    expect(screen.getByRole("listitem", { name: `passwordRuleMinLength:${customMinLength} - not met` })).toBeTruthy();
+
     spy.mockRestore();
   });
 });
