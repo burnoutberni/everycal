@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { isValidHttpUrl } from "./validators";
+import { PASSWORD_MIN_LENGTH, isValidHttpUrl, meetsPasswordMinLength } from "./validators";
+
+describe("meetsPasswordMinLength", () => {
+  it("enforces the default minimum length", () => {
+    expect(meetsPasswordMinLength("a".repeat(PASSWORD_MIN_LENGTH - 1))).toBe(false);
+    expect(meetsPasswordMinLength("a".repeat(PASSWORD_MIN_LENGTH))).toBe(true);
+  });
+
+  it("supports custom minimum lengths", () => {
+    expect(meetsPasswordMinLength("abcdef", 6)).toBe(true);
+    expect(meetsPasswordMinLength("abcde", 6)).toBe(false);
+  });
+});
 
 describe("isValidHttpUrl", () => {
   it("rejects localhost and private addresses by default", () => {

@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { Link, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { auth as authApi } from "../lib/api";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function ResetPasswordPage() {
   const { t } = useTranslation("auth");
@@ -22,8 +24,8 @@ export function ResetPasswordPage() {
       setError(t("passwordsDoNotMatch"));
       return;
     }
-    if (password.length < 8) {
-      setError(t("passwordMinLength"));
+    if (!meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH)) {
+      setError(t("passwordMinLength", { min: PASSWORD_MIN_LENGTH }));
       return;
     }
     if (!token) {
@@ -81,28 +83,26 @@ export function ResetPasswordPage() {
       <form onSubmit={handleSubmit} className="card">
         <div className="field">
           <label htmlFor="password">{t("newPassword")}</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={PASSWORD_MIN_LENGTH}
             autoComplete="new-password"
             required
-            minLength={8}
             autoFocus
+            showStrengthFeedback
           />
-          <p className="text-sm text-dim mt-1">{t("atLeast8Chars")}</p>
         </div>
         <div className="field">
           <label htmlFor="confirmPassword">{t("confirmPassword")}</label>
-          <input
+          <PasswordInput
             id="confirmPassword"
-            type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
+            minLength={PASSWORD_MIN_LENGTH}
             autoComplete="new-password"
             required
-            minLength={8}
           />
         </div>
         {error && <p className="error-text mb-2">{error}</p>}

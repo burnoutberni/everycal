@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function RegisterPage() {
   const { t } = useTranslation("auth");
@@ -27,6 +29,10 @@ export function RegisterPage() {
     setError("");
     if (!city) {
       setError(t("pleaseSelectCity"));
+      return;
+    }
+    if (!meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH)) {
+      setError(t("passwordMinLength", { min: PASSWORD_MIN_LENGTH }));
       return;
     }
     setLoading(true);
@@ -95,16 +101,15 @@ export function RegisterPage() {
         </div>
         <div className="field">
           <label htmlFor="password">{t("password")}</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            minLength={PASSWORD_MIN_LENGTH}
             autoComplete="new-password"
             required
-            minLength={8}
+            showStrengthFeedback
           />
-          <p className="text-sm text-dim mt-1">{t("atLeast8Chars")}</p>
         </div>
         <div className="field">
           <label htmlFor="city">{t("cityRequired")}</label>

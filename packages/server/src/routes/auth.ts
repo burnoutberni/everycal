@@ -20,6 +20,7 @@ import { stripHtml, sanitizeHtml, isValidHttpUrl, normalizeHttpUrlInput } from "
 import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEmailChangeVerificationEmail } from "../lib/email.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
+import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
@@ -103,16 +104,18 @@ export function authRoutes(db: DB): Hono {
       }
     }
 
-    // Password required for non-bots; optional for bots (API-key-only)
-    if (!isBot) {
+    // Password required for non-bots; bots must remain API-key-only.
+    if (isBot) {
+      if (body.password !== undefined) {
+        return c.json({ error: t(getLocale(c), "auth.bot_password_not_allowed") }, 400);
+      }
+    } else {
       if (!body.password || typeof body.password !== "string") {
         return c.json({ error: t(getLocale(c), "auth.password_required") }, 400);
       }
-      if (body.password.length < 8) {
-        return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
+      if (!meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
+        return c.json({ error: t(getLocale(c), "auth.password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
       }
-    } else if (body.password !== undefined && body.password.length > 0 && body.password.length < 8) {
-      return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
     }
 
     const existing = db.prepare("SELECT id FROM accounts WHERE username = ?").get(username);
@@ -128,7 +131,7 @@ export function authRoutes(db: DB): Hono {
     }
 
     const id = nanoid(16);
-    const passwordHash = body.password ? hashPassword(body.password) : null;
+    const passwordHash = isBot ? null : hashPassword(body.password as string);
 
     db.prepare(
       `INSERT INTO accounts (
@@ -170,10 +173,10 @@ export function authRoutes(db: DB): Hono {
 
     // Human: send verification email, no session
     const token = nanoid(48);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.prepare(
-      `INSERT INTO email_verification_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
-    ).run(id, token, expiresAt);
+      `INSERT INTO email_verification_tokens (account_id, token, expires_at)
+       VALUES (?, ?, datetime('now', '+1 day'))`
+    ).run(id, token);
 
     await sendVerificationEmail(email!, token, getLocale(c));
 
@@ -273,12 +276,11 @@ export function authRoutes(db: DB): Hono {
     }
 
     const token = nanoid(48);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
     db.prepare("DELETE FROM email_change_requests WHERE account_id = ?").run(user.id);
     db.prepare(
-      `INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)`
-    ).run(user.id, newEmail, token, expiresAt);
+      `INSERT INTO email_change_requests (account_id, new_email, token, expires_at)
+       VALUES (?, ?, ?, datetime('now', '+1 day'))`
+    ).run(user.id, newEmail, token);
 
     await sendEmailChangeVerificationEmail(newEmail, token, getLocale(c));
 
@@ -288,18 +290,27 @@ export function authRoutes(db: DB): Hono {
   // Change password (logged-in user)
   router.post("/change-password", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ currentPassword?: string; newPassword?: string }>();
+    const body = await c.req.json<{ currentPassword?: unknown; newPassword?: unknown }>();
 
-    if (!body.currentPassword || !body.newPassword) {
+    if (
+      typeof body.currentPassword !== "string" ||
+      typeof body.newPassword !== "string" ||
+      !body.currentPassword ||
+      !body.newPassword
+    ) {
       return c.json({ error: t(getLocale(c), "auth.current_and_new_password_required") }, 400);
     }
-    if (body.newPassword.length < 8) {
-      return c.json({ error: t(getLocale(c), "auth.new_password_min_length") }, 400);
+    if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
+      return c.json({ error: t(getLocale(c), "auth.new_password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
     }
 
     const row = db
-      .prepare("SELECT password_hash FROM accounts WHERE id = ?")
-      .get(user.id) as { password_hash: string | null } | undefined;
+      .prepare("SELECT password_hash, is_bot FROM accounts WHERE id = ?")
+      .get(user.id) as { password_hash: string | null; is_bot: number } | undefined;
+
+    if (row?.is_bot) {
+      return c.json({ error: t(getLocale(c), "auth.bot_password_not_allowed") }, 400);
+    }
 
     if (!row || !row.password_hash) {
       return c.json({ error: t(getLocale(c), "auth.no_password_set") }, 400);
@@ -321,7 +332,7 @@ export function authRoutes(db: DB): Hono {
   router.post("/login", async (c) => {
     const body = await c.req.json<{ username: string; password: string }>();
 
-    if (!body.username || !body.password) {
+    if (typeof body.username !== "string" || typeof body.password !== "string" || !body.username || !body.password) {
       return c.json({ error: t(getLocale(c), "auth.username_password_required") }, 400);
     }
 
@@ -338,7 +349,7 @@ export function authRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified, theme_preference FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -348,10 +359,11 @@ export function authRoutes(db: DB): Hono {
           password_hash: string | null;
           email_verified: number;
           theme_preference: string | null;
+          is_bot: number;
         }
       | undefined;
 
-    if (!row || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
+    if (!row || row.is_bot || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
       recordFailedLogin(db, normalizedUsername);
       return c.json({ error: t(getLocale(c), "auth.invalid_username_password") }, 401);
     }
@@ -419,15 +431,15 @@ export function authRoutes(db: DB): Hono {
     }
 
     const row = db
-      .prepare("SELECT id, username FROM accounts WHERE email = ? AND email_verified = 1")
+      .prepare("SELECT id, username FROM accounts WHERE email = ? AND email_verified = 1 AND is_bot = 0")
       .get(email) as { id: string; username: string } | undefined;
 
     if (row) {
       const token = nanoid(48);
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
       db.prepare(
-        `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
-      ).run(row.id, token, expiresAt);
+        `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at)
+         VALUES (?, ?, datetime('now', '+1 hour'))`
+      ).run(row.id, token);
       await sendPasswordResetEmail(email, token, getLocale(c));
     }
 
@@ -436,22 +448,28 @@ export function authRoutes(db: DB): Hono {
 
   // Reset password
   router.post("/reset-password", async (c) => {
-    const body = await c.req.json<{ token?: string; newPassword?: string }>();
-    if (!body.token || !body.newPassword) {
+    const body = await c.req.json<{ token?: unknown; newPassword?: unknown }>();
+    if (
+      typeof body.token !== "string" ||
+      typeof body.newPassword !== "string" ||
+      !body.token ||
+      !body.newPassword
+    ) {
       return c.json({ error: t(getLocale(c), "auth.token_and_password_required") }, 400);
     }
-    if (body.newPassword.length < 8) {
-      return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
+    if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
+      return c.json({ error: t(getLocale(c), "auth.password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
     }
 
     const row = db
       .prepare(
-        `SELECT prt.account_id FROM password_reset_tokens prt
+        `SELECT prt.account_id, a.is_bot FROM password_reset_tokens prt
+         JOIN accounts a ON a.id = prt.account_id
          WHERE prt.token = ? AND prt.expires_at > datetime('now')`
       )
-      .get(body.token) as { account_id: string } | undefined;
+      .get(body.token) as { account_id: string; is_bot: number } | undefined;
 
-    if (!row) {
+    if (!row || row.is_bot) {
       return c.json({ error: t(getLocale(c), "auth.invalid_reset_link") }, 400);
     }
 

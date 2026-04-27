@@ -353,6 +353,38 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 3,
+    name: "bot_accounts_passwordless_only",
+    up: (db) => {
+      db.exec("UPDATE accounts SET password_hash = NULL WHERE is_bot = 1");
+      db.exec(
+        "DELETE FROM password_reset_tokens WHERE account_id IN (SELECT id FROM accounts WHERE is_bot = 1)"
+      );
+    },
+  },
+  {
+    version: 4,
+    name: "normalize_token_expiry_format",
+    up: (db) => {
+      db.exec(
+        "UPDATE email_verification_tokens SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+      db.exec(
+        "UPDATE password_reset_tokens SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+      db.exec(
+        "UPDATE email_change_requests SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+    },
+  },
+  {
+    version: 5,
+    name: "normalize_session_expiry_format",
+    up: (db) => {
+      db.exec("UPDATE sessions SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 5;

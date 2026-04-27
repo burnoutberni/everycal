@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import {
   isValidHttpUrl,
   isValidIdentityHandle,
+  PASSWORD_MIN_LENGTH,
+  meetsPasswordMinLength,
   normalizeHttpUrlInput,
   normalizeHandle,
 } from "@everycal/core";
@@ -23,6 +25,7 @@ import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { TimezonePicker } from "../components/TimezonePicker";
 import { UserIcon, LockIcon, CalendarIcon, BellIcon, KeyIcon, TrashIcon, PenIcon } from "../components/icons";
+import { PasswordInput } from "../components/PasswordInput";
 import { profilePath } from "../lib/urls";
 import { changeLanguage } from "../i18n";
 import { validateAvatarUpload } from "../lib/avatarUpload";
@@ -939,8 +942,8 @@ export function SettingsPage() {
       setPasswordChangeError(t("passwordsDoNotMatch"));
       return;
     }
-    if (newPassword.length < 8) {
-      setPasswordChangeError(t("passwordMinLength"));
+    if (!meetsPasswordMinLength(newPassword, PASSWORD_MIN_LENGTH)) {
+      setPasswordChangeError(t("passwordMinLength", { min: PASSWORD_MIN_LENGTH }));
       return;
     }
     setChangingPassword(true);
@@ -1406,9 +1409,8 @@ export function SettingsPage() {
               <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>{t("passwordChange")}</h3>
               <div className="field">
                 <label htmlFor="currentPassword">{t("currentPassword")}</label>
-                <input
+                <PasswordInput
                   id="currentPassword"
-                  type="password"
                   value={currentPassword}
                   onChange={(e) => { setCurrentPassword(e.target.value); setPasswordChangeError(""); }}
                   autoComplete="current-password"
@@ -1416,21 +1418,22 @@ export function SettingsPage() {
               </div>
               <div className="field">
                 <label htmlFor="newPassword">{t("newPassword")}</label>
-                <input
+                <PasswordInput
                   id="newPassword"
-                  type="password"
                   value={newPassword}
                   onChange={(e) => { setNewPassword(e.target.value); setPasswordChangeError(""); }}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
+                  showStrengthFeedback
                 />
               </div>
               <div className="field">
                 <label htmlFor="confirmPassword">{t("confirmNewPassword")}</label>
-                <input
+                <PasswordInput
                   id="confirmPassword"
-                  type="password"
                   value={confirmPassword}
                   onChange={(e) => { setConfirmPassword(e.target.value); setPasswordChangeError(""); }}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
                 />
               </div>

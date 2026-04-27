@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function LoginPage() {
   const { t } = useTranslation("auth");
@@ -55,9 +56,8 @@ export function LoginPage() {
         </div>
         <div className="field">
           <label htmlFor="password">{t("password")}</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"

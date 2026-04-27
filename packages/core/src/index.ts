@@ -10,6 +10,8 @@ export {
   normalizeHandle,
   isValidRegistrationUsername,
   isValidIdentityHandle,
+  PASSWORD_MIN_LENGTH,
+  meetsPasswordMinLength,
   normalizeHttpUrlInput,
   isValidHttpUrl,
 } from "./validators.js";

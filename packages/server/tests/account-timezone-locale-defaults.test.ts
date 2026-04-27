@@ -73,6 +73,53 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("normalizes legacy ISO expiry timestamps during migration", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-token-expiry.sqlite");
+    const versioned = new Database(dbPath);
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 3)) {
+      migration.up(versioned);
+    }
+
+    versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-token", "u_token");
+    versioned
+      .prepare("INSERT INTO email_verification_tokens (account_id, token, expires_at) VALUES (?, ?, ?)")
+      .run("u-token", "verify-token", "2026-04-27T09:30:00.000Z");
+    versioned
+      .prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)")
+      .run("u-token", "reset-token", "2026-04-27T09:30:00.000Z");
+    versioned
+      .prepare("INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)")
+      .run("u-token", "updated@example.com", "change-token", "2026-04-27T09:30:00.000Z");
+    versioned
+      .prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)")
+      .run("session-token", "u-token", "2026-04-27T09:30:00.000Z");
+    versioned.pragma("user_version = 3");
+    versioned.close();
+
+    const reopened = initDatabase(dbPath);
+    const verification = reopened.prepare("SELECT expires_at FROM email_verification_tokens WHERE account_id = ?").get("u-token") as {
+      expires_at: string;
+    };
+    const reset = reopened.prepare("SELECT expires_at FROM password_reset_tokens WHERE account_id = ?").get("u-token") as {
+      expires_at: string;
+    };
+    const change = reopened.prepare("SELECT expires_at FROM email_change_requests WHERE account_id = ?").get("u-token") as {
+      expires_at: string;
+    };
+    const session = reopened.prepare("SELECT expires_at FROM sessions WHERE account_id = ?").get("u-token") as {
+      expires_at: string;
+    };
+
+    expect(verification.expires_at).toBe("2026-04-27 09:30:00");
+    expect(reset.expires_at).toBe("2026-04-27 09:30:00");
+    expect(change.expires_at).toBe("2026-04-27 09:30:00");
+    expect(session.expires_at).toBe("2026-04-27 09:30:00");
+    reopened.close();
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("fails startup when a required schema column is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "missing-column.sqlite");
