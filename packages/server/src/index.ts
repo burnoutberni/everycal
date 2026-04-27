@@ -80,10 +80,17 @@ app.use("/api/v1/uploads*", bodyLimit({
   maxSize: 6 * 1024 * 1024,
   onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
 }));
-app.use("/api/*", bodyLimit({
+const defaultApiBodyLimit = bodyLimit({
   maxSize: 1024 * 1024,
   onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
-}));
+});
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith("/api/v1/uploads")) {
+    await next();
+    return;
+  }
+  return defaultApiBodyLimit(c, next);
+});
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)
 const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http://localhost:5173")

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -7,6 +8,7 @@ import { initDatabase, type DB } from "../src/db.js";
 import { authRoutes } from "../src/routes/auth.js";
 import { eventRoutes } from "../src/routes/events.js";
 import { locationRoutes } from "../src/routes/locations.js";
+import { uploadRoutes } from "../src/routes/uploads.js";
 import { serveUploadsRoutes } from "../src/routes/serve-uploads.js";
 import { hashPassword } from "../src/middleware/auth.js";
 import { hashTokenSecret } from "../src/lib/token-secrets.js";
@@ -15,6 +17,15 @@ import { UPLOAD_DIR } from "../src/lib/paths.js";
 
 function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
+  app.use("/api/v1/uploads*", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) }));
+  const defaultApiBodyLimit = bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) });
+  app.use("/api/*", async (c, next) => {
+    if (c.req.path.startsWith("/api/v1/uploads")) {
+      await next();
+      return;
+    }
+    return defaultApiBodyLimit(c, next);
+  });
   app.use("*", async (c, next) => {
     if (user) c.set("user", user);
     await next();
@@ -22,6 +33,7 @@ function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   app.route("/api/v1/auth", authRoutes(db));
   app.route("/api/v1/events", eventRoutes(db));
   app.route("/api/v1/locations", locationRoutes(db));
+  app.route("/api/v1/uploads", uploadRoutes());
   app.route("/uploads", serveUploadsRoutes());
   return app;
 }
@@ -181,5 +193,36 @@ describe("api hardening and pagination", () => {
 
     const invalid = await app.request("http://localhost/?limit=-1");
     expect(invalid.status).toBe(400);
+  });
+
+  it("allows uploads above 1MB while keeping 1MB default API limit", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u7", "gina");
+    const app = makeApp(db, { id: "u7", username: "gina" });
+
+    const width = 900;
+    const height = 900;
+    const raw = Buffer.alloc(width * height * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
+    const image = await sharp(raw, { raw: { width, height, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    expect(image.length).toBeGreaterThan(1024 * 1024);
+    expect(image.length).toBeLessThan(6 * 1024 * 1024);
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "big.png", { type: "image/png" }));
+    const uploadRes = await app.request("http://localhost/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+    });
+    expect(uploadRes.status).toBe(201);
+
+    const tooLargeJson = JSON.stringify({ username: "x", password: "y".repeat(1024 * 1024) });
+    const authRes = await app.request("http://localhost/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: tooLargeJson,
+    });
+    expect(authRes.status).toBe(413);
   });
 });
