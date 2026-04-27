@@ -14,9 +14,9 @@ const MAX_DIMENSION = 2048; // Cap to prevent image bombs
 
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"]);
 
-export function serveUploadsRoutes(): Hono {
+export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
-  const DERIVATIVE_DIR = join(UPLOAD_DIR, ".derived");
+  const DERIVATIVE_DIR = join(uploadDir, ".derived");
 
   async function getOrCreateDerivative(filepath: string): Promise<Buffer> {
     await mkdir(DERIVATIVE_DIR, { recursive: true });
@@ -53,9 +53,9 @@ export function serveUploadsRoutes(): Hono {
       return c.notFound();
     }
 
-    const filepath = join(UPLOAD_DIR, filename);
+    const filepath = join(uploadDir, filename);
     const resolved = resolve(filepath);
-    const uploadDirResolved = resolve(UPLOAD_DIR);
+    const uploadDirResolved = resolve(uploadDir);
     if (!resolved.startsWith(uploadDirResolved) || resolved === uploadDirResolved) {
       return c.notFound();
     }

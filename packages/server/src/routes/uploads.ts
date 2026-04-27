@@ -24,7 +24,7 @@ const ALLOWED_EXTENSIONS: Record<string, string> = {
   ".avif": "image/avif",
 };
 
-export function uploadRoutes(): Hono {
+export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
 
   router.post("/", requireAuth(), async (c) => {
@@ -64,17 +64,17 @@ export function uploadRoutes(): Hono {
     }
 
     // Create upload directory
-    if (!existsSync(UPLOAD_DIR)) {
-      mkdirSync(UPLOAD_DIR, { recursive: true });
+    if (!existsSync(uploadDir)) {
+      mkdirSync(uploadDir, { recursive: true });
     }
 
     // Always use the validated extension, never trust the original filename
     const filename = `${nanoid(16)}${ext}`;
-    const filepath = join(UPLOAD_DIR, filename);
+    const filepath = join(uploadDir, filename);
 
     // Defense-in-depth: verify resolved path stays within upload directory
     const resolvedPath = resolve(filepath);
-    if (!resolvedPath.startsWith(resolve(UPLOAD_DIR))) {
+    if (!resolvedPath.startsWith(resolve(uploadDir))) {
       return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
     }
 
