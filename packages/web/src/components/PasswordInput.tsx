@@ -26,8 +26,21 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
-  const strength = useMemo(() => evaluatePasswordStrength(value), [value]);
-  const strengthText = value.length === 0 ? t("passwordStrengthEnter") : t(`passwordStrength.${strength.level}`);
+  const strength = useMemo(() => {
+    if (!showStrengthFeedback) {
+      return null;
+    }
+
+    return evaluatePasswordStrength(value);
+  }, [showStrengthFeedback, value]);
+
+  const strengthText = useMemo(() => {
+    if (!showStrengthFeedback || strength === null) {
+      return null;
+    }
+
+    return value.length === 0 ? t("passwordStrengthEnter") : t(`passwordStrength.${strength.level}`);
+  }, [showStrengthFeedback, strength, t, value]);
 
   return (
     <>
@@ -58,7 +71,7 @@ export function PasswordInput({
         </button>
       </div>
 
-      {showStrengthFeedback && (
+      {showStrengthFeedback && strength !== null && strengthText !== null && (
         <div className="password-strength-feedback">
           <p id={`${id}-strength`} className="text-sm text-dim mt-1" role="status" aria-live="polite" aria-atomic="true">
             {t("passwordStrengthLabel")}: <strong>{strengthText}</strong>

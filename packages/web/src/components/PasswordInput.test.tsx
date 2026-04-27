@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { PASSWORD_MIN_LENGTH } from "@everycal/core";
 import { PasswordInput } from "./PasswordInput";
+import * as passwordStrength from "../lib/passwordStrength";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -71,5 +72,41 @@ describe("PasswordInput", () => {
     );
 
     expect(screen.getByText("passwordStrength.strong")).toBeTruthy();
+  });
+
+  it("only evaluates password strength when feedback is enabled", () => {
+    const spy = vi.spyOn(passwordStrength, "evaluatePasswordStrength");
+
+    const { rerender } = render(
+      <PasswordInput
+        id="password"
+        value="password"
+        onChange={() => {}}
+      />
+    );
+
+    expect(spy).not.toHaveBeenCalled();
+
+    rerender(
+      <PasswordInput
+        id="password"
+        value="Password1!"
+        onChange={() => {}}
+      />
+    );
+
+    expect(spy).not.toHaveBeenCalled();
+
+    rerender(
+      <PasswordInput
+        id="password"
+        value="Password1!"
+        onChange={() => {}}
+        showStrengthFeedback
+      />
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });
