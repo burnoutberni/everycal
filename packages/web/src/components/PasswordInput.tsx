@@ -38,6 +38,9 @@ export function PasswordInput({
           type={isVisible ? "text" : "password"}
           value={value}
           onChange={onChange}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           autoComplete={autoComplete}
           required={required}
           minLength={minLength}

@@ -23,12 +23,19 @@ describe("PasswordInput", () => {
 
     const input = document.getElementById("password") as HTMLInputElement;
     expect(input.type).toBe("password");
+    expect(input.getAttribute("autocapitalize")).toBe("none");
+    expect(input.getAttribute("autocorrect")).toBe("off");
+    expect(input.getAttribute("spellcheck")).toBe("false");
 
     const toggle = screen.getByRole("button", { name: "showPassword" });
     fireEvent.click(toggle);
 
     expect((screen.getByRole("button", { name: "hidePassword" }) as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true");
-    expect((document.getElementById("password") as HTMLInputElement).type).toBe("text");
+    const visibleInput = document.getElementById("password") as HTMLInputElement;
+    expect(visibleInput.type).toBe("text");
+    expect(visibleInput.getAttribute("autocapitalize")).toBe("none");
+    expect(visibleInput.getAttribute("autocorrect")).toBe("off");
+    expect(visibleInput.getAttribute("spellcheck")).toBe("false");
   });
 
   it("renders inline strength feedback and updates level text", () => {
