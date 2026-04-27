@@ -17,6 +17,10 @@ function createApp() {
   return { app, db };
 }
 
+function tokenFromCalendarUrl(url: string): string | null {
+  return new URL(url, "http://localhost").searchParams.get("token");
+}
+
 describe("feed CORS policy", () => {
   it("serves public feed endpoints with wildcard CORS and no credentials", async () => {
     const { app, db } = createApp();
@@ -131,7 +135,61 @@ describe("feed CORS policy", () => {
     expect(res.headers.get("expires")).toBe("0");
   });
 
-  it("returns valid calendar tokens under concurrent calendar-url requests", async () => {
+  it("returns the same calendar token across repeated calendar-url requests", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const first = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    const second = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const firstBody = await first.json() as { url: string };
+    const secondBody = await second.json() as { url: string };
+    const firstToken = tokenFromCalendarUrl(firstBody.url);
+    const secondToken = tokenFromCalendarUrl(secondBody.url);
+
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
+    expect(secondToken).toBe(firstToken);
+  });
+
+  it("upgrades legacy hashed calendar tokens to raw token format once", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("legacy-token"));
+    const { token } = createSession(db, "u1");
+
+    const first = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    const second = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const firstBody = await first.json() as { url: string };
+    const secondBody = await second.json() as { url: string };
+    const firstToken = tokenFromCalendarUrl(firstBody.url);
+    const secondToken = tokenFromCalendarUrl(secondBody.url);
+
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
+    expect(secondToken).toBe(firstToken);
+
+    const row = db.prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?").get("u1") as { token: string };
+    expect(row.token).toBe(firstToken);
+  });
+
+  it("returns the same calendar token under concurrent calendar-url requests", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
     const { token } = createSession(db, "u1");
@@ -150,12 +208,45 @@ describe("feed CORS policy", () => {
     }
 
     const bodies = (await Promise.all(responses.map((res) => res.json()))) as Array<{ url: string }>;
+    const tokens = bodies.map((body) => tokenFromCalendarUrl(body.url));
+    const firstToken = tokens[0];
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
     for (const body of bodies) {
-      const parsed = new URL(body.url, "http://localhost");
-      const token = parsed.searchParams.get("token");
-      expect(token).toBeTruthy();
-      expect(token).toMatch(/^ecal_cal_/);
+      const currentToken = tokenFromCalendarUrl(body.url);
+      expect(currentToken).toBe(firstToken);
     }
+  });
+
+  it("rotates calendar token only via regenerate endpoint", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const originalRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(originalRes.status).toBe(200);
+    const originalBody = await originalRes.json() as { url: string };
+    const originalToken = tokenFromCalendarUrl(originalBody.url);
+    expect(originalToken).toBeTruthy();
+
+    const regenerateRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url/regenerate", {
+      method: "POST",
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(regenerateRes.status).toBe(200);
+    const regenerateBody = await regenerateRes.json() as { url: string };
+    const rotatedToken = tokenFromCalendarUrl(regenerateBody.url);
+    expect(rotatedToken).toBeTruthy();
+    expect(rotatedToken).toMatch(/^ecal_cal_/);
+    expect(rotatedToken).not.toBe(originalToken);
+
+    const oldFeed = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(originalToken!)}`);
+    expect(oldFeed.status).toBe(401);
+
+    const newFeed = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(rotatedToken!)}`);
+    expect(newFeed.status).toBe(200);
   });
 });
 

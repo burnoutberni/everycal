@@ -2,6 +2,7 @@
  * Private feed routes — authenticated or tokenized calendar feeds.
  *
  * GET /api/v1/private-feeds/calendar-url — Get URL for my calendar feed (auth required)
+ * POST /api/v1/private-feeds/calendar-url/regenerate — Rotate calendar feed URL token (auth required)
  * GET /api/v1/private-feeds/calendar.ics?token=xxx — iCal feed for my calendar (Going/Maybe events)
  */
 
@@ -12,18 +13,64 @@ import { toICalendar } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { rowToEvent } from "../lib/feed-event.js";
-import { findByTokenHash, hashTokenSecret } from "../lib/token-secrets.js";
+import { findByTokenHash } from "../lib/token-secrets.js";
+
+const CALENDAR_FEED_TOKEN_PREFIX = "ecal_cal_";
+
+function buildCalendarFeedToken(): string {
+  return `${CALENDAR_FEED_TOKEN_PREFIX}${nanoid(40)}`;
+}
+
+function isRawCalendarFeedToken(token: string): boolean {
+  return token.startsWith(CALENDAR_FEED_TOKEN_PREFIX);
+}
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
-  const token = `ecal_cal_${nanoid(40)}`;
+  const existing = db
+    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
+    .get(accountId) as { token?: string } | undefined;
+  if (typeof existing?.token === "string" && isRawCalendarFeedToken(existing.token)) {
+    return existing.token;
+  }
+
+  const token = buildCalendarFeedToken();
+  db.prepare(
+    `INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)
+     ON CONFLICT(account_id) DO UPDATE SET
+       token = CASE
+         WHEN calendar_feed_tokens.token LIKE 'ecal_cal_%' THEN calendar_feed_tokens.token
+         ELSE excluded.token
+       END,
+       created_at = CASE
+         WHEN calendar_feed_tokens.token LIKE 'ecal_cal_%' THEN calendar_feed_tokens.created_at
+         ELSE datetime('now')
+       END`
+  ).run(accountId, token);
+
+  const persisted = db
+    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
+    .get(accountId) as { token?: string } | undefined;
+  if (typeof persisted?.token === "string" && isRawCalendarFeedToken(persisted.token)) {
+    return persisted.token;
+  }
+
+  db.prepare("UPDATE calendar_feed_tokens SET token = ?, created_at = datetime('now') WHERE account_id = ?").run(token, accountId);
+  return token;
+}
+
+function regenerateCalendarFeedToken(db: DB, accountId: string): string {
+  const token = buildCalendarFeedToken();
   db.prepare(
     `INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)
      ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, created_at = datetime('now')`
-  ).run(accountId, hashTokenSecret(token));
+  ).run(accountId, token);
   return token;
 }
 
 function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
+  const exact = db.prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?").get(token) as { account_id: string } | undefined;
+  if (exact?.account_id) return exact.account_id;
+
   const row = findByTokenHash<{ account_id: string }>(
     db,
     "SELECT account_id FROM calendar_feed_tokens WHERE token = ?",
@@ -50,6 +97,14 @@ export function privateFeedRoutes(db: DB): Hono {
   router.get("/calendar-url", privateNoStore, requireAuth(), (c) => {
     const user = c.get("user")!;
     const token = getOrCreateCalendarFeedToken(db, user.id);
+    const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
+    const url = `${baseUrl}/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(token)}`;
+    return c.json({ url });
+  });
+
+  router.post("/calendar-url/regenerate", privateNoStore, requireAuth(), (c) => {
+    const user = c.get("user")!;
+    const token = regenerateCalendarFeedToken(db, user.id);
     const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
     const url = `${baseUrl}/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(token)}`;
     return c.json({ url });

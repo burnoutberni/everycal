@@ -612,6 +612,11 @@ export const feeds = {
   getCalendarUrl() {
     return request<{ url: string }>("/private-feeds/calendar-url");
   },
+
+  /** Rotate and return a new iCal feed URL token for the current user. */
+  regenerateCalendarUrl() {
+    return request<{ url: string }>("/private-feeds/calendar-url/regenerate", { method: "POST" });
+  },
 };
 
 // ---- Users ----
