@@ -62,6 +62,11 @@ describe("PasswordInput", () => {
     expect(status.getAttribute("aria-atomic")).toBe("true");
     expect(status.parentElement?.getAttribute("aria-live")).toBeNull();
 
+    expect(screen.getByRole("checkbox", { name: "passwordRuleMinLength" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleMixedCase" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleNumber" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleSymbol" }).getAttribute("aria-checked")).toBe("false");
+
     rerender(
       <PasswordInput
         id="password"
@@ -72,6 +77,10 @@ describe("PasswordInput", () => {
     );
 
     expect(screen.getByText("passwordStrength.strong")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "passwordRuleMinLength" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleMixedCase" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleNumber" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("checkbox", { name: "passwordRuleSymbol" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("does not fill strength meter segments when minimum length is not met", () => {
