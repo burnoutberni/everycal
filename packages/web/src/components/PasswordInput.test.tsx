@@ -50,6 +50,8 @@ describe("PasswordInput", () => {
 
     expect(screen.getByText("passwordStrengthLabel:")).toBeTruthy();
     expect(screen.getByText("passwordStrength.weak")).toBeTruthy();
+    expect(screen.getByText("passwordRequiredLabel")).toBeTruthy();
+    expect(screen.getByText("passwordTipsLabel")).toBeTruthy();
 
     rerender(
       <PasswordInput

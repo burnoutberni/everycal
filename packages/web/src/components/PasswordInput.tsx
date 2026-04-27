@@ -72,12 +72,18 @@ export function PasswordInput({
               />
             ))}
           </div>
-          <ul id={`${id}-requirements`} className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequirements")}>
-            <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength")}</li>
-            <li className={strength.checks.mixedCase ? "is-met" : ""}>{t("passwordRuleMixedCase")}</li>
-            <li className={strength.checks.number ? "is-met" : ""}>{t("passwordRuleNumber")}</li>
-            <li className={strength.checks.symbol ? "is-met" : ""}>{t("passwordRuleSymbol")}</li>
-          </ul>
+          <div id={`${id}-requirements`}>
+            <p className="text-sm text-dim mt-1">{t("passwordRequiredLabel")}</p>
+            <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequiredLabel")}>
+              <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength")}</li>
+            </ul>
+            <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>
+            <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordTipsLabel")}>
+              <li className={strength.checks.mixedCase ? "is-met" : ""}>{t("passwordRuleMixedCase")}</li>
+              <li className={strength.checks.number ? "is-met" : ""}>{t("passwordRuleNumber")}</li>
+              <li className={strength.checks.symbol ? "is-met" : ""}>{t("passwordRuleSymbol")}</li>
+            </ul>
+          </div>
         </div>
       )}
     </>
