@@ -107,7 +107,7 @@ export function authRoutes(db: DB): Hono {
     // Password required for non-bots; bots must remain API-key-only.
     if (isBot) {
       if (body.password !== undefined) {
-        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+        return c.json({ error: t(getLocale(c), "auth.bot_password_not_allowed") }, 400);
       }
     } else {
       if (!body.password || typeof body.password !== "string") {
@@ -310,7 +310,7 @@ export function authRoutes(db: DB): Hono {
       .get(user.id) as { password_hash: string | null; is_bot: number } | undefined;
 
     if (row?.is_bot) {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      return c.json({ error: t(getLocale(c), "auth.bot_password_not_allowed") }, 400);
     }
 
     if (!row || !row.password_hash) {

@@ -31,6 +31,9 @@ describe("auth bot password restrictions", () => {
     });
 
     expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Bot accounts cannot use passwords. Use API keys instead.",
+    });
     const created = db.prepare("SELECT id FROM accounts WHERE username = ?").get("bot_with_pw") as { id: string } | undefined;
     expect(created).toBeUndefined();
   });
@@ -179,6 +182,9 @@ describe("auth bot password restrictions", () => {
     });
 
     expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Bot accounts cannot use passwords. Use API keys instead.",
+    });
     const account = db.prepare("SELECT password_hash FROM accounts WHERE id = ?").get("bot4") as { password_hash: string };
     expect(account.password_hash).toBe(oldHash);
   });

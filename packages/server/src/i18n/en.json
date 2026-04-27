@@ -17,6 +17,7 @@
     "email_required": "Email is required",
     "invalid_email": "Invalid email address",
     "password_required": "Password is required",
+    "bot_password_not_allowed": "Bot accounts cannot use passwords. Use API keys instead.",
     "password_min_length": "Password must be at least {{min}} characters",
     "username_taken": "Username already taken",
     "email_registered": "Email is already registered",
