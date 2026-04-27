@@ -322,6 +322,8 @@ label {
   padding: 0 0.85rem;
   min-width: 3.75rem;
   min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
 }
 
