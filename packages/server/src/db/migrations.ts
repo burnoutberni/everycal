@@ -400,12 +400,23 @@ export const MIGRATIONS: Migration[] = [
         "email_change_requests",
         "calendar_feed_tokens",
       ] as const;
+      const batchSize = 500;
       for (const table of tokenTables) {
-        const rows = db.prepare(`SELECT rowid AS rowid, token FROM ${table}`).all() as Array<{ rowid: number; token: string }>;
+        const selectBatch = db.prepare(
+          `SELECT rowid AS rowid, token FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?`
+        );
         const update = db.prepare(`UPDATE ${table} SET token = ? WHERE rowid = ?`);
-        for (const row of rows) {
-          if (/^[a-f0-9]{64}$/i.test(row.token)) continue;
-          update.run(hashTokenSecret(row.token), row.rowid);
+        let lastRowId = 0;
+        while (true) {
+          const rows = selectBatch.all(lastRowId, batchSize) as Array<{ rowid: number; token: string }>;
+          if (rows.length === 0) break;
+
+          for (const row of rows) {
+            if (/^[a-f0-9]{64}$/i.test(row.token)) continue;
+            update.run(hashTokenSecret(row.token), row.rowid);
+          }
+
+          lastRowId = rows[rows.length - 1].rowid;
         }
       }
 
