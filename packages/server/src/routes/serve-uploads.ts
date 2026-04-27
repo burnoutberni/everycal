@@ -6,7 +6,7 @@
 import { Hono } from "hono";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve, extname, basename } from "node:path";
+import { join, resolve, extname, basename, relative, isAbsolute, sep } from "node:path";
 import sharp from "sharp";
 import { UPLOAD_DIR } from "../lib/paths.js";
 
@@ -56,7 +56,8 @@ export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: str
     const filepath = join(uploadDir, filename);
     const resolved = resolve(filepath);
     const uploadDirResolved = resolve(uploadDir);
-    if (!resolved.startsWith(uploadDirResolved) || resolved === uploadDirResolved) {
+    const rel = relative(uploadDirResolved, resolved);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       return c.notFound();
     }
 

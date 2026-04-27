@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import sharp from "sharp";
 import { initDatabase, type DB } from "../src/db.js";
 import { authRoutes } from "../src/routes/auth.js";
@@ -34,15 +34,20 @@ function makeApp(db: DB, uploadDir: string, user: { id: string; username: string
 describe("uploads routes", () => {
   let db: DB;
   let uploadDir: string;
+  let maliciousSiblingDir: string | null;
 
   beforeEach(() => {
     process.env.OPEN_REGISTRATIONS = "true";
     db = initDatabase(":memory:");
     uploadDir = mkdtempSync(join(tmpdir(), "everycal-uploads-test-"));
+    maliciousSiblingDir = null;
   });
 
   afterEach(() => {
     rmSync(uploadDir, { recursive: true, force: true });
+    if (maliciousSiblingDir) {
+      rmSync(maliciousSiblingDir, { recursive: true, force: true });
+    }
   });
 
   it("keeps upload source bytes unchanged across repeated reads", async () => {
@@ -92,5 +97,19 @@ describe("uploads routes", () => {
       body: tooLargeJson,
     });
     expect(authRes.status).toBe(413);
+  });
+
+  it("blocks traversal into sibling directories sharing upload prefix", async () => {
+    maliciousSiblingDir = `${uploadDir}-malicious`;
+    mkdirSync(maliciousSiblingDir, { recursive: true });
+    writeFileSync(join(maliciousSiblingDir, "evil.png"), await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 255, g: 0, b: 0 } },
+    }).png().toBuffer());
+
+    const app = makeApp(db, uploadDir);
+    const encodedTraversal = encodeURIComponent(`../${basename(maliciousSiblingDir)}/evil.png`);
+    const res = await app.request(`http://localhost/uploads/${encodedTraversal}`);
+
+    expect(res.status).toBe(404);
   });
 });
