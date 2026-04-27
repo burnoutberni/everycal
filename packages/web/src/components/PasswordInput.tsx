@@ -7,6 +7,7 @@ type PasswordInputProps = {
   id: string;
   value: string;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  minLength?: number;
   autoComplete?: string;
   required?: boolean;
   autoFocus?: boolean;
@@ -18,6 +19,7 @@ export function PasswordInput({
   id,
   value,
   onChange,
+  minLength,
   autoComplete,
   required,
   autoFocus,
@@ -60,7 +62,7 @@ export function PasswordInput({
           spellCheck={false}
           autoComplete={autoComplete}
           required={required}
-          minLength={PASSWORD_MIN_LENGTH}
+          minLength={minLength}
           autoFocus={autoFocus}
           disabled={disabled}
           aria-describedby={showStrengthFeedback ? `${id}-strength ${id}-requirements` : undefined}

@@ -1422,6 +1422,7 @@ export function SettingsPage() {
                   id="newPassword"
                   value={newPassword}
                   onChange={(e) => { setNewPassword(e.target.value); setPasswordChangeError(""); }}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
                   showStrengthFeedback
                 />
@@ -1432,6 +1433,7 @@ export function SettingsPage() {
                   id="confirmPassword"
                   value={confirmPassword}
                   onChange={(e) => { setConfirmPassword(e.target.value); setPasswordChangeError(""); }}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
                 />
               </div>

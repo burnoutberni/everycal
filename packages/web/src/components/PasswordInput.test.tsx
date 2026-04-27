@@ -42,7 +42,7 @@ describe("PasswordInput", () => {
     expect(input.getAttribute("autocapitalize")).toBe("none");
     expect(input.getAttribute("autocorrect")).toBe("off");
     expect(input.getAttribute("spellcheck")).toBe("false");
-    expect(input.minLength).toBe(PASSWORD_MIN_LENGTH);
+    expect(input.minLength).toBe(-1);
 
     const toggle = screen.getByRole("button", { name: "showPassword" });
     fireEvent.click(toggle);
@@ -53,6 +53,20 @@ describe("PasswordInput", () => {
     expect(visibleInput.getAttribute("autocapitalize")).toBe("none");
     expect(visibleInput.getAttribute("autocorrect")).toBe("off");
     expect(visibleInput.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("applies minLength when provided", () => {
+    const { container } = render(
+      <PasswordInput
+        id="password"
+        value="Password1!"
+        onChange={() => {}}
+        minLength={PASSWORD_MIN_LENGTH}
+      />
+    );
+
+    const input = container.querySelector("input") as HTMLInputElement;
+    expect(input.minLength).toBe(PASSWORD_MIN_LENGTH);
   });
 
   it("renders inline strength feedback and updates level text", () => {
