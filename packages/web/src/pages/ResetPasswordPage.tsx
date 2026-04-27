@@ -89,7 +89,6 @@ export function ResetPasswordPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={PASSWORD_MIN_LENGTH}
             autoFocus
             showStrengthFeedback
           />
@@ -102,7 +101,6 @@ export function ResetPasswordPage() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={PASSWORD_MIN_LENGTH}
           />
         </div>
         {error && <p className="error-text mb-2">{error}</p>}

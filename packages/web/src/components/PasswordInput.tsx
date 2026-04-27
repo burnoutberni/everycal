@@ -9,7 +9,6 @@ type PasswordInputProps = {
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   autoComplete?: string;
   required?: boolean;
-  minLength?: number;
   autoFocus?: boolean;
   disabled?: boolean;
   showStrengthFeedback?: boolean;
@@ -21,14 +20,12 @@ export function PasswordInput({
   onChange,
   autoComplete,
   required,
-  minLength,
   autoFocus,
   disabled,
   showStrengthFeedback = false,
 }: PasswordInputProps) {
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
-  const minPasswordLength = minLength ?? PASSWORD_MIN_LENGTH;
   const strength = useMemo(() => evaluatePasswordStrength(value), [value]);
   const strengthText = value.length === 0 ? t("passwordStrengthEnter") : t(`passwordStrength.${strength.level}`);
 
@@ -45,7 +42,7 @@ export function PasswordInput({
           spellCheck={false}
           autoComplete={autoComplete}
           required={required}
-          minLength={minLength}
+          minLength={PASSWORD_MIN_LENGTH}
           autoFocus={autoFocus}
           disabled={disabled}
           aria-describedby={showStrengthFeedback ? `${id}-strength ${id}-requirements` : undefined}
@@ -77,7 +74,7 @@ export function PasswordInput({
           <div id={`${id}-requirements`}>
             <p className="text-sm text-dim mt-1">{t("passwordRequiredLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequiredLabel")}>
-              <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength", { min: minPasswordLength })}</li>
+              <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength", { min: PASSWORD_MIN_LENGTH })}</li>
             </ul>
             <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordTipsLabel")}>

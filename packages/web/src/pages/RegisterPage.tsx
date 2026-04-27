@@ -107,7 +107,6 @@ export function RegisterPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={PASSWORD_MIN_LENGTH}
             showStrengthFeedback
           />
         </div>

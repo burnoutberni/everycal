@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { PASSWORD_MIN_LENGTH } from "@everycal/core";
 import { PasswordInput } from "./PasswordInput";
 
 vi.mock("react-i18next", () => ({
@@ -26,6 +27,7 @@ describe("PasswordInput", () => {
     expect(input.getAttribute("autocapitalize")).toBe("none");
     expect(input.getAttribute("autocorrect")).toBe("off");
     expect(input.getAttribute("spellcheck")).toBe("false");
+    expect(input.minLength).toBe(PASSWORD_MIN_LENGTH);
 
     const toggle = screen.getByRole("button", { name: "showPassword" });
     fireEvent.click(toggle);
