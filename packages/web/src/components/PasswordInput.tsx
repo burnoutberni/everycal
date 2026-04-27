@@ -60,8 +60,8 @@ export function PasswordInput({
       </div>
 
       {showStrengthFeedback && (
-        <div className="password-strength-feedback" aria-live="polite">
-          <p id={`${id}-strength`} className="text-sm text-dim mt-1">
+        <div className="password-strength-feedback">
+          <p id={`${id}-strength`} className="text-sm text-dim mt-1" role="status" aria-live="polite" aria-atomic="true">
             {t("passwordStrengthLabel")}: <strong>{strengthText}</strong>
           </p>
           <div className="password-strength-meter" role="presentation" aria-hidden="true">

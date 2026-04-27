@@ -53,6 +53,12 @@ describe("PasswordInput", () => {
     expect(screen.getByText("passwordRequiredLabel")).toBeTruthy();
     expect(screen.getByText("passwordTipsLabel")).toBeTruthy();
 
+    const status = screen.getByRole("status");
+    expect(status.getAttribute("id")).toBe("password-strength");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.getAttribute("aria-atomic")).toBe("true");
+    expect(status.parentElement?.getAttribute("aria-live")).toBeNull();
+
     rerender(
       <PasswordInput
         id="password"
