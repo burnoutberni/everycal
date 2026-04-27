@@ -173,10 +173,10 @@ export function authRoutes(db: DB): Hono {
 
     // Human: send verification email, no session
     const token = nanoid(48);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.prepare(
-      `INSERT INTO email_verification_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
-    ).run(id, token, expiresAt);
+      `INSERT INTO email_verification_tokens (account_id, token, expires_at)
+       VALUES (?, ?, datetime('now', '+1 day'))`
+    ).run(id, token);
 
     await sendVerificationEmail(email!, token, getLocale(c));
 
@@ -276,12 +276,11 @@ export function authRoutes(db: DB): Hono {
     }
 
     const token = nanoid(48);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
     db.prepare("DELETE FROM email_change_requests WHERE account_id = ?").run(user.id);
     db.prepare(
-      `INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)`
-    ).run(user.id, newEmail, token, expiresAt);
+      `INSERT INTO email_change_requests (account_id, new_email, token, expires_at)
+       VALUES (?, ?, ?, datetime('now', '+1 day'))`
+    ).run(user.id, newEmail, token);
 
     await sendEmailChangeVerificationEmail(newEmail, token, getLocale(c));
 
@@ -437,10 +436,10 @@ export function authRoutes(db: DB): Hono {
 
     if (row) {
       const token = nanoid(48);
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
       db.prepare(
-        `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)`
-      ).run(row.id, token, expiresAt);
+        `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at)
+         VALUES (?, ?, datetime('now', '+1 hour'))`
+      ).run(row.id, token);
       await sendPasswordResetEmail(email, token, getLocale(c));
     }
 

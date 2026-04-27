@@ -363,6 +363,21 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 4,
+    name: "normalize_token_expiry_format",
+    up: (db) => {
+      db.exec(
+        "UPDATE email_verification_tokens SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+      db.exec(
+        "UPDATE password_reset_tokens SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+      db.exec(
+        "UPDATE email_change_requests SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;

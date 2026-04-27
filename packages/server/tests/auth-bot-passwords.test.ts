@@ -92,16 +92,39 @@ describe("auth bot password restrictions", () => {
     expect(token).toBeUndefined();
   });
 
+  it("stores password reset token expiry in sqlite datetime format", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?)").run(
+      "person-reset-format",
+      "person_reset_format",
+      "person-reset-format@example.com",
+      1,
+      0
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/auth/forgot-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "person-reset-format@example.com" }),
+    });
+
+    expect(res.status).toBe(200);
+    const token = db.prepare("SELECT expires_at FROM password_reset_tokens WHERE account_id = ?").get("person-reset-format") as
+      | { expires_at: string }
+      | undefined;
+    expect(token?.expires_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    const parsed = db.prepare("SELECT datetime(?) AS parsed").get(token?.expires_at ?? null) as { parsed: string | null };
+    expect(parsed.parsed).toBe(token?.expires_at);
+  });
+
   it("rejects reset-password token for bot accounts", async () => {
     const oldHash = hashPassword("old-secret");
     db.prepare(
       "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?, ?)"
     ).run("bot3", "bot_reset", oldHash, "bot-reset@example.com", 1, 1);
-    db.prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)").run(
-      "bot3",
-      "bot-token",
-      new Date(Date.now() + 60_000).toISOString()
-    );
+    db.prepare(
+      "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
+    ).run("bot3", "bot-token");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {
@@ -120,11 +143,9 @@ describe("auth bot password restrictions", () => {
     db.prepare(
       "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?, ?)"
     ).run("person-reset-1", "person_reset_1", oldHash, "person-reset-1@example.com", 1, 0);
-    db.prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)").run(
-      "person-reset-1",
-      "person-token-1",
-      new Date(Date.now() + 60_000).toISOString()
-    );
+    db.prepare(
+      "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
+    ).run("person-reset-1", "person-token-1");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {
@@ -145,11 +166,9 @@ describe("auth bot password restrictions", () => {
     db.prepare(
       "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?, ?)"
     ).run("person-reset-2", "person_reset_2", oldHash, "person-reset-2@example.com", 1, 0);
-    db.prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)").run(
-      "person-reset-2",
-      "person-token-2",
-      new Date(Date.now() + 60_000).toISOString()
-    );
+    db.prepare(
+      "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
+    ).run("person-reset-2", "person-token-2");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {
