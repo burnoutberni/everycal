@@ -353,6 +353,16 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 3,
+    name: "bot_accounts_passwordless_only",
+    up: (db) => {
+      db.exec("UPDATE accounts SET password_hash = NULL WHERE is_bot = 1");
+      db.exec(
+        "DELETE FROM password_reset_tokens WHERE account_id IN (SELECT id FROM accounts WHERE is_bot = 1)"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;

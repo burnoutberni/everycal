@@ -104,16 +104,18 @@ export function authRoutes(db: DB): Hono {
       }
     }
 
-    // Password required for non-bots; optional for bots (API-key-only)
-    if (!isBot) {
+    // Password required for non-bots; bots must remain API-key-only.
+    if (isBot) {
+      if (body.password !== undefined) {
+        return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      }
+    } else {
       if (!body.password || typeof body.password !== "string") {
         return c.json({ error: t(getLocale(c), "auth.password_required") }, 400);
       }
       if (!meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
         return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
       }
-    } else if (body.password !== undefined && body.password.length > 0 && !meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
-      return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
     }
 
     const existing = db.prepare("SELECT id FROM accounts WHERE username = ?").get(username);
@@ -129,7 +131,7 @@ export function authRoutes(db: DB): Hono {
     }
 
     const id = nanoid(16);
-    const passwordHash = body.password ? hashPassword(body.password) : null;
+    const passwordHash = isBot ? null : hashPassword(body.password as string);
 
     db.prepare(
       `INSERT INTO accounts (
@@ -299,8 +301,12 @@ export function authRoutes(db: DB): Hono {
     }
 
     const row = db
-      .prepare("SELECT password_hash FROM accounts WHERE id = ?")
-      .get(user.id) as { password_hash: string | null } | undefined;
+      .prepare("SELECT password_hash, is_bot FROM accounts WHERE id = ?")
+      .get(user.id) as { password_hash: string | null; is_bot: number } | undefined;
+
+    if (row?.is_bot) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
 
     if (!row || !row.password_hash) {
       return c.json({ error: t(getLocale(c), "auth.no_password_set") }, 400);
@@ -322,7 +328,7 @@ export function authRoutes(db: DB): Hono {
   router.post("/login", async (c) => {
     const body = await c.req.json<{ username: string; password: string }>();
 
-    if (!body.username || !body.password) {
+    if (typeof body.username !== "string" || typeof body.password !== "string" || !body.username || !body.password) {
       return c.json({ error: t(getLocale(c), "auth.username_password_required") }, 400);
     }
 
@@ -339,7 +345,7 @@ export function authRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified, theme_preference FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -349,10 +355,11 @@ export function authRoutes(db: DB): Hono {
           password_hash: string | null;
           email_verified: number;
           theme_preference: string | null;
+          is_bot: number;
         }
       | undefined;
 
-    if (!row || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
+    if (!row || row.is_bot || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
       recordFailedLogin(db, normalizedUsername);
       return c.json({ error: t(getLocale(c), "auth.invalid_username_password") }, 401);
     }
@@ -420,7 +427,7 @@ export function authRoutes(db: DB): Hono {
     }
 
     const row = db
-      .prepare("SELECT id, username FROM accounts WHERE email = ? AND email_verified = 1")
+      .prepare("SELECT id, username FROM accounts WHERE email = ? AND email_verified = 1 AND is_bot = 0")
       .get(email) as { id: string; username: string } | undefined;
 
     if (row) {
@@ -447,12 +454,13 @@ export function authRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT prt.account_id FROM password_reset_tokens prt
+        `SELECT prt.account_id, a.is_bot FROM password_reset_tokens prt
+         JOIN accounts a ON a.id = prt.account_id
          WHERE prt.token = ? AND prt.expires_at > datetime('now')`
       )
-      .get(body.token) as { account_id: string } | undefined;
+      .get(body.token) as { account_id: string; is_bot: number } | undefined;
 
-    if (!row) {
+    if (!row || row.is_bot) {
       return c.json({ error: t(getLocale(c), "auth.invalid_reset_link") }, 400);
     }
 
