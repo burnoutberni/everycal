@@ -85,8 +85,6 @@ describe("PasswordInput", () => {
 
     expect(screen.getByText(/passwordStrengthLabel:/)).toBeTruthy();
     expect(screen.getByText("passwordStrength.weak")).toBeTruthy();
-    expect(screen.getByText("passwordRequiredLabel")).toBeTruthy();
-    expect(screen.getByText("passwordTipsLabel")).toBeTruthy();
 
     const status = screen.getByRole("status");
     expect(status.getAttribute("id")).toBe("password-strength");
@@ -119,19 +117,26 @@ describe("PasswordInput", () => {
     expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - met" })).toBeTruthy();
   });
 
-  it("does not fill strength meter segments when minimum length is not met", () => {
+  it("shows required and recommended states when password is empty", () => {
     const { container } = render(
       <PasswordInput
         id="password"
-        value="Aa1!"
+        value=""
         onChange={() => {}}
         showStrengthFeedback
       />
     );
 
-    expect(screen.getByText("passwordStrength.weak")).toBeTruthy();
+    expect(screen.getByText("passwordStrengthEnter")).toBeTruthy();
     expect(container.querySelectorAll(".password-strength-meter-segment.is-empty").length).toBe(4);
     expect(container.querySelectorAll(".password-strength-meter-segment.is-weak").length).toBe(0);
+
+    expect(screen.getByRole("listitem", { name: `passwordRuleMinLength:${PASSWORD_MIN_LENGTH} - not met` }).className).toContain(
+      "is-required-unmet"
+    );
+    expect(screen.getByRole("listitem", { name: "passwordRuleMixedCase - not met" }).className).toContain("is-recommended");
+    expect(screen.getByRole("listitem", { name: "passwordRuleNumber - not met" }).className).toContain("is-recommended");
+    expect(screen.getByRole("listitem", { name: "passwordRuleSymbol - not met" }).className).toContain("is-recommended");
   });
 
   it("only evaluates password strength when feedback is enabled", () => {

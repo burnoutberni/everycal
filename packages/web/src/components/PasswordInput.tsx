@@ -29,6 +29,13 @@ export function PasswordInput({
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
   const resolvedMinLength = minLength ?? PASSWORD_MIN_LENGTH;
+  const getRequirementClassName = (isMet: boolean, type: "required" | "recommended") => {
+    if (isMet) {
+      return "is-met";
+    }
+
+    return type === "required" ? "is-required-unmet" : "is-recommended";
+  };
   const getRequirementStateLabel = (rule: string, isMet: boolean) =>
     t("passwordRequirementStateLabel", {
       rule,
@@ -93,10 +100,9 @@ export function PasswordInput({
             ))}
           </div>
           <div id={`${id}-requirements`}>
-            <p className="text-sm text-dim mt-1">{t("passwordRequiredLabel")}</p>
-            <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequiredLabel")}>
+            <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequirements")}>
               <li
-                className={strength.checks.minLength ? "is-met" : ""}
+                className={getRequirementClassName(strength.checks.minLength, "required")}
                 aria-label={getRequirementStateLabel(
                   t("passwordRuleMinLength", { min: resolvedMinLength }),
                   strength.checks.minLength
@@ -104,23 +110,20 @@ export function PasswordInput({
               >
                 {t("passwordRuleMinLength", { min: resolvedMinLength })}
               </li>
-            </ul>
-            <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>
-            <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordTipsLabel")}>
               <li
-                className={strength.checks.mixedCase ? "is-met" : ""}
+                className={getRequirementClassName(strength.checks.mixedCase, "recommended")}
                 aria-label={getRequirementStateLabel(t("passwordRuleMixedCase"), strength.checks.mixedCase)}
               >
                 {t("passwordRuleMixedCase")}
               </li>
               <li
-                className={strength.checks.number ? "is-met" : ""}
+                className={getRequirementClassName(strength.checks.number, "recommended")}
                 aria-label={getRequirementStateLabel(t("passwordRuleNumber"), strength.checks.number)}
               >
                 {t("passwordRuleNumber")}
               </li>
               <li
-                className={strength.checks.symbol ? "is-met" : ""}
+                className={getRequirementClassName(strength.checks.symbol, "recommended")}
                 aria-label={getRequirementStateLabel(t("passwordRuleSymbol"), strength.checks.symbol)}
               >
                 {t("passwordRuleSymbol")}

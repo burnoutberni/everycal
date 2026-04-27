@@ -372,8 +372,8 @@ label {
 .password-requirements-list {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.15rem 0.65rem;
+  grid-template-columns: 1fr;
+  gap: 0.15rem;
   margin-top: 0.35rem;
 }
 
@@ -389,6 +389,23 @@ label {
   color: var(--text-dim);
 }
 
+.password-requirements-list li.is-required-unmet {
+  color: var(--danger);
+}
+
+.password-requirements-list li.is-required-unmet::before {
+  content: "\00D7";
+  color: var(--danger);
+}
+
+.password-requirements-list li.is-recommended {
+  color: var(--warning);
+}
+
+.password-requirements-list li.is-recommended::before {
+  color: var(--warning);
+}
+
 .password-requirements-list li.is-met {
   color: var(--success);
 }
@@ -402,10 +419,6 @@ label {
   .password-visibility-toggle {
     min-width: 4.1rem;
     padding: 0 0.75rem;
-  }
-
-  .password-requirements-list {
-    grid-template-columns: 1fr;
   }
 }
 
