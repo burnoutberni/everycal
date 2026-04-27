@@ -171,9 +171,15 @@ function decodeMergedCursor(raw: string | undefined): MergedCursor | null {
 }
 
 function compareMergedOrder(a: Record<string, unknown>, b: Record<string, unknown>): number {
-  const t = String(a.startAtUtc || "").localeCompare(String(b.startAtUtc || ""));
+  const compareValue = (left: unknown, right: unknown): number => {
+    const lhs = String(left || "");
+    const rhs = String(right || "");
+    if (lhs === rhs) return 0;
+    return lhs < rhs ? -1 : 1;
+  };
+  const t = compareValue(a.startAtUtc, b.startAtUtc);
   if (t !== 0) return t;
-  return String(a.id || "").localeCompare(String(b.id || ""));
+  return compareValue(a.id, b.id);
 }
 
 type MergedFetcher = (after: MergedCursor | null, limit: number) => Record<string, unknown>[];

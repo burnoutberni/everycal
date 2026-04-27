@@ -134,6 +134,27 @@ describe("api hardening and pagination", () => {
     expect(ids).toEqual(["l1", "l2", "r1"]);
   });
 
+  it("keeps merged cursor pagination stable when tie-break ids differ by case", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u6", "case-local");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote/users/case", "case", "https://remote/inbox", "remote");
+
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("a", "u6", "a", "Local A", "2026-01-10", "2026-01-10T00:00:00.000Z");
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("A", "https://remote/users/case", "Remote A", "2026-01-10", "2026-01-10T00:00:00.000Z");
+
+    const app = makeApp(db);
+    const p1 = await app.request("http://localhost/api/v1/events?limit=1");
+    const b1 = await p1.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const p2 = await app.request(`http://localhost/api/v1/events?limit=1&cursor=${encodeURIComponent(b1.nextCursor || "")}`);
+    const b2 = await p2.json() as { events: Array<{ id: string }> };
+
+    const ids = [...b1.events, ...b2.events].map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(["A", "a"]);
+  });
+
   it("applies merged offset pagination without loading a single source only", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u40", "local-a");
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u41", "local-b");
