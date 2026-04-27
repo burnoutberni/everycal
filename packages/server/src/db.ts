@@ -56,6 +56,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "email_verified",
     "email_verified_at",
     "preferred_language",
+    "calendar_feed_token_version",
   ],
   sessions: ["token", "account_id", "created_at", "expires_at"],
   api_keys: ["id", "account_id", "key_hash", "label", "last_used_at", "created_at", "key_prefix"],

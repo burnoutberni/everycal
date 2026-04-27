@@ -160,10 +160,11 @@ describe("feed CORS policy", () => {
     expect(secondToken).toBe(firstToken);
   });
 
-  it("upgrades legacy hashed calendar tokens to raw token format once", async () => {
+  it("returns deterministic signed calendar tokens without overwriting legacy hashes", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
-    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("legacy-token"));
+    const legacyHash = hashTokenSecret("legacy-token");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", legacyHash);
     const { token } = createSession(db, "u1");
 
     const first = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
@@ -186,7 +187,7 @@ describe("feed CORS policy", () => {
     expect(secondToken).toBe(firstToken);
 
     const row = db.prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?").get("u1") as { token: string };
-    expect(row.token).toBe(firstToken);
+    expect(row.token).toBe(legacyHash);
   });
 
   it("returns the same calendar token under concurrent calendar-url requests", async () => {

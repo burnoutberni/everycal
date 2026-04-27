@@ -424,6 +424,16 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 7,
+    name: "calendar_feed_token_versions",
+    up: (db) => {
+      db.exec("ALTER TABLE accounts ADD COLUMN calendar_feed_token_version INTEGER NOT NULL DEFAULT 1");
+      db.exec(
+        "UPDATE accounts SET calendar_feed_token_version = 1 WHERE calendar_feed_token_version IS NULL OR calendar_feed_token_version < 1"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;

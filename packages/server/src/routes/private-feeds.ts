@@ -7,7 +7,7 @@
  */
 
 import { Hono, type Context } from "hono";
-import { nanoid } from "nanoid";
+import crypto from "node:crypto";
 import type { DB } from "../db.js";
 import { toICalendar } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
@@ -16,58 +16,105 @@ import { rowToEvent } from "../lib/feed-event.js";
 import { findByTokenHash } from "../lib/token-secrets.js";
 
 const CALENDAR_FEED_TOKEN_PREFIX = "ecal_cal_";
+const DEV_CALENDAR_FEED_TOKEN_SECRET = "everycal-dev-calendar-feed-token-secret";
+const CALENDAR_FEED_TOKEN_VERSION = "v1";
 
-function buildCalendarFeedToken(): string {
-  return `${CALENDAR_FEED_TOKEN_PREFIX}${nanoid(40)}`;
+function encodeBase64Url(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url");
 }
 
-function isRawCalendarFeedToken(token: string): boolean {
-  return token.startsWith(CALENDAR_FEED_TOKEN_PREFIX);
+function decodeBase64Url(value: string): string | null {
+  try {
+    return Buffer.from(value, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function getCalendarFeedTokenSecret(): string {
+  const configured = process.env.CALENDAR_FEED_TOKEN_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CALENDAR_FEED_TOKEN_SECRET must be set in production");
+  }
+  return DEV_CALENDAR_FEED_TOKEN_SECRET;
+}
+
+function signCalendarFeedPayload(payload: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const aBuffer = Buffer.from(a, "utf8");
+  const bBuffer = Buffer.from(b, "utf8");
+  if (aBuffer.length !== bBuffer.length) return false;
+  return crypto.timingSafeEqual(aBuffer, bBuffer);
+}
+
+function getCalendarFeedTokenVersion(db: DB, accountId: string): number {
+  const row = db
+    .prepare("SELECT calendar_feed_token_version FROM accounts WHERE id = ?")
+    .get(accountId) as { calendar_feed_token_version?: number } | undefined;
+  if (!row || typeof row.calendar_feed_token_version !== "number" || row.calendar_feed_token_version < 1) {
+    return 1;
+  }
+  return row.calendar_feed_token_version;
+}
+
+function buildCalendarFeedToken(accountId: string, version: number, secret: string): string {
+  const payload = encodeBase64Url(JSON.stringify({ a: accountId, v: version, k: CALENDAR_FEED_TOKEN_VERSION }));
+  const signature = signCalendarFeedPayload(payload, secret);
+  return `${CALENDAR_FEED_TOKEN_PREFIX}${payload}.${signature}`;
+}
+
+function parseSignedCalendarFeedToken(token: string): { accountId: string; version: number } | null {
+  if (!token.startsWith(CALENDAR_FEED_TOKEN_PREFIX)) return null;
+  const signed = token.slice(CALENDAR_FEED_TOKEN_PREFIX.length);
+  const separator = signed.lastIndexOf(".");
+  if (separator <= 0 || separator === signed.length - 1) return null;
+
+  const payload = signed.slice(0, separator);
+  const providedSignature = signed.slice(separator + 1);
+  const secret = getCalendarFeedTokenSecret();
+  const expectedSignature = signCalendarFeedPayload(payload, secret);
+  if (!timingSafeEqual(providedSignature, expectedSignature)) return null;
+
+  const decoded = decodeBase64Url(payload);
+  if (!decoded) return null;
+
+  try {
+    const parsed = JSON.parse(decoded) as { a?: string; v?: number; k?: string };
+    if (parsed.k !== CALENDAR_FEED_TOKEN_VERSION) return null;
+    if (typeof parsed.a !== "string" || typeof parsed.v !== "number") return null;
+    if (!Number.isInteger(parsed.v) || parsed.v < 1) return null;
+    return { accountId: parsed.a, version: parsed.v };
+  } catch {
+    return null;
+  }
 }
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
-  const existing = db
-    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
-    .get(accountId) as { token?: string } | undefined;
-  if (typeof existing?.token === "string" && isRawCalendarFeedToken(existing.token)) {
-    return existing.token;
-  }
-
-  const token = buildCalendarFeedToken();
-  db.prepare(
-    `INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)
-     ON CONFLICT(account_id) DO UPDATE SET
-       token = CASE
-         WHEN calendar_feed_tokens.token LIKE 'ecal_cal_%' THEN calendar_feed_tokens.token
-         ELSE excluded.token
-       END,
-       created_at = CASE
-         WHEN calendar_feed_tokens.token LIKE 'ecal_cal_%' THEN calendar_feed_tokens.created_at
-         ELSE datetime('now')
-       END`
-  ).run(accountId, token);
-
-  const persisted = db
-    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
-    .get(accountId) as { token?: string } | undefined;
-  if (typeof persisted?.token === "string" && isRawCalendarFeedToken(persisted.token)) {
-    return persisted.token;
-  }
-
-  db.prepare("UPDATE calendar_feed_tokens SET token = ?, created_at = datetime('now') WHERE account_id = ?").run(token, accountId);
-  return token;
+  const version = getCalendarFeedTokenVersion(db, accountId);
+  const secret = getCalendarFeedTokenSecret();
+  return buildCalendarFeedToken(accountId, version, secret);
 }
 
 function regenerateCalendarFeedToken(db: DB, accountId: string): string {
-  const token = buildCalendarFeedToken();
-  db.prepare(
-    `INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)
-     ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, created_at = datetime('now')`
-  ).run(accountId, token);
-  return token;
+  db.prepare("UPDATE accounts SET calendar_feed_token_version = calendar_feed_token_version + 1 WHERE id = ?").run(accountId);
+  db.prepare("DELETE FROM calendar_feed_tokens WHERE account_id = ?").run(accountId);
+  return getOrCreateCalendarFeedToken(db, accountId);
 }
 
 function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
+  const signed = parseSignedCalendarFeedToken(token);
+  if (signed) {
+    const row = db
+      .prepare("SELECT id FROM accounts WHERE id = ? AND calendar_feed_token_version = ?")
+      .get(signed.accountId, signed.version) as { id: string } | undefined;
+    if (row?.id) return row.id;
+    return null;
+  }
+
   const exact = db.prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?").get(token) as { account_id: string } | undefined;
   if (exact?.account_id) return exact.account_id;
 
