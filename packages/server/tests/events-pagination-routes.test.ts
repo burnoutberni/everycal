@@ -104,6 +104,35 @@ describe("events pagination routes", () => {
     expect(body.events.map((event) => event.id)).toEqual(["l4", "l5"]);
   });
 
+  it("paginates local source with cursor using stable tie-break ordering", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u50", "local-tie");
+
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("b", "u50", "b", "Local B", "2026-03-01", "2026-03-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("a", "u50", "a", "Local A", "2026-03-01", "2026-03-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility)
+      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public')`).run("c", "u50", "c", "Local C", "2026-03-02", "2026-03-02T00:00:00.000Z");
+
+    const app = makeApp(db);
+    const first = await app.request("http://localhost/api/v1/events?source=local&limit=1");
+    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const second = await app.request(`http://localhost/api/v1/events?source=local&limit=1&cursor=${encodeURIComponent(firstBody.nextCursor || "")}`);
+    const secondBody = await second.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const third = await app.request(`http://localhost/api/v1/events?source=local&limit=1&cursor=${encodeURIComponent(secondBody.nextCursor || "")}`);
+    const thirdBody = await third.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(third.status).toBe(200);
+    const ids = [...firstBody.events, ...secondBody.events, ...thirdBody.events].map((event) => event.id);
+    expect(ids).toEqual(["a", "b", "c"]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(firstBody.nextCursor).not.toBeNull();
+    expect(secondBody.nextCursor).not.toBeNull();
+    expect(thirdBody.nextCursor).toBeNull();
+  });
+
   it("paginates timeline local+remote events without duplicates across cursor pages", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("local-author", "local-author");
