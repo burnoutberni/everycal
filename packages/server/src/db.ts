@@ -261,6 +261,18 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
     unique: false,
     columns: [{ name: "account_id" }],
   },
+  {
+    table: "remote_following",
+    name: "idx_remote_following_actor_account",
+    unique: false,
+    columns: [{ name: "actor_uri" }, { name: "account_id" }],
+  },
+  {
+    table: "event_tags",
+    name: "idx_event_tags_tag_event_id",
+    unique: false,
+    columns: [{ name: "tag" }, { name: "event_id" }],
+  },
   { table: "event_rsvps", name: "idx_event_rsvps_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "event_rsvps", name: "idx_event_rsvps_event", unique: false, columns: [{ name: "event_uri" }] },
   { table: "reposts", name: "idx_reposts_account", unique: false, columns: [{ name: "account_id" }] },

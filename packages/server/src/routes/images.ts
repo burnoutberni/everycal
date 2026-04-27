@@ -9,6 +9,8 @@
 import { Hono } from "hono";
 import { getLocale, t } from "../lib/i18n.js";
 import { requireAuth } from "../middleware/auth.js";
+import { parseJsonBody } from "../lib/request-body.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENVERSE_BASE = "https://api.openverse.org/v1";
@@ -66,7 +68,9 @@ export function imageRoutes(): Hono {
 
   /** Trigger Unsplash download tracking when user selects an image (auth; per API guidelines). */
   router.post("/trigger-download", requireAuth(), async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { downloadLocation?: unknown };
+    const parsed = await parseJsonBody<{ downloadLocation?: unknown }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const downloadLocation = body?.downloadLocation;
     const rawUrl = typeof downloadLocation === "string" ? downloadLocation.trim() : "";
     if (!rawUrl || !UNSPLASH_ACCESS_KEY) {
@@ -110,11 +114,17 @@ export function imageRoutes(): Hono {
   });
 
   router.get("/search", async (c) => {
+    let limit: number;
+    try {
+      ({ limit } = parseLimitOffset(c, { defaultLimit: 12, maxLimit: 30 }));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const q = c.req.query("q")?.trim();
     if (!q || q.length < 2) {
       return c.json({ error: t(getLocale(c), "images.query_required") }, 400);
     }
-    const limit = Math.min(30, Math.max(1, parseInt(c.req.query("limit") || "12", 10)));
     const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
     const source = (c.req.query("source") || "auto").toLowerCase();
 

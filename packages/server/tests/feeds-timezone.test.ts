@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
 import { privateFeedRoutes } from "../src/routes/private-feeds.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 
 describe("calendar feed timezone output", () => {
   it("emits timezone-rich ICS for local and remote events", async () => {
     const db = initDatabase(":memory:");
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
-    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", "tok1");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("tok1"));
 
     db.prepare(
       `INSERT INTO events (id, account_id, slug, title, start_date, end_date, start_at_utc, end_at_utc, event_timezone, all_day, visibility)

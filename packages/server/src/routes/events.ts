@@ -25,6 +25,8 @@ import {
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
+import { parseJsonBody } from "../lib/request-body.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { clearLocalOgImage, generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
@@ -155,11 +157,54 @@ function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown
 function mergeByStartAtUtc(
   local: Record<string, unknown>[],
   remote: Record<string, unknown>[],
-  limit: number,
 ): Record<string, unknown>[] {
   return [...local, ...remote]
-    .sort((a, b) => ((a.startAtUtc as string) || "").localeCompare((b.startAtUtc as string) || ""))
-    .slice(0, limit);
+    .sort((a, b) => {
+      const t = ((a.startAtUtc as string) || "").localeCompare((b.startAtUtc as string) || "");
+      if (t !== 0) return t;
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    });
+}
+
+type MergedCursor = { startAtUtc: string; id: string };
+
+function encodeMergedCursor(value: MergedCursor): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeMergedCursor(raw: string | undefined): MergedCursor | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as MergedCursor;
+    if (!parsed || typeof parsed.startAtUtc !== "string" || typeof parsed.id !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function applyMergedPagination(
+  events: Record<string, unknown>[],
+  opts: { limit: number; offset: number; cursor?: string },
+): { page: Record<string, unknown>[]; nextCursor: string | null } {
+  const cursor = decodeMergedCursor(opts.cursor);
+  let filtered = events;
+  if (cursor) {
+    filtered = filtered.filter((e) => {
+      const startAtUtc = String(e.startAtUtc || "");
+      if (startAtUtc > cursor.startAtUtc) return true;
+      if (startAtUtc < cursor.startAtUtc) return false;
+      return String(e.id || "") > cursor.id;
+    });
+  } else if (opts.offset > 0) {
+    filtered = filtered.slice(opts.offset);
+  }
+  const page = filtered.slice(0, opts.limit);
+  const last = page[page.length - 1];
+  const nextCursor = page.length === opts.limit && last
+    ? encodeMergedCursor({ startAtUtc: String(last.startAtUtc || ""), id: String(last.id || "") })
+    : null;
+  return { page, nextCursor };
 }
 
 // ─── Response formatters ────────────────────────────────────────────────────
@@ -367,10 +412,10 @@ export function eventRoutes(db: DB): Hono {
     const q = c.req.query("q");
     const source = c.req.query("source");
     const scope = c.req.query("scope");
+    const cursor = c.req.query("cursor");
     const tagsParam = c.req.query("tags");
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
-
+    try {
+    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
     const tagList = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
@@ -378,8 +423,6 @@ export function eventRoutes(db: DB): Hono {
 
     let localEvents: Record<string, unknown>[] = [];
     let remoteEvents: Record<string, unknown>[] = [];
-
-    try {
 
     // Fetch local events (unless source=remote)
     if (source !== "remote") {
@@ -438,8 +481,11 @@ export function eventRoutes(db: DB): Hono {
         params.push(...tagList);
       }
 
-      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC`;
+      if (source === "local") {
+        sql += " LIMIT ? OFFSET ?";
+        params.push(limit, offset);
+      }
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       localEvents = rows.map((r) => ({ ...formatEvent(r), source: "local" }));
@@ -476,19 +522,29 @@ export function eventRoutes(db: DB): Hono {
       sql += tagFilter.sql;
       params.push(...tagFilter.params);
 
-      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      sql += " ORDER BY re.start_at_utc ASC";
+      if (source === "remote") {
+        sql += " LIMIT ? OFFSET ?";
+        params.push(limit, offset);
+      }
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-      let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
+      let events = mergeByStartAtUtc(localEvents, remoteEvents);
+      let nextCursor: string | null = null;
+      if (source !== "local" && source !== "remote") {
+        const paged = applyMergedPagination(events, { limit, offset, cursor });
+        events = paged.page;
+        nextCursor = paged.nextCursor;
+      }
       if (user) events = attachUserContext(events, user.id);
 
-      return c.json({ events });
+      return c.json({ events, nextCursor });
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
   });
@@ -497,7 +553,9 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/rsvp", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ eventUri: string; status: string | null }>();
+    const parsed = await parseJsonBody<{ eventUri: string; status: string | null }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (!body.eventUri) return c.json({ error: t(getLocale(c), "events.event_uri_required") }, 400);
 
@@ -530,10 +588,9 @@ export function eventRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const from = c.req.query("from") || new Date().toISOString();
     const to = c.req.query("to");
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
-
+    const cursor = c.req.query("cursor");
     try {
+    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
     // Local: feed events (own + followed + reposted)
     let localEvents: Record<string, unknown>[];
@@ -551,8 +608,7 @@ export function eventRoutes(db: DB): Hono {
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` GROUP BY combined.id ORDER BY combined.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      sql += " GROUP BY combined.id ORDER BY combined.start_at_utc ASC";
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       localEvents = rows.map((r) => ({ ...formatEvent(r), source: "local" }));
@@ -572,23 +628,25 @@ export function eventRoutes(db: DB): Hono {
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      sql += " ORDER BY re.start_at_utc ASC";
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       remoteEvents = rows.map(formatRemoteEvent);
     }
 
-    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
+    let events = mergeByStartAtUtc(localEvents, remoteEvents);
+    const paged = applyMergedPagination(events, { limit, offset, cursor });
+    events = paged.page;
 
     // Timeline only attaches RSVPs (no repost flags)
     const uris = events.map((e) => e.id as string);
     const rsvps = getUserRsvps(user.id, uris);
     events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
 
-      return c.json({ events });
+      return c.json({ events, nextCursor: paged.nextCursor });
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
   });
@@ -615,14 +673,9 @@ export function eventRoutes(db: DB): Hono {
     };
     let body: SyncRequestBody;
 
-    try {
-      body = await c.req.json<SyncRequestBody>();
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
-      }
-      throw error;
-    }
+    const parsed = await parseJsonBody<SyncRequestBody>(c);
+    if (parsed instanceof Response) return parsed;
+    body = parsed;
 
     if (!Array.isArray(body.events)) {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
@@ -969,7 +1022,7 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       title: string;
       description?: string;
       startDate: string;
@@ -990,7 +1043,9 @@ export function eventRoutes(db: DB): Hono {
       tags?: string[];
       visibility?: string;
       postAsAccountId?: string;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
@@ -1168,7 +1223,7 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     }
 
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       title?: string;
       description?: string;
       startDate?: string;
@@ -1182,7 +1237,9 @@ export function eventRoutes(db: DB): Hono {
       url?: string | null;
       tags?: string[];
       visibility?: string;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 

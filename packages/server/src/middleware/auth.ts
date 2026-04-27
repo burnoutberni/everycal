@@ -9,10 +9,10 @@
 
 import { createMiddleware } from "hono/factory";
 import { nanoid } from "nanoid";
-import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import type { DB } from "../db.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export interface AuthUser {
   id: string;
@@ -36,9 +36,6 @@ function toSqliteDateTime(isoInstant: string): string {
 }
 
 /** Hash a session token with SHA-256 for secure storage. */
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
 
 export function authMiddleware(db: DB) {
   return createMiddleware(async (c, next) => {
@@ -82,7 +79,7 @@ export function requireAuth() {
 
 export function createSession(db: DB, accountId: string): { token: string; expiresAt: string } {
   const token = nanoid(48);
-  const tokenHash = hashToken(token);
+  const tokenHash = hashTokenSecret(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600_000).toISOString();
   const sqliteExpiresAt = toSqliteDateTime(expiresAt);
   db.prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)").run(
@@ -94,7 +91,7 @@ export function createSession(db: DB, accountId: string): { token: string; expir
 }
 
 function resolveSession(db: DB, token: string): AuthUser | null {
-  const tokenHash = hashToken(token);
+  const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(
       `SELECT a.id, a.username, a.display_name, a.preferred_language
@@ -201,7 +198,7 @@ export function cleanupExpiredSessions(db: DB): void {
 
 /** Delete a session by its raw (unhashed) token. */
 export function deleteSession(db: DB, token: string): void {
-  const tokenHash = hashToken(token);
+  const tokenHash = hashTokenSecret(token);
   db.prepare("DELETE FROM sessions WHERE token = ?").run(tokenHash);
 }
 

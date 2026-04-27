@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "../src/db/migrations.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 
 describe("account timezone/locale defaults", () => {
   it("defaults new accounts to system timezone, locale, and theme", () => {
@@ -87,7 +88,7 @@ describe("account timezone/locale defaults", () => {
       .run("u-token", "verify-token", "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)")
-      .run("u-token", "reset-token", "2026-04-27T09:30:00.000Z");
+      .run("u-token", hashTokenSecret("reset-token"), "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)")
       .run("u-token", "updated@example.com", "change-token", "2026-04-27T09:30:00.000Z");

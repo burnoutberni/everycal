@@ -17,6 +17,7 @@ import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { secureHeaders } from "hono/secure-headers";
+import { bodyLimit } from "hono/body-limit";
 import { initDatabase } from "./db.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimiter } from "./middleware/rate-limit.js";
@@ -74,18 +75,15 @@ app.use("*", secureHeaders({
 // Keep strict CORP by default, but allow the public embed script cross-origin.
 app.use("*", createEmbedCorpMiddleware());
 
-// Request body size limits (before any route parsing)
-app.use("*", async (c, next) => {
-  const contentLength = parseInt(c.req.header("content-length") || "0", 10);
-  const path = c.req.path;
-  // Uploads have their own 5MB limit in the upload handler
-  const maxSize = path.startsWith("/api/v1/uploads") ? 6 * 1024 * 1024 : 1024 * 1024; // 1MB default
-  if (contentLength > maxSize) {
-    return c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413);
-  }
-  await next();
-  return undefined;
-});
+// Request body size limits (stream-aware, works for chunked transfer)
+app.use("/api/v1/uploads*", bodyLimit({
+  maxSize: 6 * 1024 * 1024,
+  onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
+}));
+app.use("/api/*", bodyLimit({
+  maxSize: 1024 * 1024,
+  onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
+}));
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)
 const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http://localhost:5173")

@@ -4,9 +4,9 @@
  */
 
 import { Hono } from "hono";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve, extname } from "node:path";
+import { join, resolve, extname, basename } from "node:path";
 import sharp from "sharp";
 import { UPLOAD_DIR } from "../lib/paths.js";
 
@@ -16,6 +16,35 @@ const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"])
 
 export function serveUploadsRoutes(): Hono {
   const router = new Hono();
+  const DERIVATIVE_DIR = join(UPLOAD_DIR, ".derived");
+
+  async function getOrCreateDerivative(filepath: string): Promise<Buffer> {
+    await mkdir(DERIVATIVE_DIR, { recursive: true });
+    const sourceStat = await stat(filepath);
+    const outPath = join(DERIVATIVE_DIR, `${basename(filepath)}.jpg`);
+    if (existsSync(outPath)) {
+      const outStat = await stat(outPath);
+      if (outStat.mtimeMs >= sourceStat.mtimeMs) {
+        return readFile(outPath);
+      }
+    }
+
+    const buffer = await readFile(filepath);
+    const processed = await sharp(buffer)
+      .rotate()
+      .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+
+    const tempPath = `${outPath}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tempPath, processed);
+    await rename(tempPath, outPath).catch(async () => {
+      // Race: another request wrote it first.
+      await readFile(outPath);
+    });
+    return processed;
+  }
 
   router.get("/:filename", async (c) => {
     const filename = c.req.param("filename");
@@ -36,17 +65,7 @@ export function serveUploadsRoutes(): Hono {
     }
 
     try {
-      const buffer = await readFile(filepath);
-
-      const processed = await sharp(buffer)
-        .rotate() // Strip EXIF orientation, auto-rotate
-        .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true })
-        .flatten({ background: { r: 255, g: 255, b: 255 } }) // Flatten transparency to white
-        .jpeg({ quality: 85, mozjpeg: true })
-        .toBuffer();
-
-      // Replace original with converted JPEG (drop original)
-      await writeFile(filepath, processed);
+      const processed = await getOrCreateDerivative(filepath);
 
       return new Response(new Uint8Array(processed), {
         headers: {

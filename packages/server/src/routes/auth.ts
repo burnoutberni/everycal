@@ -21,6 +21,8 @@ import { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail, sendEm
 import { getLocale, t } from "../lib/i18n.js";
 import { normalizeHandle, isValidRegistrationUsername } from "../lib/handles.js";
 import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
+import { parseJsonBody } from "../lib/request-body.js";
+import { findByTokenHash, hashTokenSecret } from "../lib/token-secrets.js";
 
 const SYSTEM_TIMEZONE = "system";
 const SYSTEM_DATE_TIME_LOCALE = "system";
@@ -65,7 +67,7 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.registration_closed") }, 403);
     }
 
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       username: string;
       email?: string;
       password?: string;
@@ -74,7 +76,9 @@ export function authRoutes(db: DB): Hono {
       cityLat?: number;
       cityLng?: number;
       isBot?: boolean;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (!body.username) {
       return c.json({ error: t(getLocale(c), "auth.username_required") }, 400);
@@ -85,7 +89,10 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.username_format") }, 400);
     }
 
-    const isBot = !!body.isBot;
+    if (body.isBot !== undefined) {
+      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+    }
+    const isBot = false;
 
     // City required for non-bots; bots can use default
     const city = body.city || "Wien";
@@ -176,7 +183,7 @@ export function authRoutes(db: DB): Hono {
     db.prepare(
       `INSERT INTO email_verification_tokens (account_id, token, expires_at)
        VALUES (?, ?, datetime('now', '+1 day'))`
-    ).run(id, token);
+    ).run(id, hashTokenSecret(token));
 
     await sendVerificationEmail(email!, token, getLocale(c));
 
@@ -197,12 +204,12 @@ export function authRoutes(db: DB): Hono {
     }
 
     // Check email change request first (add/change email on existing account)
-    const changeRow = db
-      .prepare(
-        `SELECT account_id, new_email FROM email_change_requests
-         WHERE token = ? AND expires_at > datetime('now')`
-      )
-      .get(token) as { account_id: string; new_email: string } | undefined;
+    const changeRow = findByTokenHash<{ account_id: string; new_email: string }>(
+      db,
+      `SELECT account_id, new_email FROM email_change_requests
+         WHERE token = ? AND expires_at > datetime('now')`,
+      token
+    );
 
     if (changeRow) {
       db.prepare(
@@ -221,14 +228,14 @@ export function authRoutes(db: DB): Hono {
     }
 
     // Registration flow
-    const row = db
-      .prepare(
-        `SELECT evt.account_id, a.username, a.display_name, a.email
+    const row = findByTokenHash<{ account_id: string; username: string; display_name: string | null; email: string }>(
+      db,
+      `SELECT evt.account_id, a.username, a.display_name, a.email
          FROM email_verification_tokens evt
          JOIN accounts a ON a.id = evt.account_id
-         WHERE evt.token = ? AND evt.expires_at > datetime('now')`
-      )
-      .get(token) as { account_id: string; username: string; display_name: string | null; email: string } | undefined;
+         WHERE evt.token = ? AND evt.expires_at > datetime('now')`,
+      token
+    );
 
     if (!row) {
       return c.json({ error: t(getLocale(c), "auth.invalid_verification_link") }, 400);
@@ -260,7 +267,9 @@ export function authRoutes(db: DB): Hono {
   // Request add/change email (sends verification to new address)
   router.post("/request-email-change", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ email?: string }>();
+    const parsed = await parseJsonBody<{ email?: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const newEmail = body.email?.trim().toLowerCase();
 
     if (!newEmail) {
@@ -280,7 +289,7 @@ export function authRoutes(db: DB): Hono {
     db.prepare(
       `INSERT INTO email_change_requests (account_id, new_email, token, expires_at)
        VALUES (?, ?, ?, datetime('now', '+1 day'))`
-    ).run(user.id, newEmail, token);
+    ).run(user.id, newEmail, hashTokenSecret(token));
 
     await sendEmailChangeVerificationEmail(newEmail, token, getLocale(c));
 
@@ -290,7 +299,9 @@ export function authRoutes(db: DB): Hono {
   // Change password (logged-in user)
   router.post("/change-password", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ currentPassword?: unknown; newPassword?: unknown }>();
+    const parsed = await parseJsonBody<{ currentPassword?: unknown; newPassword?: unknown }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (
       typeof body.currentPassword !== "string" ||
@@ -330,7 +341,9 @@ export function authRoutes(db: DB): Hono {
 
   // Login
   router.post("/login", async (c) => {
-    const body = await c.req.json<{ username: string; password: string }>();
+    const parsed = await parseJsonBody<{ username: string; password: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (typeof body.username !== "string" || typeof body.password !== "string" || !body.username || !body.password) {
       return c.json({ error: t(getLocale(c), "auth.username_password_required") }, 400);
@@ -424,7 +437,9 @@ export function authRoutes(db: DB): Hono {
 
   // Forgot password
   router.post("/forgot-password", async (c) => {
-    const body = await c.req.json<{ email?: string }>();
+    const parsed = await parseJsonBody<{ email?: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const email = body.email?.trim().toLowerCase();
     if (!email) {
       return c.json({ error: t(getLocale(c), "auth.email_required") }, 400);
@@ -439,7 +454,7 @@ export function authRoutes(db: DB): Hono {
       db.prepare(
         `INSERT OR REPLACE INTO password_reset_tokens (account_id, token, expires_at)
          VALUES (?, ?, datetime('now', '+1 hour'))`
-      ).run(row.id, token);
+      ).run(row.id, hashTokenSecret(token));
       await sendPasswordResetEmail(email, token, getLocale(c));
     }
 
@@ -448,7 +463,9 @@ export function authRoutes(db: DB): Hono {
 
   // Reset password
   router.post("/reset-password", async (c) => {
-    const body = await c.req.json<{ token?: unknown; newPassword?: unknown }>();
+    const parsed = await parseJsonBody<{ token?: unknown; newPassword?: unknown }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     if (
       typeof body.token !== "string" ||
       typeof body.newPassword !== "string" ||
@@ -461,13 +478,13 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
     }
 
-    const row = db
-      .prepare(
-        `SELECT prt.account_id, a.is_bot FROM password_reset_tokens prt
+    const row = findByTokenHash<{ account_id: string; is_bot: number }>(
+      db,
+      `SELECT prt.account_id, a.is_bot FROM password_reset_tokens prt
          JOIN accounts a ON a.id = prt.account_id
-         WHERE prt.token = ? AND prt.expires_at > datetime('now')`
-      )
-      .get(body.token) as { account_id: string; is_bot: number } | undefined;
+         WHERE prt.token = ? AND prt.expires_at > datetime('now')`,
+      body.token
+    );
 
     if (!row || row.is_bot) {
       return c.json({ error: t(getLocale(c), "auth.invalid_reset_link") }, 400);
@@ -573,7 +590,7 @@ export function authRoutes(db: DB): Hono {
   // Update profile
   router.patch("/me", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       displayName?: string;
       bio?: string;
       avatarUrl?: string;
@@ -587,7 +604,9 @@ export function authRoutes(db: DB): Hono {
       timezone?: string;
       dateTimeLocale?: string;
       themePreference?: string;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -626,10 +645,6 @@ export function authRoutes(db: DB): Hono {
         fields.push("website = ?");
         values.push(null);
       }
-    }
-    if (body.isBot !== undefined) {
-      fields.push("is_bot = ?");
-      values.push(body.isBot ? 1 : 0);
     }
     if (body.discoverable !== undefined) {
       fields.push("discoverable = ?");
@@ -707,13 +722,15 @@ export function authRoutes(db: DB): Hono {
   // Update notification preferences
   router.patch("/notification-prefs", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       reminderEnabled?: boolean;
       reminderHoursBefore?: number;
       eventUpdatedEnabled?: boolean;
       eventCancelledEnabled?: boolean;
       onboardingCompleted?: boolean;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     const existing = db
       .prepare("SELECT account_id FROM account_notification_prefs WHERE account_id = ?")
@@ -786,7 +803,9 @@ export function authRoutes(db: DB): Hono {
   // Create API key
   router.post("/api-keys", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ label?: string }>();
+    const parsed = await parseJsonBody<{ label?: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const { id, key } = createApiKey(db, user.id, body.label || "Unnamed key");
     return c.json({ id, key, label: body.label || "Unnamed key" }, 201);
   });

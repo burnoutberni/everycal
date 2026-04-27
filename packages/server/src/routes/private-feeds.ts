@@ -12,36 +12,23 @@ import { toICalendar } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { rowToEvent } from "../lib/feed-event.js";
+import { findByTokenHash, hashTokenSecret } from "../lib/token-secrets.js";
 
 function getOrCreateCalendarFeedToken(db: DB, accountId: string): string {
-  const existing = db
-    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
-    .get(accountId) as { token: string } | undefined;
-
-  if (existing) {
-    return existing.token;
-  }
-
   const token = `ecal_cal_${nanoid(40)}`;
   db.prepare(
-    "INSERT OR IGNORE INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)"
-  ).run(accountId, token);
-
-  const row = db
-    .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
-    .get(accountId) as { token: string } | undefined;
-
-  if (!row) {
-    throw new Error("Failed to resolve calendar feed token");
-  }
-
-  return row.token;
+    `INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)
+     ON CONFLICT(account_id) DO UPDATE SET token = excluded.token, created_at = datetime('now')`
+  ).run(accountId, hashTokenSecret(token));
+  return token;
 }
 
 function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
-  const row = db
-    .prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?")
-    .get(token) as { account_id: string } | undefined;
+  const row = findByTokenHash<{ account_id: string }>(
+    db,
+    "SELECT account_id FROM calendar_feed_tokens WHERE token = ?",
+    token
+  );
   return row?.account_id ?? null;
 }
 

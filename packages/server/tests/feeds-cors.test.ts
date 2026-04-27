@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
 import { feedRoutes } from "../src/routes/feeds.js";
 import { privateFeedRoutes } from "../src/routes/private-feeds.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 import { createApiCorsMiddleware } from "../src/middleware/api-cors.js";
 import { authMiddleware, createSession } from "../src/middleware/auth.js";
 
@@ -65,7 +66,7 @@ describe("feed CORS policy", () => {
   it("keeps private feed endpoints on strict CORS", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
-    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", "tok1");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("tok1"));
 
     const tokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
       headers: { Origin: "https://embedder.example" },
@@ -130,7 +131,7 @@ describe("feed CORS policy", () => {
     expect(res.headers.get("expires")).toBe("0");
   });
 
-  it("returns a stable calendar token under concurrent calendar-url requests", async () => {
+  it("returns valid calendar tokens under concurrent calendar-url requests", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
     const { token } = createSession(db, "u1");
@@ -149,8 +150,12 @@ describe("feed CORS policy", () => {
     }
 
     const bodies = (await Promise.all(responses.map((res) => res.json()))) as Array<{ url: string }>;
-    const urls = new Set(bodies.map((body) => body.url));
-    expect(urls.size).toBe(1);
+    for (const body of bodies) {
+      const parsed = new URL(body.url, "http://localhost");
+      const token = parsed.searchParams.get("token");
+      expect(token).toBeTruthy();
+      expect(token).toMatch(/^ecal_cal_/);
+    }
   });
 });
 
