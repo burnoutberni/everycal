@@ -444,8 +444,13 @@ export function authRoutes(db: DB): Hono {
 
   // Reset password
   router.post("/reset-password", async (c) => {
-    const body = await c.req.json<{ token?: string; newPassword?: string }>();
-    if (!body.token || !body.newPassword) {
+    const body = await c.req.json<{ token?: unknown; newPassword?: unknown }>();
+    if (
+      typeof body.token !== "string" ||
+      typeof body.newPassword !== "string" ||
+      !body.token ||
+      !body.newPassword
+    ) {
       return c.json({ error: t(getLocale(c), "auth.token_and_password_required") }, 400);
     }
     if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {

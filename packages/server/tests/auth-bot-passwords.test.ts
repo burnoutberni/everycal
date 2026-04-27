@@ -112,6 +112,56 @@ describe("auth bot password restrictions", () => {
     expect(account.password_hash).toBe(oldHash);
   });
 
+  it("rejects reset-password when newPassword is non-string", async () => {
+    const oldHash = hashPassword("old-secret");
+    db.prepare(
+      "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("person-reset-1", "person_reset_1", oldHash, "person-reset-1@example.com", 1, 0);
+    db.prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)").run(
+      "person-reset-1",
+      "person-token-1",
+      new Date(Date.now() + 60_000).toISOString()
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/auth/reset-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "person-token-1", newPassword: true }),
+    });
+
+    expect(res.status).toBe(400);
+    const account = db.prepare("SELECT password_hash FROM accounts WHERE id = ?").get("person-reset-1") as {
+      password_hash: string;
+    };
+    expect(account.password_hash).toBe(oldHash);
+  });
+
+  it("rejects reset-password when token is non-string", async () => {
+    const oldHash = hashPassword("old-secret");
+    db.prepare(
+      "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_bot) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("person-reset-2", "person_reset_2", oldHash, "person-reset-2@example.com", 1, 0);
+    db.prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)").run(
+      "person-reset-2",
+      "person-token-2",
+      new Date(Date.now() + 60_000).toISOString()
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/auth/reset-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: { value: "person-token-2" }, newPassword: "new-strong-password" }),
+    });
+
+    expect(res.status).toBe(400);
+    const account = db.prepare("SELECT password_hash FROM accounts WHERE id = ?").get("person-reset-2") as {
+      password_hash: string;
+    };
+    expect(account.password_hash).toBe(oldHash);
+  });
+
   it("rejects change-password for authenticated bot accounts", async () => {
     const oldHash = hashPassword("old-bot-password");
     db.prepare("INSERT INTO accounts (id, username, password_hash, is_bot) VALUES (?, ?, ?, ?)").run(
