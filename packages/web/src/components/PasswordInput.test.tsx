@@ -74,6 +74,21 @@ describe("PasswordInput", () => {
     expect(screen.getByText("passwordStrength.strong")).toBeTruthy();
   });
 
+  it("does not fill strength meter segments when minimum length is not met", () => {
+    const { container } = render(
+      <PasswordInput
+        id="password"
+        value="Aa1!"
+        onChange={() => {}}
+        showStrengthFeedback
+      />
+    );
+
+    expect(screen.getByText("passwordStrength.weak")).toBeTruthy();
+    expect(container.querySelectorAll(".password-strength-meter-segment.is-empty").length).toBe(4);
+    expect(container.querySelectorAll(".password-strength-meter-segment.is-weak").length).toBe(0);
+  });
+
   it("only evaluates password strength when feedback is enabled", () => {
     const spy = vi.spyOn(passwordStrength, "evaluatePasswordStrength");
 

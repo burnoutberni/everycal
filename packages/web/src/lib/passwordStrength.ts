@@ -27,7 +27,7 @@ export function evaluatePasswordStrength(password: string): PasswordStrengthResu
     + Number(checks.symbol);
 
   if (!checks.minLength) {
-    return { level: "weak", score, checks };
+    return { level: "weak", score: 0, checks };
   }
 
   if (score <= 1) {
