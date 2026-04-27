@@ -67,7 +67,7 @@
   "passwordUpdated": "Password updated!",
   "changing": "Changing…",
   "passwordsDoNotMatch": "Passwords do not match",
-  "passwordMinLength": "Password must be at least 8 characters",
+  "passwordMinLength": "Password must be at least {{min}} characters",
   "failedChangePassword": "Failed to change password",
   "failedSendVerification": "Failed to send verification email",
   "addEmailForNotifications": "Add an email in the Account section to receive notifications.",

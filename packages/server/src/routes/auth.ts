@@ -114,7 +114,7 @@ export function authRoutes(db: DB): Hono {
         return c.json({ error: t(getLocale(c), "auth.password_required") }, 400);
       }
       if (!meetsPasswordMinLength(body.password, PASSWORD_MIN_LENGTH)) {
-        return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
+        return c.json({ error: t(getLocale(c), "auth.password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
       }
     }
 
@@ -302,7 +302,7 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.current_and_new_password_required") }, 400);
     }
     if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
-      return c.json({ error: t(getLocale(c), "auth.new_password_min_length") }, 400);
+      return c.json({ error: t(getLocale(c), "auth.new_password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
     }
 
     const row = db
@@ -459,7 +459,7 @@ export function authRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "auth.token_and_password_required") }, 400);
     }
     if (!meetsPasswordMinLength(body.newPassword, PASSWORD_MIN_LENGTH)) {
-      return c.json({ error: t(getLocale(c), "auth.password_min_length") }, 400);
+      return c.json({ error: t(getLocale(c), "auth.password_min_length", { min: PASSWORD_MIN_LENGTH }) }, 400);
     }
 
     const row = db

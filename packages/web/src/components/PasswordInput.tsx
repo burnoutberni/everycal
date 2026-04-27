@@ -1,5 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { PASSWORD_MIN_LENGTH } from "@everycal/core";
 import { evaluatePasswordStrength } from "../lib/passwordStrength";
 
 type PasswordInputProps = {
@@ -27,6 +28,7 @@ export function PasswordInput({
 }: PasswordInputProps) {
   const { t } = useTranslation("auth");
   const [isVisible, setIsVisible] = useState(false);
+  const minPasswordLength = minLength ?? PASSWORD_MIN_LENGTH;
   const strength = useMemo(() => evaluatePasswordStrength(value), [value]);
   const strengthText = value.length === 0 ? t("passwordStrengthEnter") : t(`passwordStrength.${strength.level}`);
 
@@ -75,7 +77,7 @@ export function PasswordInput({
           <div id={`${id}-requirements`}>
             <p className="text-sm text-dim mt-1">{t("passwordRequiredLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordRequiredLabel")}>
-              <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength")}</li>
+              <li className={strength.checks.minLength ? "is-met" : ""}>{t("passwordRuleMinLength", { min: minPasswordLength })}</li>
             </ul>
             <p className="text-sm text-dim mt-1">{t("passwordTipsLabel")}</p>
             <ul className="password-requirements-list text-sm text-dim" aria-label={t("passwordTipsLabel")}>

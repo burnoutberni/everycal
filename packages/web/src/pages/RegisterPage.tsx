@@ -32,7 +32,7 @@ export function RegisterPage() {
       return;
     }
     if (!meetsPasswordMinLength(password, PASSWORD_MIN_LENGTH)) {
-      setError(t("passwordMinLength"));
+      setError(t("passwordMinLength", { min: PASSWORD_MIN_LENGTH }));
       return;
     }
     setLoading(true);

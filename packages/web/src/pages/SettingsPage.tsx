@@ -943,7 +943,7 @@ export function SettingsPage() {
       return;
     }
     if (!meetsPasswordMinLength(newPassword, PASSWORD_MIN_LENGTH)) {
-      setPasswordChangeError(t("passwordMinLength"));
+      setPasswordChangeError(t("passwordMinLength", { min: PASSWORD_MIN_LENGTH }));
       return;
     }
     setChangingPassword(true);
