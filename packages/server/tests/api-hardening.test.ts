@@ -215,6 +215,8 @@ describe("api hardening and pagination", () => {
     mkdirSync(UPLOAD_DIR, { recursive: true });
     const filename = "idempotent-test.png";
     const filePath = join(UPLOAD_DIR, filename);
+    const derivativePath = join(UPLOAD_DIR, ".derived", `${filename}.jpg`);
+    const derivativeDir = join(UPLOAD_DIR, ".derived");
     const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: { r: 0, g: 120, b: 240, alpha: 1 } } }).png().toBuffer();
     writeFileSync(filePath, source);
 
@@ -230,6 +232,12 @@ describe("api hardening and pagination", () => {
     expect(Buffer.compare(before, after)).toBe(0);
 
     rmSync(filePath, { force: true });
+    rmSync(derivativePath, { force: true });
+    try {
+      rmSync(derivativeDir);
+    } catch {
+      // Directory may be missing or contain other test artifacts.
+    }
   });
 
   it("upserts saved locations with null address without duplicates", async () => {
