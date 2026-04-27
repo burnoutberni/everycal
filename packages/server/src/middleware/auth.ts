@@ -31,6 +31,10 @@ declare module "hono" {
 const SALT_ROUNDS = 12;
 const SESSION_TTL_HOURS = 24 * 30; // 30 days
 
+function toSqliteDateTime(isoInstant: string): string {
+  return isoInstant.slice(0, 19).replace("T", " ");
+}
+
 /** Hash a session token with SHA-256 for secure storage. */
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -80,10 +84,11 @@ export function createSession(db: DB, accountId: string): { token: string; expir
   const token = nanoid(48);
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600_000).toISOString();
+  const sqliteExpiresAt = toSqliteDateTime(expiresAt);
   db.prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)").run(
     tokenHash,
     accountId,
-    expiresAt
+    sqliteExpiresAt
   );
   return { token, expiresAt };
 }

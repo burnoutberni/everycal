@@ -378,6 +378,13 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 5,
+    name: "normalize_session_expiry_format",
+    up: (db) => {
+      db.exec("UPDATE sessions SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;

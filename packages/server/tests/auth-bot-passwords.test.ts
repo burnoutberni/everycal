@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 import { authRoutes } from "../src/routes/auth.js";
-import { hashPassword } from "../src/middleware/auth.js";
+import { createSession, hashPassword } from "../src/middleware/auth.js";
 
 function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
@@ -115,6 +115,20 @@ describe("auth bot password restrictions", () => {
     expect(token?.expires_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     const parsed = db.prepare("SELECT datetime(?) AS parsed").get(token?.expires_at ?? null) as { parsed: string | null };
     expect(parsed.parsed).toBe(token?.expires_at);
+  });
+
+  it("stores session expiry in sqlite datetime format", () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, ?)").run("person-session-format", "person_session_format", 1);
+
+    const session = createSession(db, "person-session-format");
+    const stored = db.prepare("SELECT expires_at FROM sessions WHERE account_id = ?").get("person-session-format") as
+      | { expires_at: string }
+      | undefined;
+
+    expect(stored?.expires_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    const parsed = db.prepare("SELECT datetime(?) AS parsed").get(stored?.expires_at ?? null) as { parsed: string | null };
+    expect(parsed.parsed).toBe(stored?.expires_at);
+    expect(new Date(session.expiresAt).toISOString()).toBe(session.expiresAt);
   });
 
   it("rejects reset-password token for bot accounts", async () => {

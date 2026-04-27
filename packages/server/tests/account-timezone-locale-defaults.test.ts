@@ -73,7 +73,7 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("normalizes legacy ISO token expiries during migration", () => {
+  it("normalizes legacy ISO expiry timestamps during migration", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-token-expiry.sqlite");
     const versioned = new Database(dbPath);
@@ -91,6 +91,9 @@ describe("account timezone/locale defaults", () => {
     versioned
       .prepare("INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)")
       .run("u-token", "updated@example.com", "change-token", "2026-04-27T09:30:00.000Z");
+    versioned
+      .prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)")
+      .run("session-token", "u-token", "2026-04-27T09:30:00.000Z");
     versioned.pragma("user_version = 3");
     versioned.close();
 
@@ -104,10 +107,14 @@ describe("account timezone/locale defaults", () => {
     const change = reopened.prepare("SELECT expires_at FROM email_change_requests WHERE account_id = ?").get("u-token") as {
       expires_at: string;
     };
+    const session = reopened.prepare("SELECT expires_at FROM sessions WHERE account_id = ?").get("u-token") as {
+      expires_at: string;
+    };
 
     expect(verification.expires_at).toBe("2026-04-27 09:30:00");
     expect(reset.expires_at).toBe("2026-04-27 09:30:00");
     expect(change.expires_at).toBe("2026-04-27 09:30:00");
+    expect(session.expires_at).toBe("2026-04-27 09:30:00");
     reopened.close();
 
     rmSync(dir, { recursive: true, force: true });
