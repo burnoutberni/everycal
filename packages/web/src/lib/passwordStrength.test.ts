@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { evaluatePasswordStrength } from "./passwordStrength";
 
 describe("evaluatePasswordStrength", () => {
-  it("marks short lowercase passwords as weak", () => {
+  it("marks lowercase-only passwords meeting min length as weak", () => {
     const result = evaluatePasswordStrength("password");
     expect(result.level).toBe("weak");
     expect(result.checks.minLength).toBe(true);
