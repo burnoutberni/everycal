@@ -41,6 +41,7 @@ export function HomePage() {
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const [, navigate] = useLocation();
   const [events, setEvents] = useState<CalEvent[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -128,17 +129,17 @@ export function HomePage() {
   }, [calendarMonthRange.from, calendarMonthRange.to, scopeFilter, selectedTags.join(","), user?.id, refreshNonce]);
 
   const fetchEvents = useCallback(
-    async (offset = 0, append = false) => {
+    async (cursor: string | null = null, append = false) => {
       const requestId = ++fetchRequestIdRef.current;
-      if (offset === 0) setLoading(true);
-      else setLoadingMore(true);
+      if (append) setLoadingMore(true);
+      else setLoading(true);
 
       try {
         const params: Record<string, string | number | string[]> = {
           from: range.from,
           limit: PAGE_SIZE,
-          offset,
         };
+        if (cursor) params.cursor = cursor;
         if (range.to) params.to = range.to;
         if (scopeFilter === "feed") params.scope = "mine";
         if (selectedTags.length > 0) params.tags = selectedTags;
@@ -150,10 +151,15 @@ export function HomePage() {
         } else {
           setEvents(res.events);
         }
-        setHasMore(res.events.length === PAGE_SIZE);
+        setNextCursor(res.nextCursor);
+        setHasMore(Boolean(res.nextCursor));
       } catch {
         if (requestId !== fetchRequestIdRef.current) return;
-        if (!append) setEvents([]);
+        if (!append) {
+          setEvents([]);
+          setNextCursor(null);
+          setHasMore(false);
+        }
       } finally {
         if (requestId !== fetchRequestIdRef.current) return;
         setLoading(false);
@@ -164,7 +170,7 @@ export function HomePage() {
   );
 
   useEffect(() => {
-    fetchEvents(0, false);
+    fetchEvents(null, false);
   }, [fetchEvents]);
 
 
@@ -195,7 +201,10 @@ export function HomePage() {
     if (!user && scopeFilter !== "all") setScopeFilter("all");
   }, [user, scopeFilter]);
 
-  const loadMore = () => fetchEvents(events.length, true);
+  const loadMore = () => {
+    if (!nextCursor) return;
+    fetchEvents(nextCursor, true);
+  };
 
   const grouped = useMemo(() => groupEventsByDate(events, (e) => toLocalYMD(e.startDate)), [events]);
   const navigableEventDates = useMemo(() => {
@@ -306,8 +315,8 @@ export function HomePage() {
     }
 
     if (viewingPast && !hasExactDate && isKnownCalendarDate) {
-      if (hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
-        fetchEvents(events.length, true);
+      if (hasMore && !loadingMore && nextCursor && lastLoadedKey && scrollToDate > lastLoadedKey) {
+        fetchEvents(nextCursor, true);
         return;
       }
       if (loading || loadingMore) {
@@ -319,8 +328,8 @@ export function HomePage() {
       return;
     }
 
-    if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && lastLoadedKey && scrollToDate > lastLoadedKey) {
-      fetchEvents(events.length, true);
+    if (!viewingPast && !hasExactDate && isKnownCalendarDate && hasMore && !loadingMore && nextCursor && lastLoadedKey && scrollToDate > lastLoadedKey) {
+      fetchEvents(nextCursor, true);
       return;
     }
 

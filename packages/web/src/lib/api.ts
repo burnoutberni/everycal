@@ -447,7 +447,17 @@ export interface IdentityMember {
 }
 
 export const events = {
-  list(params?: { account?: string; from?: string; to?: string; q?: string; source?: string; scope?: string; tags?: string[]; limit?: number; offset?: number }) {
+  list(params?: {
+    account?: string;
+    from?: string;
+    to?: string;
+    q?: string;
+    source?: string;
+    scope?: string;
+    tags?: string[];
+    limit?: number;
+    cursor?: string;
+  }) {
     const qs = new URLSearchParams();
     if (params) {
       for (const [k, v] of Object.entries(params)) {
@@ -459,7 +469,7 @@ export const events = {
         }
       }
     }
-    return request<{ events: CalEvent[] }>(`/events?${qs}`);
+    return request<{ events: CalEvent[]; nextCursor: string | null }>(`/events?${qs}`);
   },
 
   tags(params?: { from?: string; to?: string; scope?: string }) {
