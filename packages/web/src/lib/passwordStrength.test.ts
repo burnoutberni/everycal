@@ -17,6 +17,15 @@ describe("evaluatePasswordStrength", () => {
     expect(result.score).toBe(3);
   });
 
+  it("keeps too-short passwords weak even with mixed case, number, and symbol", () => {
+    const result = evaluatePasswordStrength("Aa1!");
+    expect(result.level).toBe("weak");
+    expect(result.checks.minLength).toBe(false);
+    expect(result.checks.mixedCase).toBe(true);
+    expect(result.checks.number).toBe(true);
+    expect(result.checks.symbol).toBe(true);
+  });
+
   it("marks passwords meeting all checks as strong", () => {
     const result = evaluatePasswordStrength("Password1!");
     expect(result.level).toBe("strong");
