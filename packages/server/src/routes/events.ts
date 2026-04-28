@@ -596,10 +596,28 @@ export function eventRoutes(db: DB): Hono {
       events = paged.page;
       nextCursor = paged.nextCursor;
     } else if (source === "remote") {
-      const { sql, params } = buildRemoteQueryBase();
-      const pagedSql = `${sql} ORDER BY re.start_at_utc ASC, re.uri ASC LIMIT ? OFFSET ?`;
-      const rows = db.prepare(pagedSql).all(...params, limit, offset) as Record<string, unknown>[];
-      events = rows.map(formatRemoteEvent);
+      const fetchRemote: MergedFetcher = (after, fetchLimit) => {
+        const { sql, params } = buildRemoteQueryBase();
+        let pagedSql = sql;
+        if (after) {
+          pagedSql += " AND (re.start_at_utc > ? OR (re.start_at_utc = ? AND re.uri > ?))";
+          params.push(after.startAtUtc, after.startAtUtc, after.id);
+        }
+        pagedSql += " ORDER BY re.start_at_utc ASC, re.uri ASC LIMIT ?";
+        params.push(fetchLimit);
+        const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
+        return rows.map(formatRemoteEvent);
+      };
+
+      const paged = paginateMergedFromFetchers({
+        limit,
+        offset,
+        cursor,
+        fetchChunkSize: limit + 1,
+        fetchRemote,
+      });
+      events = paged.page;
+      nextCursor = paged.nextCursor;
     } else {
       const fetchLocal: MergedFetcher = (after, fetchLimit) => {
         const { sql, params, col } = buildLocalQueryBase();

@@ -133,6 +133,36 @@ describe("events pagination routes", () => {
     expect(thirdBody.nextCursor).toBeNull();
   });
 
+  it("paginates remote source with cursor using stable tie-break ordering", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote/users/remote-only", "remote-only", "https://remote/inbox", "remote");
+
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("rb", "https://remote/users/remote-only", "Remote B", "2026-04-01", "2026-04-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("ra", "https://remote/users/remote-only", "Remote A", "2026-04-01", "2026-04-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
+      VALUES (?, ?, ?, ?, ?, 'offset_only')`).run("rc", "https://remote/users/remote-only", "Remote C", "2026-04-02", "2026-04-02T00:00:00.000Z");
+
+    const app = makeApp(db);
+    const first = await app.request("http://localhost/api/v1/events?source=remote&limit=1");
+    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const second = await app.request(`http://localhost/api/v1/events?source=remote&limit=1&cursor=${encodeURIComponent(firstBody.nextCursor || "")}`);
+    const secondBody = await second.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+    const third = await app.request(`http://localhost/api/v1/events?source=remote&limit=1&cursor=${encodeURIComponent(secondBody.nextCursor || "")}`);
+    const thirdBody = await third.json() as { events: Array<{ id: string }>; nextCursor: string | null };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(third.status).toBe(200);
+    const ids = [...firstBody.events, ...secondBody.events, ...thirdBody.events].map((event) => event.id);
+    expect(ids).toEqual(["ra", "rb", "rc"]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(firstBody.nextCursor).not.toBeNull();
+    expect(secondBody.nextCursor).not.toBeNull();
+    expect(thirdBody.nextCursor).toBeNull();
+  });
+
   it("paginates timeline local+remote events without duplicates across cursor pages", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("local-author", "local-author");
