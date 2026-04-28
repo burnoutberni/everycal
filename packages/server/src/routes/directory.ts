@@ -7,6 +7,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 function getBaseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
@@ -27,8 +28,14 @@ export function directoryRoutes(db: DB): Hono {
   const router = new Hono();
 
   router.get("/directory", (c) => {
-    const offset = parseInt(c.req.query("offset") || "0", 10);
-    const limit = Math.min(parseInt(c.req.query("limit") || "40", 10), 80);
+    let limit: number;
+    let offset: number;
+    try {
+      ({ limit, offset } = parseLimitOffset(c, { defaultLimit: 40, maxLimit: 80 }));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const order = c.req.query("order") || "active";
     const baseUrl = getBaseUrl();
 
