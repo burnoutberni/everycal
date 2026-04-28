@@ -170,6 +170,11 @@ function decodeMergedCursor(raw: string | undefined): MergedCursor | null {
   }
 }
 
+function validateMergedCursorParam(raw: string | undefined): void {
+  if (raw === undefined) return;
+  if (!decodeMergedCursor(raw)) throw new PaginationParamError("cursor must be a valid merged cursor");
+}
+
 function compareMergedOrder(a: Record<string, unknown>, b: Record<string, unknown>): number {
   const compareValue = (left: unknown, right: unknown): number => {
     const lhs = String(left || "");
@@ -474,6 +479,7 @@ export function eventRoutes(db: DB): Hono {
     const cursor = c.req.query("cursor");
     const tagsParam = c.req.query("tags");
     try {
+    validateMergedCursorParam(cursor);
     const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
     const tagList = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
     const user = c.get("user");
@@ -708,6 +714,7 @@ export function eventRoutes(db: DB): Hono {
     const to = c.req.query("to");
     const cursor = c.req.query("cursor");
     try {
+    validateMergedCursorParam(cursor);
     const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
     const fetchLocal: MergedFetcher = (after, fetchLimit) => {

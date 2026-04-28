@@ -56,6 +56,15 @@ describe("events pagination routes", () => {
     expect(ids).toEqual(["l1", "l2", "r1"]);
   });
 
+  it("returns 400 when events cursor is invalid", async () => {
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events?limit=2&cursor=not-a-valid-cursor");
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/cursor/i);
+  });
+
   it("keeps merged cursor pagination stable when tie-break ids differ by case", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u6", "case-local");
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
@@ -190,5 +199,18 @@ describe("events pagination routes", () => {
     const ids = [...firstBody.events, ...secondBody.events].map((event) => event.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(["t-local-1", "t-local-2", "t-remote-1"]);
+  });
+
+  it("returns 400 when timeline cursor is invalid", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer-invalid-cursor", "viewer-invalid-cursor");
+
+    const app = makeApp(db, { id: "viewer-invalid-cursor", username: "viewer-invalid-cursor" });
+    const res = await app.request(
+      "http://localhost/api/v1/events/timeline?limit=2&from=2026-06-01T00:00:00.000Z&cursor=not-a-valid-cursor"
+    );
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/cursor/i);
   });
 });
