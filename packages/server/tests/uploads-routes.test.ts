@@ -6,13 +6,14 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import sharp from "sharp";
 import { initDatabase, type DB } from "../src/db.js";
+import { UPLOAD_MAX_SIZE_BYTES } from "../src/lib/upload-limits.js";
 import { authRoutes } from "../src/routes/auth.js";
 import { uploadRoutes } from "../src/routes/uploads.js";
 import { serveUploadsRoutes } from "../src/routes/serve-uploads.js";
 
 function makeApp(db: DB, uploadDir: string, user: { id: string; username: string } | null = null) {
   const app = new Hono();
-  app.use("/api/v1/uploads*", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) }));
+  app.use("/api/v1/uploads*", bodyLimit({ maxSize: UPLOAD_MAX_SIZE_BYTES, onError: (c) => c.json({ error: "too large" }, 413) }));
   const defaultApiBodyLimit = bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.json({ error: "too large" }, 413) });
   app.use("/api/*", async (c, next) => {
     if (c.req.path.startsWith("/api/v1/uploads")) {
@@ -68,19 +69,19 @@ describe("uploads routes", () => {
     expect(Buffer.compare(before, after)).toBe(0);
   });
 
-  it("allows uploads above 1MB while keeping 1MB default API limit", async () => {
+  it("allows uploads above 5MB while keeping 1MB default API limit", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u7", "gina");
     const app = makeApp(db, uploadDir, { id: "u7", username: "gina" });
 
-    const width = 900;
-    const height = 900;
+    const width = 1340;
+    const height = 1340;
     const raw = Buffer.alloc(width * height * 3);
     for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
     const image = await sharp(raw, { raw: { width, height, channels: 3 } })
       .png({ compressionLevel: 0 })
       .toBuffer();
-    expect(image.length).toBeGreaterThan(1024 * 1024);
-    expect(image.length).toBeLessThan(6 * 1024 * 1024);
+    expect(image.length).toBeGreaterThan(5 * 1024 * 1024);
+    expect(image.length).toBeLessThan(UPLOAD_MAX_SIZE_BYTES);
 
     const formData = new FormData();
     formData.append("file", new File([image], "big.png", { type: "image/png" }));

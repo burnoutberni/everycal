@@ -46,6 +46,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -77,7 +78,7 @@ app.use("*", createEmbedCorpMiddleware());
 
 // Request body size limits (stream-aware, works for chunked transfer)
 app.use("/api/v1/uploads*", bodyLimit({
-  maxSize: 6 * 1024 * 1024,
+  maxSize: UPLOAD_MAX_SIZE_BYTES,
   onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
 }));
 const defaultApiBodyLimit = bodyLimit({
