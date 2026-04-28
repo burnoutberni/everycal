@@ -9,7 +9,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, extname, resolve } from "node:path";
+import { join, extname, resolve, relative, isAbsolute, sep } from "node:path";
 import { UPLOAD_DIR } from "../lib/paths.js";
 import { UPLOAD_MAX_SIZE_BYTES, UPLOAD_MAX_SIZE_MB } from "../lib/upload-limits.js";
 
@@ -73,7 +73,9 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
 
     // Defense-in-depth: verify resolved path stays within upload directory
     const resolvedPath = resolve(filepath);
-    if (!resolvedPath.startsWith(resolve(uploadDir))) {
+    const uploadDirResolved = resolve(uploadDir);
+    const rel = relative(uploadDirResolved, resolvedPath);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
     }
 
