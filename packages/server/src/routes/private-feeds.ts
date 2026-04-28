@@ -136,6 +136,7 @@ function setPrivateNoStoreHeaders(c: Context): void {
 }
 
 export function privateFeedRoutes(db: DB): Hono {
+  getCalendarFeedTokenSecret();
   const router = new Hono();
 
   const privateNoStore = async (c: Context, next: () => Promise<void>) => {
