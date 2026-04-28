@@ -28,6 +28,7 @@ import {
   summarizeActorSelection,
 } from "../lib/actor-selection.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -35,8 +36,14 @@ export function userRoutes(db: DB): Hono {
   // List users (public — only discoverable accounts)
   router.get("/", (c) => {
     const q = c.req.query("q") || "";
-    const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
+    let limit: number;
+    let offset: number;
+    try {
+      ({ limit, offset } = parseLimitOffset(c, { defaultLimit: 20, maxLimit: 100 }));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
 
     let sql: string;
     let params: unknown[];
@@ -192,8 +199,14 @@ export function userRoutes(db: DB): Hono {
       throw error;
     }
     const sort = c.req.query("sort")?.toLowerCase() === "desc" ? "DESC" : "ASC";
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
+    let limit: number;
+    let offset: number;
+    try {
+      ({ limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 }));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
 
     // Remote profile: username@domain format
     const atIdx = username.indexOf("@");

@@ -105,6 +105,29 @@ describe("feed CORS policy", () => {
     expect(allowlistedRes.headers.get("access-control-allow-credentials")).toBe("true");
   });
 
+
+  it("rejects legacy plaintext calendar token rows while accepting signed tokens", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", "legacy-plaintext-token");
+
+    const legacyRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=legacy-plaintext-token");
+    expect(legacyRes.status).toBe(401);
+
+    const { token } = createSession(db, "u1");
+    const signedUrlRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(signedUrlRes.status).toBe(200);
+
+    const signedBody = await signedUrlRes.json() as { url: string };
+    const signedToken = tokenFromCalendarUrl(signedBody.url);
+    expect(signedToken).toMatch(/^ecal_cal_/);
+
+    const signedFeedRes = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(signedToken!)}`);
+    expect(signedFeedRes.status).toBe(200);
+  });
+
   it("sets private feed no-store headers on token errors", async () => {
     const { app } = createApp();
 

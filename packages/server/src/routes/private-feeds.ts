@@ -118,9 +118,6 @@ function resolveAccountFromCalendarToken(db: DB, token: string): string | null {
     return null;
   }
 
-  const exact = db.prepare("SELECT account_id FROM calendar_feed_tokens WHERE token = ?").get(token) as { account_id: string } | undefined;
-  if (exact?.account_id) return exact.account_id;
-
   const row = findByTokenHash<{ account_id: string }>(
     db,
     "SELECT account_id FROM calendar_feed_tokens WHERE token = ?",
