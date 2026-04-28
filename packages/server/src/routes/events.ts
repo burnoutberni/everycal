@@ -25,6 +25,8 @@ import {
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../lib/i18n.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
+import { parseJsonBody } from "../lib/request-body.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { clearLocalOgImage, generateAndSaveOgImage, isOgEligibleVisibility } from "./og-images.js";
 import { canManageIdentityEvents, listActingAccounts } from "../lib/identities.js";
 import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../lib/federation.js";
@@ -151,15 +153,122 @@ function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown
   return { sql: ` AND (${conditions})`, params };
 }
 
-/** Merge local + remote events by canonical UTC start instant, capped at `limit`. */
-function mergeByStartAtUtc(
-  local: Record<string, unknown>[],
-  remote: Record<string, unknown>[],
-  limit: number,
-): Record<string, unknown>[] {
-  return [...local, ...remote]
-    .sort((a, b) => ((a.startAtUtc as string) || "").localeCompare((b.startAtUtc as string) || ""))
-    .slice(0, limit);
+type MergedCursor = { startAtUtc: string; id: string };
+
+function encodeMergedCursor(value: MergedCursor): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeMergedCursor(raw: string | undefined): MergedCursor | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as MergedCursor;
+    if (!parsed || typeof parsed.startAtUtc !== "string" || typeof parsed.id !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function validateMergedCursorParam(raw: string | undefined): void {
+  if (raw === undefined) return;
+  if (!decodeMergedCursor(raw)) throw new PaginationParamError("cursor must be a valid merged cursor");
+}
+
+function compareMergedOrder(a: Record<string, unknown>, b: Record<string, unknown>): number {
+  const compareValue = (left: unknown, right: unknown): number => {
+    const lhs = String(left || "");
+    const rhs = String(right || "");
+    if (lhs === rhs) return 0;
+    return lhs < rhs ? -1 : 1;
+  };
+  const t = compareValue(a.startAtUtc, b.startAtUtc);
+  if (t !== 0) return t;
+  return compareValue(a.id, b.id);
+}
+
+type MergedFetcher = (after: MergedCursor | null, limit: number) => Record<string, unknown>[];
+
+function paginateMergedFromFetchers(
+  opts: {
+    limit: number;
+    offset: number;
+    cursor?: string;
+    fetchChunkSize?: number;
+    fetchLocal?: MergedFetcher;
+    fetchRemote?: MergedFetcher;
+  },
+): { page: Record<string, unknown>[]; nextCursor: string | null } {
+  if (opts.limit === 0) return { page: [], nextCursor: null };
+  const chunkSize = Math.max(1, opts.fetchChunkSize ?? (opts.limit + 1));
+  const initialCursor = decodeMergedCursor(opts.cursor);
+  const effectiveOffset = initialCursor ? 0 : opts.offset;
+  const sourceState = {
+    local: {
+      fetch: opts.fetchLocal,
+      cursor: initialCursor,
+      rows: [] as Record<string, unknown>[],
+      index: 0,
+      exhausted: !opts.fetchLocal,
+    },
+    remote: {
+      fetch: opts.fetchRemote,
+      cursor: initialCursor,
+      rows: [] as Record<string, unknown>[],
+      index: 0,
+      exhausted: !opts.fetchRemote,
+    },
+  };
+
+  const ensureLoaded = (key: "local" | "remote"): void => {
+    const state = sourceState[key];
+    if (state.exhausted || state.index < state.rows.length || !state.fetch) return;
+    const rows = state.fetch(state.cursor, chunkSize);
+    if (rows.length === 0) {
+      state.exhausted = true;
+      return;
+    }
+    state.rows = rows;
+    state.index = 0;
+    const last = rows[rows.length - 1];
+    state.cursor = { startAtUtc: String(last.startAtUtc || ""), id: String(last.id || "") };
+  };
+
+  const selected: Record<string, unknown>[] = [];
+  let skipped = 0;
+  while (selected.length < opts.limit + 1) {
+    ensureLoaded("local");
+    ensureLoaded("remote");
+
+    const localCurrent = sourceState.local.rows[sourceState.local.index];
+    const remoteCurrent = sourceState.remote.rows[sourceState.remote.index];
+    if (!localCurrent && !remoteCurrent) break;
+
+    let next: Record<string, unknown>;
+    let source: "local" | "remote";
+    if (!remoteCurrent || (localCurrent && compareMergedOrder(localCurrent, remoteCurrent) <= 0)) {
+      next = localCurrent;
+      source = "local";
+    } else {
+      next = remoteCurrent;
+      source = "remote";
+    }
+    sourceState[source].index += 1;
+
+    if (skipped < effectiveOffset) {
+      skipped += 1;
+      continue;
+    }
+    selected.push(next);
+  }
+
+  const page = selected.slice(0, opts.limit);
+  const next = selected[opts.limit];
+  const last = page[page.length - 1];
+  const nextCursor = next
+    ? encodeMergedCursor({ startAtUtc: String(last.startAtUtc || ""), id: String(last.id || "") })
+    : null;
+  return { page, nextCursor };
 }
 
 // ─── Response formatters ────────────────────────────────────────────────────
@@ -367,22 +476,17 @@ export function eventRoutes(db: DB): Hono {
     const q = c.req.query("q");
     const source = c.req.query("source");
     const scope = c.req.query("scope");
+    const cursor = c.req.query("cursor");
     const tagsParam = c.req.query("tags");
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
-
+    try {
+    validateMergedCursorParam(cursor);
+    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
     const tagList = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
     const user = c.get("user");
     const isMineScope = scope === "mine" && !!user;
     const isCalendarScope = scope === "calendar" && !!user;
 
-    let localEvents: Record<string, unknown>[] = [];
-    let remoteEvents: Record<string, unknown>[] = [];
-
-    try {
-
-    // Fetch local events (unless source=remote)
-    if (source !== "remote") {
+    const buildLocalQueryBase = (): { sql: string; params: unknown[]; col: string } => {
       let sql: string;
       const params: unknown[] = [];
 
@@ -412,11 +516,9 @@ export function eventRoutes(db: DB): Hono {
         sql = `${LOCAL_EVENT_SELECT} WHERE e.visibility = 'public'`;
       }
 
-      // Columns use "combined" prefix for mine-scope (buildFeedQuery subquery alias), "e" otherwise
       const col = isMineScope ? "combined" : "e";
-
       if (account) {
-        sql += isMineScope ? ` AND combined.account_username = ?` : ` AND a.username = ?`;
+        sql += isMineScope ? " AND combined.account_username = ?" : " AND a.username = ?";
         params.push(account);
       }
 
@@ -438,15 +540,10 @@ export function eventRoutes(db: DB): Hono {
         params.push(...tagList);
       }
 
-      sql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      return { sql, params, col };
+    };
 
-      const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      localEvents = rows.map((r) => ({ ...formatEvent(r), source: "local" }));
-    }
-
-    // Fetch remote events (unless source=local)
-    if (source !== "local") {
+    const buildRemoteQueryBase = (): { sql: string; params: unknown[] } => {
       let sql = `${REMOTE_EVENT_SELECT} WHERE 1=1`;
       const params: unknown[] = [];
 
@@ -468,27 +565,110 @@ export function eventRoutes(db: DB): Hono {
       params.push(...df.params);
 
       if (q) {
-        sql += ` AND (re.title LIKE ? OR re.description LIKE ?)`;
+        sql += " AND (re.title LIKE ? OR re.description LIKE ?)";
         params.push(`%${q}%`, `%${q}%`);
       }
 
       const tagFilter = buildRemoteTagFilter(tagList);
       sql += tagFilter.sql;
       params.push(...tagFilter.params);
+      return { sql, params };
+    };
 
-      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+    let events: Record<string, unknown>[] = [];
+    let nextCursor: string | null = null;
 
-      const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      remoteEvents = rows.map(formatRemoteEvent);
+    if (source === "local") {
+      const fetchLocal: MergedFetcher = (after, fetchLimit) => {
+        const { sql, params, col } = buildLocalQueryBase();
+        let pagedSql = sql;
+        if (after) {
+          pagedSql += ` AND (${col}.start_at_utc > ? OR (${col}.start_at_utc = ? AND ${col}.id > ?))`;
+          params.push(after.startAtUtc, after.startAtUtc, after.id);
+        }
+        pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
+        params.push(fetchLimit);
+        const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
+        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+      };
+
+      const paged = paginateMergedFromFetchers({
+        limit,
+        offset,
+        cursor,
+        fetchChunkSize: limit + 1,
+        fetchLocal,
+      });
+      events = paged.page;
+      nextCursor = paged.nextCursor;
+    } else if (source === "remote") {
+      const fetchRemote: MergedFetcher = (after, fetchLimit) => {
+        const { sql, params } = buildRemoteQueryBase();
+        let pagedSql = sql;
+        if (after) {
+          pagedSql += " AND (re.start_at_utc > ? OR (re.start_at_utc = ? AND re.uri > ?))";
+          params.push(after.startAtUtc, after.startAtUtc, after.id);
+        }
+        pagedSql += " ORDER BY re.start_at_utc ASC, re.uri ASC LIMIT ?";
+        params.push(fetchLimit);
+        const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
+        return rows.map(formatRemoteEvent);
+      };
+
+      const paged = paginateMergedFromFetchers({
+        limit,
+        offset,
+        cursor,
+        fetchChunkSize: limit + 1,
+        fetchRemote,
+      });
+      events = paged.page;
+      nextCursor = paged.nextCursor;
+    } else {
+      const fetchLocal: MergedFetcher = (after, fetchLimit) => {
+        const { sql, params, col } = buildLocalQueryBase();
+        let pagedSql = sql;
+        if (after) {
+          pagedSql += ` AND (${col}.start_at_utc > ? OR (${col}.start_at_utc = ? AND ${col}.id > ?))`;
+          params.push(after.startAtUtc, after.startAtUtc, after.id);
+        }
+        pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
+        params.push(fetchLimit);
+        const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
+        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+      };
+
+      const fetchRemote: MergedFetcher = (after, fetchLimit) => {
+        const { sql, params } = buildRemoteQueryBase();
+        let pagedSql = sql;
+        if (after) {
+          pagedSql += " AND (re.start_at_utc > ? OR (re.start_at_utc = ? AND re.uri > ?))";
+          params.push(after.startAtUtc, after.startAtUtc, after.id);
+        }
+        pagedSql += " ORDER BY re.start_at_utc ASC, re.uri ASC LIMIT ?";
+        params.push(fetchLimit);
+        const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
+        return rows.map(formatRemoteEvent);
+      };
+
+      const paged = paginateMergedFromFetchers({
+        limit,
+        offset,
+        cursor,
+        fetchChunkSize: limit + 1,
+        fetchLocal,
+        fetchRemote,
+      });
+      events = paged.page;
+      nextCursor = paged.nextCursor;
     }
 
-      let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
-      if (user) events = attachUserContext(events, user.id);
+    if (user) events = attachUserContext(events, user.id);
 
-      return c.json({ events });
+      return c.json({ events, nextCursor });
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
   });
@@ -497,7 +677,9 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/rsvp", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{ eventUri: string; status: string | null }>();
+    const parsed = await parseJsonBody<{ eventUri: string; status: string | null }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (!body.eventUri) return c.json({ error: t(getLocale(c), "events.event_uri_required") }, 400);
 
@@ -530,14 +712,12 @@ export function eventRoutes(db: DB): Hono {
     const user = c.get("user")!;
     const from = c.req.query("from") || new Date().toISOString();
     const to = c.req.query("to");
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
-
+    const cursor = c.req.query("cursor");
     try {
+    validateMergedCursorParam(cursor);
+    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
-    // Local: feed events (own + followed + reposted)
-    let localEvents: Record<string, unknown>[];
-    {
+    const fetchLocal: MergedFetcher = (after, fetchLimit) => {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
@@ -551,16 +731,18 @@ export function eventRoutes(db: DB): Hono {
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` GROUP BY combined.id ORDER BY combined.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      if (after) {
+        sql += " AND (combined.start_at_utc > ? OR (combined.start_at_utc = ? AND combined.id > ?))";
+        params.push(after.startAtUtc, after.startAtUtc, after.id);
+      }
+      sql += " GROUP BY combined.id ORDER BY combined.start_at_utc ASC, combined.id ASC LIMIT ?";
+      params.push(fetchLimit);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      localEvents = rows.map((r) => ({ ...formatEvent(r), source: "local" }));
-    }
+      return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+    };
 
-    // Remote: events from followed actors + RSVP'd events
-    let remoteEvents: Record<string, unknown>[];
-    {
+    const fetchRemote: MergedFetcher = (after, fetchLimit) => {
       let sql = `${REMOTE_EVENT_SELECT}
         WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
@@ -572,23 +754,36 @@ export function eventRoutes(db: DB): Hono {
       sql += df.sql;
       params.push(...df.params);
 
-      sql += ` ORDER BY re.start_at_utc ASC LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+      if (after) {
+        sql += " AND (re.start_at_utc > ? OR (re.start_at_utc = ? AND re.uri > ?))";
+        params.push(after.startAtUtc, after.startAtUtc, after.id);
+      }
+      sql += " ORDER BY re.start_at_utc ASC, re.uri ASC LIMIT ?";
+      params.push(fetchLimit);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      remoteEvents = rows.map(formatRemoteEvent);
-    }
+      return rows.map(formatRemoteEvent);
+    };
 
-    let events = mergeByStartAtUtc(localEvents, remoteEvents, limit);
+    const paged = paginateMergedFromFetchers({
+      limit,
+      offset,
+      cursor,
+      fetchChunkSize: limit + 1,
+      fetchLocal,
+      fetchRemote,
+    });
+    let events = paged.page;
 
     // Timeline only attaches RSVPs (no repost flags)
     const uris = events.map((e) => e.id as string);
     const rsvps = getUserRsvps(user.id, uris);
     events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
 
-      return c.json({ events });
+      return c.json({ events, nextCursor: paged.nextCursor });
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
   });
@@ -615,14 +810,9 @@ export function eventRoutes(db: DB): Hono {
     };
     let body: SyncRequestBody;
 
-    try {
-      body = await c.req.json<SyncRequestBody>();
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        return c.json({ error: t(getLocale(c), "common.invalid_json") }, 400);
-      }
-      throw error;
-    }
+    const parsed = await parseJsonBody<SyncRequestBody>(c);
+    if (parsed instanceof Response) return parsed;
+    body = parsed;
 
     if (!Array.isArray(body.events)) {
       return c.json({ error: t(getLocale(c), "events.events_array_required") }, 400);
@@ -969,7 +1159,7 @@ export function eventRoutes(db: DB): Hono {
 
   router.post("/", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       title: string;
       description?: string;
       startDate: string;
@@ -990,7 +1180,9 @@ export function eventRoutes(db: DB): Hono {
       tags?: string[];
       visibility?: string;
       postAsAccountId?: string;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 
@@ -1168,7 +1360,7 @@ export function eventRoutes(db: DB): Hono {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     }
 
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       title?: string;
       description?: string;
       startDate?: string;
@@ -1182,7 +1374,9 @@ export function eventRoutes(db: DB): Hono {
       url?: string | null;
       tags?: string[];
       visibility?: string;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     sanitizeEventWriteFields(body as Record<string, unknown>);
 

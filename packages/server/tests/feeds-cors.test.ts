@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
 import { feedRoutes } from "../src/routes/feeds.js";
 import { privateFeedRoutes } from "../src/routes/private-feeds.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 import { createApiCorsMiddleware } from "../src/middleware/api-cors.js";
 import { authMiddleware, createSession } from "../src/middleware/auth.js";
 
@@ -14,6 +15,10 @@ function createApp() {
   app.route("/api/v1/feeds", feedRoutes(db));
   app.route("/api/v1/private-feeds", privateFeedRoutes(db));
   return { app, db };
+}
+
+function tokenFromCalendarUrl(url: string): string | null {
+  return new URL(url, "http://localhost").searchParams.get("token");
 }
 
 describe("feed CORS policy", () => {
@@ -65,7 +70,7 @@ describe("feed CORS policy", () => {
   it("keeps private feed endpoints on strict CORS", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
-    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", "tok1");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("tok1"));
 
     const tokenRes = await app.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1", {
       headers: { Origin: "https://embedder.example" },
@@ -130,7 +135,62 @@ describe("feed CORS policy", () => {
     expect(res.headers.get("expires")).toBe("0");
   });
 
-  it("returns a stable calendar token under concurrent calendar-url requests", async () => {
+  it("returns the same calendar token across repeated calendar-url requests", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const first = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    const second = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const firstBody = await first.json() as { url: string };
+    const secondBody = await second.json() as { url: string };
+    const firstToken = tokenFromCalendarUrl(firstBody.url);
+    const secondToken = tokenFromCalendarUrl(secondBody.url);
+
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
+    expect(secondToken).toBe(firstToken);
+  });
+
+  it("returns deterministic signed calendar tokens without overwriting legacy hashes", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const legacyHash = hashTokenSecret("legacy-token");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", legacyHash);
+    const { token } = createSession(db, "u1");
+
+    const first = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    const second = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const firstBody = await first.json() as { url: string };
+    const secondBody = await second.json() as { url: string };
+    const firstToken = tokenFromCalendarUrl(firstBody.url);
+    const secondToken = tokenFromCalendarUrl(secondBody.url);
+
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
+    expect(secondToken).toBe(firstToken);
+
+    const row = db.prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?").get("u1") as { token: string };
+    expect(row.token).toBe(legacyHash);
+  });
+
+  it("returns the same calendar token under concurrent calendar-url requests", async () => {
     const { app, db } = createApp();
     db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
     const { token } = createSession(db, "u1");
@@ -149,8 +209,71 @@ describe("feed CORS policy", () => {
     }
 
     const bodies = (await Promise.all(responses.map((res) => res.json()))) as Array<{ url: string }>;
-    const urls = new Set(bodies.map((body) => body.url));
-    expect(urls.size).toBe(1);
+    const tokens = bodies.map((body) => tokenFromCalendarUrl(body.url));
+    const firstToken = tokens[0];
+    expect(firstToken).toBeTruthy();
+    expect(firstToken).toMatch(/^ecal_cal_/);
+    for (const body of bodies) {
+      const currentToken = tokenFromCalendarUrl(body.url);
+      expect(currentToken).toBe(firstToken);
+    }
+  });
+
+  it("rotates calendar token only via regenerate endpoint", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    const { token } = createSession(db, "u1");
+
+    const originalRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url", {
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(originalRes.status).toBe(200);
+    const originalBody = await originalRes.json() as { url: string };
+    const originalToken = tokenFromCalendarUrl(originalBody.url);
+    expect(originalToken).toBeTruthy();
+
+    const regenerateRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url/regenerate", {
+      method: "POST",
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+    expect(regenerateRes.status).toBe(200);
+    const regenerateBody = await regenerateRes.json() as { url: string };
+    const rotatedToken = tokenFromCalendarUrl(regenerateBody.url);
+    expect(rotatedToken).toBeTruthy();
+    expect(rotatedToken).toMatch(/^ecal_cal_/);
+    expect(rotatedToken).not.toBe(originalToken);
+
+    const oldFeed = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(originalToken!)}`);
+    expect(oldFeed.status).toBe(401);
+
+    const newFeed = await app.request(`http://localhost/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(rotatedToken!)}`);
+    expect(newFeed.status).toBe(200);
+  });
+
+  it("rolls back token version bump if legacy token cleanup fails", async () => {
+    const { app, db } = createApp();
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("legacy-token"));
+    db.exec(`
+      CREATE TRIGGER deny_calendar_feed_token_delete
+      BEFORE DELETE ON calendar_feed_tokens
+      BEGIN
+        SELECT RAISE(FAIL, 'delete denied for test');
+      END;
+    `);
+    const { token } = createSession(db, "u1");
+
+    const regenerateRes = await app.request("http://localhost/api/v1/private-feeds/calendar-url/regenerate", {
+      method: "POST",
+      headers: { Cookie: `everycal_session=${token}` },
+    });
+
+    expect(regenerateRes.status).toBe(500);
+
+    const account = db
+      .prepare("SELECT calendar_feed_token_version FROM accounts WHERE id = ?")
+      .get("u1") as { calendar_feed_token_version: number };
+    expect(account.calendar_feed_token_version).toBe(1);
   });
 });
 

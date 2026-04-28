@@ -9,10 +9,9 @@ import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, extname, resolve } from "node:path";
+import { join, extname, resolve, relative, isAbsolute, sep } from "node:path";
 import { UPLOAD_DIR } from "../lib/paths.js";
-
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+import { UPLOAD_MAX_SIZE_BYTES, UPLOAD_MAX_SIZE_MB } from "../lib/upload-limits.js";
 
 /** Allowed image extensions and their MIME types. */
 const ALLOWED_EXTENSIONS: Record<string, string> = {
@@ -24,7 +23,7 @@ const ALLOWED_EXTENSIONS: Record<string, string> = {
   ".avif": "image/avif",
 };
 
-export function uploadRoutes(): Hono {
+export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
 
   router.post("/", requireAuth(), async (c) => {
@@ -37,8 +36,8 @@ export function uploadRoutes(): Hono {
 
     const blob = file as File;
 
-    if (blob.size > MAX_SIZE) {
-      return c.json({ error: t(getLocale(c), "uploads.file_too_large", { max: String(MAX_SIZE / 1024 / 1024) }) }, 400);
+    if (blob.size > UPLOAD_MAX_SIZE_BYTES) {
+      return c.json({ error: t(getLocale(c), "uploads.file_too_large", { max: String(UPLOAD_MAX_SIZE_MB) }) }, 400);
     }
 
     // Validate file extension against allowlist
@@ -64,17 +63,19 @@ export function uploadRoutes(): Hono {
     }
 
     // Create upload directory
-    if (!existsSync(UPLOAD_DIR)) {
-      mkdirSync(UPLOAD_DIR, { recursive: true });
+    if (!existsSync(uploadDir)) {
+      mkdirSync(uploadDir, { recursive: true });
     }
 
     // Always use the validated extension, never trust the original filename
     const filename = `${nanoid(16)}${ext}`;
-    const filepath = join(UPLOAD_DIR, filename);
+    const filepath = join(uploadDir, filename);
 
     // Defense-in-depth: verify resolved path stays within upload directory
     const resolvedPath = resolve(filepath);
-    if (!resolvedPath.startsWith(resolve(UPLOAD_DIR))) {
+    const uploadDirResolved = resolve(uploadDir);
+    const rel = relative(uploadDirResolved, resolvedPath);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
     }
 

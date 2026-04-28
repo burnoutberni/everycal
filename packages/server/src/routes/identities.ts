@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { sanitizeHtml, stripHtml, isValidHttpUrl, normalizeHttpUrlInput } from "../lib/security.js";
 import { isValidIdentityHandle, normalizeHandle } from "../lib/handles.js";
+import { parseJsonBody } from "../lib/request-body.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import {
   type IdentityRole,
@@ -88,7 +89,7 @@ export function identityRoutes(db: DB): Hono {
 
   router.post("/", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       username?: string;
       displayName?: string;
       bio?: string;
@@ -100,7 +101,9 @@ export function identityRoutes(db: DB): Hono {
       cityLat?: number;
       cityLng?: number;
       preferredLanguage?: AppLocale;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     const username = normalizeHandle(body.username || "");
     if (!username) return c.json({ error: t(getLocale(c), "auth.username_required") }, 400);
@@ -201,7 +204,7 @@ export function identityRoutes(db: DB): Hono {
     const role = getIdentityMembershipRole(db, identity.id, user.id);
     if (!hasRequiredRole(role, "editor")) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       displayName?: string;
       bio?: string;
       website?: string | null;
@@ -212,7 +215,9 @@ export function identityRoutes(db: DB): Hono {
       cityLat?: number | null;
       cityLng?: number | null;
       preferredLanguage?: AppLocale;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -366,7 +371,9 @@ export function identityRoutes(db: DB): Hono {
     const myRole = getIdentityMembershipRole(db, identity.id, user.id);
     if (myRole !== "owner") return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
-    const body = await c.req.json<{ memberUsername?: string; role?: IdentityRole }>();
+    const parsed = await parseJsonBody<{ memberUsername?: string; role?: IdentityRole }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const memberUsername = normalizeHandle(body.memberUsername || "");
     const nextRole = parseRole(body.role);
 
@@ -418,7 +425,9 @@ export function identityRoutes(db: DB): Hono {
       .get(identity.id, memberId) as { role: IdentityRole; username: string; display_name: string | null } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
-    const body = await c.req.json<{ role?: IdentityRole }>();
+    const parsed = await parseJsonBody<{ role?: IdentityRole }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     const nextRole = parseRole(body.role);
     if (!nextRole) return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
 

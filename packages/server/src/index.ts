@@ -17,6 +17,7 @@ import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { secureHeaders } from "hono/secure-headers";
+import { bodyLimit } from "hono/body-limit";
 import { initDatabase } from "./db.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimiter } from "./middleware/rate-limit.js";
@@ -45,6 +46,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -74,17 +76,21 @@ app.use("*", secureHeaders({
 // Keep strict CORP by default, but allow the public embed script cross-origin.
 app.use("*", createEmbedCorpMiddleware());
 
-// Request body size limits (before any route parsing)
-app.use("*", async (c, next) => {
-  const contentLength = parseInt(c.req.header("content-length") || "0", 10);
-  const path = c.req.path;
-  // Uploads have their own 5MB limit in the upload handler
-  const maxSize = path.startsWith("/api/v1/uploads") ? 6 * 1024 * 1024 : 1024 * 1024; // 1MB default
-  if (contentLength > maxSize) {
-    return c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413);
+// Request body size limits (stream-aware, works for chunked transfer)
+app.use("/api/v1/uploads*", bodyLimit({
+  maxSize: UPLOAD_MAX_SIZE_BYTES,
+  onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
+}));
+const defaultApiBodyLimit = bodyLimit({
+  maxSize: 1024 * 1024,
+  onError: (c) => c.json({ error: t(getLocale(c), "common.request_body_too_large") }, 413),
+});
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.startsWith("/api/v1/uploads")) {
+    await next();
+    return;
   }
-  await next();
-  return undefined;
+  return defaultApiBodyLimit(c, next);
 });
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)

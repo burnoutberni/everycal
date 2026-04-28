@@ -31,6 +31,8 @@ import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from 
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
+import { parseJsonBody } from "../lib/request-body.js";
+import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import {
   ActorSelectionPayloadError,
   buildActorSelectionPlan,
@@ -66,6 +68,14 @@ function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActiv
       object: actorUri,
     },
   };
+}
+
+function parseMaxAgeHours(raw: string | undefined): number {
+  if (raw === undefined) return 24;
+  if (!/^\d+$/.test(raw)) throw new PaginationParamError("maxAgeHours must be a non-negative integer");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed)) throw new PaginationParamError("maxAgeHours must be a non-negative integer");
+  return parsed;
 }
 
 export function federationRoutes(db: DB): Hono {
@@ -159,7 +169,9 @@ export function federationRoutes(db: DB): Hono {
 
   // Fetch a remote actor's events (auth required to prevent SSRF abuse)
   router.post("/fetch-actor", requireAuth(), async (c) => {
-    const { actorUri } = await c.req.json<{ actorUri: string }>();
+    const parsed = await parseJsonBody<{ actorUri: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const { actorUri } = parsed;
     if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri, true);
@@ -443,7 +455,9 @@ export function federationRoutes(db: DB): Hono {
   // Unfollow a remote actor
   router.post("/unfollow", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const { actorUri } = await c.req.json<{ actorUri: string }>();
+    const parsed = await parseJsonBody<{ actorUri: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const { actorUri } = parsed;
     if (!actorUri) return c.json({ error: t(getLocale(c), "federation.actor_uri_required") }, 400);
 
     const actor = await resolveRemoteActor(db, actorUri);
@@ -483,14 +497,16 @@ export function federationRoutes(db: DB): Hono {
   router.get("/remote-events", (c) => {
     const actorUri = c.req.query("actor");
     const from = c.req.query("from");
+    let limit: number;
+    let offset: number;
     try {
       parseDateRangeParams(from);
+      ({ limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 }));
     } catch (error) {
       if (error instanceof DateQueryParamError) return c.json({ error: error.message }, 400);
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
-    const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 200);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
 
     let sql = `
       SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
@@ -565,8 +581,15 @@ export function federationRoutes(db: DB): Hono {
   // Refresh stale remote actor data (auth required — triggers outbound requests)
   // Also discovers new profiles from domains that support directory API
   router.post("/refresh-actors", requireAuth(), async (c) => {
-    const maxRefresh = Math.min(parseInt(c.req.query("limit") || "20", 10), 50);
-    const maxAgeHours = parseInt(c.req.query("maxAgeHours") || "24", 10);
+    let maxRefresh: number;
+    let maxAgeHours: number;
+    try {
+      ({ limit: maxRefresh } = parseLimitOffset(c, { defaultLimit: 20, maxLimit: 50 }));
+      maxAgeHours = parseMaxAgeHours(c.req.query("maxAgeHours"));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
     const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
     const nowIso = new Date().toISOString();
 
@@ -616,8 +639,14 @@ export function federationRoutes(db: DB): Hono {
   // List remote actors we know about
   router.get("/actors", (c) => {
     const domain = c.req.query("domain");
-    const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
-    const offset = parseInt(c.req.query("offset") || "0", 10);
+    let limit: number;
+    let offset: number;
+    try {
+      ({ limit, offset } = parseLimitOffset(c, { defaultLimit: 20, maxLimit: 100 }));
+    } catch (error) {
+      if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
 
     let sql =
       `SELECT ra.*, (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count

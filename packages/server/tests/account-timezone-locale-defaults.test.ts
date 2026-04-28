@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initDatabase } from "../src/db.js";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "../src/db/migrations.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 
 describe("account timezone/locale defaults", () => {
   it("defaults new accounts to system timezone, locale, and theme", () => {
@@ -87,10 +88,10 @@ describe("account timezone/locale defaults", () => {
       .run("u-token", "verify-token", "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, ?)")
-      .run("u-token", "reset-token", "2026-04-27T09:30:00.000Z");
+      .run("u-token", hashTokenSecret("reset-token"), "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, ?)")
-      .run("u-token", "updated@example.com", "change-token", "2026-04-27T09:30:00.000Z");
+      .run("u-token", "updated@example.com", hashTokenSecret("change-token"), "2026-04-27T09:30:00.000Z");
     versioned
       .prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)")
       .run("session-token", "u-token", "2026-04-27T09:30:00.000Z");
@@ -119,6 +120,92 @@ describe("account timezone/locale defaults", () => {
 
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("migrates token hashes in bounded batches", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-token-hashes.sqlite");
+    const versioned = new Database(dbPath);
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 5)) {
+      migration.up(versioned);
+    }
+
+    const insertAccount = versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)");
+    const insertVerification = versioned.prepare(
+      "INSERT INTO email_verification_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 day'))"
+    );
+    const insertReset = versioned.prepare(
+      "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 day'))"
+    );
+    const insertChange = versioned.prepare(
+      "INSERT INTO email_change_requests (account_id, new_email, token, expires_at) VALUES (?, ?, ?, datetime('now', '+1 day'))"
+    );
+    const insertFeed = versioned.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)");
+
+    const tokenCount = 1200;
+    for (let i = 0; i < tokenCount; i += 1) {
+      const accountId = `u-batch-${i}`;
+      insertAccount.run(accountId, `batch_user_${i}`);
+      insertVerification.run(accountId, `plain-verification-${i}`);
+      insertReset.run(accountId, `plain-reset-${i}`);
+      insertChange.run(accountId, `batch_${i}@example.com`, `plain-change-${i}`);
+      insertFeed.run(accountId, `plain-feed-${i}`);
+    }
+
+    const prehashedAccountId = "u-batch-prehashed";
+    const prehashedVerification = hashTokenSecret("already-hashed-verification");
+    const prehashedReset = hashTokenSecret("already-hashed-reset");
+    const prehashedChange = hashTokenSecret("already-hashed-change");
+    const prehashedFeed = hashTokenSecret("already-hashed-feed");
+    insertAccount.run(prehashedAccountId, "batch_prehashed");
+    insertVerification.run(prehashedAccountId, prehashedVerification);
+    insertReset.run(prehashedAccountId, prehashedReset);
+    insertChange.run(prehashedAccountId, "prehashed@example.com", prehashedChange);
+    insertFeed.run(prehashedAccountId, prehashedFeed);
+
+    versioned.pragma("user_version = 5");
+    versioned.close();
+
+    const reopened = initDatabase(dbPath);
+
+    const plainVerificationCount = reopened
+      .prepare("SELECT COUNT(*) AS count FROM email_verification_tokens WHERE token LIKE 'plain-%'")
+      .get() as { count: number };
+    const plainResetCount = reopened
+      .prepare("SELECT COUNT(*) AS count FROM password_reset_tokens WHERE token LIKE 'plain-%'")
+      .get() as { count: number };
+    const plainChangeCount = reopened
+      .prepare("SELECT COUNT(*) AS count FROM email_change_requests WHERE token LIKE 'plain-%'")
+      .get() as { count: number };
+    const plainFeedCount = reopened
+      .prepare("SELECT COUNT(*) AS count FROM calendar_feed_tokens WHERE token LIKE 'plain-%'")
+      .get() as { count: number };
+
+    expect(plainVerificationCount.count).toBe(0);
+    expect(plainResetCount.count).toBe(0);
+    expect(plainChangeCount.count).toBe(0);
+    expect(plainFeedCount.count).toBe(0);
+
+    const verificationRow = reopened
+      .prepare("SELECT token FROM email_verification_tokens WHERE account_id = ?")
+      .get(prehashedAccountId) as { token: string };
+    const resetRow = reopened
+      .prepare("SELECT token FROM password_reset_tokens WHERE account_id = ?")
+      .get(prehashedAccountId) as { token: string };
+    const changeRow = reopened
+      .prepare("SELECT token FROM email_change_requests WHERE account_id = ?")
+      .get(prehashedAccountId) as { token: string };
+    const feedRow = reopened
+      .prepare("SELECT token FROM calendar_feed_tokens WHERE account_id = ?")
+      .get(prehashedAccountId) as { token: string };
+
+    expect(verificationRow.token).toBe(prehashedVerification);
+    expect(resetRow.token).toBe(prehashedReset);
+    expect(changeRow.token).toBe(prehashedChange);
+    expect(feedRow.token).toBe(prehashedFeed);
+
+    reopened.close();
+    rmSync(dir, { recursive: true, force: true });
+  }, 15000);
 
   it("fails startup when a required schema column is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));

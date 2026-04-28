@@ -5,7 +5,7 @@
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, relative, isAbsolute, sep } from "node:path";
 import { OG_DIR } from "../lib/paths.js";
 
 export function serveOgImagesRoutes(): Hono {
@@ -18,7 +18,8 @@ export function serveOgImagesRoutes(): Hono {
     const filepath = join(OG_DIR, filename);
     const resolved = resolve(filepath);
     const ogDirResolved = resolve(OG_DIR);
-    if (!resolved.startsWith(ogDirResolved) || resolved === ogDirResolved) {
+    const rel = relative(ogDirResolved, resolved);
+    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       return c.notFound();
     }
 

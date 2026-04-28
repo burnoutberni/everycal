@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 import { authRoutes } from "../src/routes/auth.js";
 import { createSession, hashPassword } from "../src/middleware/auth.js";
+import { hashTokenSecret } from "../src/lib/token-secrets.js";
 
 function makeApp(db: DB, user: { id: string; username: string } | null = null) {
   const app = new Hono();
@@ -22,36 +23,98 @@ describe("auth bot password restrictions", () => {
     db = initDatabase(":memory:");
   });
 
-  it("rejects bot registration when password is provided", async () => {
+  it("rejects registration when isBot flag is provided", async () => {
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "bot_with_pw", isBot: true, password: "should-not-work" }),
+      body: JSON.stringify({ username: "bot_with_pw", isBot: true }),
     });
 
     expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({
-      error: "Bot accounts cannot use passwords. Use API keys instead.",
-    });
+    await expect(res.json()).resolves.toEqual({ error: "common.requestFailed" });
     const created = db.prepare("SELECT id FROM accounts WHERE username = ?").get("bot_with_pw") as { id: string } | undefined;
     expect(created).toBeUndefined();
   });
 
-  it("creates bot account without password hash", async () => {
+  it("stores reset tokens hashed and resolves hashed lookup", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email, email_verified, is_bot) VALUES (?, ?, ?, 1, 0)")
+      .run("u2", "bob", "bob@example.com");
+    const app = makeApp(db);
+
+    await app.request("http://localhost/api/v1/auth/forgot-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "bob@example.com" }),
+    });
+
+    const stored = db.prepare("SELECT token FROM password_reset_tokens WHERE account_id = ?").get("u2") as { token: string };
+    expect(stored.token).toMatch(/^[a-f0-9]{64}$/);
+
+    db.prepare("UPDATE password_reset_tokens SET token = ? WHERE account_id = ?").run(hashTokenSecret("known-token"), "u2");
+    const resetRes = await app.request("http://localhost/api/v1/auth/reset-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "known-token", newPassword: "new-password-123" }),
+    });
+    expect(resetRes.status).toBe(200);
+  });
+
+  it("does not allow toggling isBot via auth endpoints", async () => {
+    db.prepare("INSERT INTO accounts (id, username, password_hash, email_verified, is_bot) VALUES (?, ?, ?, 1, 0)")
+      .run("u3", "carol", hashPassword("pw"));
+    const app = makeApp(db, { id: "u3", username: "carol" });
+
+    const registerRes = await app.request("http://localhost/api/v1/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "x", isBot: true }),
+    });
+    expect(registerRes.status).toBe(400);
+
+    const patchRes = await app.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isBot: true, displayName: "Carol" }),
+    });
+    expect(patchRes.status).toBe(200);
+    const row = db.prepare("SELECT is_bot FROM accounts WHERE id = ?").get("u3") as { is_bot: number };
+    expect(row.is_bot).toBe(0);
+  });
+
+  it("returns 400 for malformed JSON on auth login route", async () => {
+    const app = makeApp(db);
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u1", "alice");
+
+    const res = await app.request("http://localhost/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("creates normal user account when isBot is omitted", async () => {
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "bot_nopw", isBot: true }),
+      body: JSON.stringify({
+        username: "person_nopw",
+        email: "person@example.com",
+        password: "very-secure-password",
+        city: "Vienna",
+        cityLat: 48.2,
+        cityLng: 16.37,
+      }),
     });
 
     expect(res.status).toBe(201);
     const account = db
       .prepare("SELECT is_bot, password_hash FROM accounts WHERE username = ?")
-      .get("bot_nopw") as { is_bot: number; password_hash: string | null } | undefined;
-    expect(account?.is_bot).toBe(1);
-    expect(account?.password_hash).toBeNull();
+      .get("person_nopw") as { is_bot: number; password_hash: string | null } | undefined;
+    expect(account?.is_bot).toBe(0);
+    expect(account?.password_hash).toBeTruthy();
   });
 
   it("rejects password login for bot accounts", async () => {
@@ -138,7 +201,7 @@ describe("auth bot password restrictions", () => {
     ).run("bot3", "bot_reset", oldHash, "bot-reset@example.com", 1, 1);
     db.prepare(
       "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
-    ).run("bot3", "bot-token");
+    ).run("bot3", hashTokenSecret("bot-token"));
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {
@@ -159,7 +222,7 @@ describe("auth bot password restrictions", () => {
     ).run("person-reset-1", "person_reset_1", oldHash, "person-reset-1@example.com", 1, 0);
     db.prepare(
       "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
-    ).run("person-reset-1", "person-token-1");
+    ).run("person-reset-1", hashTokenSecret("person-token-1"));
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {
@@ -182,7 +245,7 @@ describe("auth bot password restrictions", () => {
     ).run("person-reset-2", "person_reset_2", oldHash, "person-reset-2@example.com", 1, 0);
     db.prepare(
       "INSERT INTO password_reset_tokens (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 minute'))"
-    ).run("person-reset-2", "person-token-2");
+    ).run("person-reset-2", hashTokenSecret("person-token-2"));
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/auth/reset-password", {

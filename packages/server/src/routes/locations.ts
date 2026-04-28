@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { parseJsonBody } from "../lib/request-body.js";
 
 export function locationRoutes(db: DB): Hono {
   const router = new Hono();
@@ -39,12 +40,14 @@ export function locationRoutes(db: DB): Hono {
 
   router.post("/", requireAuth(), async (c) => {
     const user = c.get("user")!;
-    const body = await c.req.json<{
+    const parsed = await parseJsonBody<{
       name: string;
       address?: string;
       latitude?: number;
       longitude?: number;
-    }>();
+    }>(c);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
 
     if (!body.name) {
       return c.json({ error: t(getLocale(c), "locations.name_required") }, 400);
@@ -53,9 +56,10 @@ export function locationRoutes(db: DB): Hono {
     db.prepare(
       `INSERT INTO saved_locations (account_id, name, address, latitude, longitude, used_at)
        VALUES (?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(account_id, name, address) DO UPDATE SET
+       ON CONFLICT DO UPDATE SET
          latitude = excluded.latitude,
          longitude = excluded.longitude,
+         address = excluded.address,
          used_at = datetime('now')`
     ).run(user.id, body.name, body.address || null, body.latitude ?? null, body.longitude ?? null);
 

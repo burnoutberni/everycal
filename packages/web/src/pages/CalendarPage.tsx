@@ -62,15 +62,13 @@ export function CalendarPage() {
   const [visibleRange, setVisibleRange] = useState<{ from: string; to: string } | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [feedUrlStatus, setFeedUrlStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [regenerateStatus, setRegenerateStatus] = useState<"idle" | "regenerating" | "error">("idle");
   const [infoOpen, setInfoOpen] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
   const calendarRef = useRef<InstanceType<typeof FullCalendar> | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastSwipeRef = useRef<number>(0);
-
-  useEffect(() => {
-    feedsApi.getCalendarUrl().then(({ url }) => setFeedUrl(url)).catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -276,17 +274,51 @@ export function CalendarPage() {
   }, []);
 
   const handleCopyFeedLink = useCallback(async () => {
+    if (!feedUrl) {
+      setCopyStatus("error");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+      return;
+    }
     setCopyStatus("copying");
     try {
-      const { url } = await feedsApi.getCalendarUrl();
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(feedUrl);
       setCopyStatus("copied");
       setTimeout(() => setCopyStatus("idle"), 2000);
     } catch {
       setCopyStatus("error");
       setTimeout(() => setCopyStatus("idle"), 2000);
     }
-  }, []);
+  }, [feedUrl]);
+
+  const handleGenerateFeedLink = useCallback(async () => {
+    if (feedUrlStatus === "loading" || feedUrl) return;
+    setFeedUrlStatus("loading");
+    try {
+      const { url } = await feedsApi.getCalendarUrl();
+      setFeedUrl(url);
+      setFeedUrlStatus("ready");
+    } catch {
+      setFeedUrlStatus("error");
+    }
+  }, [feedUrl, feedUrlStatus]);
+
+  const handleRegenerateFeedLink = useCallback(async () => {
+    if (regenerateStatus === "regenerating") return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(t("regenerateConfirm"));
+      if (!confirmed) return;
+    }
+    setRegenerateStatus("regenerating");
+    setCopyStatus("idle");
+    try {
+      const { url } = await feedsApi.regenerateCalendarUrl();
+      setFeedUrl(url);
+      setFeedUrlStatus("ready");
+      setRegenerateStatus("idle");
+    } catch {
+      setRegenerateStatus("error");
+    }
+  }, [regenerateStatus, t]);
 
   if (!user) {
     return null;
@@ -322,25 +354,56 @@ export function CalendarPage() {
             >
               <h3 className="calendar-feed-info-title">{t("subscribeTitle")}</h3>
               <p className="calendar-feed-info-text">{t("subscribeDesc")}</p>
-              <CalendarSubscribeButtons feedUrl={feedUrl} />
-              <div className="onboarding-copy-row">
-                <button
-                  type="button"
-                  className={`onboarding-copy-btn ${copyStatus === "copied" ? "copied" : ""}`}
-                  onClick={handleCopyFeedLink}
-                  disabled={copyStatus === "copying" || !feedUrl}
-                >
-                  {copyStatus === "copied" ? (
-                    <CheckIcon />
-                  ) : (
+              {!feedUrl && (
+                <div className="onboarding-copy-row">
+                  <button
+                    type="button"
+                    className="onboarding-copy-btn"
+                    onClick={handleGenerateFeedLink}
+                    disabled={feedUrlStatus === "loading"}
+                  >
                     <LinkIcon />
-                  )}
-                  {copyStatus === "copied" && t("copied")}
-                  {copyStatus === "error" && t("copyFailed")}
-                  {copyStatus === "copying" && t("copying")}
-                  {copyStatus === "idle" && t("copyLink")}
-                </button>
-              </div>
+                    {feedUrlStatus === "loading" ? t("generatingLink") : t("generateLink")}
+                  </button>
+                  {feedUrlStatus === "error" && <span className="text-sm text-dim">{t("linkLoadFailed")}</span>}
+                </div>
+              )}
+              {feedUrl && (
+                <>
+                  <CalendarSubscribeButtons feedUrl={feedUrl} />
+                  <div className="onboarding-copy-row">
+                    <button
+                      type="button"
+                      className={`onboarding-copy-btn ${copyStatus === "copied" ? "copied" : ""}`}
+                      onClick={handleCopyFeedLink}
+                      disabled={copyStatus === "copying"}
+                    >
+                      {copyStatus === "copied" ? (
+                        <CheckIcon />
+                      ) : (
+                        <LinkIcon />
+                      )}
+                      {copyStatus === "copied" && t("copied")}
+                      {copyStatus === "error" && t("copyFailed")}
+                      {copyStatus === "copying" && t("copying")}
+                      {copyStatus === "idle" && t("copyLink")}
+                    </button>
+                  </div>
+                  <p className="calendar-feed-info-text">{t("regenerateWarning")}</p>
+                  <div className="onboarding-copy-row">
+                    <button
+                      type="button"
+                      className="onboarding-copy-btn"
+                      onClick={handleRegenerateFeedLink}
+                      disabled={regenerateStatus === "regenerating"}
+                    >
+                      <LinkIcon />
+                      {regenerateStatus === "regenerating" ? t("regenerating") : t("regenerateLink")}
+                    </button>
+                    {regenerateStatus === "error" && <span className="text-sm text-dim">{t("regenerateFailed")}</span>}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

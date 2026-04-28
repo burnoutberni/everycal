@@ -1,4 +1,5 @@
 import type { DB } from "../db.js";
+import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
   version: number;
@@ -333,6 +334,10 @@ CREATE INDEX IF NOT EXISTS idx_actor_selection_ops_initiated_by ON actor_selecti
 CREATE INDEX IF NOT EXISTS idx_actor_selection_items_operation ON actor_selection_operation_items(operation_id);
 CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_reminder_sent_account ON event_reminder_sent(account_id);
+CREATE INDEX IF NOT EXISTS idx_event_tags_tag_event_id ON event_tags(tag, event_id);
+CREATE INDEX IF NOT EXISTS idx_remote_following_actor_account ON remote_following(actor_uri, account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_locations_unique_addr
+  ON saved_locations(account_id, name, ifnull(address, ''));
 `;
 
 export const MIGRATIONS: Migration[] = [
@@ -385,6 +390,64 @@ export const MIGRATIONS: Migration[] = [
       db.exec("UPDATE sessions SET expires_at = datetime(expires_at) WHERE datetime(expires_at) IS NOT NULL");
     },
   },
+  {
+    version: 6,
+    name: "harden_tokens_and_indexes",
+    up: (db) => {
+      const tokenTables = [
+        "email_verification_tokens",
+        "password_reset_tokens",
+        "email_change_requests",
+        "calendar_feed_tokens",
+      ] as const;
+      const batchSize = 500;
+      for (const table of tokenTables) {
+        const selectBatch = db.prepare(
+          `SELECT rowid AS rowid, token FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?`
+        );
+        const update = db.prepare(`UPDATE ${table} SET token = ? WHERE rowid = ?`);
+        let lastRowId = 0;
+        while (true) {
+          const rows = selectBatch.all(lastRowId, batchSize) as Array<{ rowid: number; token: string }>;
+          if (rows.length === 0) break;
+
+          for (const row of rows) {
+            if (/^[a-f0-9]{64}$/i.test(row.token)) continue;
+            update.run(hashTokenSecret(row.token), row.rowid);
+          }
+
+          lastRowId = rows[rows.length - 1].rowid;
+        }
+      }
+
+      db.exec("CREATE INDEX IF NOT EXISTS idx_event_tags_tag_event_id ON event_tags(tag, event_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_following_actor_account ON remote_following(actor_uri, account_id)");
+
+      db.exec(
+        `DELETE FROM saved_locations
+         WHERE id NOT IN (
+           SELECT MAX(id) FROM saved_locations
+           GROUP BY account_id, name, ifnull(address, '')
+         )`
+      );
+      db.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_locations_unique_addr ON saved_locations(account_id, name, ifnull(address, ''))"
+      );
+    },
+  },
+  {
+    version: 7,
+    name: "calendar_feed_token_versions",
+    up: (db) => {
+      const columns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "calendar_feed_token_version")) {
+        db.exec("ALTER TABLE accounts ADD COLUMN calendar_feed_token_version INTEGER NOT NULL DEFAULT 1");
+      }
+      db.exec(
+        "UPDATE accounts SET calendar_feed_token_version = 1 WHERE calendar_feed_token_version IS NULL OR calendar_feed_token_version < 1"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 7;
