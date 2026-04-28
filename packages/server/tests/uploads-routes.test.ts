@@ -113,4 +113,23 @@ describe("uploads routes", () => {
 
     expect(res.status).toBe(404);
   });
+
+  it("blocks encoded path separators in filename", async () => {
+    const app = makeApp(db, uploadDir);
+    const encodedSlash = encodeURIComponent(".derived/evil.jpg");
+    const encodedBackslash = encodeURIComponent(".derived\\evil.jpg");
+
+    const slashRes = await app.request(`http://localhost/uploads/${encodedSlash}`);
+    const backslashRes = await app.request(`http://localhost/uploads/${encodedBackslash}`);
+
+    expect(slashRes.status).toBe(404);
+    expect(backslashRes.status).toBe(404);
+  });
+
+  it("blocks direct access to .derived filenames", async () => {
+    const app = makeApp(db, uploadDir);
+    const res = await app.request("http://localhost/uploads/.derived.jpg");
+
+    expect(res.status).toBe(404);
+  });
 });

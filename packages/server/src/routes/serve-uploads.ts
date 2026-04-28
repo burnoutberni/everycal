@@ -117,6 +117,10 @@ export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: str
 
   router.get("/:filename", async (c) => {
     const filename = c.req.param("filename");
+    if (filename.includes("/") || filename.includes("\\") || filename.startsWith(".derived")) {
+      return c.notFound();
+    }
+
     const ext = extname(filename).toLowerCase();
     if (!ALLOWED_EXT.has(ext)) {
       return c.notFound();
