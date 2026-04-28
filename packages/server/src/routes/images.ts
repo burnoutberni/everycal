@@ -10,7 +10,7 @@ import { Hono } from "hono";
 import { getLocale, t } from "../lib/i18n.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parseJsonBody } from "../lib/request-body.js";
-import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
+import { PaginationParamError, parseLimitOffset, parsePageOrDefault } from "../lib/pagination.js";
 
 const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const OPENVERSE_BASE = "https://api.openverse.org/v1";
@@ -125,7 +125,7 @@ export function imageRoutes(): Hono {
     if (!q || q.length < 2) {
       return c.json({ error: t(getLocale(c), "images.query_required") }, 400);
     }
-    const page = Math.max(1, parseInt(c.req.query("page") || "1", 10));
+    const page = parsePageOrDefault(c.req.query("page"), 1);
     const source = (c.req.query("source") || "auto").toLowerCase();
 
     const tryUnsplash = () =>

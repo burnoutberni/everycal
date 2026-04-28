@@ -30,3 +30,14 @@ export function parseLimitOffset(
 
   return { limit, offset };
 }
+
+export function parsePageOrDefault(pageRaw: string | undefined, defaultPage = 1): number {
+  if (pageRaw === undefined) return defaultPage;
+  try {
+    const page = parseInteger(pageRaw, "page");
+    return page < 1 ? defaultPage : page;
+  } catch (error) {
+    if (error instanceof PaginationParamError) return defaultPage;
+    throw error;
+  }
+}
