@@ -70,6 +70,14 @@ function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActiv
   };
 }
 
+function parseMaxAgeHours(raw: string | undefined): number {
+  if (raw === undefined) return 24;
+  if (!/^\d+$/.test(raw)) throw new PaginationParamError("maxAgeHours must be a non-negative integer");
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed)) throw new PaginationParamError("maxAgeHours must be a non-negative integer");
+  return parsed;
+}
+
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
 
@@ -574,13 +582,14 @@ export function federationRoutes(db: DB): Hono {
   // Also discovers new profiles from domains that support directory API
   router.post("/refresh-actors", requireAuth(), async (c) => {
     let maxRefresh: number;
+    let maxAgeHours: number;
     try {
       ({ limit: maxRefresh } = parseLimitOffset(c, { defaultLimit: 20, maxLimit: 50 }));
+      maxAgeHours = parseMaxAgeHours(c.req.query("maxAgeHours"));
     } catch (error) {
       if (error instanceof PaginationParamError) return c.json({ error: error.message }, 400);
       throw error;
     }
-    const maxAgeHours = parseInt(c.req.query("maxAgeHours") || "24", 10);
     const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
     const nowIso = new Date().toISOString();
 
