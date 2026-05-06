@@ -1,3 +1,4 @@
+import { type Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createContractTestApp } from "./test-app.js";
 
@@ -9,9 +10,7 @@ type Probe = {
   allowedWrongStatuses?: number[];
 };
 
-async function expectRouteWired(probe: Probe): Promise<void> {
-  const fixture = createContractTestApp();
-  const app = fixture.app;
+async function expectRouteWired(app: Hono, probe: Probe): Promise<void> {
   const url = `http://localhost${probe.path}`;
 
   const init = probe.method === "POST" || probe.method === "PATCH" || probe.method === "PUT"
@@ -50,8 +49,10 @@ describe("route wiring contract", () => {
       },
     ];
 
+    const fixture = createContractTestApp();
+
     for (const probe of probes) {
-      await expectRouteWired(probe);
+      await expectRouteWired(fixture.app, probe);
     }
   });
 
@@ -64,8 +65,10 @@ describe("route wiring contract", () => {
       { method: "DELETE", path: "/api/v1/events/e_contract_wire", wrongMethod: "PATCH", label: "events delete" },
     ];
 
+    const fixture = createContractTestApp();
+
     for (const probe of probes) {
-      await expectRouteWired(probe);
+      await expectRouteWired(fixture.app, probe);
     }
   });
 });
