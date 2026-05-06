@@ -27,79 +27,78 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const allTags = new Set<string>();
 
     try {
+      // Local event tags
+      {
+        let sql: string;
+        const params: unknown[] = [];
 
-    // Local event tags
-    {
-      let sql: string;
-      const params: unknown[] = [];
+        if (isCalendarScope) {
+          sql = `SELECT DISTINCT t.tag FROM event_tags t
+            JOIN events e ON e.id = t.event_id
+            WHERE e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))
+            AND (
+              e.visibility IN ('public','unlisted')
+              OR e.account_id = ?
+              OR (e.visibility = 'followers_only' AND EXISTS (
+                SELECT 1 FROM follows WHERE follower_id = ? AND following_id = e.account_id
+              ))
+            )`;
+          params.push(user!.id, user!.id, user!.id);
+        } else if (isMineScope) {
+          const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+          const feed = buildFeedQuery({ userId: user!.id, baseUrl });
+          sql = `SELECT DISTINCT t.tag FROM event_tags t
+            WHERE t.event_id IN (SELECT combined.id FROM (${feed.sql}) AS combined WHERE 1=1`;
+          params.push(...feed.params);
+        } else {
+          sql = `SELECT DISTINCT t.tag FROM event_tags t
+            JOIN events e ON e.id = t.event_id
+            JOIN accounts a ON a.id = e.account_id
+            WHERE e.visibility = 'public'`;
+        }
 
-      if (isCalendarScope) {
-        sql = `SELECT DISTINCT t.tag FROM event_tags t
-          JOIN events e ON e.id = t.event_id
-          WHERE e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))
-          AND (
-            e.visibility IN ('public','unlisted')
-            OR e.account_id = ?
-            OR (e.visibility = 'followers_only' AND EXISTS (
-              SELECT 1 FROM follows WHERE follower_id = ? AND following_id = e.account_id
-            ))
-          )`;
-        params.push(user!.id, user!.id, user!.id);
-      } else if (isMineScope) {
-        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-        const feed = buildFeedQuery({ userId: user!.id, baseUrl });
-        sql = `SELECT DISTINCT t.tag FROM event_tags t
-          WHERE t.event_id IN (SELECT combined.id FROM (${feed.sql}) AS combined WHERE 1=1`;
-        params.push(...feed.params);
-      } else {
-        sql = `SELECT DISTINCT t.tag FROM event_tags t
-          JOIN events e ON e.id = t.event_id
-          JOIN accounts a ON a.id = e.account_id
-          WHERE e.visibility = 'public'`;
+        const df = appendDateRangeFilters(
+          {
+            instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
+            dateColumn: isMineScope ? "combined.start_on" : "e.start_on",
+          },
+          from,
+          to,
+        );
+        sql += df.sql;
+        params.push(...df.params);
+
+        if (isMineScope) sql += ")";
+
+        const rows = db.prepare(sql).all(...params) as { tag: string }[];
+        for (const r of rows) allTags.add(r.tag);
       }
 
-      const df = appendDateRangeFilters(
-        {
-          instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
-          dateColumn: isMineScope ? "combined.start_on" : "e.start_on",
-        },
-        from,
-        to,
-      );
-      sql += df.sql;
-      params.push(...df.params);
+      // Remote event tags
+      {
+        let sql = `SELECT re.tags FROM remote_events re WHERE re.tags IS NOT NULL AND re.tags != ''`;
+        const params: unknown[] = [];
 
-      if (isMineScope) sql += ")";
+        if (isCalendarScope) {
+          sql += ` AND re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))`;
+          params.push(user!.id);
+        } else if (isMineScope) {
+          sql += ` AND (re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?) OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?))`;
+          params.push(user!.id, user!.id);
+        }
 
-      const rows = db.prepare(sql).all(...params) as { tag: string }[];
-      for (const r of rows) allTags.add(r.tag);
-    }
+        const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
+        sql += df.sql;
+        params.push(...df.params);
 
-    // Remote event tags
-    {
-      let sql = `SELECT re.tags FROM remote_events re WHERE re.tags IS NOT NULL AND re.tags != ''`;
-      const params: unknown[] = [];
-
-      if (isCalendarScope) {
-        sql += ` AND re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))`;
-        params.push(user!.id);
-      } else if (isMineScope) {
-        sql += ` AND (re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?) OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?))`;
-        params.push(user!.id, user!.id);
-      }
-
-      const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
-      sql += df.sql;
-      params.push(...df.params);
-
-      const rows = db.prepare(sql).all(...params) as { tags: string }[];
-      for (const r of rows) {
-        for (const tag of r.tags.split(",")) {
-          const t = tag.trim();
-          if (t) allTags.add(t);
+        const rows = db.prepare(sql).all(...params) as { tags: string }[];
+        for (const r of rows) {
+          for (const tag of r.tags.split(",")) {
+            const t = tag.trim();
+            if (t) allTags.add(t);
+          }
         }
       }
-    }
 
       return c.json({ tags: [...allTags].sort() });
     } catch (error) {
@@ -120,14 +119,14 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const cursor = c.req.query("cursor");
     const tagsParam = c.req.query("tags");
     try {
-    validateMergedCursorParam(cursor);
-    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
-    const tagList = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
-    const user = c.get("user");
-    const isMineScope = scope === "mine" && !!user;
-    const isCalendarScope = scope === "calendar" && !!user;
+      validateMergedCursorParam(cursor);
+      const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
+      const tagList = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
+      const user = c.get("user");
+      const isMineScope = scope === "mine" && !!user;
+      const isCalendarScope = scope === "calendar" && !!user;
 
-    const buildLocalQueryBase = (): { sql: string; params: unknown[]; col: string } => {
+      const buildLocalQueryBase = (): { sql: string; params: unknown[]; col: string } => {
       let sql: string;
       const params: unknown[] = [];
 
@@ -182,9 +181,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       }
 
       return { sql, params, col };
-    };
+      };
 
-    const buildRemoteQueryBase = (): { sql: string; params: unknown[] } => {
+      const buildRemoteQueryBase = (): { sql: string; params: unknown[] } => {
       let sql = `${REMOTE_EVENT_SELECT} WHERE 1=1`;
       const params: unknown[] = [];
 
@@ -214,12 +213,12 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       sql += tagFilter.sql;
       params.push(...tagFilter.params);
       return { sql, params };
-    };
+      };
 
-    let events: Record<string, unknown>[] = [];
-    let nextCursor: string | null = null;
+      let events: Record<string, unknown>[] = [];
+      let nextCursor: string | null = null;
 
-    if (source === "local") {
+      if (source === "local") {
       const fetchLocal: MergedFetcher = (after, fetchLimit) => {
         const { sql, params, col } = buildLocalQueryBase();
         let pagedSql = sql;
@@ -242,7 +241,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       });
       events = paged.page;
       nextCursor = paged.nextCursor;
-    } else if (source === "remote") {
+      } else if (source === "remote") {
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
         const { sql, params } = buildRemoteQueryBase();
         let pagedSql = sql;
@@ -265,7 +264,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       });
       events = paged.page;
       nextCursor = paged.nextCursor;
-    } else {
+      } else {
       const fetchLocal: MergedFetcher = (after, fetchLimit) => {
         const { sql, params, col } = buildLocalQueryBase();
         let pagedSql = sql;
@@ -302,9 +301,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       });
       events = paged.page;
       nextCursor = paged.nextCursor;
-    }
+      }
 
-    if (user) events = attachUserContext(events, user.id);
+      if (user) events = attachUserContext(events, user.id);
 
       return c.json({ events, nextCursor });
     } catch (error) {
@@ -322,10 +321,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const to = c.req.query("to");
     const cursor = c.req.query("cursor");
     try {
-    validateMergedCursorParam(cursor);
-    const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
+      validateMergedCursorParam(cursor);
+      const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
-    const fetchLocal: MergedFetcher = (after, fetchLimit) => {
+      const fetchLocal: MergedFetcher = (after, fetchLimit) => {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
@@ -348,9 +347,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
-    };
+      };
 
-    const fetchRemote: MergedFetcher = (after, fetchLimit) => {
+      const fetchRemote: MergedFetcher = (after, fetchLimit) => {
       let sql = `${REMOTE_EVENT_SELECT}
         WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
@@ -371,22 +370,22 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
       return rows.map(formatRemoteEvent);
-    };
+      };
 
-    const paged = paginateMergedFromFetchers({
-      limit,
-      offset,
-      cursor,
-      fetchChunkSize: limit + 1,
-      fetchLocal,
-      fetchRemote,
-    });
-    let events = paged.page;
+      const paged = paginateMergedFromFetchers({
+        limit,
+        offset,
+        cursor,
+        fetchChunkSize: limit + 1,
+        fetchLocal,
+        fetchRemote,
+      });
+      let events = paged.page;
 
-    // Timeline only attaches RSVPs (no repost flags)
-    const uris = events.map((e) => e.id as string);
-    const rsvps = getUserRsvps(user.id, uris);
-    events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
+      // Timeline only attaches RSVPs (no repost flags)
+      const uris = events.map((e) => e.id as string);
+      const rsvps = getUserRsvps(user.id, uris);
+      events = events.map((e) => ({ ...e, rsvpStatus: rsvps.get(e.id as string) || null }));
 
       return c.json({ events, nextCursor: paged.nextCursor });
     } catch (error) {
