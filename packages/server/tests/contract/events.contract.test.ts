@@ -1,7 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createContractTestApp } from "./test-app.js";
 import { expectAuthFailure, expectErrorResponse, expectJsonStatus, expectObjectKeys } from "./assertions.js";
 import { sanitizeForContractSnapshot } from "./sanitize.js";
+
+const previousOgDir = process.env.OG_DIR;
+let contractOgDir: string;
+
+beforeAll(async () => {
+  contractOgDir = await mkdtemp(join(tmpdir(), "everycal-contract-og-"));
+  process.env.OG_DIR = contractOgDir;
+});
+
+afterAll(async () => {
+  if (previousOgDir === undefined) {
+    delete process.env.OG_DIR;
+  } else {
+    process.env.OG_DIR = previousOgDir;
+  }
+  if (contractOgDir) {
+    await rm(contractOgDir, { recursive: true, force: true });
+  }
+});
 
 function buildValidCreatePayload() {
   return {

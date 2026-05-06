@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { generateOgImage, getOgImageFilename } from "@everycal/og";
 import type { DB } from "../db.js";
-import { OG_DIR } from "../lib/paths.js";
+import { getOgDir } from "../lib/paths.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { validateFederationUrl } from "../lib/federation.js";
 
@@ -89,7 +89,7 @@ export async function clearLocalOgImage(db: DB, eventId: string): Promise<void> 
   if (!filename) return;
 
   const { unlink } = await import("node:fs/promises");
-  const ogPath = join(OG_DIR, filename);
+  const ogPath = join(getOgDir(), filename);
   try {
     await unlink(ogPath);
   } catch (err) {
@@ -115,7 +115,7 @@ export async function clearRemoteOgImage(db: DB, eventUri: string): Promise<void
   if (filename !== expectedFilename) return;
 
   const { unlink } = await import("node:fs/promises");
-  const ogPath = join(OG_DIR, filename);
+  const ogPath = join(getOgDir(), filename);
   try {
     await unlink(ogPath);
   } catch (err) {
@@ -219,12 +219,13 @@ export async function generateAndSaveOgImage(db: DB, eventId: string): Promise<s
     locale,
   });
 
-  if (!existsSync(OG_DIR)) {
-    mkdirSync(OG_DIR, { recursive: true });
+  const ogDir = getOgDir();
+  if (!existsSync(ogDir)) {
+    mkdirSync(ogDir, { recursive: true });
   }
 
   const ogFilename = getOgImageFilename(eventId);
-  const ogPath = join(OG_DIR, ogFilename);
+  const ogPath = join(ogDir, ogFilename);
   await writeFile(ogPath, ogBuffer);
 
   const version = Math.floor(new Date(event.updated_at).getTime() / 1000);
@@ -327,12 +328,13 @@ export async function generateAndSaveRemoteOgImage(db: DB, eventUri: string): Pr
     locale: "en",
   });
 
-  if (!existsSync(OG_DIR)) {
-    mkdirSync(OG_DIR, { recursive: true });
+  const ogDir = getOgDir();
+  if (!existsSync(ogDir)) {
+    mkdirSync(ogDir, { recursive: true });
   }
 
   const ogFilename = getRemoteOgFilename(event.uri);
-  const ogPath = join(OG_DIR, ogFilename);
+  const ogPath = join(ogDir, ogFilename);
   await writeFile(ogPath, ogBuffer);
 
   const version = Math.floor(new Date(event.fetched_at).getTime() / 1000);
