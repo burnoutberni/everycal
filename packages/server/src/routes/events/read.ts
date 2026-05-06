@@ -85,6 +85,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         } else if (isMineScope) {
           sql += ` AND (re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?) OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?))`;
           params.push(user!.id, user!.id);
+        } else {
+          sql += ` AND re.visibility IN ('public','unlisted')`;
         }
 
         const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
@@ -198,6 +200,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
         )`;
         params.push(user!.id, user!.id);
+      } else {
+        sql += ` AND re.visibility IN ('public','unlisted')`;
       }
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
@@ -406,7 +410,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const [preferredUsername, domain] = username.split("@");
       if (!preferredUsername || !domain) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const remoteRow = db
-        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`)
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND re.visibility IN ('public','unlisted')`)
         .get(preferredUsername, domain, slug) as Record<string, unknown> | undefined;
       if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const event = formatRemoteEvent(remoteRow);

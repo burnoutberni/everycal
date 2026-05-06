@@ -18,6 +18,7 @@ import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
   resolveRemoteActor,
   deliverActivity,
+  visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
@@ -165,7 +166,7 @@ export function activityPubRoutes(db: DB): Hono {
     const ownedCount = (
       db
         .prepare(
-          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility = 'public'"
+          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility IN ('public', 'unlisted')"
         )
         .get(account.id) as { cnt: number }
     ).cnt;
@@ -210,7 +211,7 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
          FROM events e
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.account_id = ? AND e.visibility = 'public'
+         WHERE e.account_id = ? AND e.visibility IN ('public', 'unlisted')
          GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
@@ -244,8 +245,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Create",
       actor: actorUrl,
       published: toISO8601(row.created_at as string) ?? row.created_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
       object: rowToAPEvent(row, actorUrl, baseUrl),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -255,8 +255,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -265,8 +264,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -399,6 +397,12 @@ export function activityPubRoutes(db: DB): Hono {
       }
     }
 
+    const targetContext = inboxTargetContext("user", username);
+    if (actorUri && isProcessedInboxActivity(db, activity, actorUri, targetContext)) {
+      console.log(`  ⏭ Skipping duplicate inbox activity ${activity.id}`);
+      return c.json({ ok: true, duplicate: true }, 202);
+    }
+
     console.log(`📬 Inbox for ${username}: ${type} from ${actorUri}`);
 
     switch (type) {
@@ -419,6 +423,7 @@ export function activityPubRoutes(db: DB): Hono {
         console.log(`  ⏭ Ignored activity type: ${type}`);
     }
 
+    if (actorUri) markProcessedInboxActivity(db, activity, actorUri, targetContext);
     return c.json({ ok: true }, 202);
   });
 
@@ -454,6 +459,12 @@ export function sharedInboxRoute(db: DB): Hono {
           return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
         }
       }
+    }
+
+    const targetContext = inboxTargetContext("shared", "inbox");
+    if (actorUri && isProcessedInboxActivity(db, activity, actorUri, targetContext)) {
+      console.log(`  ⏭ Skipping duplicate shared inbox activity ${activity.id}`);
+      return c.json({ ok: true, duplicate: true }, 202);
     }
 
     console.log(`📬 Shared inbox: ${type} from ${actorUri}`);
@@ -499,10 +510,33 @@ export function sharedInboxRoute(db: DB): Hono {
         break;
     }
 
+    if (actorUri) markProcessedInboxActivity(db, activity, actorUri, targetContext);
     return c.json({ ok: true }, 202);
   });
 
   return router;
+}
+
+function inboxTargetContext(kind: "user" | "shared", target: string): string {
+  return `${kind}:${target}`;
+}
+
+function isProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
+  const activityId = activity.id;
+  if (typeof activityId !== "string" || !activityId) {
+    console.warn("  ⚠️  Inbox activity has no stable id; processing without replay dedupe");
+    return false;
+  }
+  const row = db.prepare("SELECT 1 FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?")
+    .get(activityId, actorUri, targetContext);
+  return !!row;
+}
+
+function markProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
+  const activityId = activity.id;
+  if (typeof activityId !== "string" || !activityId) return;
+  db.prepare("INSERT OR IGNORE INTO processed_inbox_activities (activity_id, actor_uri, target_context) VALUES (?, ?, ?)")
+    .run(activityId, actorUri, targetContext);
 }
 
 // ---- Activity Handlers ----
@@ -618,6 +652,12 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const uri = object.id as string;
+  const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
+  if (owner && owner.actor_uri !== effectiveActor) {
+    console.log(`  ⚠️  Rejecting Create/Update: actor ${effectiveActor} doesn't own existing event ${uri} (owner: ${owner.actor_uri})`);
+    return;
+  }
+
   const temporal = normalizeApTemporal(object);
   if (!temporal) return;
   const startDate = temporal.startDate;
@@ -779,12 +819,13 @@ function rowToAPEvent(
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
+  const { to, cc } = visibilityToActivityPubAddressing(row.visibility as string, actorUrl);
   const event = buildApEventObject({
     id: eventUrl,
     name: row.title as string,
     attributedTo: actorUrl,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [`${actorUrl}/followers`],
+    to,
+    cc,
     allDay: isAllDay,
     startDate: row.start_date,
     endDate: row.end_date,
@@ -927,7 +968,7 @@ export function activityPubEventRoutes(db: DB): Hono {
          FROM events e
          JOIN accounts a ON a.id = e.account_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.id = ? AND e.visibility = 'public'
+         WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')
          GROUP BY e.id`
       )
       .get(id) as Record<string, unknown> | undefined;

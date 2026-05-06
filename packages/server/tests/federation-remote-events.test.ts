@@ -22,6 +22,7 @@ describe("federation remote-events serialization", () => {
         type: "Event",
         name: "Offset-only Event",
         startTime: "2026-01-15T19:30:00+02:00",
+        to: ["https://www.w3.org/ns/activitystreams#Public"],
       },
       actorUri,
       {

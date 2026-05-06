@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { nanoid } from "nanoid";
 import type { DB } from "../../db.js";
 import { requireAuth } from "../../middleware/auth.js";
-import { deliverToFollowers } from "../../lib/federation.js";
+import { deliverToFollowers, visibilityToActivityPubAddressing } from "../../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../../lib/notifications.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../../lib/i18n.js";
@@ -151,24 +151,23 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run(user.id, id);
 
     // Deliver Create activity to remote followers
-    if (visibility === "public" || visibility === "unlisted") {
+    if (visibility !== "private") {
       const baseUrl = process.env.BASE_URL || "http://localhost:3000";
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
       const publishedAt = new Date().toISOString();
+      const addressing = visibilityToActivityPubAddressing(visibility, actorUrl);
       const createActivity = {
         "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
         id: `${baseUrl}/events/${id}/activity`,
         type: "Create",
         actor: actorUrl,
         published: publishedAt,
-        to: ["https://www.w3.org/ns/activitystreams#Public"],
-        cc: [`${actorUrl}/followers`],
+        ...addressing,
         object: buildApEventObject({
           id: `${baseUrl}/events/${id}`,
           name: body.title,
           attributedTo: actorUrl,
-          to: ["https://www.w3.org/ns/activitystreams#Public"],
-          cc: [`${actorUrl}/followers`],
+          ...addressing,
           allDay: !!body.allDay,
           startDate: startDateValue,
           endDate: endDateValue || undefined,
@@ -396,7 +395,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     }
 
     // Deliver Update activity to remote followers
-    if (existing.visibility === "public" || existing.visibility === "unlisted") {
+    if (existing.visibility !== "private") {
       const updated = readLocalEventById(id);
       if (updated) {
         const baseUrl = process.env.BASE_URL || "http://localhost:3000";
@@ -406,20 +405,19 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
         if (actorAccount) {
           const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
           const updatedAt = new Date().toISOString();
+          const addressing = visibilityToActivityPubAddressing(existing.visibility as string, actorUrl);
           const updateActivity = {
             "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
             id: `${baseUrl}/events/${id}/update`,
             type: "Update",
             actor: actorUrl,
             published: updatedAt,
-            to: ["https://www.w3.org/ns/activitystreams#Public"],
-            cc: [`${actorUrl}/followers`],
+            ...addressing,
             object: buildApEventObject({
               id: `${baseUrl}/events/${id}`,
               name: updated.title as string,
               attributedTo: actorUrl,
-              to: ["https://www.w3.org/ns/activitystreams#Public"],
-              cc: [`${actorUrl}/followers`],
+              ...addressing,
               allDay: !!updated.allDay,
               startDate: updated.startDate,
               endDate: updated.endDate,
@@ -468,8 +466,8 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     const id = c.req.param("id");
 
     const existing = db
-      .prepare("SELECT account_id FROM events WHERE id = ?")
-      .get(id) as { account_id: string } | undefined;
+      .prepare("SELECT account_id, visibility FROM events WHERE id = ?")
+      .get(id) as { account_id: string; visibility: string } | undefined;
     if (!existing) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     if (!canManageIdentityEvents(db, existing.account_id, user.id, "editor")) {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
@@ -507,8 +505,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       type: "Delete",
       actor: actorUrl,
       object: `${baseUrl}/events/${id}`,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(existing.visibility as string, actorUrl),
     };
     deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
 

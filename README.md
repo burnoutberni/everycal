@@ -109,3 +109,59 @@ pnpm --filter @everycal/web build
 ## License
 
 [AGPL-3.0-only](LICENSE)
+
+## Federation reliability and operations
+
+EveryCal's ActivityPub federation is designed to preserve transport safety and remote server intent before RSVP/attendance interactions are added.
+
+- **Remote visibility preservation**: inbound inbox ingest and `/api/v1/federation/fetch-actor` pull imports derive remote event visibility from ActivityPub `to`/`cc` addressing. `public`, `unlisted`, `followers_only`, and `private` values are stored with remote events and returned in API serializers.
+- **Outbound addressing**: local event `visibility` is centrally mapped to ActivityPub audiences. `public` sends Public in `to` and followers in `cc`; `unlisted` sends followers in `to` and Public in `cc`; `followers_only` sends followers in `to`; `private` emits no broad ActivityPub audience.
+- **Pull-sync parity**: remote outbox imports process `Create`, `Announce`, `Update(Event)`, and `Delete`. Update and delete imports validate that the outbox actor owns the event before mutating local remote-event state.
+- **Durable outbound retries**: follower delivery is persisted to `outbound_activity_deliveries` and processed by a periodic worker. Successful deliveries are marked `delivered`; transient failures remain `pending` with exponential backoff; exhausted jobs become `failed` with `last_error` for inspection.
+- **Inbox idempotency**: successfully handled inbox activities with stable ActivityPub `id` values are recorded in `processed_inbox_activities`. Duplicate replays for the same actor and target inbox are skipped without reapplying mutations. Activities without stable ids are still processed and logged.
+
+### Operator runbook: federation queue and replay health
+
+**Queue health inspection**
+
+```sql
+SELECT state, COUNT(*) AS jobs
+FROM outbound_activity_deliveries
+GROUP BY state;
+
+SELECT id, destination_inbox, sender_actor_uri, attempt_count, next_retry_at, last_error
+FROM outbound_activity_deliveries
+WHERE state IN ('pending','failed')
+ORDER BY state, datetime(next_retry_at)
+LIMIT 50;
+```
+
+**Retry/backoff policy**
+
+- The in-process worker runs every `OUTBOUND_DELIVERY_INTERVAL_MS` milliseconds (default: `30000`).
+- Jobs start in `pending`, are attempted immediately, and retry with exponential backoff from a 60-second base.
+- After 5 failed attempts, jobs move to terminal `failed` state and log a permanent-failure message.
+- `delivered` and `failed` rows are intentionally retained for auditability; operators may archive old terminal rows after confirming no investigation is needed.
+
+**Replay/idempotency verification**
+
+```sql
+SELECT actor_uri, target_context, COUNT(*) AS processed, MAX(received_at) AS last_seen
+FROM processed_inbox_activities
+GROUP BY actor_uri, target_context
+ORDER BY datetime(last_seen) DESC
+LIMIT 50;
+
+SELECT activity_id, actor_uri, target_context, received_at
+FROM processed_inbox_activities
+WHERE activity_id = 'https://remote.example/activity/id';
+```
+
+If a remote retries the same signed activity, the row count for that `activity_id` should remain one per `(actor_uri, target_context)` and the affected event/follow state should not change after the first successful processing.
+
+**Migration rollout and rollback notes**
+
+- The migration is additive: it adds `remote_events.visibility`, `outbound_activity_deliveries`, `processed_inbox_activities`, and supporting indexes.
+- Legacy remote events are safely backfilled to `public` because older EveryCal releases treated remote events as public.
+- Roll forward before enabling new RSVP federation interactions so update/delete pull parity and replay protection are already active.
+- Rollback to an older binary should leave the added tables/columns in place. Avoid destructive schema rollback unless you have exported or intentionally discarded queued outbound deliveries and processed-inbox audit rows.

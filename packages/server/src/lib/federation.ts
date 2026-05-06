@@ -2,6 +2,7 @@
  * ActivityPub delivery — send signed activities to remote inboxes.
  */
 
+import crypto from "node:crypto";
 import { signRequest } from "./crypto.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
@@ -12,6 +13,46 @@ const DELETED_REMOTE_USERNAME = "deleted";
 export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
+
+export type EventVisibility = "public" | "unlisted" | "followers_only" | "private";
+export const AP_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+const OUTBOUND_MAX_ATTEMPTS = 5;
+const OUTBOUND_BASE_BACKOFF_MS = 60_000;
+const OUTBOUND_PROCESS_LIMIT = 25;
+
+function normalizeAudience(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+export function visibilityToActivityPubAddressing(
+  visibility: EventVisibility | string | null | undefined,
+  actorUri?: string,
+): { to: string[]; cc: string[] } {
+  const followers = actorUri ? `${actorUri}/followers` : undefined;
+  switch (visibility) {
+    case "unlisted":
+      return { to: followers ? [followers] : [], cc: [AP_PUBLIC] };
+    case "followers_only":
+      return { to: followers ? [followers] : [], cc: [] };
+    case "private":
+      return { to: [], cc: [] };
+    case "public":
+    default:
+      return { to: [AP_PUBLIC], cc: followers ? [followers] : [] };
+  }
+}
+
+export function deriveVisibilityFromActivityPubAddressing(source: Record<string, unknown>): EventVisibility {
+  const to = normalizeAudience(source.to);
+  const cc = normalizeAudience(source.cc);
+  if (to.includes(AP_PUBLIC)) return "public";
+  if (cc.includes(AP_PUBLIC)) return "unlisted";
+  if (to.length > 0) return "followers_only";
+  return "private";
+}
+
 
 /** Software types that support a Mastodon-compatible directory API */
 const DIRECTORY_SUPPORTED = ["mastodon", "pleroma", "glitch", "hometown"];
@@ -425,6 +466,84 @@ export async function deliverActivity(
 /**
  * Deliver an activity to all remote followers of a local account.
  */
+export function enqueueOutboundDelivery(
+  db: DB,
+  params: { destinationInbox: string; senderAccountId: string; senderActorUri: string; activity: Record<string, unknown> },
+): string {
+  const id = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO outbound_activity_deliveries
+      (id, destination_inbox, sender_account_id, sender_actor_uri, activity_json, next_retry_at, state)
+     VALUES (?, ?, ?, ?, ?, datetime('now'), 'pending')`,
+  ).run(id, params.destinationInbox, params.senderAccountId, params.senderActorUri, JSON.stringify(params.activity));
+  return id;
+}
+
+function nextBackoffMs(attemptCount: number): number {
+  return OUTBOUND_BASE_BACKOFF_MS * Math.pow(2, Math.max(0, attemptCount - 1));
+}
+
+export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
+  const jobs = db.prepare(
+    `SELECT d.*, a.username, a.private_key
+     FROM outbound_activity_deliveries d
+     JOIN accounts a ON a.id = d.sender_account_id
+     WHERE d.state = 'pending' AND datetime(d.next_retry_at) <= datetime('now')
+     ORDER BY datetime(d.next_retry_at), d.created_at
+     LIMIT ?`,
+  ).all(limit) as Array<{
+    id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+    attempt_count: number; username: string; private_key: string | null;
+  }>;
+  let delivered = 0;
+  let failed = 0;
+  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  for (const job of jobs) {
+    if (!job.private_key) {
+      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', last_error = ?, updated_at = datetime('now') WHERE id = ?")
+        .run("sender account has no private key", job.id);
+      failed++;
+      continue;
+    }
+    let activity: Record<string, unknown>;
+    try {
+      activity = JSON.parse(job.activity_json) as Record<string, unknown>;
+    } catch {
+      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', last_error = ?, updated_at = datetime('now') WHERE id = ?")
+        .run("invalid stored activity JSON", job.id);
+      failed++;
+      continue;
+    }
+    const keyId = `${baseUrl}/users/${job.username}#main-key`;
+    const ok = await deliverActivity(job.destination_inbox, activity, job.private_key, keyId);
+    const attempts = job.attempt_count + 1;
+    if (ok) {
+      db.prepare("UPDATE outbound_activity_deliveries SET state = 'delivered', attempt_count = ?, last_error = NULL, updated_at = datetime('now') WHERE id = ?")
+        .run(attempts, job.id);
+      delivered++;
+    } else if (attempts >= OUTBOUND_MAX_ATTEMPTS) {
+      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', attempt_count = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(attempts, `delivery failed after ${attempts} attempts`, job.id);
+      failed++;
+      console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
+    } else {
+      const retryAt = new Date(Date.now() + nextBackoffMs(attempts)).toISOString();
+      db.prepare("UPDATE outbound_activity_deliveries SET attempt_count = ?, next_retry_at = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(attempts, retryAt, `delivery attempt ${attempts} failed`, job.id);
+    }
+  }
+  return { processed: jobs.length, delivered, failed };
+}
+
+export function startOutboundDeliveryWorker(db: DB): NodeJS.Timeout | null {
+  const intervalMs = Math.max(1000, parseInt(process.env.OUTBOUND_DELIVERY_INTERVAL_MS || "30000", 10));
+  const run = () => {
+    processOutboundDeliveryQueue(db).catch((err) => console.error("[Federation] outbound delivery worker failed", err));
+  };
+  run();
+  return setInterval(run, intervalMs);
+}
+
 export async function deliverToFollowers(
   db: DB,
   accountId: string,
@@ -436,22 +555,17 @@ export async function deliverToFollowers(
   if (!account?.private_key) return;
 
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-  const keyId = `${baseUrl}/users/${account.username}#main-key`;
+  const actorUri = `${baseUrl}/users/${account.username}`;
 
-  // Collect unique inboxes (prefer shared inboxes to reduce requests)
   const followers = db
     .prepare("SELECT follower_actor_uri, follower_inbox, follower_shared_inbox FROM remote_follows WHERE account_id = ?")
     .all(accountId) as { follower_actor_uri: string; follower_inbox: string; follower_shared_inbox: string | null }[];
 
   const inboxes = new Set<string>();
-  for (const f of followers) {
-    inboxes.add(f.follower_shared_inbox || f.follower_inbox);
-  }
+  for (const f of followers) inboxes.add(f.follower_shared_inbox || f.follower_inbox);
 
-  // Fire-and-forget delivery (don't block the request)
-  for (const inbox of inboxes) {
-    deliverActivity(inbox, activity, account.private_key, keyId).catch(() => {});
-  }
+  for (const inbox of inboxes) enqueueOutboundDelivery(db, { destinationInbox: inbox, senderAccountId: accountId, senderActorUri: actorUri, activity });
+  processOutboundDeliveryQueue(db, Math.min(inboxes.size, OUTBOUND_PROCESS_LIMIT)).catch(() => {});
 }
 
 /**

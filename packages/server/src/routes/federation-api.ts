@@ -56,6 +56,32 @@ function buildFollowActivity(actorUrl: string, actorUri: string): { id: string; 
   };
 }
 
+
+function extractApObjectUri(obj: unknown): string | undefined {
+  if (typeof obj === "string") return obj;
+  if (obj && typeof obj === "object" && typeof (obj as Record<string, unknown>).id === "string") {
+    return (obj as Record<string, string>).id;
+  }
+  return undefined;
+}
+
+function getAttributedActor(obj: Record<string, unknown>): string | null {
+  const raw = obj.attributedTo;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+  return null;
+}
+
+async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {
+  if (!object) return null;
+  if (typeof object === "string") return (await fetchAP(object)) as Record<string, unknown>;
+  const obj = object as Record<string, unknown>;
+  if (obj.id && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
+    return (await fetchAP(obj.id as string)) as Record<string, unknown>;
+  }
+  return obj;
+}
+
 function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActivityId?: string | null): Record<string, unknown> {
   return {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -197,43 +223,52 @@ export function federationRoutes(db: DB): Hono {
 
         const activityType = activity.type as string;
 
-        // Create = actor created the event; Announce = actor reposted/boosted the event
-        if (activityType !== "Create" && activityType !== "Announce") continue;
+        if (activityType === "Delete") {
+          const objectUri = extractApObjectUri(activity.object);
+          if (!objectUri) continue;
+          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
+          if (existing?.actor_uri === actor.uri) {
+            db.prepare("UPDATE remote_events SET canceled = 1, updated = COALESCE(?, updated), fetched_at = datetime('now') WHERE uri = ?")
+              .run((activity.updated as string) || (activity.published as string) || null, objectUri);
+            imported++;
+          } else if (existing) {
+            console.warn(`Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+          }
+          continue;
+        }
 
-        let object = activity.object;
-        if (!object) continue;
+        // Create/Update = actor created or changed the event; Announce = actor reposted/boosted the event
+        if (activityType !== "Create" && activityType !== "Update" && activityType !== "Announce") continue;
 
-        // Object may be a URL (reference) or minimal {id, type} — fetch full object if needed
-        if (typeof object === "string") {
-          try {
-            object = await fetchAP(object);
-          } catch (err) {
-            console.warn(`Failed to fetch event object ${object}:`, err);
+        let fullObj: Record<string, unknown> | null;
+        try {
+          fullObj = await resolveActivityObject(activity.object);
+        } catch (err) {
+          console.warn(`Failed to fetch event object ${extractApObjectUri(activity.object) || "unknown"}:`, err);
+          continue;
+        }
+        if (!fullObj || fullObj.type !== "Event") continue;
+
+        const attributedTo = getAttributedActor(fullObj);
+        if (attributedTo && attributedTo !== actor.uri) {
+          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo}`);
+          continue;
+        }
+        if (activityType === "Update") {
+          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(fullObj.id as string) as { actor_uri: string } | undefined;
+          if (existing && existing.actor_uri !== actor.uri) {
+            console.warn(`Rejected pulled Update for ${fullObj.id}: actor ${actor.uri} does not own ${existing.actor_uri}`);
             continue;
           }
         }
 
-        const obj = object as Record<string, unknown>;
-        if (obj.type !== "Event") continue;
-
-        // If object is a minimal reference (has id but missing name/startTime), fetch full object
-        if (obj.id && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
-          try {
-            object = await fetchAP(obj.id as string);
-          } catch (err) {
-            console.warn(`Failed to fetch event ${obj.id}:`, err);
-            continue;
-          }
-        }
-
-        const fullObj = object as Record<string, unknown>;
         const title = fullObj.name ?? fullObj.title;
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
         const temporal = normalizeApTemporal(fullObj);
         if (!temporal) continue;
-        const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
+        const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal, clearCanceled: activityType === "Update" });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
           enqueueOgJob(`remote:${upserted.uri}`, async () => {
             try {
@@ -513,7 +548,7 @@ export function federationRoutes(db: DB): Hono {
              ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
       FROM remote_events re
       LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
-      WHERE 1=1
+      WHERE re.visibility IN ('public','unlisted')
     `;
     const params: unknown[] = [];
 
