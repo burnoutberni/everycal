@@ -43,16 +43,17 @@ describe("route wiring contract", () => {
       {
         method: "PATCH",
         path: "/api/v1/auth/me",
-        wrongMethod: "DELETE",
+        wrongMethod: "PUT",
         label: "auth me update",
-        allowedWrongStatuses: [401, 404, 405],
       },
     ];
 
     const fixture = createContractTestApp();
+    const user = fixture.seedUser();
+    const authApp = fixture.asUser(user);
 
     for (const probe of probes) {
-      await expectRouteWired(fixture.app, probe);
+      await expectRouteWired(authApp, probe);
     }
   });
 
