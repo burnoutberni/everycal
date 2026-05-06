@@ -89,16 +89,16 @@ export function createEventRouteContext(db: DB) {
     saveTags(eventId, tags);
   }
 
-    return {
-      getUserRsvps,
-      getUserReposts,
-      attachUserContext,
-      attachSingleEventContext,
-      readLocalEventById,
-      fetchLocalEvent,
-      saveTags,
-      replaceTags,
-    };
-  }
+  return {
+    getUserRsvps,
+    getUserReposts,
+    attachUserContext,
+    attachSingleEventContext,
+    readLocalEventById,
+    fetchLocalEvent,
+    saveTags,
+    replaceTags,
+  };
+}
 
-  export type EventRouteContext = ReturnType<typeof createEventRouteContext>;
+export type EventRouteContext = ReturnType<typeof createEventRouteContext>;
