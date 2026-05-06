@@ -5,15 +5,9 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 async function makeApp(ogDir: string): Promise<Hono> {
-  const previousOgDir = process.env.OG_DIR;
   process.env.OG_DIR = ogDir;
   vi.resetModules();
   const { serveOgImagesRoutes } = await import("../src/routes/serve-og-images.js");
-  if (previousOgDir === undefined) {
-    delete process.env.OG_DIR;
-  } else {
-    process.env.OG_DIR = previousOgDir;
-  }
 
   const app = new Hono();
   app.route("/og-images", serveOgImagesRoutes());
@@ -23,8 +17,10 @@ async function makeApp(ogDir: string): Promise<Hono> {
 describe("serveOgImagesRoutes", () => {
   let ogDir: string;
   let maliciousSiblingDir: string | null;
+  let previousOgDir: string | undefined;
 
   beforeEach(() => {
+    previousOgDir = process.env.OG_DIR;
     ogDir = mkdtempSync(join(tmpdir(), "everycal-og-test-"));
     maliciousSiblingDir = null;
   });
@@ -33,6 +29,11 @@ describe("serveOgImagesRoutes", () => {
     rmSync(ogDir, { recursive: true, force: true });
     if (maliciousSiblingDir) {
       rmSync(maliciousSiblingDir, { recursive: true, force: true });
+    }
+    if (previousOgDir === undefined) {
+      delete process.env.OG_DIR;
+    } else {
+      process.env.OG_DIR = previousOgDir;
     }
   });
 
