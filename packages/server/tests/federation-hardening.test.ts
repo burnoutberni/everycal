@@ -55,6 +55,17 @@ describe("federation hardening prep", () => {
     expect(serializeRemoteEvent(row).visibility).toBe("unlisted");
   });
 
+  it("defaults missing object addressing to public for remote upserts", () => {
+    const db = initDatabase(":memory:");
+    const actorUri = insertRemoteActor(db);
+
+    upsertRemoteEvent(db, eventObject("https://remote.example/events/no-audience", "No Audience"), actorUri);
+
+    const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?")
+      .get("https://remote.example/events/no-audience") as { visibility: string };
+    expect(row.visibility).toBe("public");
+  });
+
   it("maps outbound audiences distinctly by visibility", () => {
     const actor = "https://local.example/users/alice";
     expect(federation.visibilityToActivityPubAddressing("public", actor)).toEqual({ to: [federation.AP_PUBLIC], cc: [`${actor}/followers`] });
@@ -630,6 +641,38 @@ describe("federation hardening prep", () => {
     expect(rows[0]).toEqual({ uri: eventId, title: "Trimmed Update" });
     const total = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
     expect(total.cnt).toBe(1);
+  });
+
+  it("uses activity addressing when Event object has no to/cc", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/activity-addressing";
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-activity-addressing",
+        type: "Create",
+        actor: "https://remote.example/users/bob",
+        to: ["https://remote.example/users/bob/followers"],
+        cc: [federation.AP_PUBLIC],
+        object: {
+          id: eventId,
+          type: "Event",
+          name: "Audience From Activity",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: "https://remote.example/users/bob",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?").get(eventId) as { visibility: string };
+    expect(row.visibility).toBe("unlisted");
   });
 
   it("pull import processes Update and Delete with actor ownership checks", async () => {

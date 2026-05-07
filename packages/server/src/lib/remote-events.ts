@@ -18,6 +18,12 @@ interface UpsertRemoteEventOptions {
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+function hasActivityPubAudience(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (!Array.isArray(value)) return false;
+  return value.some((item) => typeof item === "string" && item.trim().length > 0);
+}
+
 export function normalizeRemoteEventUri(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -100,7 +106,13 @@ export function upsertRemoteEvent(
   if (!uri) {
     throw new Error("Remote event id is required");
   }
-  const visibility = options.visibility ?? deriveVisibilityFromActivityPubAddressing(object);
+  let visibility = options.visibility;
+  if (!visibility) {
+    const hasAddressing = hasActivityPubAudience(object.to) || hasActivityPubAudience(object.cc);
+    visibility = hasAddressing
+      ? deriveVisibilityFromActivityPubAddressing(object)
+      : "public";
+  }
   const existing = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null } | undefined;
   if (existing) {
     const resolvedSlug = existing.slug || uniqueRemoteEventSlug(db, actorUri, title || "event");

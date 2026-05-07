@@ -18,6 +18,7 @@ import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
   resolveRemoteActor,
   deliverActivity,
+  deriveVisibilityFromActivityPubAddressing,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
@@ -57,6 +58,12 @@ function toEpochMillisOrZero(value: unknown): number {
   if (!iso) return 0;
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? 0 : ms;
+}
+
+function hasActivityPubAudience(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (!Array.isArray(value)) return false;
+  return value.some((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
@@ -765,6 +772,10 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   const upserted = upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
     temporal,
+    visibility:
+      hasActivityPubAudience(activity.to) || hasActivityPubAudience(activity.cc)
+        ? deriveVisibilityFromActivityPubAddressing(activity)
+        : undefined,
   });
 
   if (isRemoteActivityOgEligible(activity, object)) {

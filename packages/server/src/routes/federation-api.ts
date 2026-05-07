@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
+  deriveVisibilityFromActivityPubAddressing,
   formatRemoteActorIdentity,
   fetchAP,
   resolveRemoteActor,
@@ -119,6 +120,12 @@ function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActiv
       object: actorUri,
     },
   };
+}
+
+function hasActivityPubAudience(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (!Array.isArray(value)) return false;
+  return value.some((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 function parseMaxAgeHours(raw: string | undefined): number {
@@ -305,7 +312,14 @@ export function federationRoutes(db: DB): Hono {
         const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
           ? attributedTo.actor
           : actor.uri;
-        const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, { temporal, clearCanceled: activityType === "Update" });
+        const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
+          temporal,
+          clearCanceled: activityType === "Update",
+          visibility:
+            hasActivityPubAudience(activity.to) || hasActivityPubAudience(activity.cc)
+              ? deriveVisibilityFromActivityPubAddressing(activity)
+              : undefined,
+        });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
           enqueueOgJob(`remote:${upserted.uri}`, async () => {
             try {
