@@ -552,7 +552,7 @@ export const MIGRATIONS: Migration[] = [
       )
       SELECT
         id, destination_inbox, sender_account_id, sender_actor_uri, sender_actor_uri || '#main-key', activity_json,
-        attempt_count, datetime(next_retry_at), last_error,
+        attempt_count, COALESCE(datetime(next_retry_at), datetime('now')), last_error,
         CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
         NULL, NULL, created_at, updated_at
       FROM outbound_activity_deliveries`);
