@@ -25,7 +25,7 @@ function toSqliteDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 19);
 }
 
-function normalizeAudience(value: unknown): string[] {
+export function normalizeAudience(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed ? [trimmed] : [];
@@ -35,6 +35,10 @@ function normalizeAudience(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+export function hasActivityPubAudience(value: unknown): boolean {
+  return normalizeAudience(value).length > 0;
 }
 
 export function visibilityToActivityPubAddressing(

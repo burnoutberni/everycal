@@ -15,6 +15,7 @@ import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   deriveVisibilityFromActivityPubAddressing,
+  hasActivityPubAudience,
   formatRemoteActorIdentity,
   fetchAP,
   resolveRemoteActor,
@@ -120,12 +121,6 @@ function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActiv
       object: actorUri,
     },
   };
-}
-
-function hasActivityPubAudience(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (!Array.isArray(value)) return false;
-  return value.some((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 function parseMaxAgeHours(raw: string | undefined): number {

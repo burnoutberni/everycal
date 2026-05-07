@@ -1,7 +1,7 @@
 import type { EventVisibility } from "@everycal/core";
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
-import { deriveVisibilityFromActivityPubAddressing } from "./federation.js";
+import { deriveVisibilityFromActivityPubAddressing, hasActivityPubAudience } from "./federation.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 import {
   datePartFromUtcInstantInTimezone,
@@ -17,12 +17,6 @@ interface UpsertRemoteEventOptions {
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
-function hasActivityPubAudience(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (!Array.isArray(value)) return false;
-  return value.some((item) => typeof item === "string" && item.trim().length > 0);
-}
 
 export function normalizeRemoteEventUri(value: unknown): string | null {
   if (typeof value !== "string") return null;

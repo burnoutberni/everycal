@@ -19,6 +19,7 @@ import {
   resolveRemoteActor,
   deliverActivity,
   deriveVisibilityFromActivityPubAddressing,
+  hasActivityPubAudience,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
@@ -58,12 +59,6 @@ function toEpochMillisOrZero(value: unknown): number {
   if (!iso) return 0;
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? 0 : ms;
-}
-
-function hasActivityPubAudience(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (!Array.isArray(value)) return false;
-  return value.some((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {

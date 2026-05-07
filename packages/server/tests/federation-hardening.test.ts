@@ -92,6 +92,13 @@ describe("federation hardening prep", () => {
     ).toBe("private");
   });
 
+  it("treats only trimmed non-empty audience values as present", () => {
+    expect(federation.hasActivityPubAudience("   ")).toBe(false);
+    expect(federation.hasActivityPubAudience(" https://remote.example/users/bob ")).toBe(true);
+    expect(federation.hasActivityPubAudience(["  ", "\n"])).toBe(false);
+    expect(federation.hasActivityPubAudience(["  ", "https://remote.example/users/bob/followers "])).toBe(true);
+  });
+
   it("retries durable outbound deliveries and eventually marks terminal failure", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);
