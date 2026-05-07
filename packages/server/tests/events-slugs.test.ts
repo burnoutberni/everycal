@@ -2074,6 +2074,76 @@ describe("event slug canonical behavior", () => {
     expect(res.status).toBe(404);
   });
 
+  it("GET /events/:id does not expose followers-only remote events to unauthenticated users", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-1",
+        "https://remote.example/users/alice",
+        "private-1",
+        "Followers Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "followers_only"
+      );
+
+    const app = makeApp(db);
+    const encoded = encodeURIComponent("https://remote.example/events/private-1");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id allows followers-only remote events for authenticated followers", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-2",
+        "https://remote.example/users/alice",
+        "private-2",
+        "Followers Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "followers_only"
+      );
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u1", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-2");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+    const body = await res.json() as { id: string };
+
+    expect(res.status).toBe(200);
+    expect(body.id).toBe("https://remote.example/events/private-2");
+  });
+
+  it("/events/resolve does not return cached followers-only remote events to unauthenticated users", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-3",
+        "https://remote.example/users/alice",
+        "private-3",
+        "Followers Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "followers_only"
+      );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2Fprivate-3");
+
+    expect(res.status).toBe(502);
+    expect(vi.mocked(fetchAP)).toHaveBeenCalledTimes(1);
+  });
+
   it("initializes an empty database to current schema version", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "fresh.sqlite");
