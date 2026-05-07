@@ -273,6 +273,10 @@ export function federationRoutes(db: DB): Hono {
           continue;
         }
         if (!fullObj || fullObj.type !== "Event") continue;
+        if (typeof fullObj.id !== "string" || fullObj.id.length === 0) {
+          console.warn(`Rejected pulled ${activityType}: event object missing valid string id`);
+          continue;
+        }
 
         const attributedTo = getAttributedActor(fullObj);
         if (activityType === "Update" && attributedTo.status === "unparseable") {
