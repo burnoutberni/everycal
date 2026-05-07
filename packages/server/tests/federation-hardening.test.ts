@@ -73,6 +73,12 @@ describe("federation hardening prep", () => {
       activity: { id: "http://localhost/activity/1", type: "Create" },
     });
 
+    await federation.processOutboundDeliveryQueue(db, 1);
+    const firstRetry = db.prepare("SELECT next_retry_at FROM outbound_activity_deliveries").get() as {
+      next_retry_at: string;
+    };
+    expect(firstRetry.next_retry_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
     for (let i = 0; i < 5; i++) {
       db.prepare("UPDATE outbound_activity_deliveries SET next_retry_at = datetime('now')").run();
       await federation.processOutboundDeliveryQueue(db);

@@ -20,6 +20,10 @@ const OUTBOUND_MAX_ATTEMPTS = 5;
 const OUTBOUND_BASE_BACKOFF_MS = 60_000;
 const OUTBOUND_PROCESS_LIMIT = 25;
 
+function toSqliteDateTime(date: Date): string {
+  return date.toISOString().replace("T", " ").slice(0, 19);
+}
+
 function normalizeAudience(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (!Array.isArray(value)) return [];
@@ -488,8 +492,8 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
     `SELECT d.*, a.username, a.private_key
      FROM outbound_activity_deliveries d
      JOIN accounts a ON a.id = d.sender_account_id
-     WHERE d.state = 'pending' AND datetime(d.next_retry_at) <= datetime('now')
-     ORDER BY datetime(d.next_retry_at), d.created_at
+     WHERE d.state = 'pending' AND d.next_retry_at <= datetime('now')
+     ORDER BY d.next_retry_at, d.created_at
      LIMIT ?`,
   ).all(limit) as Array<{
     id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
@@ -527,7 +531,7 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
       failed++;
       console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
     } else {
-      const retryAt = new Date(Date.now() + nextBackoffMs(attempts)).toISOString();
+      const retryAt = toSqliteDateTime(new Date(Date.now() + nextBackoffMs(attempts)));
       db.prepare("UPDATE outbound_activity_deliveries SET attempt_count = ?, next_retry_at = ?, last_error = ?, updated_at = datetime('now') WHERE id = ?")
         .run(attempts, retryAt, `delivery attempt ${attempts} failed`, job.id);
     }

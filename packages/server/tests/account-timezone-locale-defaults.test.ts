@@ -121,6 +121,37 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("normalizes outbound retry timestamps during migration", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-outbound-retry.sqlite");
+    const versioned = new Database(dbPath);
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 8)) {
+      migration.up(versioned);
+    }
+
+    versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-outbound", "u_outbound");
+    versioned.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, activity_json, next_retry_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(
+        "delivery-1",
+        "https://remote.example/inbox",
+        "u-outbound",
+        "http://localhost:3000/users/u_outbound",
+        '{"id":"https://example.test/activities/1","type":"Create"}',
+        "2026-04-27T09:30:00.000Z"
+      );
+    versioned.pragma("user_version = 8");
+    versioned.close();
+
+    const reopened = initDatabase(dbPath);
+    const row = reopened.prepare("SELECT next_retry_at FROM outbound_activity_deliveries WHERE id = ?").get("delivery-1") as {
+      next_retry_at: string;
+    };
+    expect(row.next_retry_at).toBe("2026-04-27 09:30:00");
+    reopened.close();
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("migrates token hashes in bounded batches", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-token-hashes.sqlite");

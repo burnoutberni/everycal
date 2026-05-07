@@ -510,6 +510,15 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
     },
   },
+  {
+    version: 9,
+    name: "normalize_outbound_delivery_retry_timestamps",
+    up: (db) => {
+      db.exec(
+        "UPDATE outbound_activity_deliveries SET next_retry_at = datetime(next_retry_at) WHERE datetime(next_retry_at) IS NOT NULL"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
