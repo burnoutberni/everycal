@@ -546,7 +546,14 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
       continue;
     }
     const keyId = `${baseUrl}/users/${job.username}#main-key`;
-    const ok = await deliverActivity(job.destination_inbox, activity, job.private_key, keyId);
+    let ok = false;
+    let deliveryError: string | null = null;
+    try {
+      ok = await deliverActivity(job.destination_inbox, activity, job.private_key, keyId);
+    } catch (err) {
+      deliveryError = err instanceof Error ? err.message : String(err);
+      console.error(`[Federation] outbound delivery ${job.id} threw`, err);
+    }
     const attempts = job.attempt_count + 1;
     if (ok) {
       db.prepare("UPDATE outbound_activity_deliveries SET state = 'delivered', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = NULL, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
@@ -554,13 +561,13 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
       delivered++;
     } else if (attempts >= OUTBOUND_MAX_ATTEMPTS) {
       db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run(attempts, `delivery failed after ${attempts} attempts`, job.id, workerId);
+        .run(attempts, deliveryError || `delivery failed after ${attempts} attempts`, job.id, workerId);
       failed++;
       console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
     } else {
       const retryAt = toSqliteDateTime(new Date(Date.now() + nextBackoffMs(attempts)));
       db.prepare("UPDATE outbound_activity_deliveries SET state = 'pending', attempt_count = ?, next_retry_at = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run(attempts, retryAt, `delivery attempt ${attempts} failed`, job.id, workerId);
+        .run(attempts, retryAt, deliveryError || `delivery attempt ${attempts} failed`, job.id, workerId);
     }
   }
   return { processed: jobs.length, delivered, failed };

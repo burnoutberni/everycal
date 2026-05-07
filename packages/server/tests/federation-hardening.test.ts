@@ -91,6 +91,48 @@ describe("federation hardening prep", () => {
     expect(row.last_error).toContain("failed after 5 attempts");
   });
 
+  it("handles thrown outbound delivery errors without leaving jobs stuck in processing", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "ftp://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/throw-1", type: "Create" },
+    });
+
+    await federation.processOutboundDeliveryQueue(db, 1);
+
+    const firstAttempt = db.prepare(
+      "SELECT state, attempt_count, worker_id, claimed_at, last_error FROM outbound_activity_deliveries"
+    ).get() as {
+      state: string;
+      attempt_count: number;
+      worker_id: string | null;
+      claimed_at: string | null;
+      last_error: string | null;
+    };
+    expect(firstAttempt.state).toBe("pending");
+    expect(firstAttempt.attempt_count).toBe(1);
+    expect(firstAttempt.worker_id).toBeNull();
+    expect(firstAttempt.claimed_at).toBeNull();
+    expect(firstAttempt.last_error).toContain("Invalid protocol");
+
+    for (let i = 0; i < 4; i++) {
+      db.prepare("UPDATE outbound_activity_deliveries SET next_retry_at = datetime('now')").run();
+      await federation.processOutboundDeliveryQueue(db, 1);
+    }
+
+    const finalAttempt = db.prepare("SELECT state, attempt_count, last_error FROM outbound_activity_deliveries").get() as {
+      state: string;
+      attempt_count: number;
+      last_error: string | null;
+    };
+    expect(finalAttempt.state).toBe("failed");
+    expect(finalAttempt.attempt_count).toBe(5);
+    expect(finalAttempt.last_error).toContain("Invalid protocol");
+  });
+
   it("atomically claims pending jobs and recovers stale processing claims", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);
