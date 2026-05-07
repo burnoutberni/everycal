@@ -283,7 +283,7 @@ export function federationRoutes(db: DB): Hono {
           console.warn(`Rejected pulled Update for ${fullObj.id}: unparseable attributedTo`);
           continue;
         }
-        if (attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
+        if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
           console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
           continue;
         }
@@ -301,7 +301,10 @@ export function federationRoutes(db: DB): Hono {
 
         const temporal = normalizeApTemporal(fullObj);
         if (!temporal) continue;
-        const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal, clearCanceled: activityType === "Update" });
+        const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
+          ? attributedTo.actor
+          : actor.uri;
+        const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, { temporal, clearCanceled: activityType === "Update" });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
           enqueueOgJob(`remote:${upserted.uri}`, async () => {
             try {

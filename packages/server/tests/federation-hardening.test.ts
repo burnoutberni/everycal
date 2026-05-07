@@ -616,6 +616,63 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("Old");
   });
 
+  it("imports pulled Announce and stores attributedTo actor as owner when present", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const announcerUri = insertRemoteActor(db);
+    const originalActorUri = insertRemoteActor(db, "https://remote.example/users/carol");
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: announcerUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/announce-1",
+        type: "Announce",
+        actor: announcerUri,
+        object: eventObject("https://remote.example/events/boosted-1", "Boosted event", {
+          attributedTo: originalActorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: announcerUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 1, total: 1 });
+
+    const row = db.prepare("SELECT actor_uri, title FROM remote_events WHERE uri = ?").get("https://remote.example/events/boosted-1") as {
+      actor_uri: string;
+      title: string;
+    };
+    expect(row).toEqual({ actor_uri: originalActorUri, title: "Boosted event" });
+  });
+
   it("skips pulled Event objects without a valid string id", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db, "local1", "alice");
