@@ -498,6 +498,7 @@ export const MIGRATIONS: Migration[] = [
         destination_inbox TEXT NOT NULL,
         sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         sender_actor_uri TEXT NOT NULL,
+        sender_key_id TEXT,
         activity_json TEXT NOT NULL,
         attempt_count INTEGER NOT NULL DEFAULT 0,
         next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -534,6 +535,7 @@ export const MIGRATIONS: Migration[] = [
         destination_inbox TEXT NOT NULL,
         sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         sender_actor_uri TEXT NOT NULL,
+        sender_key_id TEXT,
         activity_json TEXT NOT NULL,
         attempt_count INTEGER NOT NULL DEFAULT 0,
         next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -545,11 +547,11 @@ export const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`);
       db.exec(`INSERT INTO outbound_activity_deliveries_v10 (
-        id, destination_inbox, sender_account_id, sender_actor_uri, activity_json,
+        id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json,
         attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
       )
       SELECT
-        id, destination_inbox, sender_account_id, sender_actor_uri, activity_json,
+        id, destination_inbox, sender_account_id, sender_actor_uri, sender_actor_uri || '#main-key', activity_json,
         attempt_count, datetime(next_retry_at), last_error,
         CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
         NULL, NULL, created_at, updated_at
@@ -559,50 +561,6 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
-    },
-  },
-  {
-    version: 9,
-    name: "inbox_processing_state",
-    up: (db) => {
-      const columns = db.prepare("PRAGMA table_info(processed_inbox_activities)").all() as Array<{ name: string }>;
-      const hasStateColumns = ["status", "claimed_at", "processed_at", "last_error"]
-        .every((name) => columns.some((column) => column.name === name));
-
-      if (!hasStateColumns) {
-        db.exec(`CREATE TABLE processed_inbox_activities_v9 (
-          activity_id TEXT NOT NULL,
-          actor_uri TEXT NOT NULL,
-          target_context TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'processed' CHECK(status IN ('processing','processed','failed')),
-          claimed_at TEXT,
-          processed_at TEXT,
-          last_error TEXT,
-          received_at TEXT NOT NULL DEFAULT (datetime('now')),
-          PRIMARY KEY (activity_id, actor_uri, target_context)
-        )`);
-        db.exec(`INSERT INTO processed_inbox_activities_v9 (
-          activity_id, actor_uri, target_context, status, claimed_at, processed_at, last_error, received_at
-        )
-        SELECT
-          activity_id, actor_uri, target_context, 'processed', NULL, received_at, NULL, received_at
-        FROM processed_inbox_activities`);
-        db.exec("DROP TABLE processed_inbox_activities");
-        db.exec("ALTER TABLE processed_inbox_activities_v9 RENAME TO processed_inbox_activities");
-      }
-
-      db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at)");
-    },
-  },
-  {
-    version: 10,
-    name: "outbound_sender_key_id",
-    up: (db) => {
-      const columns = db.prepare("PRAGMA table_info(outbound_activity_deliveries)").all() as Array<{ name: string }>;
-      if (!columns.some((column) => column.name === "sender_key_id")) {
-        db.exec("ALTER TABLE outbound_activity_deliveries ADD COLUMN sender_key_id TEXT");
-      }
       db.exec(
         "UPDATE outbound_activity_deliveries SET sender_key_id = sender_actor_uri || '#main-key' WHERE sender_key_id IS NULL OR sender_key_id = ''"
       );
@@ -610,4 +568,4 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 8;
