@@ -530,7 +530,7 @@ export const MIGRATIONS: Migration[] = [
         "UPDATE outbound_activity_deliveries SET next_retry_at = datetime(next_retry_at) WHERE datetime(next_retry_at) IS NOT NULL"
       );
 
-      db.exec(`CREATE TABLE outbound_activity_deliveries_v10 (
+      db.exec(`CREATE TABLE outbound_activity_deliveries_tmp (
         id TEXT PRIMARY KEY,
         destination_inbox TEXT NOT NULL,
         sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -546,7 +546,7 @@ export const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`);
-      db.exec(`INSERT INTO outbound_activity_deliveries_v10 (
+      db.exec(`INSERT INTO outbound_activity_deliveries_tmp (
         id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json,
         attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
       )
@@ -557,7 +557,7 @@ export const MIGRATIONS: Migration[] = [
         NULL, NULL, created_at, updated_at
       FROM outbound_activity_deliveries`);
       db.exec("DROP TABLE outbound_activity_deliveries");
-      db.exec("ALTER TABLE outbound_activity_deliveries_v10 RENAME TO outbound_activity_deliveries");
+      db.exec("ALTER TABLE outbound_activity_deliveries_tmp RENAME TO outbound_activity_deliveries");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
