@@ -20,6 +20,7 @@ const OUTBOUND_MAX_ATTEMPTS = 5;
 const OUTBOUND_BASE_BACKOFF_MS = 60_000;
 const OUTBOUND_PROCESS_LIMIT = 25;
 const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
+const OUTBOUND_DELIVERY_TIMEOUT_MS = Math.max(1_000, Math.min(120_000, OUTBOUND_CLAIM_TIMEOUT_MS - 1_000));
 
 function toSqliteDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 19);
@@ -447,12 +448,12 @@ export interface RemoteActor {
 /**
  * Send a signed activity to a remote inbox.
  */
-export async function deliverActivity(
+async function deliverActivityWithResult(
   inbox: string,
   activity: Record<string, unknown>,
   privateKeyPem: string,
   keyId: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; error: string | null }> {
   // Validate inbox URL to prevent SSRF
   await validateFederationUrl(inbox);
 
@@ -460,22 +461,44 @@ export async function deliverActivity(
   const headers = signRequest("POST", inbox, body, privateKeyPem, keyId);
   headers["User-Agent"] = USER_AGENT;
 
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), OUTBOUND_DELIVERY_TIMEOUT_MS);
+
   try {
     const res = await fetch(inbox, {
       method: "POST",
       headers,
       body,
+      signal: controller.signal,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error(`Delivery to ${inbox} failed: ${res.status} ${text.slice(0, 200)}`);
-      return false;
+      const message = `Delivery to ${inbox} failed: ${res.status} ${text.slice(0, 200)}`;
+      return { ok: false, error: message };
     }
-    return true;
+    return { ok: true, error: null };
   } catch (err) {
-    console.error(`Delivery to ${inbox} failed:`, err);
-    return false;
+    if (controller.signal.aborted) {
+      return { ok: false, error: `Delivery to ${inbox} timed out after ${OUTBOUND_DELIVERY_TIMEOUT_MS}ms` };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Delivery to ${inbox} failed: ${message}` };
+  } finally {
+    clearTimeout(timeoutHandle);
   }
+}
+
+export async function deliverActivity(
+  inbox: string,
+  activity: Record<string, unknown>,
+  privateKeyPem: string,
+  keyId: string
+): Promise<boolean> {
+  const result = await deliverActivityWithResult(inbox, activity, privateKeyPem, keyId);
+  if (!result.ok && result.error) {
+    console.error(result.error);
+  }
+  return result.ok;
 }
 
 /**
@@ -561,7 +584,12 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
     let ok = false;
     let deliveryError: string | null = null;
     try {
-      ok = await deliverActivity(job.destination_inbox, activity, job.private_key, keyId);
+      const result = await deliverActivityWithResult(job.destination_inbox, activity, job.private_key, keyId);
+      ok = result.ok;
+      deliveryError = result.error;
+      if (!ok && deliveryError) {
+        console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
+      }
     } catch (err) {
       deliveryError = err instanceof Error ? err.message : String(err);
       console.error(`[Federation] outbound delivery ${job.id} threw`, err);

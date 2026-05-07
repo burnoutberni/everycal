@@ -124,7 +124,7 @@ describe("federation hardening prep", () => {
     const row = db.prepare("SELECT state, attempt_count, last_error FROM outbound_activity_deliveries").get() as { state: string; attempt_count: number; last_error: string };
     expect(row.state).toBe("failed");
     expect(row.attempt_count).toBe(5);
-    expect(row.last_error).toContain("failed after 5 attempts");
+    expect(row.last_error).toContain("503 try later");
   });
 
   it("signs outbound deliveries using the persisted sender key id", async () => {
@@ -209,6 +209,49 @@ describe("federation hardening prep", () => {
     expect(finalAttempt.state).toBe("failed");
     expect(finalAttempt.attempt_count).toBe(5);
     expect(finalAttempt.last_error).toContain("Invalid protocol");
+  });
+
+  it("times out stalled outbound deliveries and records timeout in last_error", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    vi.spyOn(global, "setTimeout").mockImplementation(((fn: TimerHandler) => {
+      if (typeof fn === "function") fn();
+      return 0 as unknown as NodeJS.Timeout;
+    }) as typeof setTimeout);
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+          return;
+        }
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        });
+      });
+    }));
+
+      federation.enqueueOutboundDelivery(db, {
+        destinationInbox: "https://remote.example/inbox",
+        senderAccountId: account.id,
+        senderActorUri: "http://localhost:3000/users/alice",
+        activity: { id: "http://localhost/activity/timeout-1", type: "Create" },
+      });
+
+    await federation.processOutboundDeliveryQueue(db, 1);
+
+      const row = db.prepare("SELECT state, attempt_count, worker_id, claimed_at, last_error FROM outbound_activity_deliveries").get() as {
+        state: string;
+        attempt_count: number;
+        worker_id: string | null;
+        claimed_at: string | null;
+        last_error: string | null;
+      };
+
+      expect(row.state).toBe("pending");
+      expect(row.attempt_count).toBe(1);
+      expect(row.worker_id).toBeNull();
+      expect(row.claimed_at).toBeNull();
+    expect(row.last_error).toContain("timed out after 120000ms");
   });
 
   it("atomically claims pending jobs and recovers stale processing claims", async () => {
