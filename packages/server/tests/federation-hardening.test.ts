@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 import { authMiddleware, createSession } from "../src/middleware/auth.js";
-import { activityPubRoutes } from "../src/routes/activitypub.js";
+import { activityPubRoutes, sharedInboxRoute } from "../src/routes/activitypub.js";
 import { federationRoutes } from "../src/routes/federation-api.js";
 import { serializeRemoteEvent } from "../src/lib/event-serializers.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
@@ -195,6 +195,71 @@ describe("federation hardening prep", () => {
     expect(await second.json()).toEqual({ ok: true });
 
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/retry") as { title: string };
+    expect(row.title).toBe("Recovered");
+  });
+
+  it("skips duplicate shared inbox activities with stable ids", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/", sharedInboxRoute(db));
+
+    const activity = (name: string) => ({
+      id: "https://remote.example/activities/shared-create-1",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/shared-dupe", name, { to: [federation.AP_PUBLIC] }),
+    });
+
+    expect((await app.request("http://localhost/inbox", { method: "POST", body: JSON.stringify(activity("First")) })).status).toBe(202);
+    const second = await app.request("http://localhost/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity("Second")),
+    });
+    expect(second.status).toBe(202);
+    expect((await second.json() as { duplicate?: boolean }).duplicate).toBe(true);
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/shared-dupe") as { title: string };
+    expect(row.title).toBe("First");
+  });
+
+  it("releases shared inbox dedupe claim when processing fails", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/", sharedInboxRoute(db));
+
+    const activity = {
+      id: "https://remote.example/activities/shared-create-retry-1",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/shared-retry", "Recovered", { to: [federation.AP_PUBLIC] }),
+    };
+
+    const realUpsert = remoteEvents.upsertRemoteEvent;
+    const upsertSpy = vi.spyOn(remoteEvents, "upsertRemoteEvent");
+    upsertSpy.mockImplementationOnce(() => {
+      throw new Error("transient failure");
+    });
+    upsertSpy.mockImplementation(realUpsert);
+
+    const first = await app.request("http://localhost/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(first.status).toBe(500);
+
+    const second = await app.request("http://localhost/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(second.status).toBe(202);
+    expect(await second.json()).toEqual({ ok: true });
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/shared-retry") as { title: string };
     expect(row.title).toBe("Recovered");
   });
 
