@@ -166,6 +166,8 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "next_retry_at",
     "last_error",
     "state",
+    "claimed_at",
+    "worker_id",
     "created_at",
     "updated_at",
   ],
@@ -283,6 +285,12 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
     name: "idx_outbound_deliveries_sender",
     unique: false,
     columns: [{ name: "sender_account_id" }],
+  },
+  {
+    table: "outbound_activity_deliveries",
+    name: "idx_outbound_deliveries_processing_claimed",
+    unique: false,
+    columns: [{ name: "state" }, { name: "claimed_at" }],
   },
   {
     table: "processed_inbox_activities",

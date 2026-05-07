@@ -90,6 +90,51 @@ describe("federation hardening prep", () => {
     expect(row.last_error).toContain("failed after 5 attempts");
   });
 
+  it("atomically claims pending jobs and recovers stale processing claims", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 202, text: async () => "" }));
+
+    const activeClaimId = federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/active-claim", type: "Create" },
+    });
+    const staleClaimId = federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/stale-claim", type: "Create" },
+    });
+
+    db.prepare(
+      "UPDATE outbound_activity_deliveries SET state = 'processing', worker_id = ?, claimed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+    ).run("other-worker", activeClaimId);
+    db.prepare(
+      "UPDATE outbound_activity_deliveries SET state = 'processing', worker_id = ?, claimed_at = datetime('now', '-20 minutes'), updated_at = datetime('now') WHERE id = ?"
+    ).run("dead-worker", staleClaimId);
+
+    const result = await federation.processOutboundDeliveryQueue(db, 5);
+    expect(result.processed).toBe(1);
+    expect(result.delivered).toBe(1);
+    expect(result.failed).toBe(0);
+
+    const activeClaim = db.prepare("SELECT state FROM outbound_activity_deliveries WHERE id = ?").get(activeClaimId) as { state: string };
+    expect(activeClaim.state).toBe("processing");
+
+    const staleClaim = db.prepare("SELECT state, attempt_count, worker_id, claimed_at FROM outbound_activity_deliveries WHERE id = ?").get(staleClaimId) as {
+      state: string;
+      attempt_count: number;
+      worker_id: string | null;
+      claimed_at: string | null;
+    };
+    expect(staleClaim.state).toBe("delivered");
+    expect(staleClaim.attempt_count).toBe(1);
+    expect(staleClaim.worker_id).toBeNull();
+    expect(staleClaim.claimed_at).toBeNull();
+  });
+
   it("skips duplicate inbox activities with stable ids", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");

@@ -189,7 +189,9 @@ CREATE TABLE IF NOT EXISTS outbound_activity_deliveries (
   attempt_count INTEGER NOT NULL DEFAULT 0,
   next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_error TEXT,
-  state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','failed')),
+  state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+  claimed_at TEXT,
+  worker_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -349,6 +351,7 @@ CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on)
 CREATE INDEX IF NOT EXISTS idx_remote_events_visibility ON remote_events(visibility);
 CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id);
+CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at);
 CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
@@ -493,7 +496,9 @@ export const MIGRATIONS: Migration[] = [
         attempt_count INTEGER NOT NULL DEFAULT 0,
         next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
         last_error TEXT,
-        state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','failed')),
+        state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+        claimed_at TEXT,
+        worker_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`);
@@ -507,6 +512,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_visibility ON remote_events(visibility)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
     },
   },
@@ -519,6 +525,42 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 10,
+    name: "outbound_delivery_atomic_claiming",
+    up: (db) => {
+      db.exec(`CREATE TABLE outbound_activity_deliveries_v10 (
+        id TEXT PRIMARY KEY,
+        destination_inbox TEXT NOT NULL,
+        sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        sender_actor_uri TEXT NOT NULL,
+        activity_json TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_error TEXT,
+        state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+        claimed_at TEXT,
+        worker_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`);
+      db.exec(`INSERT INTO outbound_activity_deliveries_v10 (
+        id, destination_inbox, sender_account_id, sender_actor_uri, activity_json,
+        attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
+      )
+      SELECT
+        id, destination_inbox, sender_account_id, sender_actor_uri, activity_json,
+        attempt_count, datetime(next_retry_at), last_error,
+        CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
+        NULL, NULL, created_at, updated_at
+      FROM outbound_activity_deliveries`);
+      db.exec("DROP TABLE outbound_activity_deliveries");
+      db.exec("ALTER TABLE outbound_activity_deliveries_v10 RENAME TO outbound_activity_deliveries");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
