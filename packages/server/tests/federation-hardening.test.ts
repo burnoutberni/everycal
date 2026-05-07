@@ -471,4 +471,59 @@ describe("federation hardening prep", () => {
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE actor_uri = ?").get(actorUri) as { cnt: number };
     expect(count.cnt).toBe(0);
   });
+
+  it("does not fetch pulled object when id is non-string", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-non-string-id",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: { value: "https://remote.example/events/non-string-id" },
+          type: "Event",
+          attributedTo: actorUri,
+          to: [federation.AP_PUBLIC],
+        },
+      },
+    ]);
+    const fetchApSpy = vi.spyOn(federation, "fetchAP");
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+    expect(fetchApSpy).not.toHaveBeenCalled();
+  });
 });

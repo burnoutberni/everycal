@@ -101,7 +101,7 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
   if (!object) return null;
   if (typeof object === "string") return (await fetchAP(object)) as Record<string, unknown>;
   const obj = object as Record<string, unknown>;
-  if (obj.id && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
+  if (typeof obj.id === "string" && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
     return (await fetchAP(obj.id as string)) as Record<string, unknown>;
   }
   return obj;
