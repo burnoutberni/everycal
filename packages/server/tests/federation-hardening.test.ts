@@ -74,6 +74,24 @@ describe("federation hardening prep", () => {
     expect(federation.visibilityToActivityPubAddressing("private", actor)).toEqual({ to: [], cc: [] });
   });
 
+  it("derives followers_only when non-public recipients exist in cc only", () => {
+    expect(
+      federation.deriveVisibilityFromActivityPubAddressing({
+        to: [],
+        cc: ["https://remote.example/users/bob/followers"],
+      })
+    ).toBe("followers_only");
+  });
+
+  it("ignores whitespace-only audience values when deriving visibility", () => {
+    expect(
+      federation.deriveVisibilityFromActivityPubAddressing({
+        to: ["   "],
+        cc: "\n\t",
+      })
+    ).toBe("private");
+  });
+
   it("retries durable outbound deliveries and eventually marks terminal failure", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);

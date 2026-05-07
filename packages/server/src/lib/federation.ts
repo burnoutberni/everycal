@@ -26,9 +26,15 @@ function toSqliteDateTime(date: Date): string {
 }
 
 function normalizeAudience(value: unknown): string[] {
-  if (typeof value === "string") return [value];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string");
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 export function visibilityToActivityPubAddressing(
@@ -54,7 +60,7 @@ export function deriveVisibilityFromActivityPubAddressing(source: Record<string,
   const cc = normalizeAudience(source.cc);
   if (to.includes(AP_PUBLIC)) return "public";
   if (cc.includes(AP_PUBLIC)) return "unlisted";
-  if (to.length > 0) return "followers_only";
+  if (to.length > 0 || cc.length > 0) return "followers_only";
   return "private";
 }
 
