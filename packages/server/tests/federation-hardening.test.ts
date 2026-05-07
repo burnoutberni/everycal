@@ -220,6 +220,23 @@ describe("federation hardening prep", () => {
     expect(staleClaim.claimed_at).toBeNull();
   });
 
+  it("uses strict numeric parsing for outbound worker interval", () => {
+    const db = initDatabase(":memory:");
+    const setIntervalSpy = vi.spyOn(global, "setInterval").mockImplementation(() => 1 as unknown as NodeJS.Timeout);
+
+    process.env.OUTBOUND_DELIVERY_INTERVAL_MS = "30000ms";
+    federation.startOutboundDeliveryWorker(db);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 30000);
+
+    process.env.OUTBOUND_DELIVERY_INTERVAL_MS = "999";
+    federation.startOutboundDeliveryWorker(db);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 1000);
+
+    process.env.OUTBOUND_DELIVERY_INTERVAL_MS = "1500";
+    federation.startOutboundDeliveryWorker(db);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 1500);
+  });
+
   it("skips duplicate inbox activities with stable ids", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");

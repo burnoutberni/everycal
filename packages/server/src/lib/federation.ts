@@ -574,7 +574,9 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
 }
 
 export function startOutboundDeliveryWorker(db: DB): NodeJS.Timeout | null {
-  const intervalMs = Math.max(1000, parseInt(process.env.OUTBOUND_DELIVERY_INTERVAL_MS || "30000", 10));
+  const rawInterval = process.env.OUTBOUND_DELIVERY_INTERVAL_MS;
+  const parsedInterval = rawInterval === undefined ? 30000 : Number(rawInterval);
+  const intervalMs = Math.max(1000, Number.isFinite(parsedInterval) ? parsedInterval : 30000);
   const run = () => {
     processOutboundDeliveryQueue(db).catch((err) => console.error("[Federation] outbound delivery worker failed", err));
   };
