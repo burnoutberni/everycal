@@ -65,11 +65,36 @@ function extractApObjectUri(obj: unknown): string | undefined {
   return undefined;
 }
 
-function getAttributedActor(obj: Record<string, unknown>): string | null {
-  const raw = obj.attributedTo;
-  if (typeof raw === "string") return raw;
-  if (Array.isArray(raw) && typeof raw[0] === "string") return raw[0];
+type AttributedActorResult =
+  | { status: "absent" }
+  | { status: "parsed"; actor: string }
+  | { status: "unparseable" };
+
+function parseAttributedActorValue(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof (value as Record<string, unknown>).id === "string") {
+    return (value as Record<string, string>).id;
+  }
   return null;
+}
+
+function getAttributedActor(obj: Record<string, unknown>): AttributedActorResult {
+  if (!("attributedTo" in obj)) return { status: "absent" };
+
+  const raw = obj.attributedTo;
+  if (raw == null) return { status: "absent" };
+
+  const parsedSingle = parseAttributedActorValue(raw);
+  if (parsedSingle) return { status: "parsed", actor: parsedSingle };
+
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      const parsed = parseAttributedActorValue(value);
+      if (parsed) return { status: "parsed", actor: parsed };
+    }
+  }
+
+  return { status: "unparseable" };
 }
 
 async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {
@@ -250,8 +275,12 @@ export function federationRoutes(db: DB): Hono {
         if (!fullObj || fullObj.type !== "Event") continue;
 
         const attributedTo = getAttributedActor(fullObj);
-        if (attributedTo && attributedTo !== actor.uri) {
-          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo}`);
+        if (activityType === "Update" && attributedTo.status === "unparseable") {
+          console.warn(`Rejected pulled Update for ${fullObj.id}: unparseable attributedTo`);
+          continue;
+        }
+        if (attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
+          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
           continue;
         }
         if (activityType === "Update") {

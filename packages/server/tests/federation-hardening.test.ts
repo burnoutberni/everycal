@@ -307,4 +307,112 @@ describe("federation hardening prep", () => {
     const row = db.prepare("SELECT title, visibility, canceled FROM remote_events WHERE uri = ?").get("https://remote.example/events/pulled") as { title: string; visibility: string; canceled: number };
     expect(row).toEqual({ title: "New", visibility: "unlisted", canceled: 1 });
   });
+
+  it("accepts pulled Update when attributedTo is an object with id", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    upsertRemoteEvent(db, eventObject("https://remote.example/events/object-attributed", "Old", { to: [federation.AP_PUBLIC] }), actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/update-object-attributed",
+        type: "Update",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/object-attributed", "New", {
+          attributedTo: { id: actorUri },
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 1, total: 1 });
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/object-attributed") as { title: string };
+    expect(row.title).toBe("New");
+  });
+
+  it("rejects pulled Update when attributedTo is present but unparseable", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    upsertRemoteEvent(db, eventObject("https://remote.example/events/unparseable-attributed", "Old", { to: [federation.AP_PUBLIC] }), actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/update-unparseable-attributed",
+        type: "Update",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/unparseable-attributed", "Should Be Ignored", {
+          attributedTo: [{ type: "Person" }],
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/unparseable-attributed") as { title: string };
+    expect(row.title).toBe("Old");
+  });
 });
