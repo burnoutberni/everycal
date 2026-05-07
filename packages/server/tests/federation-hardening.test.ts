@@ -231,6 +231,59 @@ describe("federation hardening prep", () => {
     expect(staleClaim.claimed_at).toBeNull();
   });
 
+  it("does not claim pending jobs already tagged to another worker", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 202, text: async () => "" }));
+
+    const externallyTaggedPendingId = federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/tagged-pending", type: "Create" },
+    });
+    const claimablePendingId = federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/claimable-pending", type: "Create" },
+    });
+
+    db.prepare("UPDATE outbound_activity_deliveries SET worker_id = ?, updated_at = datetime('now') WHERE id = ?")
+      .run("other-worker", externallyTaggedPendingId);
+
+    const result = await federation.processOutboundDeliveryQueue(db, 5);
+    expect(result.processed).toBe(1);
+    expect(result.delivered).toBe(1);
+    expect(result.failed).toBe(0);
+
+    const externallyTaggedPending = db.prepare(
+      "SELECT state, worker_id, claimed_at, attempt_count FROM outbound_activity_deliveries WHERE id = ?"
+    ).get(externallyTaggedPendingId) as {
+      state: string;
+      worker_id: string | null;
+      claimed_at: string | null;
+      attempt_count: number;
+    };
+    expect(externallyTaggedPending.state).toBe("pending");
+    expect(externallyTaggedPending.worker_id).toBe("other-worker");
+    expect(externallyTaggedPending.claimed_at).toBeNull();
+    expect(externallyTaggedPending.attempt_count).toBe(0);
+
+    const claimablePending = db.prepare(
+      "SELECT state, worker_id, claimed_at, attempt_count FROM outbound_activity_deliveries WHERE id = ?"
+    ).get(claimablePendingId) as {
+      state: string;
+      worker_id: string | null;
+      claimed_at: string | null;
+      attempt_count: number;
+    };
+    expect(claimablePending.state).toBe("delivered");
+    expect(claimablePending.worker_id).toBeNull();
+    expect(claimablePending.claimed_at).toBeNull();
+    expect(claimablePending.attempt_count).toBe(1);
+  });
+
   it("uses strict numeric parsing for outbound worker interval", () => {
     const db = initDatabase(":memory:");
     const setIntervalSpy = vi.spyOn(global, "setInterval").mockImplementation(() => 1 as unknown as NodeJS.Timeout);

@@ -499,17 +499,19 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
        WHERE state = 'processing' AND claimed_at IS NOT NULL AND claimed_at <= ?`,
     ).run(staleClaimCutoff);
 
-    db.prepare(
-      `UPDATE outbound_activity_deliveries
-       SET state = 'processing', claimed_at = datetime('now'), worker_id = ?, updated_at = datetime('now')
-       WHERE id IN (
-         SELECT id
-         FROM outbound_activity_deliveries
-         WHERE state = 'pending' AND next_retry_at <= datetime('now')
-         ORDER BY next_retry_at, created_at
-         LIMIT ?
-       )`,
-    ).run(currentWorkerId, batchLimit);
+     db.prepare(
+       `UPDATE outbound_activity_deliveries
+        SET state = 'processing', claimed_at = datetime('now'), worker_id = ?, updated_at = datetime('now')
+        WHERE id IN (
+          SELECT id
+          FROM outbound_activity_deliveries
+          WHERE state = 'pending' AND worker_id IS NULL AND next_retry_at <= datetime('now')
+          ORDER BY next_retry_at, created_at
+          LIMIT ?
+        )
+          AND state = 'pending'
+          AND worker_id IS NULL`,
+     ).run(currentWorkerId, batchLimit);
 
      return db.prepare(
        `SELECT d.*, a.private_key
