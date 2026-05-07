@@ -350,6 +350,77 @@ describe("federation hardening prep", () => {
     expect(row).toBeUndefined();
   });
 
+  it("skips user inbox Create when Event object.id is not a non-empty string", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-invalid-object-id",
+        type: "Create",
+        actor: "https://remote.example/users/bob",
+        object: {
+          id: { value: "https://remote.example/events/invalid" },
+          type: "Event",
+          name: "Invalid Object Id",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: "https://remote.example/users/bob",
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(logSpy).toHaveBeenCalledWith(
+      "  ⚠️  Skipping Create: Event object.id is missing or not a non-empty string"
+    );
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("skips shared inbox Update when Event object.id is missing", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/", sharedInboxRoute(db));
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const response = await app.request("http://localhost/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/update-missing-object-id",
+        type: "Update",
+        actor: "https://remote.example/users/bob",
+        object: {
+          type: "Event",
+          name: "Missing Object Id",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: "https://remote.example/users/bob",
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(logSpy).toHaveBeenCalledWith(
+      "  ⚠️  Skipping Update: Event object.id is missing or not a non-empty string"
+    );
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("pull import processes Update and Delete with actor ownership checks", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db, "local1", "alice");

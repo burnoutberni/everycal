@@ -721,7 +721,12 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  const uri = object.id as string;
+  const rawObjectId = object.id;
+  if (typeof rawObjectId !== "string" || !rawObjectId.trim()) {
+    console.log(`  ⚠️  Skipping ${activityType}: Event object.id is missing or not a non-empty string`);
+    return;
+  }
+  const uri = rawObjectId;
   const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
   if (owner && owner.actor_uri !== effectiveActor) {
     console.log(`  ⚠️  Rejecting Create/Update: actor ${effectiveActor} doesn't own existing event ${uri} (owner: ${owner.actor_uri})`);
