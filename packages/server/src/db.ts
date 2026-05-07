@@ -161,6 +161,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "destination_inbox",
     "sender_account_id",
     "sender_actor_uri",
+    "sender_key_id",
     "activity_json",
     "attempt_count",
     "next_retry_at",

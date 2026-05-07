@@ -143,10 +143,12 @@ describe("account timezone/locale defaults", () => {
     versioned.close();
 
     const reopened = initDatabase(dbPath);
-    const row = reopened.prepare("SELECT next_retry_at FROM outbound_activity_deliveries WHERE id = ?").get("delivery-1") as {
+    const row = reopened.prepare("SELECT next_retry_at, sender_key_id FROM outbound_activity_deliveries WHERE id = ?").get("delivery-1") as {
       next_retry_at: string;
+      sender_key_id: string | null;
     };
     expect(row.next_retry_at).toBe("2026-04-27 09:30:00");
+    expect(row.sender_key_id).toBe("http://localhost:3000/users/u_outbound#main-key");
     reopened.close();
 
     rmSync(dir, { recursive: true, force: true });

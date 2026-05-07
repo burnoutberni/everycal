@@ -476,11 +476,12 @@ export function enqueueOutboundDelivery(
   params: { destinationInbox: string; senderAccountId: string; senderActorUri: string; activity: Record<string, unknown> },
 ): string {
   const id = crypto.randomUUID();
+  const senderKeyId = `${params.senderActorUri}#main-key`;
   db.prepare(
     `INSERT INTO outbound_activity_deliveries
-      (id, destination_inbox, sender_account_id, sender_actor_uri, activity_json, next_retry_at, state)
-     VALUES (?, ?, ?, ?, ?, datetime('now'), 'pending')`,
-  ).run(id, params.destinationInbox, params.senderAccountId, params.senderActorUri, JSON.stringify(params.activity));
+      (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, next_retry_at, state)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'pending')`,
+  ).run(id, params.destinationInbox, params.senderAccountId, params.senderActorUri, senderKeyId, JSON.stringify(params.activity));
   return id;
 }
 
@@ -510,25 +511,24 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
        )`,
     ).run(currentWorkerId, batchLimit);
 
-    return db.prepare(
-      `SELECT d.*, a.username, a.private_key
-       FROM outbound_activity_deliveries d
-       JOIN accounts a ON a.id = d.sender_account_id
-       WHERE d.state = 'processing' AND d.worker_id = ?
-       ORDER BY d.claimed_at, d.created_at`,
-    ).all(currentWorkerId) as Array<{
-      id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
-      attempt_count: number; username: string; private_key: string | null;
-    }>;
+     return db.prepare(
+       `SELECT d.*, a.private_key
+        FROM outbound_activity_deliveries d
+        JOIN accounts a ON a.id = d.sender_account_id
+        WHERE d.state = 'processing' AND d.worker_id = ?
+        ORDER BY d.claimed_at, d.created_at`,
+     ).all(currentWorkerId) as Array<{
+       id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+       sender_key_id: string | null; attempt_count: number; private_key: string | null;
+     }>;
   });
 
   const jobs = claimJobs(limit, workerId, staleClaimBefore) as Array<{
     id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
-    attempt_count: number; username: string; private_key: string | null;
+    sender_key_id: string | null; attempt_count: number; private_key: string | null;
   }>;
   let delivered = 0;
   let failed = 0;
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   for (const job of jobs) {
     if (!job.private_key) {
       db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
@@ -545,7 +545,7 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
       failed++;
       continue;
     }
-    const keyId = `${baseUrl}/users/${job.username}#main-key`;
+    const keyId = job.sender_key_id || `${job.sender_actor_uri}#main-key`;
     let ok = false;
     let deliveryError: string | null = null;
     try {

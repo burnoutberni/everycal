@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS outbound_activity_deliveries (
   destination_inbox TEXT NOT NULL,
   sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   sender_actor_uri TEXT NOT NULL,
+  sender_key_id TEXT,
   activity_json TEXT NOT NULL,
   attempt_count INTEGER NOT NULL DEFAULT 0,
   next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -594,6 +595,19 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at)");
     },
   },
+  {
+    version: 10,
+    name: "outbound_sender_key_id",
+    up: (db) => {
+      const columns = db.prepare("PRAGMA table_info(outbound_activity_deliveries)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "sender_key_id")) {
+        db.exec("ALTER TABLE outbound_activity_deliveries ADD COLUMN sender_key_id TEXT");
+      }
+      db.exec(
+        "UPDATE outbound_activity_deliveries SET sender_key_id = sender_actor_uri || '#main-key' WHERE sender_key_id IS NULL OR sender_key_id = ''"
+      );
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;

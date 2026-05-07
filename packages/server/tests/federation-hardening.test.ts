@@ -91,6 +91,48 @@ describe("federation hardening prep", () => {
     expect(row.last_error).toContain("failed after 5 attempts");
   });
 
+  it("signs outbound deliveries using the persisted sender key id", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202, text: async () => "" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "https://local.example/users/alice",
+      activity: { id: "https://local.example/activities/1", type: "Create" },
+    });
+    db.prepare("UPDATE outbound_activity_deliveries SET sender_key_id = ?").run("https://keys.local.example/alice#v2");
+
+    await federation.processOutboundDeliveryQueue(db, 1);
+
+    const signatureHeader = (fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined)
+      ?.headers?.Signature;
+    expect(signatureHeader).toContain('keyId="https://keys.local.example/alice#v2"');
+  });
+
+  it("falls back to sender actor uri when sender key id is missing", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202, text: async () => "" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "https://local.example/users/alice",
+      activity: { id: "https://local.example/activities/2", type: "Create" },
+    });
+    db.prepare("UPDATE outbound_activity_deliveries SET sender_key_id = NULL").run();
+
+    await federation.processOutboundDeliveryQueue(db, 1);
+
+    const signatureHeader = (fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined)
+      ?.headers?.Signature;
+    expect(signatureHeader).toContain('keyId="https://local.example/users/alice#main-key"');
+  });
+
   it("handles thrown outbound delivery errors without leaving jobs stuck in processing", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);
