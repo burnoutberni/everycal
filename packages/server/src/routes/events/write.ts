@@ -497,7 +497,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    if (!actorAccount) return c.json({ ok: true });
+    if (!actorAccount || existing.visibility === "private") return c.json({ ok: true });
     const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
     const deleteActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",

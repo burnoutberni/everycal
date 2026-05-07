@@ -476,6 +476,60 @@ describe("event slug canonical behavior", () => {
     expect(generateAndSaveOgImage).not.toHaveBeenCalled();
   });
 
+  it("does not federate Delete for private events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Delete",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const deletion = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "DELETE",
+    });
+
+    expect(deletion.status).toBe(200);
+    expect(deliverToFollowers).not.toHaveBeenCalled();
+  });
+
+  it("federates Delete for non-private events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Delete",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const deletion = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "DELETE",
+    });
+
+    expect(deletion.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as { type?: string } | undefined;
+    expect(payload?.type).toBe("Delete");
+  });
+
   it("rejects switching a timed event to all-day without date-only fields", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
