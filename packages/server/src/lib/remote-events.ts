@@ -1,6 +1,7 @@
+import type { EventVisibility } from "@everycal/core";
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
-import { deriveVisibilityFromActivityPubAddressing, type EventVisibility } from "./federation.js";
+import { deriveVisibilityFromActivityPubAddressing } from "./federation.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 import {
   datePartFromUtcInstantInTimezone,

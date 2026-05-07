@@ -3,6 +3,7 @@
  */
 
 import crypto from "node:crypto";
+import type { EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
@@ -14,7 +15,6 @@ export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
-export type EventVisibility = "public" | "unlisted" | "followers_only" | "private";
 export const AP_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 const OUTBOUND_MAX_ATTEMPTS = 5;
 const OUTBOUND_BASE_BACKOFF_MS = 60_000;
