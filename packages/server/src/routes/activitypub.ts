@@ -23,7 +23,7 @@ import {
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
-import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
@@ -721,12 +721,11 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  const rawObjectId = object.id;
-  if (typeof rawObjectId !== "string" || !rawObjectId.trim()) {
+  const uri = normalizeRemoteEventUri(object.id);
+  if (!uri) {
     console.log(`  ⚠️  Skipping ${activityType}: Event object.id is missing or not a non-empty string`);
     return;
   }
-  const uri = rawObjectId;
   const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
   if (owner && owner.actor_uri !== effectiveActor) {
     console.log(`  ⚠️  Rejecting Create/Update: actor ${effectiveActor} doesn't own existing event ${uri} (owner: ${owner.actor_uri})`);

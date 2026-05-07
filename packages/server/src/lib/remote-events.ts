@@ -18,6 +18,12 @@ interface UpsertRemoteEventOptions {
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+export function normalizeRemoteEventUri(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function deriveRemoteStoredDatePart(
   rawValue: string | null | undefined,
   utcValue: string | null | undefined,
@@ -90,7 +96,10 @@ export function upsertRemoteEvent(
     ? JSON.stringify(imageAttribution)
     : null;
 
-  const uri = object.id as string;
+  const uri = normalizeRemoteEventUri(object.id);
+  if (!uri) {
+    throw new Error("Remote event id is required");
+  }
   const visibility = options.visibility ?? deriveVisibilityFromActivityPubAddressing(object);
   const existing = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null } | undefined;
   if (existing) {

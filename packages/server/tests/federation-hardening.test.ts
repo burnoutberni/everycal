@@ -580,6 +580,58 @@ describe("federation hardening prep", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("normalizes whitespace around user inbox Event object.id", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/trimmed-id";
+    const createRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-trimmed-id",
+        type: "Create",
+        actor: "https://remote.example/users/bob",
+        object: {
+          id: `  ${eventId}  `,
+          type: "Event",
+          name: "Trimmed Create",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: "https://remote.example/users/bob",
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+    expect(createRes.status).toBe(202);
+
+    const updateRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/update-trimmed-id",
+        type: "Update",
+        actor: "https://remote.example/users/bob",
+        object: {
+          id: eventId,
+          type: "Event",
+          name: "Trimmed Update",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: "https://remote.example/users/bob",
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+    expect(updateRes.status).toBe(202);
+
+    const rows = db.prepare("SELECT uri, title FROM remote_events WHERE uri = ?").all(eventId) as Array<{ uri: string; title: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ uri: eventId, title: "Trimmed Update" });
+    const total = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(total.cnt).toBe(1);
+  });
+
   it("pull import processes Update and Delete with actor ownership checks", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db, "local1", "alice");

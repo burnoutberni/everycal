@@ -56,4 +56,42 @@ describe("federation remote-events serialization", () => {
     expect(event?.eventTimezone).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(event ?? {}, "eventTimezone")).toBe(false);
   });
+
+  it("trims remote event ids during upsert", () => {
+    const db = initDatabase(":memory:");
+    const actorUri = "https://remote.example/users/alice";
+
+    db.prepare(
+      `INSERT INTO remote_actors
+        (uri, type, preferred_username, display_name, inbox, domain, last_fetched_at)
+       VALUES (?, 'Person', 'alice', 'Alice', 'https://remote.example/inbox', 'remote.example', ?)`
+    ).run(actorUri, new Date().toISOString());
+
+    const first = upsertRemoteEvent(
+      db,
+      {
+        id: "  https://remote.example/events/trim-upsert  ",
+        type: "Event",
+        name: "First",
+        startTime: "2026-01-15T19:30:00+02:00",
+      },
+      actorUri,
+    );
+    const second = upsertRemoteEvent(
+      db,
+      {
+        id: "https://remote.example/events/trim-upsert",
+        type: "Event",
+        name: "Second",
+        startTime: "2026-01-15T19:30:00+02:00",
+      },
+      actorUri,
+    );
+
+    expect(first.uri).toBe("https://remote.example/events/trim-upsert");
+    expect(second.uri).toBe("https://remote.example/events/trim-upsert");
+    const rows = db.prepare("SELECT uri, title FROM remote_events WHERE uri = ?").all("https://remote.example/events/trim-upsert") as Array<{ uri: string; title: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ uri: "https://remote.example/events/trim-upsert", title: "Second" });
+  });
 });

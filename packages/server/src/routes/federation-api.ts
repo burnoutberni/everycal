@@ -25,7 +25,7 @@ import {
 import { generateKeyPair } from "../lib/crypto.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
-import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
@@ -249,7 +249,7 @@ export function federationRoutes(db: DB): Hono {
         const activityType = activity.type as string;
 
         if (activityType === "Delete") {
-          const objectUri = extractApObjectUri(activity.object);
+          const objectUri = normalizeRemoteEventUri(extractApObjectUri(activity.object));
           if (!objectUri) continue;
           const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
           if (existing?.actor_uri === actor.uri) {
@@ -273,7 +273,8 @@ export function federationRoutes(db: DB): Hono {
           continue;
         }
         if (!fullObj || fullObj.type !== "Event") continue;
-        if (typeof fullObj.id !== "string" || fullObj.id.length === 0) {
+        const objectUri = normalizeRemoteEventUri(fullObj.id);
+        if (!objectUri) {
           console.warn(`Rejected pulled ${activityType}: event object missing valid string id`);
           continue;
         }
@@ -288,9 +289,9 @@ export function federationRoutes(db: DB): Hono {
           continue;
         }
         if (activityType === "Update") {
-          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(fullObj.id as string) as { actor_uri: string } | undefined;
+          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
           if (existing && existing.actor_uri !== actor.uri) {
-            console.warn(`Rejected pulled Update for ${fullObj.id}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+            console.warn(`Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
             continue;
           }
         }
