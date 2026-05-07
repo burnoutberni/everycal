@@ -350,6 +350,10 @@ describe("federation hardening prep", () => {
        VALUES (?, ?, ?, 'processing', datetime('now', '-10 minutes'), datetime('now', '-10 minutes'))`
     ).run(activity.id, activity.actor, "user:alice");
 
+    const before = db.prepare(
+      "SELECT received_at FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?"
+    ).get(activity.id, activity.actor, "user:alice") as { received_at: string };
+
     const response = await app.request("http://localhost/users/alice/inbox", {
       method: "POST",
       body: JSON.stringify(activity),
@@ -358,6 +362,60 @@ describe("federation hardening prep", () => {
 
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/stale-claim") as { title: string };
     expect(row.title).toBe("Recovered from stale claim");
+
+    const after = db.prepare(
+      "SELECT status, received_at FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?"
+    ).get(activity.id, activity.actor, "user:alice") as { status: string; received_at: string };
+    expect(after.status).toBe("processed");
+    expect(after.received_at).toBe(before.received_at);
+  });
+
+  it("keeps received_at unchanged when inbox processing fails", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const activity = {
+      id: "https://remote.example/activities/create-failure-preserves-received-at",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/failure-preserves-received-at", "Will fail", { to: [federation.AP_PUBLIC] }),
+    };
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+         (activity_id, actor_uri, target_context, status, claimed_at, received_at)
+       VALUES (?, ?, ?, 'processing', datetime('now', '-10 minutes'), '2001-02-03 04:05:06')`
+    ).run(activity.id, activity.actor, "user:alice");
+
+    const upsertSpy = vi.spyOn(remoteEvents, "upsertRemoteEvent");
+    upsertSpy.mockImplementationOnce(() => {
+      throw new Error("still failing");
+    });
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(response.status).toBe(500);
+
+    const row = db.prepare(
+      "SELECT status, claimed_at, processed_at, last_error, received_at FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?"
+    ).get(activity.id, activity.actor, "user:alice") as {
+      status: string;
+      claimed_at: string | null;
+      processed_at: string | null;
+      last_error: string | null;
+      received_at: string;
+    };
+    expect(row.status).toBe("failed");
+    expect(row.claimed_at).toBeNull();
+    expect(row.processed_at).toBeNull();
+    expect(row.last_error).toContain("still failing");
+    expect(row.received_at).toBe("2001-02-03 04:05:06");
   });
 
   it("does not reclaim fresh inbox processing claims", async () => {

@@ -587,7 +587,7 @@ function markInboxActivityProcessed(db: DB, activity: Record<string, unknown>, a
   if (typeof activityId !== "string" || !activityId) return;
   db.prepare(
     `UPDATE processed_inbox_activities
-     SET status = 'processed', claimed_at = NULL, processed_at = datetime('now'), last_error = NULL, received_at = datetime('now')
+     SET status = 'processed', claimed_at = NULL, processed_at = datetime('now'), last_error = NULL
      WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
   ).run(activityId, actorUri, targetContext);
 }
@@ -604,7 +604,7 @@ function markInboxActivityFailed(
   const errorMessage = error instanceof Error ? error.message : String(error);
   db.prepare(
     `UPDATE processed_inbox_activities
-     SET status = 'failed', claimed_at = NULL, last_error = ?, received_at = datetime('now')
+     SET status = 'failed', claimed_at = NULL, last_error = ?
      WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
   ).run(errorMessage, activityId, actorUri, targetContext);
 }
