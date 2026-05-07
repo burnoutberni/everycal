@@ -5,7 +5,7 @@
  * to verify interoperability with Mobilizon instances.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { initDatabase, type DB } from "../src/db.js";
 import {
   fetchAP,
@@ -15,6 +15,52 @@ import {
 } from "../src/lib/federation.js";
 
 const ACTOR_URI = "https://events.htu.at/@htubarrierefrei";
+
+async function probeLiveFederation(
+  fetchFn: typeof fetch,
+  url: string,
+  timeoutMs: number
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchFn(url, { signal: controller.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+describe("live federation reachability probe", () => {
+  it("returns false for non-2xx responses", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, { status: 503 })
+    );
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      false
+    );
+  });
+
+  it("returns true for 2xx responses", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      true
+    );
+  });
+
+  it("returns false when fetch throws", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("network error"));
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      false
+    );
+  });
+});
 
 describe("Mobilizon federation (events.htu.at)", () => {
   let db: DB;
@@ -26,15 +72,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
 
   beforeAll(async () => {
     db = initDatabase(":memory:");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    try {
-      await fetch(ACTOR_URI, { signal: controller.signal });
-    } catch {
-      liveFederationReachable = false;
-    } finally {
-      clearTimeout(timeout);
-    }
+    liveFederationReachable = await probeLiveFederation(fetch, ACTOR_URI, 4000);
   });
 
   describe("fetchAP", () => {
