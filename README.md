@@ -161,7 +161,7 @@ If a remote retries the same signed activity, the row count for that `activity_i
 
 **Migration rollout and rollback notes**
 
-- The migration sequence is mostly additive: it adds `remote_events.visibility`, `processed_inbox_activities`, and supporting indexes, and includes a data-preserving rebuild/normalization step for `outbound_activity_deliveries` (`CREATE ..._v10` + `INSERT` + `DROP` + `RENAME`).
+- The migration sequence is mostly additive: it adds `remote_events.visibility`, `processed_inbox_activities`, and supporting indexes, and includes a data-preserving rebuild/normalization step for `outbound_activity_deliveries` (`CREATE ..._tmp` + `INSERT` + `DROP` + `RENAME`).
 - Legacy remote events are safely backfilled to `public` because older EveryCal releases treated remote events as public.
 - Roll forward before enabling new RSVP federation interactions so update/delete pull parity and replay protection are already active.
 - Rollback to an older binary should leave the resulting tables/columns in place. Avoid destructive schema rollback unless you have exported or intentionally discarded queued outbound deliveries and processed-inbox audit rows, and take a DB backup first if you may need to restore pre-migration state.
