@@ -15,6 +15,9 @@ import {
 } from "../src/lib/federation.js";
 
 const ACTOR_URI = "https://events.htu.at/@htubarrierefrei";
+const PROBE_ACCEPT =
+  'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"';
+const PROBE_USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 
 async function probeLiveFederation(
   fetchFn: typeof fetch,
@@ -24,7 +27,13 @@ async function probeLiveFederation(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchFn(url, { signal: controller.signal });
+    const res = await fetchFn(url, {
+      headers: {
+        Accept: PROBE_ACCEPT,
+        "User-Agent": PROBE_USER_AGENT,
+      },
+      signal: controller.signal,
+    });
     return res.ok;
   } catch {
     return false;
@@ -58,6 +67,25 @@ describe("live federation reachability probe", () => {
       .mockRejectedValue(new Error("network error"));
     await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
       false
+    );
+  });
+
+  it("sends ActivityPub Accept and User-Agent headers", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    await probeLiveFederation(fetchMock, ACTOR_URI, 1000);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      ACTOR_URI,
+      expect.objectContaining({
+        headers: {
+          Accept: PROBE_ACCEPT,
+          "User-Agent": PROBE_USER_AGENT,
+        },
+        signal: expect.any(AbortSignal),
+      })
     );
   });
 });
