@@ -38,7 +38,7 @@ vi.mock("../src/routes/og-images.js", async () => {
 import { eventRoutes } from "../src/routes/events.js";
 import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
-import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
+import { AP_PUBLIC, fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 import { notifyEventUpdated } from "../src/lib/notifications.js";
 import { clearLocalOgImage, generateAndSaveOgImage } from "../src/routes/og-images.js";
 import { __resetOgJobQueueForTests, __waitForOgJobQueueIdleForTests } from "../src/lib/og-job-queue.js";
@@ -528,6 +528,114 @@ describe("event slug canonical behavior", () => {
     expect(deliverToFollowers).toHaveBeenCalledTimes(1);
     const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as { type?: string } | undefined;
     expect(payload?.type).toBe("Delete");
+  });
+
+  it("does not federate Update when visibility changes from public to private", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Private",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Private Updated",
+        visibility: "private",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).not.toHaveBeenCalled();
+  });
+
+  it("federates Update when visibility changes from private to public", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Then Public",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Then Public Updated",
+        visibility: "public",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Update");
+    expect(payload?.to).toContain(AP_PUBLIC);
+  });
+
+  it("uses updated visibility addressing for Update emission", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Followers",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Followers Updated",
+        visibility: "followers_only",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Update");
+    expect(payload?.to?.[0]).toContain("/users/alice/followers");
+    expect(payload?.cc).toEqual([]);
   });
 
   it("rejects switching a timed event to all-day without date-only fields", async () => {

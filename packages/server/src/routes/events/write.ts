@@ -394,8 +394,10 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       }
     }
 
+    const nextVisibility = body.visibility ?? existing.visibility;
+
     // Deliver Update activity to remote followers
-    if (existing.visibility !== "private") {
+    if (nextVisibility !== "private") {
       const updated = readLocalEventById(id);
       if (updated) {
         const baseUrl = process.env.BASE_URL || "http://localhost:3000";
@@ -405,7 +407,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
         if (actorAccount) {
           const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
           const updatedAt = new Date().toISOString();
-          const addressing = visibilityToActivityPubAddressing(existing.visibility as string, actorUrl);
+          const addressing = visibilityToActivityPubAddressing(nextVisibility, actorUrl);
           const updateActivity = {
             "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
             id: `${baseUrl}/events/${id}/update`,
@@ -437,7 +439,6 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     const updated = readLocalEventById(id);
     if (!updated) return c.json({ error: t(getLocale(c), "events.event_not_found_after_update") }, 500);
 
-    const nextVisibility = body.visibility ?? existing.visibility;
     const visibilityChanged = nextVisibility !== existing.visibility;
     const shouldHaveOgImage = isOgEligibleVisibility(nextVisibility);
     const ogRelevantFieldsChanged =
