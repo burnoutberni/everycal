@@ -398,32 +398,41 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const targetContext = inboxTargetContext("user", username);
-    if (actorUri && isProcessedInboxActivity(db, activity, actorUri, targetContext)) {
+    const claimedInboxActivity = actorUri
+      ? claimInboxActivityProcessing(db, activity, actorUri, targetContext)
+      : null;
+    if (claimedInboxActivity === false) {
       console.log(`  ⏭ Skipping duplicate inbox activity ${activity.id}`);
       return c.json({ ok: true, duplicate: true }, 202);
     }
 
     console.log(`📬 Inbox for ${username}: ${type} from ${actorUri}`);
 
-    switch (type) {
-      case "Follow":
-        await handleFollow(db, account, activity);
-        break;
-      case "Undo":
-        await handleUndo(db, account, activity);
-        break;
-      case "Create":
-      case "Update":
-        handleCreateUpdate(db, activity, type);
-        break;
-      case "Delete":
-        handleDelete(db, activity);
-        break;
-      default:
-        console.log(`  ⏭ Ignored activity type: ${type}`);
+    try {
+      switch (type) {
+        case "Follow":
+          await handleFollow(db, account, activity);
+          break;
+        case "Undo":
+          await handleUndo(db, account, activity);
+          break;
+        case "Create":
+        case "Update":
+          handleCreateUpdate(db, activity, type);
+          break;
+        case "Delete":
+          handleDelete(db, activity);
+          break;
+        default:
+          console.log(`  ⏭ Ignored activity type: ${type}`);
+      }
+    } catch (error) {
+      if (claimedInboxActivity === true && actorUri) {
+        unmarkProcessedInboxActivity(db, activity, actorUri, targetContext);
+      }
+      throw error;
     }
 
-    if (actorUri) markProcessedInboxActivity(db, activity, actorUri, targetContext);
     return c.json({ ok: true }, 202);
   });
 
@@ -462,55 +471,64 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     const targetContext = inboxTargetContext("shared", "inbox");
-    if (actorUri && isProcessedInboxActivity(db, activity, actorUri, targetContext)) {
+    const claimedInboxActivity = actorUri
+      ? claimInboxActivityProcessing(db, activity, actorUri, targetContext)
+      : null;
+    if (claimedInboxActivity === false) {
       console.log(`  ⏭ Skipping duplicate shared inbox activity ${activity.id}`);
       return c.json({ ok: true, duplicate: true }, 202);
     }
 
     console.log(`📬 Shared inbox: ${type} from ${actorUri}`);
 
-    switch (type) {
-      case "Follow": {
-        // Find the target local account from the Follow object.
-        // ActivityPub allows object to be either a string IRI or an object with id.
-        const objectUri = extractObjectUri(activity.object);
-        const baseUrl = getBaseUrl();
-        const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
-        if (match) {
-          const account = db
-            .prepare("SELECT id, username FROM accounts WHERE username = ?")
-            .get(match[1]) as { id: string; username: string } | undefined;
-          if (account) await handleFollow(db, account, activity);
-        } else if (objectUri) {
-          console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
-        }
-        break;
-      }
-      case "Undo": {
-        const inner = activity.object as Record<string, unknown>;
-        if (inner?.type === "Follow") {
-          const objectUri = extractObjectUri(inner.object);
+    try {
+      switch (type) {
+        case "Follow": {
+          // Find the target local account from the Follow object.
+          // ActivityPub allows object to be either a string IRI or an object with id.
+          const objectUri = extractObjectUri(activity.object);
           const baseUrl = getBaseUrl();
           const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
           if (match) {
             const account = db
               .prepare("SELECT id, username FROM accounts WHERE username = ?")
               .get(match[1]) as { id: string; username: string } | undefined;
-            if (account) await handleUndo(db, account, activity);
+            if (account) await handleFollow(db, account, activity);
+          } else if (objectUri) {
+            console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
           }
+          break;
         }
-        break;
+        case "Undo": {
+          const inner = activity.object as Record<string, unknown>;
+          if (inner?.type === "Follow") {
+            const objectUri = extractObjectUri(inner.object);
+            const baseUrl = getBaseUrl();
+            const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
+            if (match) {
+              const account = db
+                .prepare("SELECT id, username FROM accounts WHERE username = ?")
+                .get(match[1]) as { id: string; username: string } | undefined;
+              if (account) await handleUndo(db, account, activity);
+            }
+          }
+          break;
+        }
+        case "Create":
+        case "Update":
+          handleCreateUpdate(db, activity, type);
+          break;
+        case "Delete":
+          handleDelete(db, activity);
+          break;
       }
-      case "Create":
-      case "Update":
-        handleCreateUpdate(db, activity, type);
-        break;
-      case "Delete":
-        handleDelete(db, activity);
-        break;
+    } catch (error) {
+      if (claimedInboxActivity === true && actorUri) {
+        unmarkProcessedInboxActivity(db, activity, actorUri, targetContext);
+      }
+      throw error;
     }
 
-    if (actorUri) markProcessedInboxActivity(db, activity, actorUri, targetContext);
     return c.json({ ok: true }, 202);
   });
 
@@ -521,21 +539,21 @@ function inboxTargetContext(kind: "user" | "shared", target: string): string {
   return `${kind}:${target}`;
 }
 
-function isProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
+function claimInboxActivityProcessing(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
   const activityId = activity.id;
   if (typeof activityId !== "string" || !activityId) {
     console.warn("  ⚠️  Inbox activity has no stable id; processing without replay dedupe");
-    return false;
+    return true;
   }
-  const row = db.prepare("SELECT 1 FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?")
-    .get(activityId, actorUri, targetContext);
-  return !!row;
+  const result = db.prepare("INSERT OR IGNORE INTO processed_inbox_activities (activity_id, actor_uri, target_context) VALUES (?, ?, ?)")
+    .run(activityId, actorUri, targetContext);
+  return result.changes === 1;
 }
 
-function markProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
+function unmarkProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
   const activityId = activity.id;
   if (typeof activityId !== "string" || !activityId) return;
-  db.prepare("INSERT OR IGNORE INTO processed_inbox_activities (activity_id, actor_uri, target_context) VALUES (?, ?, ?)")
+  db.prepare("DELETE FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?")
     .run(activityId, actorUri, targetContext);
 }
 
