@@ -159,7 +159,7 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("First");
   });
 
-  it("releases inbox dedupe claim when processing fails", async () => {
+  it("marks inbox activity failed and allows retry after processing failure", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
     insertAccount(db, "local1", "alice");
@@ -196,6 +196,18 @@ describe("federation hardening prep", () => {
 
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/retry") as { title: string };
     expect(row.title).toBe("Recovered");
+
+    const dedupeRow = db.prepare(
+      "SELECT status, claimed_at, processed_at, last_error FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?"
+    ).get(
+      activity.id,
+      activity.actor,
+      "user:alice"
+    ) as { status: string; claimed_at: string | null; processed_at: string | null; last_error: string | null };
+    expect(dedupeRow.status).toBe("processed");
+    expect(dedupeRow.claimed_at).toBeNull();
+    expect(dedupeRow.processed_at).toBeTruthy();
+    expect(dedupeRow.last_error).toBeNull();
   });
 
   it("skips duplicate shared inbox activities with stable ids", async () => {
@@ -224,7 +236,7 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("First");
   });
 
-  it("releases shared inbox dedupe claim when processing fails", async () => {
+  it("marks shared inbox activity failed and allows retry after processing failure", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
     insertAccount(db, "local1", "alice");
@@ -261,6 +273,81 @@ describe("federation hardening prep", () => {
 
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/shared-retry") as { title: string };
     expect(row.title).toBe("Recovered");
+
+    const dedupeRow = db.prepare(
+      "SELECT status, claimed_at, processed_at, last_error FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?"
+    ).get(
+      activity.id,
+      activity.actor,
+      "shared:inbox"
+    ) as { status: string; claimed_at: string | null; processed_at: string | null; last_error: string | null };
+    expect(dedupeRow.status).toBe("processed");
+    expect(dedupeRow.claimed_at).toBeNull();
+    expect(dedupeRow.processed_at).toBeTruthy();
+    expect(dedupeRow.last_error).toBeNull();
+  });
+
+  it("reclaims stale inbox processing claims", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const activity = {
+      id: "https://remote.example/activities/create-stale-claim-1",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/stale-claim", "Recovered from stale claim", { to: [federation.AP_PUBLIC] }),
+    };
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+         (activity_id, actor_uri, target_context, status, claimed_at, received_at)
+       VALUES (?, ?, ?, 'processing', datetime('now', '-10 minutes'), datetime('now', '-10 minutes'))`
+    ).run(activity.id, activity.actor, "user:alice");
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(response.status).toBe(202);
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/stale-claim") as { title: string };
+    expect(row.title).toBe("Recovered from stale claim");
+  });
+
+  it("does not reclaim fresh inbox processing claims", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const activity = {
+      id: "https://remote.example/activities/create-fresh-claim-1",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/fresh-claim", "Should be skipped", { to: [federation.AP_PUBLIC] }),
+    };
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+         (activity_id, actor_uri, target_context, status, claimed_at, received_at)
+       VALUES (?, ?, ?, 'processing', datetime('now'), datetime('now'))`
+    ).run(activity.id, activity.actor, "user:alice");
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(response.status).toBe(202);
+    expect((await response.json() as { duplicate?: boolean }).duplicate).toBe(true);
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/fresh-claim");
+    expect(row).toBeUndefined();
   });
 
   it("pull import processes Update and Delete with actor ownership checks", async () => {

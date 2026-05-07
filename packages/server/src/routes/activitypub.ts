@@ -428,9 +428,13 @@ export function activityPubRoutes(db: DB): Hono {
       }
     } catch (error) {
       if (claimedInboxActivity === true && actorUri) {
-        unmarkProcessedInboxActivity(db, activity, actorUri, targetContext);
+        markInboxActivityFailed(db, activity, actorUri, targetContext, error);
       }
       throw error;
+    }
+
+    if (claimedInboxActivity === true && actorUri) {
+      markInboxActivityProcessed(db, activity, actorUri, targetContext);
     }
 
     return c.json({ ok: true }, 202);
@@ -524,9 +528,13 @@ export function sharedInboxRoute(db: DB): Hono {
       }
     } catch (error) {
       if (claimedInboxActivity === true && actorUri) {
-        unmarkProcessedInboxActivity(db, activity, actorUri, targetContext);
+        markInboxActivityFailed(db, activity, actorUri, targetContext, error);
       }
       throw error;
+    }
+
+    if (claimedInboxActivity === true && actorUri) {
+      markInboxActivityProcessed(db, activity, actorUri, targetContext);
     }
 
     return c.json({ ok: true }, 202);
@@ -539,22 +547,66 @@ function inboxTargetContext(kind: "user" | "shared", target: string): string {
   return `${kind}:${target}`;
 }
 
+const INBOX_PROCESSING_CLAIM_TTL_MINUTES = 5;
+
 function claimInboxActivityProcessing(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
   const activityId = activity.id;
   if (typeof activityId !== "string" || !activityId) {
     console.warn("  ⚠️  Inbox activity has no stable id; processing without replay dedupe");
     return true;
   }
-  const result = db.prepare("INSERT OR IGNORE INTO processed_inbox_activities (activity_id, actor_uri, target_context) VALUES (?, ?, ?)")
-    .run(activityId, actorUri, targetContext);
+
+  const staleThreshold = `-${INBOX_PROCESSING_CLAIM_TTL_MINUTES} minutes`;
+  const result = db.prepare(
+    `INSERT INTO processed_inbox_activities (
+      activity_id,
+      actor_uri,
+      target_context,
+      status,
+      claimed_at,
+      processed_at,
+      last_error,
+      received_at
+    ) VALUES (?, ?, ?, 'processing', datetime('now'), NULL, NULL, datetime('now'))
+    ON CONFLICT(activity_id, actor_uri, target_context) DO UPDATE SET
+      status = 'processing',
+      claimed_at = datetime('now'),
+      last_error = NULL
+    WHERE processed_inbox_activities.status != 'processed'
+      AND (
+        processed_inbox_activities.status = 'failed'
+        OR processed_inbox_activities.claimed_at IS NULL
+        OR processed_inbox_activities.claimed_at <= datetime('now', ?)
+      )`
+  ).run(activityId, actorUri, targetContext, staleThreshold);
   return result.changes === 1;
 }
 
-function unmarkProcessedInboxActivity(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
+function markInboxActivityProcessed(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
   const activityId = activity.id;
   if (typeof activityId !== "string" || !activityId) return;
-  db.prepare("DELETE FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?")
-    .run(activityId, actorUri, targetContext);
+  db.prepare(
+    `UPDATE processed_inbox_activities
+     SET status = 'processed', claimed_at = NULL, processed_at = datetime('now'), last_error = NULL, received_at = datetime('now')
+     WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
+  ).run(activityId, actorUri, targetContext);
+}
+
+function markInboxActivityFailed(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  targetContext: string,
+  error: unknown
+): void {
+  const activityId = activity.id;
+  if (typeof activityId !== "string" || !activityId) return;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  db.prepare(
+    `UPDATE processed_inbox_activities
+     SET status = 'failed', claimed_at = NULL, last_error = ?, received_at = datetime('now')
+     WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
+  ).run(errorMessage, activityId, actorUri, targetContext);
 }
 
 // ---- Activity Handlers ----

@@ -200,6 +200,10 @@ CREATE TABLE IF NOT EXISTS processed_inbox_activities (
   activity_id TEXT NOT NULL,
   actor_uri TEXT NOT NULL,
   target_context TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'processed' CHECK(status IN ('processing','processed','failed')),
+  claimed_at TEXT,
+  processed_at TEXT,
+  last_error TEXT,
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (activity_id, actor_uri, target_context)
 );
@@ -353,6 +357,7 @@ CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activ
 CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id);
 CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at);
+CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
@@ -506,6 +511,10 @@ export const MIGRATIONS: Migration[] = [
         activity_id TEXT NOT NULL,
         actor_uri TEXT NOT NULL,
         target_context TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'processed' CHECK(status IN ('processing','processed','failed')),
+        claimed_at TEXT,
+        processed_at TEXT,
+        last_error TEXT,
         received_at TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (activity_id, actor_uri, target_context)
       )`);
@@ -514,6 +523,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at)");
       db.exec(
         "UPDATE outbound_activity_deliveries SET next_retry_at = datetime(next_retry_at) WHERE datetime(next_retry_at) IS NOT NULL"
       );
@@ -550,6 +560,40 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
     },
   },
+  {
+    version: 9,
+    name: "inbox_processing_state",
+    up: (db) => {
+      const columns = db.prepare("PRAGMA table_info(processed_inbox_activities)").all() as Array<{ name: string }>;
+      const hasStateColumns = ["status", "claimed_at", "processed_at", "last_error"]
+        .every((name) => columns.some((column) => column.name === name));
+
+      if (!hasStateColumns) {
+        db.exec(`CREATE TABLE processed_inbox_activities_v9 (
+          activity_id TEXT NOT NULL,
+          actor_uri TEXT NOT NULL,
+          target_context TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'processed' CHECK(status IN ('processing','processed','failed')),
+          claimed_at TEXT,
+          processed_at TEXT,
+          last_error TEXT,
+          received_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (activity_id, actor_uri, target_context)
+        )`);
+        db.exec(`INSERT INTO processed_inbox_activities_v9 (
+          activity_id, actor_uri, target_context, status, claimed_at, processed_at, last_error, received_at
+        )
+        SELECT
+          activity_id, actor_uri, target_context, 'processed', NULL, received_at, NULL, received_at
+        FROM processed_inbox_activities`);
+        db.exec("DROP TABLE processed_inbox_activities");
+        db.exec("ALTER TABLE processed_inbox_activities_v9 RENAME TO processed_inbox_activities");
+      }
+
+      db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
