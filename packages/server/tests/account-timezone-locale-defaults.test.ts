@@ -125,7 +125,7 @@ describe("account timezone/locale defaults", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-outbound-retry.sqlite");
     const versioned = new Database(dbPath);
-    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 8)) {
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 7)) {
       migration.up(versioned);
     }
 
@@ -139,7 +139,7 @@ describe("account timezone/locale defaults", () => {
         '{"id":"https://example.test/activities/1","type":"Create"}',
         "2026-04-27T09:30:00.000Z"
       );
-    versioned.pragma("user_version = 8");
+    versioned.pragma("user_version = 7");
     versioned.close();
 
     const reopened = initDatabase(dbPath);

@@ -480,7 +480,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 8,
-    name: "federation_hardening_prep",
+    name: "federation_hardening",
     up: (db) => {
       const remoteEventColumns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
       if (!remoteEventColumns.some((column) => column.name === "visibility")) {
@@ -514,21 +514,10 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
-    },
-  },
-  {
-    version: 9,
-    name: "normalize_outbound_delivery_retry_timestamps",
-    up: (db) => {
       db.exec(
         "UPDATE outbound_activity_deliveries SET next_retry_at = datetime(next_retry_at) WHERE datetime(next_retry_at) IS NOT NULL"
       );
-    },
-  },
-  {
-    version: 10,
-    name: "outbound_delivery_atomic_claiming",
-    up: (db) => {
+
       db.exec(`CREATE TABLE outbound_activity_deliveries_v10 (
         id TEXT PRIMARY KEY,
         destination_inbox TEXT NOT NULL,
@@ -563,4 +552,4 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 8;
