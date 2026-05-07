@@ -19,6 +19,7 @@ import {
   resolveRemoteActor,
   deliverActivity,
   deriveVisibilityFromActivityPubAddressing,
+  getAttributedActor,
   hasActivityPubAudience,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
@@ -691,22 +692,21 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   if (!object || object.type !== "Event") return;
 
   // Validate that actor matches attributedTo (prevent impersonation)
-  const rawAttributedTo = object.attributedTo;
-  const attributedTo =
-    typeof rawAttributedTo === "string"
-      ? rawAttributedTo
-      : Array.isArray(rawAttributedTo)
-        ? (rawAttributedTo[0] as string)
-        : null;
+  const attributedTo = getAttributedActor(object);
   const actorUri = activity.actor as string;
 
-  // If attributedTo is present, it must match the activity actor
-  if (attributedTo && attributedTo !== actorUri) {
-    console.log(`  ⚠️  Rejecting Create/Update: actor ${actorUri} != attributedTo ${attributedTo}`);
+  if (attributedTo.status === "unparseable") {
+    console.log("  ⚠️  Rejecting Create/Update: attributedTo is present but unparseable");
     return;
   }
 
-  const effectiveActor = attributedTo || actorUri;
+  // If attributedTo is present, it must match the activity actor
+  if (attributedTo.status === "parsed" && attributedTo.actor !== actorUri) {
+    console.log(`  ⚠️  Rejecting Create/Update: actor ${actorUri} != attributedTo ${attributedTo.actor}`);
+    return;
+  }
+
+  const effectiveActor = attributedTo.status === "parsed" ? attributedTo.actor : actorUri;
   // Sanitize content from remote servers
   const title = typeof object.name === "string" ? stripHtml(object.name) : "";
   // Extract location

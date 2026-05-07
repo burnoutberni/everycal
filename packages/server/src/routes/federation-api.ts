@@ -17,6 +17,7 @@ import {
   deriveVisibilityFromActivityPubAddressing,
   hasActivityPubAudience,
   formatRemoteActorIdentity,
+  getAttributedActor,
   fetchAP,
   resolveRemoteActor,
   fetchRemoteOutbox,
@@ -65,38 +66,6 @@ function extractApObjectUri(obj: unknown): string | undefined {
     return (obj as Record<string, string>).id;
   }
   return undefined;
-}
-
-type AttributedActorResult =
-  | { status: "absent" }
-  | { status: "parsed"; actor: string }
-  | { status: "unparseable" };
-
-function parseAttributedActorValue(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && typeof (value as Record<string, unknown>).id === "string") {
-    return (value as Record<string, string>).id;
-  }
-  return null;
-}
-
-function getAttributedActor(obj: Record<string, unknown>): AttributedActorResult {
-  if (!("attributedTo" in obj)) return { status: "absent" };
-
-  const raw = obj.attributedTo;
-  if (raw == null) return { status: "absent" };
-
-  const parsedSingle = parseAttributedActorValue(raw);
-  if (parsedSingle) return { status: "parsed", actor: parsedSingle };
-
-  if (Array.isArray(raw)) {
-    for (const value of raw) {
-      const parsed = parseAttributedActorValue(value);
-      if (parsed) return { status: "parsed", actor: parsed };
-    }
-  }
-
-  return { status: "unparseable" };
 }
 
 async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {

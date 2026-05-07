@@ -764,6 +764,106 @@ describe("federation hardening prep", () => {
     expect(total.cnt).toBe(1);
   });
 
+  it("accepts user inbox Create when attributedTo is an object with id", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/object-attributed-inbox";
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-object-attributed-inbox",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: eventId,
+          type: "Event",
+          name: "Object attributedTo",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: { id: actorUri },
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT uri, actor_uri FROM remote_events WHERE uri = ?").get(eventId) as
+      | { uri: string; actor_uri: string }
+      | undefined;
+    expect(row).toEqual({ uri: eventId, actor_uri: actorUri });
+  });
+
+  it("accepts user inbox Create when attributedTo array contains object id", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/array-object-attributed-inbox";
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-array-object-attributed-inbox",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: eventId,
+          type: "Event",
+          name: "Array object attributedTo",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: [{ type: "Person" }, { id: actorUri }],
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT uri, actor_uri FROM remote_events WHERE uri = ?").get(eventId) as
+      | { uri: string; actor_uri: string }
+      | undefined;
+    expect(row).toEqual({ uri: eventId, actor_uri: actorUri });
+  });
+
+  it("rejects user inbox Create when attributedTo resolves to different actor", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-mismatch-attributed-inbox",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: "https://remote.example/events/mismatch-attributed-inbox",
+          type: "Event",
+          name: "Mismatched attributedTo",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: { id: "https://remote.example/users/carol" },
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(logSpy).toHaveBeenCalledWith(
+      `  ⚠️  Rejecting Create/Update: actor ${actorUri} != attributedTo https://remote.example/users/carol`
+    );
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("uses activity addressing when Event object has no to/cc", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");

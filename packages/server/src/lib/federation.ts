@@ -42,6 +42,38 @@ export function hasActivityPubAudience(value: unknown): boolean {
   return normalizeAudience(value).length > 0;
 }
 
+export type AttributedActorResult =
+  | { status: "absent" }
+  | { status: "parsed"; actor: string }
+  | { status: "unparseable" };
+
+function parseAttributedActorValue(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof (value as Record<string, unknown>).id === "string") {
+    return (value as Record<string, string>).id;
+  }
+  return null;
+}
+
+export function getAttributedActor(obj: Record<string, unknown>): AttributedActorResult {
+  if (!("attributedTo" in obj)) return { status: "absent" };
+
+  const raw = obj.attributedTo;
+  if (raw == null) return { status: "absent" };
+
+  const parsedSingle = parseAttributedActorValue(raw);
+  if (parsedSingle) return { status: "parsed", actor: parsedSingle };
+
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      const parsed = parseAttributedActorValue(value);
+      if (parsed) return { status: "parsed", actor: parsed };
+    }
+  }
+
+  return { status: "unparseable" };
+}
+
 export function visibilityToActivityPubAddressing(
   visibility: EventVisibility | string | null | undefined,
   actorUri?: string,
