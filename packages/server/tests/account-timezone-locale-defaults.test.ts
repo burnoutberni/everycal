@@ -134,6 +134,7 @@ describe("account timezone/locale defaults", () => {
       destination_inbox TEXT NOT NULL,
       sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       sender_actor_uri TEXT NOT NULL,
+      sender_key_id TEXT,
       activity_json TEXT NOT NULL,
       attempt_count INTEGER NOT NULL DEFAULT 0,
       next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -147,13 +148,14 @@ describe("account timezone/locale defaults", () => {
 
     versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-outbound", "u_outbound");
     const insertDelivery = versioned.prepare(
-      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, activity_json, next_retry_at) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, next_retry_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
     insertDelivery.run(
       "delivery-1",
       "https://remote.example/inbox",
       "u-outbound",
       "http://localhost:3000/users/u_outbound",
+      "https://keys.local.example/u_outbound#rotated-v2",
       '{"id":"https://example.test/activities/1","type":"Create"}',
       "2026-04-27T09:30:00.000Z"
     );
@@ -162,6 +164,7 @@ describe("account timezone/locale defaults", () => {
       "https://remote.example/inbox",
       "u-outbound",
       "http://localhost:3000/users/u_outbound",
+      "",
       '{"id":"https://example.test/activities/2","type":"Create"}',
       ""
     );
@@ -174,12 +177,14 @@ describe("account timezone/locale defaults", () => {
       sender_key_id: string | null;
     };
     expect(row.next_retry_at).toBe("2026-04-27 09:30:00");
-    expect(row.sender_key_id).toBe("http://localhost:3000/users/u_outbound#main-key");
+    expect(row.sender_key_id).toBe("https://keys.local.example/u_outbound#rotated-v2");
 
-    const fallbackRow = reopened.prepare("SELECT next_retry_at FROM outbound_activity_deliveries WHERE id = ?").get("delivery-2") as {
+    const fallbackRow = reopened.prepare("SELECT next_retry_at, sender_key_id FROM outbound_activity_deliveries WHERE id = ?").get("delivery-2") as {
       next_retry_at: string;
+      sender_key_id: string | null;
     };
     expect(fallbackRow.next_retry_at).not.toBe("");
+    expect(fallbackRow.sender_key_id).toBe("http://localhost:3000/users/u_outbound#main-key");
     expect(reopened.prepare("SELECT datetime(?) AS normalized").get(fallbackRow.next_retry_at)).toEqual({
       normalized: fallbackRow.next_retry_at,
     });

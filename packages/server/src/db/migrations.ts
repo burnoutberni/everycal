@@ -515,7 +515,9 @@ export const MIGRATIONS: Migration[] = [
         attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
       )
       SELECT
-        id, destination_inbox, sender_account_id, sender_actor_uri, sender_actor_uri || '#main-key', activity_json,
+        id, destination_inbox, sender_account_id, sender_actor_uri,
+        COALESCE(NULLIF(sender_key_id, ''), sender_actor_uri || '#main-key'),
+        activity_json,
         attempt_count, COALESCE(datetime(next_retry_at), datetime('now')), last_error,
         CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
         NULL, NULL, created_at, updated_at
