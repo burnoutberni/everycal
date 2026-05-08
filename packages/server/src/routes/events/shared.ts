@@ -99,8 +99,13 @@ export function buildRemoteVisibilityFilter(currentUserId?: string): { sql: stri
   return {
     sql: `(
       re.visibility IN ('public','unlisted')
-      OR re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
-      OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
+      OR (
+        re.visibility = 'followers_only'
+        AND (
+          re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
+          OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
+        )
+      )
     )`,
     params: [currentUserId, currentUserId],
   };

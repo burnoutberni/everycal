@@ -2151,6 +2151,54 @@ describe("event slug canonical behavior", () => {
     expect(body.id).toBe("https://remote.example/events/private-2");
   });
 
+  it("GET /events/:id does not expose private remote events to authenticated followers", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-4",
+        "https://remote.example/users/alice",
+        "private-4",
+        "Private Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "private"
+      );
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u1", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-4");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id does not expose private remote events to authenticated RSVPs", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-5",
+        "https://remote.example/users/alice",
+        "private-5",
+        "Private Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "private"
+      );
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')")
+      .run("u1", "https://remote.example/events/private-5");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-5");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
   it("/events/resolve does not return cached followers-only remote events to unauthenticated users", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
