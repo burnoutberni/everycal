@@ -218,6 +218,16 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const activityType = activity.type as string;
+        const requiresActorMatch = activityType === "Delete"
+          || activityType === "Create"
+          || activityType === "Update"
+          || activityType === "Announce";
+        if (requiresActorMatch) {
+          if (typeof activity.actor !== "string" || activity.actor !== actor.uri) {
+            console.warn(`Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`);
+            continue;
+          }
+        }
 
         if (activityType === "Delete") {
           const objectUri = normalizeRemoteEventUri(extractApObjectUri(activity.object));

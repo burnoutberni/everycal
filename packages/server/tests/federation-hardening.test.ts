@@ -1216,4 +1216,111 @@ describe("federation hardening prep", () => {
     expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
     expect(fetchApSpy).not.toHaveBeenCalled();
   });
+
+  it("rejects pulled Create when activity.actor mismatches outbox actor", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const outboxActorUri = insertRemoteActor(db);
+    const otherActorUri = insertRemoteActor(db, "https://remote.example/users/carol");
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: outboxActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-mismatched-actor",
+        type: "Create",
+        actor: otherActorUri,
+        object: eventObject("https://remote.example/events/mismatched-actor", "Should Be Ignored", {
+          attributedTo: outboxActorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: outboxActorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/mismatched-actor") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("rejects pulled Delete when activity.actor is missing", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    const eventUri = "https://remote.example/events/delete-actor-missing";
+    upsertRemoteEvent(db, eventObject(eventUri, "Keep Me", { to: [federation.AP_PUBLIC] }), actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/delete-actor-missing",
+        type: "Delete",
+        object: eventUri,
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+
+    const row = db.prepare("SELECT canceled FROM remote_events WHERE uri = ?").get(eventUri) as { canceled: number };
+    expect(row.canceled).toBe(0);
+  });
 });
