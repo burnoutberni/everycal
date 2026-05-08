@@ -405,13 +405,14 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const username = c.req.param("username");
     const slug = c.req.param("slug");
     const currentUser = c.get("user");
+    const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
 
     if (username.includes("@")) {
       const [preferredUsername, domain] = username.split("@");
       if (!preferredUsername || !domain) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const remoteRow = db
-        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND re.visibility IN ('public','unlisted')`)
-        .get(preferredUsername, domain, slug) as Record<string, unknown> | undefined;
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteVisibility.sql}`)
+        .get(preferredUsername, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
       if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const event = formatRemoteEvent(remoteRow);
       if (currentUser) attachSingleEventContext(event, remoteRow.uri as string, currentUser.id);

@@ -1809,6 +1809,35 @@ describe("event slug canonical behavior", () => {
     expect((await remoteRes.json() as { source: string }).source).toBe("remote");
   });
 
+  it("/events/by-slug/:username/:slug allows followers-only remote events for followers", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, visibility, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/followers-only",
+        "https://remote.example/users/alice",
+        "followers-only-slug",
+        "Followers Only Remote",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "followers_only",
+        "offset_only"
+      );
+
+    const appAnon = makeApp(db);
+    const anonRes = await appAnon.request("http://localhost/api/v1/events/by-slug/alice@remote.example/followers-only-slug");
+    expect(anonRes.status).toBe(404);
+
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u2", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const appFollower = makeApp(db, { id: "u2", username: "bob" });
+    const followerRes = await appFollower.request("http://localhost/api/v1/events/by-slug/alice@remote.example/followers-only-slug");
+    expect(followerRes.status).toBe(200);
+    expect((await followerRes.json() as { source: string }).source).toBe("remote");
+  });
+
   it("/users/:username/events returns remote canonical temporal fields", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
