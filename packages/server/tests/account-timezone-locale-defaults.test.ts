@@ -129,6 +129,22 @@ describe("account timezone/locale defaults", () => {
       migration.up(versioned);
     }
 
+    versioned.exec(`CREATE TABLE outbound_activity_deliveries (
+      id TEXT PRIMARY KEY,
+      destination_inbox TEXT NOT NULL,
+      sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      sender_actor_uri TEXT NOT NULL,
+      activity_json TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+      claimed_at TEXT,
+      worker_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+
     versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-outbound", "u_outbound");
     const insertDelivery = versioned.prepare(
       "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, activity_json, next_retry_at) VALUES (?, ?, ?, ?, ?, ?)"

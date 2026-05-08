@@ -175,38 +175,8 @@ CREATE TABLE IF NOT EXISTS remote_events (
   updated TEXT,
   fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
   canceled INTEGER NOT NULL DEFAULT 0,
-  visibility TEXT NOT NULL DEFAULT 'public' CHECK(visibility IN ('public','unlisted','followers_only','private')),
   CHECK((timezone_quality = 'exact_tzid' AND event_timezone IS NOT NULL) OR (timezone_quality != 'exact_tzid' AND event_timezone IS NULL)),
   CHECK(end_at_utc IS NULL OR end_at_utc >= start_at_utc)
-);
-
-CREATE TABLE IF NOT EXISTS outbound_activity_deliveries (
-  id TEXT PRIMARY KEY,
-  destination_inbox TEXT NOT NULL,
-  sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  sender_actor_uri TEXT NOT NULL,
-  sender_key_id TEXT,
-  activity_json TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL DEFAULT 0,
-  next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
-  last_error TEXT,
-  state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
-  claimed_at TEXT,
-  worker_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS processed_inbox_activities (
-  activity_id TEXT NOT NULL,
-  actor_uri TEXT NOT NULL,
-  target_context TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'processed' CHECK(status IN ('processing','processed','failed')),
-  claimed_at TEXT,
-  processed_at TEXT,
-  last_error TEXT,
-  received_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (activity_id, actor_uri, target_context)
 );
 
 CREATE TABLE IF NOT EXISTS remote_following (
@@ -353,12 +323,6 @@ CREATE INDEX IF NOT EXISTS idx_remote_events_actor ON remote_events(actor_uri);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_events_actor_slug ON remote_events(actor_uri, slug) WHERE slug IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_remote_events_start_at_utc ON remote_events(start_at_utc);
 CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on);
-CREATE INDEX IF NOT EXISTS idx_remote_events_visibility ON remote_events(visibility);
-CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id);
-CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at);
-CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at);
-CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at);
 CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
