@@ -78,6 +78,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       {
         let sql = `SELECT re.tags FROM remote_events re WHERE re.tags IS NOT NULL AND re.tags != ''`;
         const params: unknown[] = [];
+        const remoteVisibility = buildRemoteVisibilityFilter(user?.id);
+
+        sql += ` AND ${remoteVisibility.sql}`;
+        params.push(...remoteVisibility.params);
 
         if (isCalendarScope) {
           sql += ` AND re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))`;
@@ -85,8 +89,6 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         } else if (isMineScope) {
           sql += ` AND (re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?) OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?))`;
           params.push(user!.id, user!.id);
-        } else {
-          sql += ` AND re.visibility IN ('public','unlisted')`;
         }
 
         const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
@@ -188,6 +190,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const buildRemoteQueryBase = (): { sql: string; params: unknown[] } => {
       let sql = `${REMOTE_EVENT_SELECT} WHERE 1=1`;
       const params: unknown[] = [];
+      const remoteVisibility = buildRemoteVisibilityFilter(user?.id);
+
+      sql += ` AND ${remoteVisibility.sql}`;
+      params.push(...remoteVisibility.params);
 
       if (isCalendarScope) {
         sql += ` AND re.uri IN (
@@ -200,8 +206,6 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
         )`;
         params.push(user!.id, user!.id);
-      } else {
-        sql += ` AND re.visibility IN ('public','unlisted')`;
       }
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
@@ -354,12 +358,14 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
+      const remoteVisibility = buildRemoteVisibilityFilter(user.id);
       let sql = `${REMOTE_EVENT_SELECT}
         WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
             OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
-          )`;
-      const params: unknown[] = [user.id, user.id];
+          )
+          AND ${remoteVisibility.sql}`;
+      const params: unknown[] = [user.id, user.id, ...remoteVisibility.params];
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
