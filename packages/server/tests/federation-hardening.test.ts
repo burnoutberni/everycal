@@ -352,6 +352,30 @@ describe("federation hardening prep", () => {
     expect(claimablePending.attempt_count).toBe(1);
   });
 
+  it("skips outbound queue processing when there are no follower inboxes", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    const jobId = federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://remote.example/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/stale-not-claimed", type: "Create" },
+    });
+
+    db.prepare(
+      "UPDATE outbound_activity_deliveries SET state = 'processing', worker_id = ?, claimed_at = datetime('now', '-20 minutes'), updated_at = datetime('now') WHERE id = ?"
+    ).run("dead-worker", jobId);
+
+    await federation.deliverToFollowers(db, account.id, { id: "http://localhost/activity/no-followers", type: "Create" });
+
+    const unchanged = db.prepare(
+      "SELECT state, worker_id, claimed_at FROM outbound_activity_deliveries WHERE id = ?"
+    ).get(jobId) as { state: string; worker_id: string | null; claimed_at: string | null };
+    expect(unchanged.state).toBe("processing");
+    expect(unchanged.worker_id).toBe("dead-worker");
+    expect(unchanged.claimed_at).not.toBeNull();
+  });
+
   it("uses strict numeric parsing for outbound worker interval", () => {
     const db = initDatabase(":memory:");
     const setIntervalSpy = vi.spyOn(global, "setInterval").mockImplementation(() => 1 as unknown as NodeJS.Timeout);

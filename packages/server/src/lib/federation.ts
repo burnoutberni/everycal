@@ -676,6 +676,8 @@ export async function deliverToFollowers(
   const inboxes = new Set<string>();
   for (const f of followers) inboxes.add(f.follower_shared_inbox || f.follower_inbox);
 
+  if (inboxes.size === 0) return;
+
   for (const inbox of inboxes) enqueueOutboundDelivery(db, { destinationInbox: inbox, senderAccountId: accountId, senderActorUri: actorUri, activity });
   processOutboundDeliveryQueue(db, Math.min(inboxes.size, OUTBOUND_PROCESS_LIMIT)).catch(() => {});
 }
