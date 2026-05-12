@@ -530,7 +530,7 @@ describe("event slug canonical behavior", () => {
     expect(payload?.type).toBe("Delete");
   });
 
-  it("does not federate Update when visibility changes from public to private", async () => {
+  it("federates Delete when visibility changes from public to private", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
     const create = await app.request("http://localhost/api/v1/events", {
@@ -558,7 +558,14 @@ describe("event slug canonical behavior", () => {
     });
 
     expect(update.status).toBe(200);
-    expect(deliverToFollowers).not.toHaveBeenCalled();
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Delete");
+    expect(payload?.to).toContain(AP_PUBLIC);
   });
 
   it("federates Update when visibility changes from private to public", async () => {

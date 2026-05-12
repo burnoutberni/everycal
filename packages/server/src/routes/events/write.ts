@@ -395,6 +395,26 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     }
 
     const nextVisibility = body.visibility ?? existing.visibility;
+    const transitionedToPrivate = existing.visibility !== "private" && nextVisibility === "private";
+
+    if (transitionedToPrivate) {
+      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const actorAccount = db
+        .prepare("SELECT username FROM accounts WHERE id = ?")
+        .get(existing.account_id) as { username: string } | undefined;
+      if (actorAccount) {
+        const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
+        const deleteActivity = {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: `${baseUrl}/events/${id}/delete`,
+          type: "Delete",
+          actor: actorUrl,
+          object: `${baseUrl}/events/${id}`,
+          ...visibilityToActivityPubAddressing(existing.visibility as EventVisibility, actorUrl),
+        };
+        deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
+      }
+    }
 
     // Deliver Update activity to remote followers
     if (nextVisibility !== "private") {
