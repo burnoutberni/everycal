@@ -15,7 +15,6 @@ import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
   deriveVisibilityFromActivityPubAddressing,
-  hasActivityPubAudience,
   formatRemoteActorIdentity,
   getAttributedActor,
   fetchAP,
@@ -290,7 +289,7 @@ export function federationRoutes(db: DB): Hono {
           temporal,
           clearCanceled: activityType === "Update",
           visibility:
-            hasActivityPubAudience(activity.to) || hasActivityPubAudience(activity.cc)
+            ("to" in activity || "cc" in activity)
               ? deriveVisibilityFromActivityPubAddressing(activity)
               : undefined,
         });
