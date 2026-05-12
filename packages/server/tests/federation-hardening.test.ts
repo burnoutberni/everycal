@@ -1286,6 +1286,38 @@ describe("federation hardening prep", () => {
     expect(row.visibility).toBe("private");
   });
 
+  it("treats explicit empty activity to/cc as private during user inbox Update", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventUri = "https://remote.example/events/explicit-private-inbox";
+    upsertRemoteEvent(
+      db,
+      eventObject(eventUri, "Initially Public", { to: [federation.AP_PUBLIC] }),
+      actorUri,
+    );
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/update-explicit-private-inbox",
+        type: "Update",
+        actor: actorUri,
+        to: [],
+        cc: [],
+        object: eventObject(eventUri, "Now Private"),
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?").get(eventUri) as { visibility: string };
+    expect(row.visibility).toBe("private");
+  });
+
   it("accepts pulled Update when attributedTo is an object with id", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db, "local1", "alice");

@@ -20,7 +20,6 @@ import {
   deliverActivity,
   deriveVisibilityFromActivityPubAddressing,
   getAttributedActor,
-  hasActivityPubAudience,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
@@ -766,7 +765,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     clearCanceled: true,
     temporal,
     visibility:
-      hasActivityPubAudience(activity.to) || hasActivityPubAudience(activity.cc)
+      ("to" in activity || "cc" in activity)
         ? deriveVisibilityFromActivityPubAddressing(activity)
         : undefined,
   });
