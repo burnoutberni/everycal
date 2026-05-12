@@ -860,6 +860,63 @@ describe("federation hardening prep", () => {
     expect(total.cnt).toBe(1);
   });
 
+  it("uses normalized actor URI for user inbox Create ownership persistence", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/trimmed-actor-create";
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-trimmed-actor",
+        type: "Create",
+        actor: `  ${actorUri}  `,
+        object: {
+          id: eventId,
+          type: "Event",
+          name: "Trimmed Actor Create",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: actorUri,
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(eventId) as { actor_uri: string } | undefined;
+    expect(row?.actor_uri).toBe(actorUri);
+  });
+
+  it("uses normalized actor URI for user inbox Delete ownership checks", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const eventId = "https://remote.example/events/trimmed-actor-delete";
+    upsertRemoteEvent(db, eventObject(eventId, "Delete Target", { to: [federation.AP_PUBLIC] }), actorUri);
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/delete-trimmed-actor",
+        type: "Delete",
+        actor: `  ${actorUri}  `,
+        object: eventId,
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare("SELECT canceled FROM remote_events WHERE uri = ?").get(eventId) as { canceled: number } | undefined;
+    expect(row?.canceled).toBe(1);
+  });
+
   it("accepts user inbox Create when attributedTo is an object with id", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");

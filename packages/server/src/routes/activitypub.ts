@@ -420,10 +420,10 @@ export function activityPubRoutes(db: DB): Hono {
           break;
         case "Create":
         case "Update":
-          handleCreateUpdate(db, activity, type);
+          handleCreateUpdate(db, activity, type, actorUri);
           break;
         case "Delete":
-          handleDelete(db, activity);
+          handleDelete(db, activity, actorUri);
           break;
         default:
           console.log(`  ⏭ Ignored activity type: ${type}`);
@@ -517,10 +517,10 @@ export function sharedInboxRoute(db: DB): Hono {
         }
         case "Create":
         case "Update":
-          handleCreateUpdate(db, activity, type);
+          handleCreateUpdate(db, activity, type, actorUri);
           break;
         case "Delete":
-          handleDelete(db, activity);
+          handleDelete(db, activity, actorUri);
           break;
       }
     } catch (error) {
@@ -683,13 +683,12 @@ function actorHandleFromUri(actorUri: string): { username: string; domain?: stri
   }
 }
 
-function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string) {
+function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string, actorUri: string) {
   const object = activity.object as Record<string, unknown>;
   if (!object || object.type !== "Event") return;
 
   // Validate that actor matches attributedTo (prevent impersonation)
   const attributedTo = getAttributedActor(object);
-  const actorUri = activity.actor as string;
 
   if (attributedTo.status === "unparseable") {
     console.log("  ⚠️  Rejecting Create/Update: attributedTo is present but unparseable");
@@ -814,8 +813,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
-function handleDelete(db: DB, activity: Record<string, unknown>) {
-  const actorUri = activity.actor as string;
+function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: string) {
   const rawObject = activity.object;
   const objectUri: string | undefined =
     typeof rawObject === "string"
