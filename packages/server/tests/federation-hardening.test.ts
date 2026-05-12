@@ -66,6 +66,24 @@ describe("federation hardening prep", () => {
     expect(row.visibility).toBe("public");
   });
 
+  it("treats explicit empty addressing arrays as private for remote upserts", () => {
+    const db = initDatabase(":memory:");
+    const actorUri = insertRemoteActor(db);
+
+    upsertRemoteEvent(
+      db,
+      eventObject("https://remote.example/events/explicit-empty-audience", "Explicit Empty Audience", {
+        to: [],
+        cc: [],
+      }),
+      actorUri,
+    );
+
+    const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?")
+      .get("https://remote.example/events/explicit-empty-audience") as { visibility: string };
+    expect(row.visibility).toBe("private");
+  });
+
   it("maps outbound audiences distinctly by visibility", () => {
     const actor = "https://local.example/users/alice";
     expect(federation.visibilityToActivityPubAddressing("public", actor)).toEqual({ to: [federation.AP_PUBLIC], cc: [`${actor}/followers`] });

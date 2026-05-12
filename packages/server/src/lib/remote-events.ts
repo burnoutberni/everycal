@@ -1,7 +1,7 @@
 import type { EventVisibility } from "@everycal/core";
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
-import { deriveVisibilityFromActivityPubAddressing, hasActivityPubAudience } from "./federation.js";
+import { deriveVisibilityFromActivityPubAddressing } from "./federation.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 import {
   datePartFromUtcInstantInTimezone,
@@ -102,7 +102,7 @@ export function upsertRemoteEvent(
   }
   let visibility = options.visibility;
   if (!visibility) {
-    const hasAddressing = hasActivityPubAudience(object.to) || hasActivityPubAudience(object.cc);
+    const hasAddressing = Object.hasOwn(object, "to") || Object.hasOwn(object, "cc");
     visibility = hasAddressing
       ? deriveVisibilityFromActivityPubAddressing(object)
       : "public";
