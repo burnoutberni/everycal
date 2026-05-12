@@ -465,6 +465,84 @@ describe("federation hardening prep", () => {
     expect(dedupeRow.actor_uri).toBe("https://remote.example/users/bob");
   });
 
+  it("stores Follow state with trimmed actor URI", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: "https://remote.example/users/bob",
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: null,
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "deliverActivity").mockResolvedValue(true);
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/follow-trimmed-actor",
+        type: "Follow",
+        actor: "  https://remote.example/users/bob\n",
+        object: "http://localhost/users/alice",
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare(
+      "SELECT follower_actor_uri FROM remote_follows WHERE account_id = ?"
+    ).get("local1") as { follower_actor_uri: string };
+    expect(row.follower_actor_uri).toBe("https://remote.example/users/bob");
+  });
+
+  it("uses trimmed actor URI when handling Undo Follow", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    db.prepare(
+      "INSERT INTO remote_follows (account_id, follower_actor_uri, follower_inbox) VALUES (?, ?, ?)"
+    ).run("local1", "https://remote.example/users/bob", "https://remote.example/inbox");
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/undo-trimmed-actor",
+        type: "Undo",
+        actor: "  https://remote.example/users/bob\n",
+        object: {
+          type: "Follow",
+          actor: "https://remote.example/users/bob",
+          object: "http://localhost/users/alice",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const row = db.prepare(
+      "SELECT COUNT(*) AS cnt FROM remote_follows WHERE account_id = ?"
+    ).get("local1") as { cnt: number };
+    expect(row.cnt).toBe(0);
+  });
+
   it("treats trimmed activity id as the dedupe key in user inbox", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");

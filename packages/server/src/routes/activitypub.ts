@@ -413,10 +413,10 @@ export function activityPubRoutes(db: DB): Hono {
     try {
       switch (type) {
         case "Follow":
-          await handleFollow(db, account, activity);
+          await handleFollow(db, account, activity, actorUri);
           break;
         case "Undo":
-          await handleUndo(db, account, activity);
+          await handleUndo(db, account, activity, actorUri);
           break;
         case "Create":
         case "Update":
@@ -494,7 +494,7 @@ export function sharedInboxRoute(db: DB): Hono {
             const account = db
               .prepare("SELECT id, username FROM accounts WHERE username = ?")
               .get(match[1]) as { id: string; username: string } | undefined;
-            if (account) await handleFollow(db, account, activity);
+            if (account) await handleFollow(db, account, activity, actorUri);
           } else if (objectUri) {
             console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
           }
@@ -510,7 +510,7 @@ export function sharedInboxRoute(db: DB): Hono {
               const account = db
                 .prepare("SELECT id, username FROM accounts WHERE username = ?")
                 .get(match[1]) as { id: string; username: string } | undefined;
-              if (account) await handleUndo(db, account, activity);
+              if (account) await handleUndo(db, account, activity, actorUri);
             }
           }
           break;
@@ -619,11 +619,9 @@ function markInboxActivityFailed(
 async function handleFollow(
   db: DB,
   account: { id: string; username: string },
-  activity: Record<string, unknown>
+  activity: Record<string, unknown>,
+  actorUri: string
 ) {
-  const actorUri = activity.actor as string;
-  if (!actorUri) return;
-
   // Resolve the remote actor to get their inbox
   const remoteActor = await resolveRemoteActor(db, actorUri);
   if (!remoteActor) {
@@ -664,12 +662,11 @@ async function handleFollow(
 async function handleUndo(
   db: DB,
   account: { id: string; username: string },
-  activity: Record<string, unknown>
+  activity: Record<string, unknown>,
+  actorUri: string
 ) {
   const inner = activity.object as Record<string, unknown>;
   if (!inner || inner.type !== "Follow") return;
-
-  const actorUri = activity.actor as string;
   db.prepare(
     "DELETE FROM remote_follows WHERE account_id = ? AND follower_actor_uri = ?"
   ).run(account.id, actorUri);
