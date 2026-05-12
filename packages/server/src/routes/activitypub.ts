@@ -546,11 +546,17 @@ function parseActorUri(actor: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function parseActivityId(activityId: unknown): string | null {
+  if (typeof activityId !== "string") return null;
+  const trimmed = activityId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 const INBOX_PROCESSING_CLAIM_TTL_MINUTES = 5;
 
 function claimInboxActivityProcessing(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
-  const activityId = activity.id;
-  if (typeof activityId !== "string" || !activityId) {
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) {
     console.warn("  ⚠️  Inbox activity has no stable id; processing without replay dedupe");
     return true;
   }
@@ -582,8 +588,8 @@ function claimInboxActivityProcessing(db: DB, activity: Record<string, unknown>,
 }
 
 function markInboxActivityProcessed(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
-  const activityId = activity.id;
-  if (typeof activityId !== "string" || !activityId) return;
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) return;
   db.prepare(
     `UPDATE processed_inbox_activities
      SET status = 'processed', claimed_at = NULL, processed_at = datetime('now'), last_error = NULL
@@ -598,8 +604,8 @@ function markInboxActivityFailed(
   targetContext: string,
   error: unknown
 ): void {
-  const activityId = activity.id;
-  if (typeof activityId !== "string" || !activityId) return;
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) return;
   const errorMessage = error instanceof Error ? error.message : String(error);
   db.prepare(
     `UPDATE processed_inbox_activities

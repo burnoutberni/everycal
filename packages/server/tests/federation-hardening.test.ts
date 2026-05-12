@@ -465,6 +465,50 @@ describe("federation hardening prep", () => {
     expect(dedupeRow.actor_uri).toBe("https://remote.example/users/bob");
   });
 
+  it("treats trimmed activity id as the dedupe key in user inbox", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    insertRemoteActor(db);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const first = {
+      id: "  https://remote.example/activities/create-trimmed-id-1\n",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/trimmed-id", "First payload", { to: [federation.AP_PUBLIC] }),
+    };
+
+    const second = {
+      id: "https://remote.example/activities/create-trimmed-id-1",
+      type: "Create",
+      actor: "https://remote.example/users/bob",
+      object: eventObject("https://remote.example/events/trimmed-id", "Second payload", { to: [federation.AP_PUBLIC] }),
+    };
+
+    const firstResponse = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(first),
+    });
+    expect(firstResponse.status).toBe(202);
+
+    const secondResponse = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(second),
+    });
+    expect(secondResponse.status).toBe(202);
+    expect(await secondResponse.json() as { duplicate?: boolean }).toEqual({ ok: true, duplicate: true });
+
+    const row = db.prepare(
+      "SELECT activity_id FROM processed_inbox_activities WHERE actor_uri = ? AND target_context = ?"
+    ).get("https://remote.example/users/bob", "user:alice") as { activity_id: string };
+    expect(row.activity_id).toBe("https://remote.example/activities/create-trimmed-id-1");
+
+    const event = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/trimmed-id") as { title: string };
+    expect(event.title).toBe("First payload");
+  });
+
   it("marks inbox activity failed and allows retry after processing failure", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
