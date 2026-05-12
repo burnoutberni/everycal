@@ -416,6 +416,55 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("First");
   });
 
+  it("rejects user inbox activity when actor is not a string", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-non-string-actor",
+        type: "Create",
+        actor: { id: "https://remote.example/users/bob" },
+        object: eventObject("https://remote.example/events/non-string-actor", "Should Reject", { to: [federation.AP_PUBLIC] }),
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request" });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("trims user inbox actor string before processing", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const activity = {
+      id: "https://remote.example/activities/create-trimmed-actor",
+      type: "Create",
+      actor: "  https://remote.example/users/bob\n",
+      object: eventObject("https://remote.example/events/trimmed-actor", "Trimmed Actor", { to: [federation.AP_PUBLIC] }),
+    };
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify(activity),
+    });
+    expect(response.status).toBe(202);
+
+    const dedupeRow = db.prepare(
+      "SELECT actor_uri FROM processed_inbox_activities WHERE activity_id = ? AND target_context = ?"
+    ).get(activity.id, "user:alice") as { actor_uri: string };
+    expect(dedupeRow.actor_uri).toBe("https://remote.example/users/bob");
+  });
+
   it("marks inbox activity failed and allows retry after processing failure", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
@@ -491,6 +540,29 @@ describe("federation hardening prep", () => {
     expect((await second.json() as { duplicate?: boolean }).duplicate).toBe(true);
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/shared-dupe") as { title: string };
     expect(row.title).toBe("First");
+  });
+
+  it("rejects shared inbox activity when actor is empty after trimming", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const app = new Hono();
+    app.route("/", sharedInboxRoute(db));
+
+    const response = await app.request("http://localhost/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/shared-create-empty-actor",
+        type: "Create",
+        actor: "   \n\t",
+        object: eventObject("https://remote.example/events/shared-empty-actor", "Should Reject", { to: [federation.AP_PUBLIC] }),
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request" });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
   });
 
   it("marks shared inbox activity failed and allows retry after processing failure", async () => {

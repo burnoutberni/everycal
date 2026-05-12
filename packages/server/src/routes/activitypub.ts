@@ -385,26 +385,25 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = activity.actor as string;
+    const actorUri = parseActorUri(activity.actor);
+    if (!actorUri) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
 
     // Verify the incoming activity has a valid HTTP Signature
-    if (actorUri) {
-      // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
-      const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
-      if (!skipVerify) {
-        const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
-        if (!verified) {
-          console.log(`  ⚠️  Signature verification failed for ${actorUri}`);
-          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
-        }
+    // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
+    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    if (!skipVerify) {
+      const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
+      if (!verified) {
+        console.log(`  ⚠️  Signature verification failed for ${actorUri}`);
+        return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
       }
     }
 
     const targetContext = inboxTargetContext("user", username);
-    const claimedInboxActivity = actorUri
-      ? claimInboxActivityProcessing(db, activity, actorUri, targetContext)
-      : null;
-    if (claimedInboxActivity === false) {
+    const claimedInboxActivity = claimInboxActivityProcessing(db, activity, actorUri, targetContext);
+    if (!claimedInboxActivity) {
       console.log(`  ⏭ Skipping duplicate inbox activity ${activity.id}`);
       return c.json({ ok: true, duplicate: true }, 202);
     }
@@ -430,15 +429,11 @@ export function activityPubRoutes(db: DB): Hono {
           console.log(`  ⏭ Ignored activity type: ${type}`);
       }
     } catch (error) {
-      if (claimedInboxActivity === true && actorUri) {
-        markInboxActivityFailed(db, activity, actorUri, targetContext, error);
-      }
+      markInboxActivityFailed(db, activity, actorUri, targetContext, error);
       throw error;
     }
 
-    if (claimedInboxActivity === true && actorUri) {
-      markInboxActivityProcessed(db, activity, actorUri, targetContext);
-    }
+    markInboxActivityProcessed(db, activity, actorUri, targetContext);
 
     return c.json({ ok: true }, 202);
   });
@@ -463,25 +458,24 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = activity.actor as string;
+    const actorUri = parseActorUri(activity.actor);
+    if (!actorUri) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
 
     // Verify HTTP Signature
-    if (actorUri) {
-      const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
-      if (!skipVerify) {
-        const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
-        if (!verified) {
-          console.log(`  ⚠️  Shared inbox signature verification failed for ${actorUri}`);
-          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
-        }
+    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    if (!skipVerify) {
+      const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
+      if (!verified) {
+        console.log(`  ⚠️  Shared inbox signature verification failed for ${actorUri}`);
+        return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
       }
     }
 
     const targetContext = inboxTargetContext("shared", "inbox");
-    const claimedInboxActivity = actorUri
-      ? claimInboxActivityProcessing(db, activity, actorUri, targetContext)
-      : null;
-    if (claimedInboxActivity === false) {
+    const claimedInboxActivity = claimInboxActivityProcessing(db, activity, actorUri, targetContext);
+    if (!claimedInboxActivity) {
       console.log(`  ⏭ Skipping duplicate shared inbox activity ${activity.id}`);
       return c.json({ ok: true, duplicate: true }, 202);
     }
@@ -530,15 +524,11 @@ export function sharedInboxRoute(db: DB): Hono {
           break;
       }
     } catch (error) {
-      if (claimedInboxActivity === true && actorUri) {
-        markInboxActivityFailed(db, activity, actorUri, targetContext, error);
-      }
+      markInboxActivityFailed(db, activity, actorUri, targetContext, error);
       throw error;
     }
 
-    if (claimedInboxActivity === true && actorUri) {
-      markInboxActivityProcessed(db, activity, actorUri, targetContext);
-    }
+    markInboxActivityProcessed(db, activity, actorUri, targetContext);
 
     return c.json({ ok: true }, 202);
   });
@@ -548,6 +538,12 @@ export function sharedInboxRoute(db: DB): Hono {
 
 function inboxTargetContext(kind: "user" | "shared", target: string): string {
   return `${kind}:${target}`;
+}
+
+function parseActorUri(actor: unknown): string | null {
+  if (typeof actor !== "string") return null;
+  const trimmed = actor.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 const INBOX_PROCESSING_CLAIM_TTL_MINUTES = 5;
