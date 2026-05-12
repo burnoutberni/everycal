@@ -42,7 +42,7 @@ async function probeLiveFederation(
   }
 }
 
-const liveFederationReachable = await probeLiveFederation(fetch, ACTOR_URI, 4000);
+let liveFederationReachable = false;
 
 describe("live federation reachability probe", () => {
   it("returns false for non-2xx responses", async () => {
@@ -97,10 +97,12 @@ describe("Mobilizon federation (events.htu.at)", () => {
 
   beforeAll(async () => {
     db = initDatabase(":memory:");
+    liveFederationReachable = await probeLiveFederation(fetch, ACTOR_URI, 4000);
   });
 
-  describe.runIf(liveFederationReachable)("fetchAP", () => {
+  describe("fetchAP", () => {
     it("fetches a Mobilizon Group actor", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const actor = (await fetchAP(ACTOR_URI)) as Record<string, unknown>;
       expect(actor.type).toBe("Group");
       expect(actor.preferredUsername).toBe("htubarrierefrei");
@@ -111,6 +113,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("fetches outbox collection", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const outbox = (await fetchAP(
         `${ACTOR_URI}/outbox`
       )) as Record<string, unknown>;
@@ -120,8 +123,9 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
   });
 
-  describe.runIf(liveFederationReachable)("resolveRemoteActor", () => {
+  describe("resolveRemoteActor", () => {
     it("resolves and caches a Mobilizon actor", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI, true);
       expect(actor).not.toBeNull();
       expect(actor!.type).toBe("Group");
@@ -135,14 +139,16 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("returns cached actor on second call", async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI);
       expect(actor).not.toBeNull();
       expect(actor!.display_name).toContain("Barrierefreiheit");
     });
   });
 
-  describe.runIf(liveFederationReachable)("fetchRemoteOutbox", () => {
+  describe("fetchRemoteOutbox", () => {
     it("fetches all events with pagination", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const items = await fetchRemoteOutbox(`${ACTOR_URI}/outbox`, 10);
       expect(items.length).toBeGreaterThan(10); // Should span multiple pages
 
@@ -159,10 +165,14 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
   });
 
-  describe.runIf(liveFederationReachable)("Mobilizon event parsing", () => {
+  describe("Mobilizon event parsing", () => {
     let events: Record<string, unknown>[];
 
     beforeAll(async () => {
+      if (!liveFederationReachable) {
+        events = [];
+        return;
+      }
       const items = await fetchRemoteOutbox(`${ACTOR_URI}/outbox`, 10);
       events = items.map(
         (item) => (item as Record<string, unknown>).object as Record<string, unknown>
@@ -170,6 +180,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses event names", () => {
+      if (!liveFederationReachable) return;
       for (const event of events) {
         expect(typeof event.name).toBe("string");
         expect((event.name as string).length).toBeGreaterThan(0);
@@ -177,6 +188,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses PostalAddress locations", () => {
+      if (!liveFederationReachable) return;
       const withLocation = events.filter((e) => e.location);
       expect(withLocation.length).toBeGreaterThan(0);
 
@@ -197,6 +209,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses tags", () => {
+      if (!liveFederationReachable) return;
       const withTags = events.filter(
         (e) => (e.tag as unknown[])?.length > 0
       );
@@ -212,6 +225,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses Document attachments (images)", () => {
+      if (!liveFederationReachable) return;
       const withAttachments = events.filter(
         (e) => (e.attachment as unknown[])?.length > 0
       );
@@ -235,6 +249,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("handles attributedTo pointing to group", () => {
+      if (!liveFederationReachable) return;
       for (const event of events) {
         // Mobilizon events have attributedTo pointing to the group
         expect(event.attributedTo).toBe(ACTOR_URI);
@@ -242,8 +257,9 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
   });
 
-  describe.runIf(liveFederationReachable)("store remote events", () => {
+  describe("store remote events", () => {
     beforeAll(async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI);
       const items = await fetchRemoteOutbox(actor!.outbox!, 10);
 
@@ -319,6 +335,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores all events in the database", () => {
+      if (!liveFederationReachable) return;
       const count = (
         db
           .prepare("SELECT COUNT(*) AS cnt FROM remote_events")
@@ -328,6 +345,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores location data correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           "SELECT location_name, location_address, location_latitude, location_longitude FROM remote_events WHERE location_name IS NOT NULL LIMIT 5"
@@ -344,6 +362,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores tags correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           "SELECT tags FROM remote_events WHERE tags IS NOT NULL LIMIT 5"
@@ -362,6 +381,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("joins with remote_actors correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           `SELECT re.title, ra.display_name, ra.domain
