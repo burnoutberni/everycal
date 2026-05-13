@@ -14,6 +14,7 @@ interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
   temporal?: NormalizedRemoteTemporal;
   visibility?: EventVisibility;
+  allowActorUriCorrection?: boolean;
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -60,6 +61,7 @@ export function upsertRemoteEvent(
   options: UpsertRemoteEventOptions = {},
 ): { uri: string; slug: string } {
   const clearCanceled = options.clearCanceled === true;
+  const allowActorUriCorrection = options.allowActorUriCorrection === true;
   const tags = (object.tag as Array<{ name: string }>) || [];
   const tagString = tags
     .map((t) => stripHtml(t.name?.replace(/^#/, "") || ""))
@@ -107,12 +109,14 @@ export function upsertRemoteEvent(
       ? deriveVisibilityFromActivityPubAddressing(object)
       : "public";
   }
-  const existing = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null } | undefined;
+  const existing = db.prepare("SELECT slug, actor_uri FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null; actor_uri: string } | undefined;
   if (existing) {
     const resolvedSlug = existing.slug || uniqueRemoteEventSlug(db, actorUri, title || "event");
+    const shouldUpdateActorUri = allowActorUriCorrection && existing.actor_uri !== actorUri;
     db.prepare(
       `UPDATE remote_events SET
         slug = ?,
+        ${shouldUpdateActorUri ? "actor_uri = ?," : ""}
         title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
         start_on = ?, end_on = ?,
         start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
@@ -122,6 +126,7 @@ export function upsertRemoteEvent(
        WHERE uri = ?`
     ).run(
       resolvedSlug,
+      ...(shouldUpdateActorUri ? [actorUri] : []),
       title,
       description,
       startDate,

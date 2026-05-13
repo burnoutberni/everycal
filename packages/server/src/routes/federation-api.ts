@@ -288,6 +288,7 @@ export function federationRoutes(db: DB): Hono {
         const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
           temporal,
           clearCanceled: activityType === "Update",
+          allowActorUriCorrection: activityType === "Announce" && attributedTo.status === "parsed",
           visibility:
             ("to" in activity || "cc" in activity)
               ? deriveVisibilityFromActivityPubAddressing(activity)
