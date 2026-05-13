@@ -101,6 +101,15 @@ describe("federation hardening prep", () => {
     ).toBe("followers_only");
   });
 
+  it("treats direct-recipient addressing as private", () => {
+    expect(
+      federation.deriveVisibilityFromActivityPubAddressing({
+        to: ["https://remote.example/users/alice"],
+        cc: [],
+      })
+    ).toBe("private");
+  });
+
   it("ignores whitespace-only audience values when deriving visibility", () => {
     expect(
       federation.deriveVisibilityFromActivityPubAddressing({

@@ -95,9 +95,20 @@ export function visibilityToActivityPubAddressing(
 export function deriveVisibilityFromActivityPubAddressing(source: Record<string, unknown>): EventVisibility {
   const to = normalizeAudience(source.to);
   const cc = normalizeAudience(source.cc);
+  const recipients = [...to, ...cc];
   if (to.includes(AP_PUBLIC)) return "public";
   if (cc.includes(AP_PUBLIC)) return "unlisted";
-  if (to.length > 0 || cc.length > 0) return "followers_only";
+  if (recipients.some((recipient) => {
+    try {
+      const pathname = new URL(recipient).pathname.toLowerCase();
+      return pathname.endsWith("/followers");
+    } catch {
+      return false;
+    }
+  })) {
+    return "followers_only";
+  }
+  if (recipients.length > 0) return "private";
   return "private";
 }
 
