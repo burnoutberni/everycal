@@ -260,8 +260,8 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const attributedTo = getAttributedActor(fullObj);
-        if (activityType === "Update" && attributedTo.status === "unparseable") {
-          console.warn(`Rejected pulled Update for ${fullObj.id}: unparseable attributedTo`);
+        if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "unparseable") {
+          console.warn(`Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`);
           continue;
         }
         if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
