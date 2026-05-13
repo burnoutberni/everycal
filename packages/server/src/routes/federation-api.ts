@@ -268,8 +268,8 @@ export function federationRoutes(db: DB): Hono {
           console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
           continue;
         }
+        const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
         if (activityType === "Update") {
-          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
           if (existing && existing.actor_uri !== actor.uri) {
             console.warn(`Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
             continue;
@@ -285,10 +285,16 @@ export function federationRoutes(db: DB): Hono {
         const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
           ? attributedTo.actor
           : actor.uri;
+        const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
+        if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
+          console.warn(
+            `Ignoring actor correction for pulled Announce ${objectUri}: existing owner ${existing.actor_uri} differs from attributedTo ${attributedTo.actor}`,
+          );
+        }
         const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
           temporal,
           clearCanceled: activityType === "Update",
-          allowActorUriCorrection: activityType === "Announce" && attributedTo.status === "parsed",
+          allowActorUriCorrection,
           visibility:
             ("to" in activity || "cc" in activity)
               ? deriveVisibilityFromActivityPubAddressing(activity)
