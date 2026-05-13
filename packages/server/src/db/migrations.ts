@@ -532,6 +532,29 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 9,
+    name: "events_visibility_guardrails",
+    up: (db) => {
+      db.exec("UPDATE events SET visibility = 'private' WHERE visibility IS NULL OR visibility NOT IN ('public','unlisted','followers_only','private')");
+      db.exec("DROP TRIGGER IF EXISTS validate_events_visibility_insert");
+      db.exec("DROP TRIGGER IF EXISTS validate_events_visibility_update");
+      db.exec(`CREATE TRIGGER validate_events_visibility_insert
+        BEFORE INSERT ON events
+        FOR EACH ROW
+        WHEN NEW.visibility NOT IN ('public','unlisted','followers_only','private')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid events.visibility');
+        END`);
+      db.exec(`CREATE TRIGGER validate_events_visibility_update
+        BEFORE UPDATE OF visibility ON events
+        FOR EACH ROW
+        WHEN NEW.visibility NOT IN ('public','unlisted','followers_only','private')
+        BEGIN
+          SELECT RAISE(ABORT, 'invalid events.visibility');
+        END`);
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;

@@ -193,6 +193,44 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("normalizes legacy event visibility and enforces it during migration", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "legacy-events-visibility.sqlite");
+    const versioned = new Database(dbPath);
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 8)) {
+      migration.up(versioned);
+    }
+
+    versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-events-vis", "u_events_vis");
+    versioned.prepare(
+      `INSERT INTO events (
+        id, account_id, title, start_date, start_at_utc, event_timezone, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "event-invalid-visibility",
+      "u-events-vis",
+      "Legacy visibility event",
+      "2026-04-27",
+      "2026-04-27T09:30:00.000Z",
+      "UTC",
+      "friends_only"
+    );
+    versioned.pragma("user_version = 8");
+    versioned.close();
+
+    const reopened = initDatabase(dbPath);
+    const migrated = reopened.prepare("SELECT visibility FROM events WHERE id = ?").get("event-invalid-visibility") as {
+      visibility: string;
+    };
+    expect(migrated.visibility).toBe("private");
+    expect(() => {
+      reopened.prepare("UPDATE events SET visibility = ? WHERE id = ?").run("friends_only", "event-invalid-visibility");
+    }).toThrow(/invalid events\.visibility/);
+    reopened.close();
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("migrates token hashes in bounded batches", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-token-hashes.sqlite");

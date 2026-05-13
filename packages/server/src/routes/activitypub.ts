@@ -20,6 +20,7 @@ import {
   deliverActivity,
   deriveVisibilityFromActivityPubAddressing,
   getAttributedActor,
+  normalizeEventVisibility,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
@@ -247,7 +248,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Create",
       actor: actorUrl,
       published: toISO8601(row.created_at as string) ?? row.created_at,
-      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: rowToAPEvent(row, actorUrl, baseUrl),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -257,7 +258,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -266,7 +267,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      ...visibilityToActivityPubAddressing(row.visibility as string, actorUrl),
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -895,7 +896,10 @@ function rowToAPEvent(
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
-  const { to, cc } = visibilityToActivityPubAddressing(row.visibility as string, actorUrl);
+  const { to, cc } = visibilityToActivityPubAddressing(
+    normalizeEventVisibility(row.visibility as string),
+    actorUrl,
+  );
   const event = buildApEventObject({
     id: eventUrl,
     name: row.title as string,

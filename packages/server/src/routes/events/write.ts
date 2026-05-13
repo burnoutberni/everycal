@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { nanoid } from "nanoid";
 import type { DB } from "../../db.js";
 import { requireAuth } from "../../middleware/auth.js";
-import { deliverToFollowers, visibilityToActivityPubAddressing } from "../../lib/federation.js";
+import { deliverToFollowers, normalizeEventVisibility, visibilityToActivityPubAddressing } from "../../lib/federation.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../../lib/notifications.js";
 import { isValidVisibility, type EventVisibility } from "@everycal/core";
 import { getLocale, t } from "../../lib/i18n.js";
@@ -394,7 +394,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       }
     }
 
-    const nextVisibility = body.visibility ?? existing.visibility;
+    const nextVisibility = normalizeEventVisibility(body.visibility ?? existing.visibility);
     const transitionedToPrivate = existing.visibility !== "private" && nextVisibility === "private";
 
     if (transitionedToPrivate) {
@@ -410,7 +410,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
           type: "Delete",
           actor: actorUrl,
           object: `${baseUrl}/events/${id}`,
-          ...visibilityToActivityPubAddressing(existing.visibility as EventVisibility, actorUrl),
+          ...visibilityToActivityPubAddressing(normalizeEventVisibility(existing.visibility as string), actorUrl),
         };
         deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
       }
@@ -526,7 +526,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       type: "Delete",
       actor: actorUrl,
       object: `${baseUrl}/events/${id}`,
-      ...visibilityToActivityPubAddressing(existing.visibility as string, actorUrl),
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(existing.visibility as string), actorUrl),
     };
     deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
 

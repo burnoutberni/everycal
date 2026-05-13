@@ -16,6 +16,12 @@ export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
 export const AP_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+const EVENT_VISIBILITY_VALUES: ReadonlySet<EventVisibility> = new Set([
+  "public",
+  "unlisted",
+  "followers_only",
+  "private",
+]);
 const OUTBOUND_MAX_ATTEMPTS = 5;
 const OUTBOUND_BASE_BACKOFF_MS = 60_000;
 const OUTBOUND_PROCESS_LIMIT = 25;
@@ -79,17 +85,27 @@ export function visibilityToActivityPubAddressing(
   actorUri?: string,
 ): { to: string[]; cc: string[] } {
   const followers = actorUri ? `${actorUri}/followers` : undefined;
-  switch (visibility) {
+  const normalizedVisibility = normalizeEventVisibility(visibility);
+  switch (normalizedVisibility) {
     case "unlisted":
       return { to: followers ? [followers] : [], cc: [AP_PUBLIC] };
     case "followers_only":
       return { to: followers ? [followers] : [], cc: [] };
     case "private":
       return { to: [], cc: [] };
-    case "public":
     default:
       return { to: [AP_PUBLIC], cc: followers ? [followers] : [] };
   }
+}
+
+export function normalizeEventVisibility(
+  visibility: EventVisibility | string | null | undefined,
+  fallback: EventVisibility = "private",
+): EventVisibility {
+  if (typeof visibility === "string" && EVENT_VISIBILITY_VALUES.has(visibility as EventVisibility)) {
+    return visibility as EventVisibility;
+  }
+  return fallback;
 }
 
 export function deriveVisibilityFromActivityPubAddressing(source: Record<string, unknown>): EventVisibility {

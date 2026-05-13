@@ -92,6 +92,13 @@ describe("federation hardening prep", () => {
     expect(federation.visibilityToActivityPubAddressing("private", actor)).toEqual({ to: [], cc: [] });
   });
 
+  it("fails closed to private addressing for unknown outbound visibility", () => {
+    const actor = "https://local.example/users/alice";
+    expect(federation.visibilityToActivityPubAddressing("friends_only", actor)).toEqual({ to: [], cc: [] });
+    expect(federation.visibilityToActivityPubAddressing(null, actor)).toEqual({ to: [], cc: [] });
+    expect(federation.visibilityToActivityPubAddressing(undefined, actor)).toEqual({ to: [], cc: [] });
+  });
+
   it("derives followers_only when non-public recipients exist in cc only", () => {
     expect(
       federation.deriveVisibilityFromActivityPubAddressing({
