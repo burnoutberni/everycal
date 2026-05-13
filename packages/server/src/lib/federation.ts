@@ -36,7 +36,7 @@ const INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT = 90;
 const INBOX_PROCESSED_MAX_ROWS_DEFAULT = 0;
 const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
 const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN = 60_000;
-let outboundQueueRun: Promise<{ processed: number; delivered: number; failed: number }> | null = null;
+const outboundQueueRuns = new WeakMap<DB, Promise<{ processed: number; delivered: number; failed: number }>>();
 
 function toSqliteDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 19);
@@ -619,7 +619,8 @@ function parseMaxRows(rawValue: string | undefined, fallback: number): number {
 }
 
 export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
-  if (outboundQueueRun) return outboundQueueRun;
+  const existingRun = outboundQueueRuns.get(db);
+  if (existingRun) return existingRun;
 
   const run = (async () => {
     const workerId = crypto.randomUUID();
@@ -712,11 +713,11 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
     return { processed: jobs.length, delivered, failed };
   })();
 
-  outboundQueueRun = run;
+  outboundQueueRuns.set(db, run);
   try {
     return await run;
   } finally {
-    if (outboundQueueRun === run) outboundQueueRun = null;
+    if (outboundQueueRuns.get(db) === run) outboundQueueRuns.delete(db);
   }
 }
 

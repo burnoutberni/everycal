@@ -339,6 +339,42 @@ describe("federation hardening prep", () => {
     expect(result2).toEqual({ processed: 1, delivered: 1, failed: 0 });
   });
 
+  it("does not coalesce overlapping outbound queue runners across different db handles", async () => {
+    const db1 = initDatabase(":memory:");
+    const db2 = initDatabase(":memory:");
+    const account1 = insertAccount(db1);
+    const account2 = insertAccount(db2);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202, text: async () => "" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    federation.enqueueOutboundDelivery(db1, {
+      destinationInbox: "https://93.184.216.34/inbox",
+      senderAccountId: account1.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/db-1", type: "Create" },
+    });
+    federation.enqueueOutboundDelivery(db2, {
+      destinationInbox: "https://93.184.216.35/inbox",
+      senderAccountId: account2.id,
+      senderActorUri: "http://localhost:3000/users/bob",
+      activity: { id: "http://localhost/activity/db-2", type: "Create" },
+    });
+
+    const [result1, result2] = await Promise.all([
+      federation.processOutboundDeliveryQueue(db1, 1),
+      federation.processOutboundDeliveryQueue(db2, 1),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result1).toEqual({ processed: 1, delivered: 1, failed: 0 });
+    expect(result2).toEqual({ processed: 1, delivered: 1, failed: 0 });
+
+    const row1 = db1.prepare("SELECT state FROM outbound_activity_deliveries LIMIT 1").get() as { state: string };
+    const row2 = db2.prepare("SELECT state FROM outbound_activity_deliveries LIMIT 1").get() as { state: string };
+    expect(row1.state).toBe("delivered");
+    expect(row2.state).toBe("delivered");
+  });
+
   it("atomically claims pending jobs and recovers stale processing claims", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);
