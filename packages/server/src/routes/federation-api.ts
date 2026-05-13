@@ -102,7 +102,19 @@ function parseMaxAgeHours(raw: string | undefined): number {
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
 
+  function isQueueHealthAllowed(user: { id: string; username: string }): boolean {
+    const raw = process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
+    if (!raw) return false;
+    const allowed = new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
+    return allowed.has(user.id) || allowed.has(user.username);
+  }
+
   router.get("/queue-health", requireAuth(), (c) => {
+    const user = c.get("user");
+    if (!user || !isQueueHealthAllowed(user)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
     const outboundCounts = db.prepare(
       `SELECT
          COALESCE(SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
