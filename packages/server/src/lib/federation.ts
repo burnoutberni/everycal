@@ -31,6 +31,11 @@ const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
 const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN = 60_000;
 const OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT = 30;
 const OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT = 90;
+const INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT = 30;
+const INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT = 90;
+const INBOX_PROCESSED_MAX_ROWS_DEFAULT = 0;
+const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
+const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN = 60_000;
 let outboundQueueRun: Promise<{ processed: number; delivered: number; failed: number }> | null = null;
 
 function toSqliteDateTime(date: Date): string {
@@ -609,6 +614,10 @@ function parseCleanupIntervalMs(rawValue: string | undefined): number {
   return Math.max(OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN, parseEnvNumber(rawValue, OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT));
 }
 
+function parseMaxRows(rawValue: string | undefined, fallback: number): number {
+  return Math.max(0, Math.floor(parseEnvNumber(rawValue, fallback)));
+}
+
 export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
   if (outboundQueueRun) return outboundQueueRun;
 
@@ -757,6 +766,93 @@ export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | nul
       }
     } catch (err) {
       console.error("[Federation] outbound terminal cleanup failed", err);
+    }
+  };
+
+  run();
+  return setInterval(run, intervalMs);
+}
+
+export function cleanupProcessedInboxActivities(
+  db: DB,
+  options: {
+    processedRetentionDays?: number;
+    failedRetentionDays?: number;
+    maxRows?: number;
+  } = {}
+): { deletedProcessed: number; deletedFailed: number; deletedCapped: number } {
+  const processedRetentionDays = Math.max(0, Math.floor(options.processedRetentionDays ?? INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT));
+  const failedRetentionDays = Math.max(0, Math.floor(options.failedRetentionDays ?? INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT));
+  const maxRows = Math.max(0, Math.floor(options.maxRows ?? INBOX_PROCESSED_MAX_ROWS_DEFAULT));
+
+  const cleanup = db.transaction((processedDays: number, failedDays: number, keepRows: number) => {
+    const deletedProcessed = db
+      .prepare(
+        "DELETE FROM processed_inbox_activities WHERE status = 'processed' AND received_at < datetime('now', '-' || ? || ' days')"
+      )
+      .run(processedDays).changes;
+
+    const deletedFailed = db
+      .prepare(
+        "DELETE FROM processed_inbox_activities WHERE status = 'failed' AND received_at < datetime('now', '-' || ? || ' days')"
+      )
+      .run(failedDays).changes;
+
+    let deletedCapped = 0;
+    if (keepRows > 0) {
+      deletedCapped = db
+        .prepare(
+          `DELETE FROM processed_inbox_activities
+           WHERE rowid IN (
+             SELECT rowid
+             FROM processed_inbox_activities
+             WHERE status IN ('processed', 'failed')
+             ORDER BY datetime(received_at) DESC, rowid DESC
+             LIMIT -1 OFFSET ?
+           )`
+        )
+        .run(keepRows).changes;
+    }
+
+    return { deletedProcessed, deletedFailed, deletedCapped };
+  });
+
+  return cleanup(processedRetentionDays, failedRetentionDays, maxRows) as {
+    deletedProcessed: number;
+    deletedFailed: number;
+    deletedCapped: number;
+  };
+}
+
+export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null {
+  const processedRetentionDays = parseRetentionDays(
+    process.env.INBOX_PROCESSED_RETAIN_DAYS,
+    INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT,
+  );
+  const failedRetentionDays = parseRetentionDays(
+    process.env.INBOX_FAILED_RETAIN_DAYS,
+    INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT,
+  );
+  const maxRows = parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
+  const intervalMs = Math.max(
+    INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN,
+    parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
+  );
+
+  const run = () => {
+    try {
+      const result = cleanupProcessedInboxActivities(db, {
+        processedRetentionDays,
+        failedRetentionDays,
+        maxRows,
+      });
+      if (result.deletedProcessed > 0 || result.deletedFailed > 0 || result.deletedCapped > 0) {
+        console.log(
+          `[Federation] cleaned processed inbox rows: processed=${result.deletedProcessed}, failed=${result.deletedFailed}, capped=${result.deletedCapped}`
+        );
+      }
+    } catch (err) {
+      console.error("[Federation] processed inbox cleanup failed", err);
     }
   };
 

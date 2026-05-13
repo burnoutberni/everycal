@@ -102,6 +102,60 @@ function parseMaxAgeHours(raw: string | undefined): number {
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
 
+  router.get("/queue-health", requireAuth(), (c) => {
+    const outboundCounts = db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+         COALESCE(SUM(CASE WHEN state = 'processing' THEN 1 ELSE 0 END), 0) AS processing,
+         COALESCE(SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+         COALESCE(SUM(CASE WHEN state = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered
+       FROM outbound_activity_deliveries`
+    ).get() as { pending: number; processing: number; failed: number; delivered: number };
+
+    const oldestPending = db.prepare(
+      `SELECT
+         CAST((julianday('now') - julianday(MIN(next_retry_at))) * 86400 AS INTEGER) AS retry_age_seconds
+       FROM outbound_activity_deliveries
+       WHERE state = 'pending'`
+    ).get() as { retry_age_seconds: number | null };
+
+    const dedupeCounts = db.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END), 0) AS processing,
+         COALESCE(SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END), 0) AS processed,
+         COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+         MIN(received_at) AS oldest_received_at,
+         MAX(received_at) AS newest_received_at
+       FROM processed_inbox_activities`
+    ).get() as {
+      total: number;
+      processing: number;
+      processed: number;
+      failed: number;
+      oldest_received_at: string | null;
+      newest_received_at: string | null;
+    };
+
+    return c.json({
+      outboundQueue: {
+        pending: outboundCounts.pending,
+        processing: outboundCounts.processing,
+        failed: outboundCounts.failed,
+        delivered: outboundCounts.delivered,
+        oldestPendingRetryAgeSeconds: Math.max(0, oldestPending.retry_age_seconds ?? 0),
+      },
+      inboxDedupe: {
+        total: dedupeCounts.total,
+        processing: dedupeCounts.processing,
+        processed: dedupeCounts.processed,
+        failed: dedupeCounts.failed,
+        oldestReceivedAt: dedupeCounts.oldest_received_at,
+        newestReceivedAt: dedupeCounts.newest_received_at,
+      },
+    });
+  });
+
   // Search for a remote actor via WebFinger (auth required to prevent SSRF)
   router.get("/search", requireAuth(), async (c) => {
     const q = c.req.query("q")?.trim();

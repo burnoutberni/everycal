@@ -40,6 +40,10 @@ afterEach(() => {
   delete process.env.OUTBOUND_RETAIN_DELIVERED_DAYS;
   delete process.env.OUTBOUND_RETAIN_FAILED_DAYS;
   delete process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS;
+  delete process.env.INBOX_PROCESSED_RETAIN_DAYS;
+  delete process.env.INBOX_FAILED_RETAIN_DAYS;
+  delete process.env.INBOX_PROCESSED_MAX_ROWS;
+  delete process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS;
 });
 
 describe("federation hardening prep", () => {
@@ -588,6 +592,73 @@ describe("federation hardening prep", () => {
       .prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id")
       .all() as Array<{ id: string }>;
     expect(remainingIds.map((row) => row.id)).toEqual(["keep-delivered"]);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
+  });
+
+  it("cleans up old terminal processed inbox rows with defaults", () => {
+    const db = initDatabase(":memory:");
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("processed-old", "https://remote.example/users/bob", "user:alice", "processed", "-31 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("failed-old", "https://remote.example/users/bob", "user:alice", "failed", "-91 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("processed-recent", "https://remote.example/users/bob", "user:alice", "processed", "-1 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("processing-keep", "https://remote.example/users/bob", "user:alice", "processing", "-365 days");
+
+    const result = federation.cleanupProcessedInboxActivities(db);
+    expect(result).toEqual({ deletedProcessed: 1, deletedFailed: 1, deletedCapped: 0 });
+
+    const remainingIds = db
+      .prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id")
+      .all() as Array<{ activity_id: string }>;
+    expect(remainingIds.map((row) => row.activity_id)).toEqual(["processed-recent", "processing-keep"]);
+  });
+
+  it("applies inbox dedupe cap and strict numeric cleanup parsing", () => {
+    const db = initDatabase(":memory:");
+    const setIntervalSpy = vi.spyOn(global, "setInterval").mockImplementation(() => 1 as unknown as NodeJS.Timeout);
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("oldest", "https://remote.example/users/bob", "user:alice", "processed", "-10 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("middle", "https://remote.example/users/bob", "user:alice", "failed", "-5 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("newest", "https://remote.example/users/bob", "user:alice", "processed", "-1 days");
+
+    process.env.INBOX_PROCESSED_RETAIN_DAYS = "400";
+    process.env.INBOX_FAILED_RETAIN_DAYS = "400";
+    process.env.INBOX_PROCESSED_MAX_ROWS = "2.9";
+    process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS = "5000ms";
+
+    federation.startProcessedInboxCleanupWorker(db);
+
+    const remainingIds = db
+      .prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id")
+      .all() as Array<{ activity_id: string }>;
+    expect(remainingIds.map((row) => row.activity_id)).toEqual(["middle", "newest"]);
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
   });
 

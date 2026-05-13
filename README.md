@@ -65,6 +65,10 @@ Container defaults:
 - `OUTBOUND_RETAIN_DELIVERED_DAYS`: retention window for delivered outbound queue rows (default `30`)
 - `OUTBOUND_RETAIN_FAILED_DAYS`: retention window for failed outbound queue rows (default `90`)
 - `OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS`: terminal outbound cleanup interval (default `3600000`, minimum `60000`)
+- `INBOX_PROCESSED_RETAIN_DAYS`: retention window for `processed` inbox dedupe rows (default `30`)
+- `INBOX_FAILED_RETAIN_DAYS`: retention window for `failed` inbox dedupe rows (default `90`)
+- `INBOX_PROCESSED_MAX_ROWS`: optional cap for total terminal dedupe rows (`processed` + `failed`), newest rows kept first (default `0`, disabled)
+- `INBOX_PROCESSED_CLEANUP_INTERVAL_MS`: inbox dedupe cleanup interval (default `3600000`, minimum `60000`)
 
 CORS behavior:
 
@@ -146,6 +150,18 @@ LIMIT 50;
 - After 5 failed attempts, jobs move to terminal `failed` state and log a permanent-failure message.
 - Built-in cleanup prunes old terminal rows on a schedule: `delivered` rows older than `OUTBOUND_RETAIN_DELIVERED_DAYS` and `failed` rows older than `OUTBOUND_RETAIN_FAILED_DAYS`.
 - Cleanup runs every `OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS` (default hourly). Set retention env vars higher if you need longer investigation windows.
+- Inbox dedupe cleanup prunes terminal rows (`processed`/`failed`) older than `INBOX_PROCESSED_RETAIN_DAYS` / `INBOX_FAILED_RETAIN_DAYS`, and can cap table growth with `INBOX_PROCESSED_MAX_ROWS`.
+
+**Built-in observability endpoint**
+
+Authenticated users can inspect queue and dedupe health:
+
+```bash
+curl -H "Cookie: everycal_session=..." \
+  http://localhost:3000/api/v1/federation/queue-health
+```
+
+Response includes outbound queue state counts (`pending`/`processing`/`failed`/`delivered`), oldest pending retry age in seconds, and `processed_inbox_activities` totals/status mix plus oldest/newest `received_at`.
 
 **Replay/idempotency verification**
 
