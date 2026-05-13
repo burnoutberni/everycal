@@ -515,7 +515,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       if (!temporal) return c.json({ error: t(locale, "events.invalid_datetime") }, 400);
       const hasAddressing = Object.hasOwn(object, "to") || Object.hasOwn(object, "cc");
       const fetchedVisibility = hasAddressing
-        ? deriveVisibilityFromActivityPubAddressing(object)
+        ? deriveVisibilityFromActivityPubAddressing(object, {
+          actorFollowersUrl: actor.followers_url,
+        })
         : "public";
       if (!canViewRemoteByVisibility(db, fetchedVisibility, actor.uri, currentUser?.id)) {
         return c.json({ error: t(locale, "common.forbidden") }, 403);

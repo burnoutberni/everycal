@@ -705,6 +705,9 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const effectiveActor = attributedTo.status === "parsed" ? attributedTo.actor : actorUri;
+  const actorFollowersUrl = (db
+    .prepare("SELECT followers_url FROM remote_actors WHERE uri = ?")
+    .get(effectiveActor) as { followers_url: string | null } | undefined)?.followers_url ?? null;
   // Sanitize content from remote servers
   const title = typeof object.name === "string" ? stripHtml(object.name) : "";
   // Extract location
@@ -765,9 +768,12 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   const upserted = upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
     temporal,
+    actorFollowersUrl,
     visibility:
       ("to" in activity || "cc" in activity)
-        ? deriveVisibilityFromActivityPubAddressing(activity)
+        ? deriveVisibilityFromActivityPubAddressing(activity, {
+          actorFollowersUrl,
+        })
         : undefined,
   });
 

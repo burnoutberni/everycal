@@ -297,7 +297,9 @@ export function federationRoutes(db: DB): Hono {
           allowActorUriCorrection,
           visibility:
             ("to" in activity || "cc" in activity)
-              ? deriveVisibilityFromActivityPubAddressing(activity)
+              ? deriveVisibilityFromActivityPubAddressing(activity, {
+                actorFollowersUrl: actor.followers_url,
+              })
               : undefined,
         });
         if (isRemoteActivityOgEligible(activity, fullObj)) {

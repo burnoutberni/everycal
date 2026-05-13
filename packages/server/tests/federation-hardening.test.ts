@@ -99,13 +99,26 @@ describe("federation hardening prep", () => {
     expect(federation.visibilityToActivityPubAddressing(undefined, actor)).toEqual({ to: [], cc: [] });
   });
 
-  it("derives followers_only when non-public recipients exist in cc only", () => {
+  it("derives followers_only only when recipient matches actor followers URL", () => {
     expect(
       federation.deriveVisibilityFromActivityPubAddressing({
         to: [],
         cc: ["https://remote.example/users/bob/followers"],
+      }, {
+        actorFollowersUrl: "https://remote.example/users/bob/followers",
       })
     ).toBe("followers_only");
+  });
+
+  it("treats /followers suffix as private when actor followers URL does not match", () => {
+    expect(
+      federation.deriveVisibilityFromActivityPubAddressing({
+        to: [],
+        cc: ["https://remote.example/users/bob/followers"],
+      }, {
+        actorFollowersUrl: "https://remote.example/actors/bob/subscribers",
+      })
+    ).toBe("private");
   });
 
   it("treats direct-recipient addressing as private", () => {

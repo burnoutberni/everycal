@@ -109,20 +109,29 @@ export function normalizeEventVisibility(
   return fallback;
 }
 
-export function deriveVisibilityFromActivityPubAddressing(source: Record<string, unknown>): EventVisibility {
+function normalizeAudienceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    const normalizedPath = parsed.pathname.endsWith("/") && parsed.pathname !== "/"
+      ? parsed.pathname.slice(0, -1)
+      : parsed.pathname;
+    return `${parsed.origin}${normalizedPath}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export function deriveVisibilityFromActivityPubAddressing(
+  source: Record<string, unknown>,
+  options: { actorFollowersUrl?: string | null } = {},
+): EventVisibility {
   const to = normalizeAudience(source.to);
   const cc = normalizeAudience(source.cc);
   const recipients = [...to, ...cc];
   if (to.includes(AP_PUBLIC)) return "public";
   if (cc.includes(AP_PUBLIC)) return "unlisted";
-  if (recipients.some((recipient) => {
-    try {
-      const pathname = new URL(recipient).pathname.toLowerCase();
-      return pathname.endsWith("/followers");
-    } catch {
-      return false;
-    }
-  })) {
+  const expectedFollowersUrl = options.actorFollowersUrl ? normalizeAudienceUrl(options.actorFollowersUrl) : null;
+  if (expectedFollowersUrl && recipients.some((recipient) => normalizeAudienceUrl(recipient) === expectedFollowersUrl)) {
     return "followers_only";
   }
   if (recipients.length > 0) return "private";

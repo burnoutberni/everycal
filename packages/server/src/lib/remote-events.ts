@@ -15,6 +15,7 @@ interface UpsertRemoteEventOptions {
   temporal?: NormalizedRemoteTemporal;
   visibility?: EventVisibility;
   allowActorUriCorrection?: boolean;
+  actorFollowersUrl?: string | null;
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -106,7 +107,9 @@ export function upsertRemoteEvent(
   if (!visibility) {
     const hasAddressing = Object.hasOwn(object, "to") || Object.hasOwn(object, "cc");
     visibility = hasAddressing
-      ? deriveVisibilityFromActivityPubAddressing(object)
+      ? deriveVisibilityFromActivityPubAddressing(object, {
+        actorFollowersUrl: options.actorFollowersUrl,
+      })
       : "public";
   }
   const existing = db.prepare("SELECT slug, actor_uri FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null; actor_uri: string } | undefined;
