@@ -37,6 +37,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   delete process.env.SKIP_SIGNATURE_VERIFY;
+  delete process.env.OUTBOUND_RETAIN_DELIVERED_DAYS;
+  delete process.env.OUTBOUND_RETAIN_FAILED_DAYS;
+  delete process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS;
 });
 
 describe("federation hardening prep", () => {
@@ -469,6 +472,123 @@ describe("federation hardening prep", () => {
     process.env.OUTBOUND_DELIVERY_INTERVAL_MS = "1500";
     federation.startOutboundDeliveryWorker(db);
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 1500);
+  });
+
+  it("cleans up old terminal outbound deliveries with defaults", () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "old-delivered",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "old-delivered" }),
+      "delivered",
+      "-31 days"
+    );
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "old-failed",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "old-failed" }),
+      "failed",
+      "-91 days"
+    );
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "recent-delivered",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "recent-delivered" }),
+      "delivered",
+      "-5 days"
+    );
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "pending-row",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "pending-row" }),
+      "pending",
+      "-365 days"
+    );
+
+    const result = federation.cleanupTerminalOutboundDeliveries(db);
+    expect(result).toEqual({ deletedDelivered: 1, deletedFailed: 1 });
+
+    const remainingIds = db
+      .prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id")
+      .all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["pending-row", "recent-delivered"]);
+  });
+
+  it("uses strict numeric parsing for terminal outbound cleanup configuration", () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    const setIntervalSpy = vi.spyOn(global, "setInterval").mockImplementation(() => 1 as unknown as NodeJS.Timeout);
+
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "keep-delivered",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "keep-delivered" }),
+      "delivered",
+      "-4 days"
+    );
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "delete-delivered",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "delete-delivered" }),
+      "delivered",
+      "-5 days"
+    );
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run(
+      "delete-failed",
+      "https://remote.example/inbox",
+      account.id,
+      "http://localhost:3000/users/alice",
+      "http://localhost:3000/users/alice#main-key",
+      JSON.stringify({ id: "delete-failed" }),
+      "failed",
+      "-1 days"
+    );
+
+    process.env.OUTBOUND_RETAIN_DELIVERED_DAYS = "4.8";
+    process.env.OUTBOUND_RETAIN_FAILED_DAYS = "-12";
+    process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS = "5000ms";
+
+    federation.startOutboundTerminalCleanupWorker(db);
+
+    const remainingIds = db
+      .prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id")
+      .all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["keep-delivered"]);
+    expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
   });
 
   it("skips duplicate inbox activities with stable ids", async () => {

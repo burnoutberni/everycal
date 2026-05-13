@@ -62,6 +62,9 @@ Container defaults:
 - `CORS_ORIGIN`: comma-separated allowlist for authenticated/private surfaces
 - `RUN_JOBS_INTERNALLY`: run jobs in same container (`true`/`false`)
 - `SCRAPER_API_KEYS_FILE` or `SCRAPER_API_KEYS_JSON`: scraper auth mapping
+- `OUTBOUND_RETAIN_DELIVERED_DAYS`: retention window for delivered outbound queue rows (default `30`)
+- `OUTBOUND_RETAIN_FAILED_DAYS`: retention window for failed outbound queue rows (default `90`)
+- `OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS`: terminal outbound cleanup interval (default `3600000`, minimum `60000`)
 
 CORS behavior:
 
@@ -141,7 +144,8 @@ LIMIT 50;
 - The in-process worker runs every `OUTBOUND_DELIVERY_INTERVAL_MS` milliseconds (default: `30000`).
 - Jobs start in `pending`, are attempted immediately, and retry with exponential backoff from a 60-second base.
 - After 5 failed attempts, jobs move to terminal `failed` state and log a permanent-failure message.
-- `delivered` and `failed` rows are intentionally retained for auditability; operators may archive old terminal rows after confirming no investigation is needed.
+- Built-in cleanup prunes old terminal rows on a schedule: `delivered` rows older than `OUTBOUND_RETAIN_DELIVERED_DAYS` and `failed` rows older than `OUTBOUND_RETAIN_FAILED_DAYS`.
+- Cleanup runs every `OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS` (default hourly). Set retention env vars higher if you need longer investigation windows.
 
 **Replay/idempotency verification**
 

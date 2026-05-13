@@ -27,6 +27,10 @@ const OUTBOUND_BASE_BACKOFF_MS = 60_000;
 const OUTBOUND_PROCESS_LIMIT = 25;
 const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTBOUND_DELIVERY_TIMEOUT_MS = Math.max(1_000, Math.min(120_000, OUTBOUND_CLAIM_TIMEOUT_MS - 1_000));
+const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
+const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN = 60_000;
+const OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT = 30;
+const OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT = 90;
 let outboundQueueRun: Promise<{ processed: number; delivered: number; failed: number }> | null = null;
 
 function toSqliteDateTime(date: Date): string {
@@ -591,6 +595,20 @@ function nextBackoffMs(attemptCount: number): number {
   return OUTBOUND_BASE_BACKOFF_MS * Math.pow(2, Math.max(0, attemptCount - 1));
 }
 
+function parseEnvNumber(rawValue: string | undefined, fallback: number): number {
+  if (rawValue === undefined) return fallback;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseRetentionDays(rawValue: string | undefined, fallback: number): number {
+  return Math.max(0, Math.floor(parseEnvNumber(rawValue, fallback)));
+}
+
+function parseCleanupIntervalMs(rawValue: string | undefined): number {
+  return Math.max(OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN, parseEnvNumber(rawValue, OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT));
+}
+
 export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
   if (outboundQueueRun) return outboundQueueRun;
 
@@ -695,11 +713,53 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
 
 export function startOutboundDeliveryWorker(db: DB): NodeJS.Timeout | null {
   const rawInterval = process.env.OUTBOUND_DELIVERY_INTERVAL_MS;
-  const parsedInterval = rawInterval === undefined ? 30000 : Number(rawInterval);
-  const intervalMs = Math.max(1000, Number.isFinite(parsedInterval) ? parsedInterval : 30000);
+  const intervalMs = Math.max(1000, parseEnvNumber(rawInterval, 30000));
   const run = () => {
     processOutboundDeliveryQueue(db).catch((err) => console.error("[Federation] outbound delivery worker failed", err));
   };
+  run();
+  return setInterval(run, intervalMs);
+}
+
+export function cleanupTerminalOutboundDeliveries(
+  db: DB,
+  options: { deliveredRetentionDays?: number; failedRetentionDays?: number } = {}
+): { deletedDelivered: number; deletedFailed: number } {
+  const deliveredRetentionDays = Math.max(0, Math.floor(options.deliveredRetentionDays ?? OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT));
+  const failedRetentionDays = Math.max(0, Math.floor(options.failedRetentionDays ?? OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT));
+  const cleanup = db.transaction((deliveredDays: number, failedDays: number) => {
+    const deletedDelivered = db
+      .prepare("DELETE FROM outbound_activity_deliveries WHERE state = 'delivered' AND updated_at < datetime('now', '-' || ? || ' days')")
+      .run(deliveredDays).changes;
+    const deletedFailed = db
+      .prepare("DELETE FROM outbound_activity_deliveries WHERE state = 'failed' AND updated_at < datetime('now', '-' || ? || ' days')")
+      .run(failedDays).changes;
+    return { deletedDelivered, deletedFailed };
+  });
+  return cleanup(deliveredRetentionDays, failedRetentionDays) as { deletedDelivered: number; deletedFailed: number };
+}
+
+export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | null {
+  const deliveredRetentionDays = parseRetentionDays(
+    process.env.OUTBOUND_RETAIN_DELIVERED_DAYS,
+    OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT
+  );
+  const failedRetentionDays = parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
+  const intervalMs = parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
+
+  const run = () => {
+    try {
+      const result = cleanupTerminalOutboundDeliveries(db, { deliveredRetentionDays, failedRetentionDays });
+      if (result.deletedDelivered > 0 || result.deletedFailed > 0) {
+        console.log(
+          `[Federation] cleaned terminal outbound rows: delivered=${result.deletedDelivered}, failed=${result.deletedFailed}`
+        );
+      }
+    } catch (err) {
+      console.error("[Federation] outbound terminal cleanup failed", err);
+    }
+  };
+
   run();
   return setInterval(run, intervalMs);
 }
