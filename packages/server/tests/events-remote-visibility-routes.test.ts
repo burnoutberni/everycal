@@ -65,6 +65,26 @@ describe("remote visibility on event listing routes", () => {
     expect(ids).not.toContain("https://remote.example/events/calendar-private");
   });
 
+  it("does not expose followers-only remote events from RSVP-only access", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/erin", "erin", "https://remote.example/inbox", "remote.example");
+
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, 'offset_only', ?)")
+      .run("https://remote.example/events/calendar-followers", "https://remote.example/users/erin", "Calendar Followers", "2099-02-05", "2099-02-05T00:00:00.000Z", "followers_only");
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')")
+      .run("viewer", "https://remote.example/events/calendar-followers");
+
+    const app = makeApp(db, { id: "viewer", username: "viewer" });
+    const res = await app.request("http://localhost/api/v1/events?source=remote&scope=calendar");
+    const body = await res.json() as { events: Array<{ id: string }> };
+
+    expect(res.status).toBe(200);
+    const ids = body.events.map((event) => event.id);
+    expect(ids).not.toContain("https://remote.example/events/calendar-followers");
+  });
+
   it("filters out tags from private remote events for authenticated scopes", async () => {
     const db = initDatabase(":memory:");
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");

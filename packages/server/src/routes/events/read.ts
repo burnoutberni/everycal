@@ -5,12 +5,23 @@ import { DateQueryParamError } from "../../lib/date-query.js";
 import { getLocale, t } from "../../lib/i18n.js";
 import { PaginationParamError, parseLimitOffset } from "../../lib/pagination.js";
 import { requireAuth } from "../../middleware/auth.js";
-import { fetchAP, resolveRemoteActor, validateFederationUrl } from "../../lib/federation.js";
+import { deriveVisibilityFromActivityPubAddressing, fetchAP, resolveRemoteActor, validateFederationUrl } from "../../lib/federation.js";
 import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteTagFilter, buildRemoteVisibilityFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
+
+function canViewRemoteByVisibility(db: DB, visibility: string, actorUri: string, currentUserId?: string): boolean {
+  if (visibility === "public" || visibility === "unlisted") return true;
+  if (!currentUserId) return false;
+  if (visibility === "followers_only") {
+    return !!db
+      .prepare("SELECT 1 FROM remote_following WHERE account_id = ? AND actor_uri = ?")
+      .get(currentUserId, actorUri);
+  }
+  return false;
+}
 
 export function registerEventReadRoutes(router: Hono, db: DB, context: EventRouteContext): void {
   const { attachUserContext, attachSingleEventContext, fetchLocalEvent, getUserRsvps } = context;
@@ -502,6 +513,13 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
 
       const temporal = normalizeApTemporal(object);
       if (!temporal) return c.json({ error: t(locale, "events.invalid_datetime") }, 400);
+      const hasAddressing = Object.hasOwn(object, "to") || Object.hasOwn(object, "cc");
+      const fetchedVisibility = hasAddressing
+        ? deriveVisibilityFromActivityPubAddressing(object)
+        : "public";
+      if (!canViewRemoteByVisibility(db, fetchedVisibility, actor.uri, currentUser?.id)) {
+        return c.json({ error: t(locale, "common.forbidden") }, 403);
+      }
       const stored = upsertRemoteEvent(db, object, actor.uri, { temporal });
       const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
       const row = db

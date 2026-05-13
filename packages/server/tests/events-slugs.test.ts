@@ -2206,26 +2206,30 @@ describe("event slug canonical behavior", () => {
     expect(res.status).toBe(404);
   });
 
-  it("/events/resolve does not return cached followers-only remote events to unauthenticated users", async () => {
-    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
-      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(
-        "https://remote.example/events/private-3",
-        "https://remote.example/users/alice",
-        "private-3",
-        "Followers Event",
-        "2026-01-01T10:00:00Z",
-        "2026-01-01T10:00:00Z",
-        "offset_only",
-        "followers_only"
-      );
+  it("/events/resolve rejects unauthenticated access to fetched followers-only remote events", async () => {
+    vi.mocked(fetchAP).mockResolvedValue({
+      id: "https://remote.example/events/private-3",
+      type: "Event",
+      name: "Followers Event",
+      startTime: "2026-01-01T10:00:00Z",
+      attributedTo: "https://remote.example/users/alice",
+      to: ["https://remote.example/users/alice/followers"],
+      cc: [],
+    });
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: "https://remote.example/users/alice",
+      preferred_username: "alice",
+      display_name: "Alice",
+      inbox: "https://remote.example/inbox",
+      domain: "remote.example",
+    } as any);
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2Fprivate-3");
 
-    expect(res.status).toBe(502);
-    expect(vi.mocked(fetchAP)).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(403);
+    const persisted = db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get("https://remote.example/events/private-3");
+    expect(persisted).toBeUndefined();
   });
 
   it("initializes an empty database to current schema version", () => {
