@@ -193,6 +193,72 @@ describe("account timezone/locale defaults", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("skips outbound deliveries table rebuild when schema is already current", () => {
+    const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
+    const dbPath = join(dir, "current-outbound-shape.sqlite");
+    const versioned = new Database(dbPath);
+    for (const migration of MIGRATIONS.filter((entry) => entry.version <= 7)) {
+      migration.up(versioned);
+    }
+
+    versioned.exec(`CREATE TABLE outbound_activity_deliveries (
+      id TEXT PRIMARY KEY,
+      destination_inbox TEXT NOT NULL,
+      sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      sender_actor_uri TEXT NOT NULL,
+      sender_key_id TEXT,
+      activity_json TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+      claimed_at TEXT,
+      worker_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+
+    versioned.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("u-outbound-current", "u_outbound_current");
+    versioned
+      .prepare(
+        `INSERT INTO outbound_activity_deliveries (
+          id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json,
+          next_retry_at, state, claimed_at, worker_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`
+      )
+      .run(
+        "delivery-current",
+        "https://remote.example/inbox",
+        "u-outbound-current",
+        "http://localhost:3000/users/u_outbound_current",
+        "",
+        '{"id":"https://example.test/activities/current","type":"Create"}',
+        "2026-04-27T09:30:00.000Z",
+        "processing",
+        "worker-1"
+      );
+    versioned.pragma("user_version = 7");
+    versioned.close();
+
+    const reopened = initDatabase(dbPath);
+    const row = reopened
+      .prepare("SELECT state, worker_id, claimed_at, sender_key_id FROM outbound_activity_deliveries WHERE id = ?")
+      .get("delivery-current") as {
+      state: string;
+      worker_id: string | null;
+      claimed_at: string | null;
+      sender_key_id: string | null;
+    };
+
+    expect(row.state).toBe("processing");
+    expect(row.worker_id).toBe("worker-1");
+    expect(row.claimed_at).not.toBeNull();
+    expect(row.sender_key_id).toBe("http://localhost:3000/users/u_outbound_current#main-key");
+
+    reopened.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("normalizes legacy event visibility and enforces it during migration", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));
     const dbPath = join(dir, "legacy-events-visibility.sqlite");

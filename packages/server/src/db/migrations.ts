@@ -453,6 +453,12 @@ export const MIGRATIONS: Migration[] = [
     name: "federation_hardening",
     up: (db) => {
       const remoteEventColumns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+      const outboundDeliveryColumns = db.prepare("PRAGMA table_info(outbound_activity_deliveries)").all() as Array<{ name: string }>;
+      const shouldRebuildOutboundDeliveries =
+        outboundDeliveryColumns.length > 0 &&
+        ["claimed_at", "worker_id", "sender_key_id", "state", "next_retry_at"].some(
+          (columnName) => !outboundDeliveryColumns.some((column) => column.name === columnName)
+        );
       if (!remoteEventColumns.some((column) => column.name === "visibility")) {
         db.exec("ALTER TABLE remote_events ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public' CHECK(visibility IN ('public','unlisted','followers_only','private'))");
       }
@@ -491,42 +497,44 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_received ON processed_inbox_activities(received_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_processed_inbox_status_claimed ON processed_inbox_activities(status, claimed_at)");
       db.exec(
-        "UPDATE outbound_activity_deliveries SET next_retry_at = datetime(next_retry_at) WHERE datetime(next_retry_at) IS NOT NULL"
+        "UPDATE outbound_activity_deliveries SET next_retry_at = COALESCE(datetime(next_retry_at), datetime('now'))"
       );
 
-      db.exec(`CREATE TABLE outbound_activity_deliveries_tmp (
-        id TEXT PRIMARY KEY,
-        destination_inbox TEXT NOT NULL,
-        sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        sender_actor_uri TEXT NOT NULL,
-        sender_key_id TEXT,
-        activity_json TEXT NOT NULL,
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
-        last_error TEXT,
-        state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
-        claimed_at TEXT,
-        worker_id TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )`);
-      db.exec(`INSERT INTO outbound_activity_deliveries_tmp (
-        id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json,
-        attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
-      )
-      SELECT
-        id, destination_inbox, sender_account_id, sender_actor_uri,
-        COALESCE(NULLIF(sender_key_id, ''), sender_actor_uri || '#main-key'),
-        activity_json,
-        attempt_count, COALESCE(datetime(next_retry_at), datetime('now')), last_error,
-        CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
-        NULL, NULL, created_at, updated_at
-      FROM outbound_activity_deliveries`);
-      db.exec("DROP TABLE outbound_activity_deliveries");
-      db.exec("ALTER TABLE outbound_activity_deliveries_tmp RENAME TO outbound_activity_deliveries");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
+      if (shouldRebuildOutboundDeliveries) {
+        db.exec(`CREATE TABLE outbound_activity_deliveries_tmp (
+          id TEXT PRIMARY KEY,
+          destination_inbox TEXT NOT NULL,
+          sender_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          sender_actor_uri TEXT NOT NULL,
+          sender_key_id TEXT,
+          activity_json TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_error TEXT,
+          state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','processing','delivered','failed')),
+          claimed_at TEXT,
+          worker_id TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`);
+        db.exec(`INSERT INTO outbound_activity_deliveries_tmp (
+          id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json,
+          attempt_count, next_retry_at, last_error, state, claimed_at, worker_id, created_at, updated_at
+        )
+        SELECT
+          id, destination_inbox, sender_account_id, sender_actor_uri,
+          COALESCE(NULLIF(sender_key_id, ''), sender_actor_uri || '#main-key'),
+          activity_json,
+          attempt_count, COALESCE(datetime(next_retry_at), datetime('now')), last_error,
+          CASE WHEN state IN ('pending', 'delivered', 'failed') THEN state ELSE 'pending' END,
+          NULL, NULL, created_at, updated_at
+        FROM outbound_activity_deliveries`);
+        db.exec("DROP TABLE outbound_activity_deliveries");
+        db.exec("ALTER TABLE outbound_activity_deliveries_tmp RENAME TO outbound_activity_deliveries");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_state_retry ON outbound_activity_deliveries(state, next_retry_at)");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_sender ON outbound_activity_deliveries(sender_account_id)");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_outbound_deliveries_processing_claimed ON outbound_activity_deliveries(state, claimed_at)");
+      }
       db.exec(
         "UPDATE outbound_activity_deliveries SET sender_key_id = sender_actor_uri || '#main-key' WHERE sender_key_id IS NULL OR sender_key_id = ''"
       );
