@@ -27,6 +27,7 @@ const OUTBOUND_BASE_BACKOFF_MS = 60_000;
 const OUTBOUND_PROCESS_LIMIT = 25;
 const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTBOUND_DELIVERY_TIMEOUT_MS = Math.max(1_000, Math.min(120_000, OUTBOUND_CLAIM_TIMEOUT_MS - 1_000));
+let outboundQueueRun: Promise<{ processed: number; delivered: number; failed: number }> | null = null;
 
 function toSqliteDateTime(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 19);
@@ -582,94 +583,105 @@ function nextBackoffMs(attemptCount: number): number {
 }
 
 export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
-  const workerId = crypto.randomUUID();
-  const staleClaimBefore = toSqliteDateTime(new Date(Date.now() - OUTBOUND_CLAIM_TIMEOUT_MS));
-  const claimJobs = db.transaction((batchLimit: number, currentWorkerId: string, staleClaimCutoff: string) => {
-    db.prepare(
-      `UPDATE outbound_activity_deliveries
-       SET state = 'pending', claimed_at = NULL, worker_id = NULL, updated_at = datetime('now')
-       WHERE state = 'processing' AND claimed_at IS NOT NULL AND claimed_at <= ?`,
-    ).run(staleClaimCutoff);
+  if (outboundQueueRun) return outboundQueueRun;
 
-     db.prepare(
-       `UPDATE outbound_activity_deliveries
-        SET state = 'processing', claimed_at = datetime('now'), worker_id = ?, updated_at = datetime('now')
-        WHERE id IN (
-          SELECT id
-          FROM outbound_activity_deliveries
-          WHERE state = 'pending' AND worker_id IS NULL AND next_retry_at <= datetime('now')
-          ORDER BY next_retry_at, created_at
-          LIMIT ?
-        )
-          AND state = 'pending'
-          AND worker_id IS NULL`,
-     ).run(currentWorkerId, batchLimit);
+  const run = (async () => {
+    const workerId = crypto.randomUUID();
+    const staleClaimBefore = toSqliteDateTime(new Date(Date.now() - OUTBOUND_CLAIM_TIMEOUT_MS));
+    const claimJobs = db.transaction((batchLimit: number, currentWorkerId: string, staleClaimCutoff: string) => {
+      db.prepare(
+        `UPDATE outbound_activity_deliveries
+         SET state = 'pending', claimed_at = NULL, worker_id = NULL, updated_at = datetime('now')
+         WHERE state = 'processing' AND claimed_at IS NOT NULL AND claimed_at <= ?`,
+      ).run(staleClaimCutoff);
 
-     return db.prepare(
-       `SELECT d.*, a.private_key
-        FROM outbound_activity_deliveries d
-        JOIN accounts a ON a.id = d.sender_account_id
-        WHERE d.state = 'processing' AND d.worker_id = ?
-        ORDER BY d.claimed_at, d.created_at`,
-     ).all(currentWorkerId) as Array<{
-       id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
-       sender_key_id: string | null; attempt_count: number; private_key: string | null;
-     }>;
-  });
+       db.prepare(
+         `UPDATE outbound_activity_deliveries
+          SET state = 'processing', claimed_at = datetime('now'), worker_id = ?, updated_at = datetime('now')
+          WHERE id IN (
+            SELECT id
+            FROM outbound_activity_deliveries
+            WHERE state = 'pending' AND worker_id IS NULL AND next_retry_at <= datetime('now')
+            ORDER BY next_retry_at, created_at
+            LIMIT ?
+          )
+            AND state = 'pending'
+            AND worker_id IS NULL`,
+       ).run(currentWorkerId, batchLimit);
 
-  const jobs = claimJobs(limit, workerId, staleClaimBefore) as Array<{
-    id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
-    sender_key_id: string | null; attempt_count: number; private_key: string | null;
-  }>;
-  let delivered = 0;
-  let failed = 0;
-  for (const job of jobs) {
-    if (!job.private_key) {
-      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run("sender account has no private key", job.id, workerId);
-      failed++;
-      continue;
-    }
-    let activity: Record<string, unknown>;
-    try {
-      activity = JSON.parse(job.activity_json) as Record<string, unknown>;
-    } catch {
-      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run("invalid stored activity JSON", job.id, workerId);
-      failed++;
-      continue;
-    }
-    const keyId = job.sender_key_id || `${job.sender_actor_uri}#main-key`;
-    let ok = false;
-    let deliveryError: string | null = null;
-    try {
-      const result = await deliverActivityWithResult(job.destination_inbox, activity, job.private_key, keyId);
-      ok = result.ok;
-      deliveryError = result.error;
-      if (!ok && deliveryError) {
-        console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
+       return db.prepare(
+         `SELECT d.*, a.private_key
+          FROM outbound_activity_deliveries d
+          JOIN accounts a ON a.id = d.sender_account_id
+          WHERE d.state = 'processing' AND d.worker_id = ?
+          ORDER BY d.claimed_at, d.created_at`,
+       ).all(currentWorkerId) as Array<{
+         id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+         sender_key_id: string | null; attempt_count: number; private_key: string | null;
+       }>;
+    });
+
+    const jobs = claimJobs(limit, workerId, staleClaimBefore) as Array<{
+      id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+      sender_key_id: string | null; attempt_count: number; private_key: string | null;
+    }>;
+    let delivered = 0;
+    let failed = 0;
+    for (const job of jobs) {
+      if (!job.private_key) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run("sender account has no private key", job.id, workerId);
+        failed++;
+        continue;
       }
-    } catch (err) {
-      deliveryError = err instanceof Error ? err.message : String(err);
-      console.error(`[Federation] outbound delivery ${job.id} threw`, err);
+      let activity: Record<string, unknown>;
+      try {
+        activity = JSON.parse(job.activity_json) as Record<string, unknown>;
+      } catch {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run("invalid stored activity JSON", job.id, workerId);
+        failed++;
+        continue;
+      }
+      const keyId = job.sender_key_id || `${job.sender_actor_uri}#main-key`;
+      let ok = false;
+      let deliveryError: string | null = null;
+      try {
+        const result = await deliverActivityWithResult(job.destination_inbox, activity, job.private_key, keyId);
+        ok = result.ok;
+        deliveryError = result.error;
+        if (!ok && deliveryError) {
+          console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
+        }
+      } catch (err) {
+        deliveryError = err instanceof Error ? err.message : String(err);
+        console.error(`[Federation] outbound delivery ${job.id} threw`, err);
+      }
+      const attempts = job.attempt_count + 1;
+      if (ok) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'delivered', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = NULL, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, job.id, workerId);
+        delivered++;
+      } else if (attempts >= OUTBOUND_MAX_ATTEMPTS) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, deliveryError || `delivery failed after ${attempts} attempts`, job.id, workerId);
+        failed++;
+        console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
+      } else {
+        const retryAt = toSqliteDateTime(new Date(Date.now() + nextBackoffMs(attempts)));
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'pending', attempt_count = ?, next_retry_at = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, retryAt, deliveryError || `delivery attempt ${attempts} failed`, job.id, workerId);
+      }
     }
-    const attempts = job.attempt_count + 1;
-    if (ok) {
-      db.prepare("UPDATE outbound_activity_deliveries SET state = 'delivered', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = NULL, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run(attempts, job.id, workerId);
-      delivered++;
-    } else if (attempts >= OUTBOUND_MAX_ATTEMPTS) {
-      db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run(attempts, deliveryError || `delivery failed after ${attempts} attempts`, job.id, workerId);
-      failed++;
-      console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
-    } else {
-      const retryAt = toSqliteDateTime(new Date(Date.now() + nextBackoffMs(attempts)));
-      db.prepare("UPDATE outbound_activity_deliveries SET state = 'pending', attempt_count = ?, next_retry_at = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
-        .run(attempts, retryAt, deliveryError || `delivery attempt ${attempts} failed`, job.id, workerId);
-    }
+    return { processed: jobs.length, delivered, failed };
+  })();
+
+  outboundQueueRun = run;
+  try {
+    return await run;
+  } finally {
+    if (outboundQueueRun === run) outboundQueueRun = null;
   }
-  return { processed: jobs.length, delivered, failed };
 }
 
 export function startOutboundDeliveryWorker(db: DB): NodeJS.Timeout | null {

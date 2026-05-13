@@ -288,6 +288,37 @@ describe("federation hardening prep", () => {
     expect(row.last_error).toContain("timed out after 120000ms");
   });
 
+  it("coalesces overlapping outbound queue runners in process", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    let resolveFetch: (() => void) | null = null;
+    const fetchMock = vi.fn(() => new Promise((resolve) => {
+      resolveFetch = () => resolve({ ok: true, status: 202, text: async () => "" });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    federation.enqueueOutboundDelivery(db, {
+      destinationInbox: "https://93.184.216.34/inbox",
+      senderAccountId: account.id,
+      senderActorUri: "http://localhost:3000/users/alice",
+      activity: { id: "http://localhost/activity/single-flight", type: "Create" },
+    });
+
+    const run1 = federation.processOutboundDeliveryQueue(db, 1);
+    const run2 = federation.processOutboundDeliveryQueue(db, 1);
+    for (let i = 0; i < 20 && fetchMock.mock.calls.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resolveFetch).not.toBeNull();
+    resolveFetch?.();
+
+    const [result1, result2] = await Promise.all([run1, run2]);
+    expect(result1).toEqual({ processed: 1, delivered: 1, failed: 0 });
+    expect(result2).toEqual({ processed: 1, delivered: 1, failed: 0 });
+  });
+
   it("atomically claims pending jobs and recovers stale processing claims", async () => {
     const db = initDatabase(":memory:");
     const account = insertAccount(db);
