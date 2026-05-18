@@ -29,11 +29,12 @@ import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import {
+  extractApObjectUri,
   isActivityPubRsvpType,
-  localEventIdFromActivityPubUri,
   mapActivityPubRsvpToLocalState,
   normalizeApPublished,
   parseApActorReference,
+  resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
@@ -68,14 +69,6 @@ function buildFollowActivity(actorUrl: string, actorUri: string): { id: string; 
 }
 
 
-function extractApObjectUri(obj: unknown): string | undefined {
-  if (typeof obj === "string") return obj;
-  if (obj && typeof obj === "object" && typeof (obj as Record<string, unknown>).id === "string") {
-    return (obj as Record<string, string>).id;
-  }
-  return undefined;
-}
-
 async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {
   if (!object) return null;
   if (typeof object === "string") return (await fetchAP(object)) as Record<string, unknown>;
@@ -95,19 +88,12 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
     console.warn(`Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`);
     return { handled: true, applied: false };
   }
-  const objectUri = extractApObjectUri(activity.object);
-  if (!objectUri) {
-    console.warn(`Rejected pulled ${String(activity.type)}: missing RSVP object id`);
-    return { handled: true, applied: false };
-  }
-  const eventId = localEventIdFromActivityPubUri(objectUri);
-  if (!eventId) return { handled: true, applied: false };
-  const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(eventId) as { id: string } | undefined;
-  if (!localEvent) return { handled: true, applied: false };
+  const target = resolveLocalRsvpEventTarget(db, activity);
+  if (!target) return { handled: true, applied: false };
   const localState = mapActivityPubRsvpToLocalState(activity.type);
   if (localState === undefined) return { handled: true, applied: false };
   upsertRemoteEventRsvp(db, {
-    eventId,
+    eventId: target.eventId,
     actorUri,
     activityType: activity.type,
     activityId: typeof activity.id === "string" ? activity.id : null,

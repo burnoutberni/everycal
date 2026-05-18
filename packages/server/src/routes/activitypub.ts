@@ -27,10 +27,10 @@ import {
 import {
   extractApObjectUri,
   isActivityPubRsvpType,
-  localEventIdFromActivityPubUri,
   mapActivityPubRsvpToLocalState,
   normalizeApPublished,
   parseApActorReference,
+  resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
 import { stripHtml } from "../lib/security.js";
@@ -836,63 +836,12 @@ function resolveLocalRsvpEvent(
   activity: Record<string, unknown>,
   options: { inboxUsername?: string } = {},
 ): { eventId: string; ownerActorUri: string } | null {
-  const rawObject = activity.object;
-  const objectUri = extractObjectUri(rawObject);
-  if (!objectUri) {
-    console.log("  ⚠️  Ignoring RSVP: object is missing a target Event id");
+  const target = resolveLocalRsvpEventTarget(db, activity, options);
+  if (!target) {
+    console.log("  ⚠️  Rejecting RSVP: invalid local Event target");
     return null;
   }
-
-  if (rawObject && typeof rawObject === "object") {
-    const object = rawObject as Record<string, unknown>;
-    if (typeof object.type === "string" && object.type !== "Event") {
-      console.log(`  ⚠️  Ignoring RSVP: object type ${object.type} is not Event`);
-      return null;
-    }
-    const innerActor = parseActorUri(object.actor);
-    const attributedTo = getAttributedActor(object);
-    if (innerActor && innerActor !== parseActorUri(activity.actor)) {
-      console.log(`  ⚠️  Rejecting RSVP: object actor ${innerActor} does not match activity actor`);
-      return null;
-    }
-    if (attributedTo.status === "unparseable") {
-      console.log("  ⚠️  Rejecting RSVP: Event attributedTo is unparseable");
-      return null;
-    }
-  }
-
-  const eventId = localEventIdFromActivityPubUri(objectUri);
-  if (!eventId) {
-    console.log(`  ⏭ Ignoring RSVP for non-local Event object: ${objectUri}`);
-    return null;
-  }
-
-  const localEvent = db.prepare(
-    `SELECT e.id, a.username
-     FROM events e
-     JOIN accounts a ON a.id = e.account_id
-     WHERE e.id = ?`,
-  ).get(eventId) as { id: string; username: string } | undefined;
-  if (!localEvent) {
-    console.log(`  ⏭ Ignoring RSVP for unknown local event: ${eventId}`);
-    return null;
-  }
-
-  if (options.inboxUsername && localEvent.username !== options.inboxUsername) {
-    console.log(`  ⚠️  Rejecting RSVP: event ${eventId} is owned by ${localEvent.username}, not inbox ${options.inboxUsername}`);
-    return null;
-  }
-
-  const ownerActorUri = buildActorUrl(localEvent.username);
-  if (rawObject && typeof rawObject === "object") {
-    const attributedTo = getAttributedActor(rawObject as Record<string, unknown>);
-    if (attributedTo.status === "parsed" && attributedTo.actor !== ownerActorUri) {
-      console.log(`  ⚠️  Rejecting RSVP: Event attributedTo ${attributedTo.actor} does not own ${eventId}`);
-      return null;
-    }
-  }
-
-  return { eventId, ownerActorUri };
+  return target;
 }
 
 function handleRsvpActivity(

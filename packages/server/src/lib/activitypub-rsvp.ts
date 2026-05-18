@@ -1,5 +1,6 @@
 import type { DB } from "../db.js";
-import { getBaseUrl } from "./base-url.js";
+import { getAttributedActor } from "./federation.js";
+import { buildActorUrl, getBaseUrl } from "./base-url.js";
 
 export const AP_RSVP_ACTIVITY_TYPES = ["Accept", "TentativeAccept", "Reject", "Join", "Leave"] as const;
 export type ActivityPubRsvpType = (typeof AP_RSVP_ACTIVITY_TYPES)[number];
@@ -93,6 +94,51 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
   } catch {
     return /^https?:\/\//i.test(trimmed) ? null : trimmed;
   }
+}
+
+type LocalRsvpEventTarget = { eventId: string; ownerActorUri: string };
+
+export function resolveLocalRsvpEventTarget(
+  db: DB,
+  activity: Record<string, unknown>,
+  options: { inboxUsername?: string } = {},
+): LocalRsvpEventTarget | null {
+  const rawObject = activity.object;
+  const objectUri = extractApObjectUri(rawObject);
+  if (!objectUri) return null;
+
+  if (rawObject && typeof rawObject === "object") {
+    const object = rawObject as Record<string, unknown>;
+    if (typeof object.type === "string" && object.type !== "Event") return null;
+
+    const innerActor = parseApActorReference(object.actor);
+    const activityActor = parseApActorReference(activity.actor);
+    if (innerActor && activityActor && innerActor !== activityActor) return null;
+
+    const embeddedAttributedTo = getAttributedActor(object);
+    if (embeddedAttributedTo.status === "unparseable") return null;
+  }
+
+  const eventId = localEventIdFromActivityPubUri(objectUri);
+  if (!eventId) return null;
+
+  const localEvent = db.prepare(
+    `SELECT e.id, a.username
+     FROM events e
+     JOIN accounts a ON a.id = e.account_id
+     WHERE e.id = ?`,
+  ).get(eventId) as { id: string; username: string } | undefined;
+  if (!localEvent) return null;
+
+  if (options.inboxUsername && localEvent.username !== options.inboxUsername) return null;
+
+  const ownerActorUri = buildActorUrl(localEvent.username);
+  if (rawObject && typeof rawObject === "object") {
+    const attributedTo = getAttributedActor(rawObject as Record<string, unknown>);
+    if (attributedTo.status === "parsed" && attributedTo.actor !== ownerActorUri) return null;
+  }
+
+  return { eventId, ownerActorUri };
 }
 
 export function shouldApplyRemoteRsvpUpdate(existing: {

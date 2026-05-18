@@ -415,4 +415,49 @@ describe("ActivityPub RSVP federation", () => {
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
   });
+
+  it("applies inbox-equivalent object-form target validation for pulled RSVP activities", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-wrong-object-type", {
+        object: { type: "Note", id: localEventUrl },
+      }),
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-wrong-attributed-to", {
+        object: { type: "Event", id: localEventUrl, attributedTo: "http://localhost/users/mallory" },
+      }),
+    ]);
+
+    const res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 2 });
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
 });
