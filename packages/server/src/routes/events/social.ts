@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { nanoid } from "nanoid";
 import type { DB } from "../../db.js";
 import { ensureKeyPairForAccount } from "../../lib/account-keys.js";
 import { enqueueOutboundDelivery, resolveRemoteActor } from "../../lib/federation.js";
@@ -31,7 +32,7 @@ async function enqueueOutboundRsvpIfNeeded(
   const type = mapLocalRsvpStateToActivityPubType(params.nextStatus);
   const activity = {
     "@context": "https://www.w3.org/ns/activitystreams",
-    id: `${actorUrl}#rsvp/${encodeURIComponent(params.eventUri)}/${Date.now()}`,
+    id: `${actorUrl}#rsvp/${encodeURIComponent(params.eventUri)}/${Date.now()}-${nanoid(10)}`,
     type,
     actor: actorUrl,
     object: params.eventUri,

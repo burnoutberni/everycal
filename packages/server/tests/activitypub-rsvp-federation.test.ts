@@ -245,6 +245,56 @@ describe("ActivityPub RSVP federation", () => {
     expect(count.cnt).toBe(1);
   });
 
+  it("generates unique outbound RSVP activity ids for updates in the same millisecond", async () => {
+    seedRemoteEvent(db);
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: "https://remote.example/users/organizer",
+      type: "Person",
+      preferred_username: "organizer",
+      display_name: "Organizer",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1710000000000);
+    const app = authedApp(db);
+    const first = await app.request("http://localhost/api/v1/events/rsvp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventUri: "https://remote.example/events/remote-1", status: "going" }),
+    });
+    const second = await app.request("http://localhost/api/v1/events/rsvp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventUri: "https://remote.example/events/remote-1", status: "maybe" }),
+    });
+    nowSpy.mockRestore();
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const rows = db.prepare("SELECT activity_json FROM outbound_activity_deliveries ORDER BY id ASC").all() as Array<{
+      activity_json: string;
+    }>;
+    expect(rows).toHaveLength(2);
+    const ids = rows.map((row) => (JSON.parse(row.activity_json) as { id: string }).id);
+    expect(ids[0]).not.toBe(ids[1]);
+    expect(ids[0]).toContain("#rsvp/");
+    expect(ids[1]).toContain("#rsvp/");
+  });
+
   it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {
     seedRemoteEvent(db);
     db.prepare("UPDATE accounts SET private_key = ?, public_key = NULL WHERE id = ?").run("LEGACY_PRIVATE", "local1");
