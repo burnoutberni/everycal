@@ -84,7 +84,11 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
     const parsed = new URL(trimmed);
     const base = new URL(baseUrl);
     if (parsed.origin !== base.origin) return null;
-    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
+    const basePath = base.pathname.replace(/\/+$/, "");
+    const eventPathPrefix = `${basePath}/events/`;
+    if (!parsed.pathname.startsWith(eventPathPrefix)) return null;
+    const eventPathRemainder = parsed.pathname.slice(eventPathPrefix.length);
+    const match = eventPathRemainder.match(/^([^/]+)\/?$/);
     return match ? decodeURIComponent(match[1]) : null;
   } catch {
     return /^https?:\/\//i.test(trimmed) ? null : trimmed;

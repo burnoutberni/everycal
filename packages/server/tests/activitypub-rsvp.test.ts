@@ -22,6 +22,14 @@ describe("localEventIdFromActivityPubUri", () => {
     expect(localEventIdFromActivityPubUri(" http://localhost/events/event-1/ ")).toBe("event-1");
   });
 
+  it("supports local event URIs when BASE_URL includes a path prefix", () => {
+    process.env.BASE_URL = "https://example.com/root";
+
+    expect(localEventIdFromActivityPubUri("https://example.com/root/events/event-1")).toBe("event-1");
+    expect(localEventIdFromActivityPubUri("https://example.com/root/events/event-1/")).toBe("event-1");
+    expect(localEventIdFromActivityPubUri("https://example.com/events/event-1")).toBeNull();
+  });
+
   it("decodes encoded event ids from local event URIs", () => {
     expect(localEventIdFromActivityPubUri("http://localhost/events/hello%20world")).toBe("hello world");
   });
