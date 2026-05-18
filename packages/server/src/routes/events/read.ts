@@ -9,6 +9,7 @@ import { deriveVisibilityFromActivityPubAddressing, fetchAP, resolveRemoteActor,
 import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
+import { getBaseUrl } from "../../lib/base-url.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteTagFilter, buildRemoteVisibilityFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
 
@@ -56,7 +57,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
             )`;
           params.push(user!.id, user!.id, user!.id);
         } else if (isMineScope) {
-          const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+          const baseUrl = getBaseUrl();
           const feed = buildFeedQuery({ userId: user!.id, baseUrl });
           sql = `SELECT DISTINCT t.tag FROM event_tags t
             WHERE t.event_id IN (SELECT combined.id FROM (${feed.sql}) AS combined WHERE 1=1`;
@@ -160,7 +161,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           )`;
         params.push(user!.id, user!.id, user!.id);
       } else if (isMineScope) {
-        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const baseUrl = getBaseUrl();
         const feed = buildFeedQuery({ userId: user!.id, baseUrl });
         sql = feed.sql;
         params.push(...feed.params);
@@ -344,7 +345,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
       const fetchLocal: MergedFetcher = (after, fetchLimit) => {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
       const params = [...feed.params];

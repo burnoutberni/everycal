@@ -8,10 +8,7 @@ import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
-
-function getBaseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
-}
+import { getBaseUrl } from "../../lib/base-url.js";
 
 async function enqueueOutboundRsvpIfNeeded(
   db: DB,

@@ -7,11 +7,8 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { getBaseUrl } from "../lib/base-url.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
-
-function getBaseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
-}
 
 /** Convert bio to HTML if plain text (Mastodon expects HTML in note). */
 function bioToNote(bio: string | null): string {

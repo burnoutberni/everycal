@@ -5,6 +5,7 @@
 import crypto from "node:crypto";
 import type { EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
+import { getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
 
@@ -871,7 +872,7 @@ export async function deliverToFollowers(
     .get(accountId) as { username: string; private_key: string | null } | undefined;
   if (!account?.private_key) return;
 
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   const actorUri = `${baseUrl}/users/${account.username}`;
 
   const followers = db

@@ -41,6 +41,7 @@ import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
+import { getBaseUrl } from "../lib/base-url.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -50,10 +51,6 @@ const AP_CONTENT_TYPES = [
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
-}
-
-function getBaseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
 }
 
 /** Convert SQLite datetime to ISO 8601 for ActivityPub (required by spec). */

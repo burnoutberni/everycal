@@ -38,6 +38,7 @@ import {
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
+import { getBaseUrl } from "../lib/base-url.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -87,7 +88,7 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
 function localEventIdFromActivityPubUri(uri: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) return null;
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   try {
     const parsed = new URL(trimmed);
     const base = new URL(baseUrl);
@@ -490,7 +491,7 @@ export function federationRoutes(db: DB): Hono {
         privateKey = keys.privateKey;
       }
 
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const ourActorUrl = `${baseUrl}/users/${user.username}`;
 
       const followActivity = buildFollowActivity(ourActorUrl, actorUri);
@@ -527,7 +528,7 @@ export function federationRoutes(db: DB): Hono {
       activeAccountIds: activeRows.map((r) => r.account_id),
     });
     const followRefs = new Map(activeRows.map((row) => [row.account_id, row.follow_activity_id]));
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+    const baseUrl = getBaseUrl();
     const operationId = createHash("sha256")
       .update(`${Date.now()}-${user.id}-${actorUri}-${Math.random()}`)
       .digest("hex")
@@ -666,7 +667,7 @@ export function federationRoutes(db: DB): Hono {
 
     let delivered = false;
     if (account.private_key) {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const ourActorUrl = `${baseUrl}/users/${account.username}`;
 
       const undoActivity = buildUndoFollowActivity(ourActorUrl, actorUri, followRow?.follow_activity_id);

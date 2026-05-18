@@ -5,6 +5,7 @@
 
 import nodemailer from "nodemailer";
 import { emailT } from "./email-i18n.js";
+import { getBaseUrl } from "./base-url.js";
 import type { Transporter } from "nodemailer";
 
 let transporter: Transporter | null = null;
@@ -34,20 +35,16 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
-function baseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
-}
-
 function shouldLogTokenLinksForMissingSmtp(): boolean {
   return process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
 }
 
 function tokenUrl(path: "/verify-email" | "/reset-password", token: string): string {
-  if (!process.env.BASE_URL && shouldLogTokenLinksForMissingSmtp() && !warnedAboutMissingBaseUrlForTokenLinks) {
+  if ((!process.env.BASE_URL || process.env.BASE_URL.trim().length === 0) && shouldLogTokenLinksForMissingSmtp() && !warnedAboutMissingBaseUrlForTokenLinks) {
     warnedAboutMissingBaseUrlForTokenLinks = true;
     console.warn("[dev] BASE_URL is not set; email links will use http://localhost:3000. Set BASE_URL to your local app URL if needed.");
   }
-  return `${baseUrl()}${path}?token=${token}`;
+  return `${getBaseUrl()}${path}?token=${token}`;
 }
 
 function escapeHtml(value: string): string {
@@ -108,7 +105,7 @@ export async function sendWelcomeEmail(
     return;
   }
 
-  const url = baseUrl();
+  const url = getBaseUrl();
   const body = emailT(locale, "welcome.body", { username });
   const getStarted = emailT(locale, "welcome.getStarted");
   await transport.sendMail({
@@ -203,7 +200,7 @@ function getEventLink(event: EventInfo): string {
     ? event.account.username.split("@")[0]
     : event.account.username;
   const domainPart = hasExplicitDomain ? `@${event.account.domain}` : "";
-  return `${baseUrl()}/@${username}${domainPart}/${event.slug}`;
+  return `${getBaseUrl()}/@${username}${domainPart}/${event.slug}`;
 }
 
 /** Send event reminder. */

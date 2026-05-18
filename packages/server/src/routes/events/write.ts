@@ -13,6 +13,7 @@ import { uniqueLocalEventSlug } from "../../lib/slugs.js";
 import { isValidIanaTimezone } from "../../lib/timezone.js";
 import { AP_CONTEXT, EVERYCAL_CONTEXT, buildApEventObject } from "../../lib/activitypub-event.js";
 import { computeMaterialEventChanges, deriveCanonicalTemporalFields, deriveStoredDatePart, normalizePartialUpdateTemporalFields, normalizeEventWriteInput, sanitizeEventWriteFields } from "../../lib/event-write.js";
+import { getBaseUrl } from "../../lib/base-url.js";
 import type { EventRouteContext } from "./context.js";
 
 export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRouteContext): void {
@@ -152,7 +153,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
 
     // Deliver Create activity to remote followers
     if (visibility !== "private") {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const actorUrl = `${baseUrl}/users/${postingAccount.username}`;
       const publishedAt = new Date().toISOString();
       const addressing = visibilityToActivityPubAddressing(visibility, actorUrl);
@@ -398,7 +399,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     const transitionedToPrivate = existing.visibility !== "private" && nextVisibility === "private";
 
     if (transitionedToPrivate) {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const actorAccount = db
         .prepare("SELECT username FROM accounts WHERE id = ?")
         .get(existing.account_id) as { username: string } | undefined;
@@ -420,7 +421,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     if (nextVisibility !== "private") {
       const updated = readLocalEventById(id);
       if (updated) {
-        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const baseUrl = getBaseUrl();
         const actorAccount = db
           .prepare("SELECT username FROM accounts WHERE id = ?")
           .get(existing.account_id) as { username: string } | undefined;
@@ -517,7 +518,7 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       .catch((err) => console.error(`[OG] Failed to clear OG image for deleted event ${id}:`, err));
     db.prepare("DELETE FROM events WHERE id = ?").run(id);
 
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+    const baseUrl = getBaseUrl();
     if (!actorAccount || existing.visibility === "private") return c.json({ ok: true });
     const actorUrl = `${baseUrl}/users/${actorAccount.username}`;
     const deleteActivity = {
