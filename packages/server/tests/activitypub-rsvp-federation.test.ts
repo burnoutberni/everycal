@@ -265,4 +265,44 @@ describe("ActivityPub RSVP federation", () => {
       .get("event-1", remoteActorUri) as { status: string; last_activity_type: string };
     expect(row).toEqual({ status: "maybe", last_activity_type: "TentativeAccept" });
   });
+
+  it("does not increment imported for pulled RSVP activities that are handled but rejected", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-rejected", {
+        actor: "https://remote.example/users/eve",
+      }),
+    ]);
+    const res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
 });

@@ -99,24 +99,26 @@ function localEventIdFromActivityPubUri(uri: string): string | null {
   }
 }
 
-function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): boolean {
-  if (!isActivityPubRsvpType(activity.type)) return false;
+type PulledRsvpImportResult = { handled: boolean; applied: boolean };
+
+function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): PulledRsvpImportResult {
+  if (!isActivityPubRsvpType(activity.type)) return { handled: false, applied: false };
   const activityActor = parseApActorReference(activity.actor);
   if (activityActor !== actorUri) {
     console.warn(`Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`);
-    return true;
+    return { handled: true, applied: false };
   }
   const objectUri = extractApObjectUri(activity.object);
   if (!objectUri) {
     console.warn(`Rejected pulled ${String(activity.type)}: missing RSVP object id`);
-    return true;
+    return { handled: true, applied: false };
   }
   const eventId = localEventIdFromActivityPubUri(objectUri);
-  if (!eventId) return true;
+  if (!eventId) return { handled: true, applied: false };
   const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(eventId) as { id: string } | undefined;
-  if (!localEvent) return true;
+  if (!localEvent) return { handled: true, applied: false };
   const localState = mapActivityPubRsvpToLocalState(activity.type);
-  if (localState === undefined) return true;
+  if (localState === undefined) return { handled: true, applied: false };
   upsertRemoteEventRsvp(db, {
     eventId,
     actorUri,
@@ -125,7 +127,7 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
     publishedAt: normalizeApPublished(activity.published ?? activity.updated),
     localState,
   });
-  return true;
+  return { handled: true, applied: true };
 }
 
 
@@ -335,8 +337,9 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const activityType = activity.type as string;
-        if (importPulledRsvpActivity(db, activity, actor.uri)) {
-          imported++;
+        const rsvpImport = importPulledRsvpActivity(db, activity, actor.uri);
+        if (rsvpImport.handled) {
+          if (rsvpImport.applied) imported++;
           continue;
         }
 
