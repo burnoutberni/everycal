@@ -154,8 +154,6 @@ export function shouldApplyRemoteRsvpUpdate(existing: {
     if (Number.isFinite(incomingMs) && Number.isFinite(existingMs) && incomingMs !== existingMs) {
       return incomingMs > existingMs;
     }
-  } else if (existingPublished && !incoming.publishedAt) {
-    return false;
   } else if (incoming.publishedAt && !existingPublished) {
     return true;
   }

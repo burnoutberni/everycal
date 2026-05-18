@@ -79,4 +79,22 @@ describe("shouldApplyRemoteRsvpUpdate", () => {
       ),
     ).toBe(true);
   });
+
+  it("applies when existing timestamp is present, incoming timestamp is missing, and precedence increases", () => {
+    expect(
+      shouldApplyRemoteRsvpUpdate(
+        { last_activity_published_at: "2025-01-01T10:00:00.000Z", last_activity_precedence: 20 },
+        { publishedAt: null, precedence: 50 },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not apply when existing timestamp is present, incoming timestamp is missing, and precedence is unchanged", () => {
+    expect(
+      shouldApplyRemoteRsvpUpdate(
+        { last_activity_published_at: "2025-01-01T10:00:00.000Z", last_activity_precedence: 50 },
+        { publishedAt: null, precedence: 50 },
+      ),
+    ).toBe(false);
+  });
 });
