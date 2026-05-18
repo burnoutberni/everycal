@@ -81,6 +81,7 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) return null;
   const baseUrl = getBaseUrl();
+  const schemeLikePattern = /^[a-z][a-z0-9+.-]*:/i;
   try {
     const parsed = new URL(trimmed);
     const base = new URL(baseUrl);
@@ -92,7 +93,7 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
     const match = eventPathRemainder.match(/^([^/]+)\/?$/);
     return match ? decodeURIComponent(match[1]) : null;
   } catch {
-    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
+    return schemeLikePattern.test(trimmed) ? null : trimmed;
   }
 }
 

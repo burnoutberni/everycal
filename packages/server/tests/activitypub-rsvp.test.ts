@@ -44,9 +44,10 @@ describe("localEventIdFromActivityPubUri", () => {
     expect(localEventIdFromActivityPubUri("  event-1  ")).toBe("event-1");
   });
 
-  it("returns null for empty or remote-looking fallback strings", () => {
+  it("returns null for empty, remote-looking, or scheme-looking fallback strings", () => {
     expect(localEventIdFromActivityPubUri("")).toBeNull();
     expect(localEventIdFromActivityPubUri("   ")).toBeNull();
     expect(localEventIdFromActivityPubUri("https://remote.example/not-a-url-parse-error")).toBeNull();
+    expect(localEventIdFromActivityPubUri("foo://[::1")).toBeNull();
   });
 });
