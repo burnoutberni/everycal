@@ -23,6 +23,14 @@ import {
   normalizeEventVisibility,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
+import {
+  extractApObjectUri,
+  isActivityPubRsvpType,
+  mapActivityPubRsvpToLocalState,
+  normalizeApPublished,
+  parseApActorReference,
+  upsertRemoteEventRsvp,
+} from "../lib/activitypub-rsvp.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
@@ -385,7 +393,7 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = parseActorUri(activity.actor);
+    const actorUri = parseInboxActorUri(activity);
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
@@ -425,6 +433,13 @@ export function activityPubRoutes(db: DB): Hono {
         case "Delete":
           handleDelete(db, activity, actorUri);
           break;
+        case "Accept":
+        case "TentativeAccept":
+        case "Reject":
+        case "Join":
+        case "Leave":
+          handleRsvpActivity(db, activity, actorUri, { inboxUsername: username });
+          break;
         default:
           console.log(`  ⏭ Ignored activity type: ${type}`);
       }
@@ -458,7 +473,7 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = parseActorUri(activity.actor);
+    const actorUri = parseInboxActorUri(activity);
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
@@ -522,6 +537,13 @@ export function sharedInboxRoute(db: DB): Hono {
         case "Delete":
           handleDelete(db, activity, actorUri);
           break;
+        case "Accept":
+        case "TentativeAccept":
+        case "Reject":
+        case "Join":
+        case "Leave":
+          handleRsvpActivity(db, activity, actorUri);
+          break;
       }
     } catch (error) {
       markInboxActivityFailed(db, activity, actorUri, targetContext, error);
@@ -541,9 +563,12 @@ function inboxTargetContext(kind: "user" | "shared", target: string): string {
 }
 
 function parseActorUri(actor: unknown): string | null {
-  if (typeof actor !== "string") return null;
-  const trimmed = actor.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return parseApActorReference(actor);
+}
+
+function parseInboxActorUri(activity: Record<string, unknown>): string | null {
+  if (typeof activity.actor === "string") return parseActorUri(activity.actor);
+  return isActivityPubRsvpType(activity.type) ? parseActorUri(activity.actor) : null;
 }
 
 function parseActivityId(activityId: unknown): string | null {
@@ -822,6 +847,131 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
+
+function localEventIdFromActivityPubUri(uri: string): string | null {
+  const trimmed = uri.trim();
+  if (!trimmed) return null;
+  const baseUrl = getBaseUrl();
+  try {
+    const parsed = new URL(trimmed);
+    const base = new URL(baseUrl);
+    if (parsed.origin !== base.origin) return null;
+    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    // Accept raw local ids only as a local lookup fallback; remote HTTP(S) strings
+    // must match BASE_URL /events/:id above.
+    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
+  }
+}
+
+function resolveLocalRsvpEvent(
+  db: DB,
+  activity: Record<string, unknown>,
+  options: { inboxUsername?: string } = {},
+): { eventId: string; ownerActorUri: string } | null {
+  const rawObject = activity.object;
+  const objectUri = extractObjectUri(rawObject);
+  if (!objectUri) {
+    console.log("  ⚠️  Ignoring RSVP: object is missing a target Event id");
+    return null;
+  }
+
+  if (rawObject && typeof rawObject === "object") {
+    const object = rawObject as Record<string, unknown>;
+    if (typeof object.type === "string" && object.type !== "Event") {
+      console.log(`  ⚠️  Ignoring RSVP: object type ${object.type} is not Event`);
+      return null;
+    }
+    const innerActor = parseActorUri(object.actor);
+    const attributedTo = getAttributedActor(object);
+    if (innerActor && innerActor !== parseActorUri(activity.actor)) {
+      console.log(`  ⚠️  Rejecting RSVP: object actor ${innerActor} does not match activity actor`);
+      return null;
+    }
+    if (attributedTo.status === "unparseable") {
+      console.log("  ⚠️  Rejecting RSVP: Event attributedTo is unparseable");
+      return null;
+    }
+  }
+
+  const eventId = localEventIdFromActivityPubUri(objectUri);
+  if (!eventId) {
+    console.log(`  ⏭ Ignoring RSVP for non-local Event object: ${objectUri}`);
+    return null;
+  }
+
+  const localEvent = db.prepare(
+    `SELECT e.id, a.username
+     FROM events e
+     JOIN accounts a ON a.id = e.account_id
+     WHERE e.id = ?`,
+  ).get(eventId) as { id: string; username: string } | undefined;
+  if (!localEvent) {
+    console.log(`  ⏭ Ignoring RSVP for unknown local event: ${eventId}`);
+    return null;
+  }
+
+  if (options.inboxUsername && localEvent.username !== options.inboxUsername) {
+    console.log(`  ⚠️  Rejecting RSVP: event ${eventId} is owned by ${localEvent.username}, not inbox ${options.inboxUsername}`);
+    return null;
+  }
+
+  const ownerActorUri = `${getBaseUrl()}/users/${localEvent.username}`;
+  if (rawObject && typeof rawObject === "object") {
+    const attributedTo = getAttributedActor(rawObject as Record<string, unknown>);
+    if (attributedTo.status === "parsed" && attributedTo.actor !== ownerActorUri) {
+      console.log(`  ⚠️  Rejecting RSVP: Event attributedTo ${attributedTo.actor} does not own ${eventId}`);
+      return null;
+    }
+  }
+
+  return { eventId, ownerActorUri };
+}
+
+function handleRsvpActivity(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  options: { inboxUsername?: string } = {},
+): void {
+  const activityType = activity.type;
+  if (!isActivityPubRsvpType(activityType)) {
+    console.log(`  ⏭ Ignored non-RSVP activity type: ${String(activityType)}`);
+    return;
+  }
+
+  const activityActor = parseActorUri(activity.actor);
+  if (activityActor !== actorUri) {
+    console.log(`  ⚠️  Rejecting RSVP: actor reference ${String(activity.actor)} does not match ${actorUri}`);
+    return;
+  }
+
+  const localState = mapActivityPubRsvpToLocalState(activityType);
+  if (localState === undefined) {
+    console.log(`  ⏭ Ignored unmapped RSVP activity type: ${String(activityType)}`);
+    return;
+  }
+
+  const target = resolveLocalRsvpEvent(db, activity, options);
+  if (!target) return;
+
+  const result = upsertRemoteEventRsvp(db, {
+    eventId: target.eventId,
+    actorUri,
+    activityType,
+    activityId: parseActivityId(activity.id),
+    publishedAt: normalizeApPublished(activity.published ?? activity.updated),
+    localState,
+  });
+
+  if (result.applied) {
+    console.log(`  ✅ Stored remote RSVP ${activityType} from ${actorUri} for ${target.eventId} as ${result.status}`);
+  } else {
+    console.log(`  ⏭ Ignored stale remote RSVP ${activityType} from ${actorUri} for ${target.eventId}`);
+  }
+}
+
 function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: string) {
   const rawObject = activity.object;
   const objectUri: string | undefined =
@@ -887,11 +1037,7 @@ function ensureKeyPairForAccount(
 
 /** Extract URI from ActivityPub object (string IRI or object with id). */
 function extractObjectUri(obj: unknown): string | undefined {
-  if (typeof obj === "string") return obj;
-  if (obj && typeof obj === "object" && "id" in obj && typeof (obj as Record<string, unknown>).id === "string") {
-    return (obj as Record<string, string>).id;
-  }
-  return undefined;
+  return extractApObjectUri(obj);
 }
 
 function rowToAPEvent(

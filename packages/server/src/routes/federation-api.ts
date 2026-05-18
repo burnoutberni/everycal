@@ -28,6 +28,13 @@ import { generateKeyPair } from "../lib/crypto.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
+import {
+  isActivityPubRsvpType,
+  mapActivityPubRsvpToLocalState,
+  normalizeApPublished,
+  parseApActorReference,
+  upsertRemoteEventRsvp,
+} from "../lib/activitypub-rsvp.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
@@ -76,6 +83,51 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
   }
   return obj;
 }
+
+function localEventIdFromActivityPubUri(uri: string): string | null {
+  const trimmed = uri.trim();
+  if (!trimmed) return null;
+  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  try {
+    const parsed = new URL(trimmed);
+    const base = new URL(baseUrl);
+    if (parsed.origin !== base.origin) return null;
+    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
+  }
+}
+
+function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): boolean {
+  if (!isActivityPubRsvpType(activity.type)) return false;
+  const activityActor = parseApActorReference(activity.actor);
+  if (activityActor !== actorUri) {
+    console.warn(`Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`);
+    return true;
+  }
+  const objectUri = extractApObjectUri(activity.object);
+  if (!objectUri) {
+    console.warn(`Rejected pulled ${String(activity.type)}: missing RSVP object id`);
+    return true;
+  }
+  const eventId = localEventIdFromActivityPubUri(objectUri);
+  if (!eventId) return true;
+  const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(eventId) as { id: string } | undefined;
+  if (!localEvent) return true;
+  const localState = mapActivityPubRsvpToLocalState(activity.type);
+  if (localState === undefined) return true;
+  upsertRemoteEventRsvp(db, {
+    eventId,
+    actorUri,
+    activityType: activity.type,
+    activityId: typeof activity.id === "string" ? activity.id : null,
+    publishedAt: normalizeApPublished(activity.published ?? activity.updated),
+    localState,
+  });
+  return true;
+}
+
 
 function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActivityId?: string | null): Record<string, unknown> {
   return {
@@ -283,6 +335,11 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const activityType = activity.type as string;
+        if (importPulledRsvpActivity(db, activity, actor.uri)) {
+          imported++;
+          continue;
+        }
+
         const requiresActorMatch = activityType === "Delete"
           || activityType === "Create"
           || activityType === "Update"

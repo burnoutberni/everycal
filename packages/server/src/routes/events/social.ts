@@ -1,10 +1,66 @@
 import type { Hono } from "hono";
 import type { DB } from "../../db.js";
+import { generateKeyPair } from "../../lib/crypto.js";
+import { enqueueOutboundDelivery, resolveRemoteActor } from "../../lib/federation.js";
+import { mapLocalRsvpStateToActivityPubType, type LocalRsvpState } from "../../lib/activitypub-rsvp.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
+
+function getBaseUrl(): string {
+  return process.env.BASE_URL || "http://localhost:3000";
+}
+
+function ensureAccountPrivateKey(db: DB, accountId: string): string | null {
+  const row = db.prepare("SELECT private_key, public_key FROM accounts WHERE id = ?").get(accountId) as
+    | { private_key: string | null; public_key: string | null }
+    | undefined;
+  if (!row) return null;
+  if (row.private_key) return row.private_key;
+  const keys = generateKeyPair();
+  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(keys.publicKey, keys.privateKey, accountId);
+  return keys.privateKey;
+}
+
+async function enqueueOutboundRsvpIfNeeded(
+  db: DB,
+  params: {
+    accountId: string;
+    username: string;
+    eventUri: string;
+    remoteEventActorUri: string;
+    nextStatus: LocalRsvpState;
+  },
+): Promise<void> {
+  if (!ensureAccountPrivateKey(db, params.accountId)) return;
+  const remoteActor = await resolveRemoteActor(db, params.remoteEventActorUri);
+  if (!remoteActor?.inbox) {
+    console.log(`[Federation] Skipping RSVP delivery; could not resolve ${params.remoteEventActorUri}`);
+    return;
+  }
+
+  const actorUrl = `${getBaseUrl()}/users/${params.username}`;
+  const type = mapLocalRsvpStateToActivityPubType(params.nextStatus);
+  const activity = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: `${actorUrl}#rsvp/${encodeURIComponent(params.eventUri)}/${Date.now()}`,
+    type,
+    actor: actorUrl,
+    object: params.eventUri,
+    to: [params.remoteEventActorUri],
+    cc: [],
+  };
+
+  enqueueOutboundDelivery(db, {
+    destinationInbox: remoteActor.inbox,
+    senderAccountId: params.accountId,
+    senderActorUri: actorUrl,
+    activity,
+  });
+}
+
 
 export function registerEventSocialRoutes(router: Hono, db: DB): void {
   router.post("/rsvp", requireAuth(), async (c) => {
@@ -15,14 +71,14 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
 
     if (!body.eventUri) return c.json({ error: t(getLocale(c), "events.event_uri_required") }, 400);
 
-    if (body.status === null || body.status === undefined || body.status === "") {
-      db.prepare("DELETE FROM event_rsvps WHERE account_id = ? AND event_uri = ?").run(user.id, body.eventUri);
-      return c.json({ ok: true, status: null });
-    }
+    const rawNextStatus = (body.status === null || body.status === undefined || body.status === "")
+      ? null
+      : body.status;
 
-    if (!["going", "maybe"].includes(body.status)) {
+    if (rawNextStatus !== null && !["going", "maybe"].includes(rawNextStatus)) {
       return c.json({ error: t(getLocale(c), "events.status_invalid") }, 400);
     }
+    const nextStatus = rawNextStatus as LocalRsvpState;
 
     const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(body.eventUri);
     const remoteEvent = !localEvent
@@ -44,12 +100,33 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
       }
     }
 
-    db.prepare(
-      `INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)
-       ON CONFLICT(account_id, event_uri) DO UPDATE SET status = excluded.status`
-    ).run(user.id, body.eventUri, body.status);
+    const previous = db.prepare("SELECT status FROM event_rsvps WHERE account_id = ? AND event_uri = ?")
+      .get(user.id, body.eventUri) as { status: string } | undefined;
+    const previousStatus = (previous?.status ?? null) as LocalRsvpState;
+    const isNoop = previousStatus === nextStatus;
 
-    return c.json({ ok: true, status: body.status });
+    if (nextStatus === null) {
+      if (!isNoop) {
+        db.prepare("DELETE FROM event_rsvps WHERE account_id = ? AND event_uri = ?").run(user.id, body.eventUri);
+      }
+    } else if (!isNoop) {
+      db.prepare(
+        `INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)
+         ON CONFLICT(account_id, event_uri) DO UPDATE SET status = excluded.status`
+      ).run(user.id, body.eventUri, nextStatus);
+    }
+
+    if (remoteEvent && !isNoop) {
+      await enqueueOutboundRsvpIfNeeded(db, {
+        accountId: user.id,
+        username: user.username,
+        eventUri: remoteEvent.uri,
+        remoteEventActorUri: remoteEvent.actor_uri,
+        nextStatus,
+      });
+    }
+
+    return c.json({ ok: true, status: nextStatus });
   });
 
   // ─── GET /timeline ─────────────────────────────────────────────────────

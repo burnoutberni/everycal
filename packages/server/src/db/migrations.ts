@@ -203,6 +203,19 @@ CREATE TABLE IF NOT EXISTS event_rsvps (
   PRIMARY KEY (account_id, event_uri)
 );
 
+CREATE TABLE IF NOT EXISTS remote_event_rsvps (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  actor_uri TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('going','maybe','not_going')),
+  last_activity_id TEXT,
+  last_activity_type TEXT NOT NULL,
+  last_activity_published_at TEXT,
+  last_activity_precedence INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (event_id, actor_uri)
+);
+
 CREATE TABLE IF NOT EXISTS reposts (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -326,6 +339,8 @@ CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on)
 CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
+CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_rsvps(event_id, status);
+CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri);
 CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_reposts_event ON reposts(event_id);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id);
@@ -563,6 +578,26 @@ export const MIGRATIONS: Migration[] = [
         END`);
     },
   },
+  {
+    version: 10,
+    name: "remote_event_rsvps",
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS remote_event_rsvps (
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        actor_uri TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('going','maybe','not_going')),
+        last_activity_id TEXT,
+        last_activity_type TEXT NOT NULL,
+        last_activity_published_at TEXT,
+        last_activity_precedence INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (event_id, actor_uri)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_rsvps(event_id, status)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
