@@ -47,6 +47,7 @@ import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
 import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
+import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);
@@ -274,3 +275,6 @@ server.listen(port);
 // Periodic session cleanup (every hour)
 cleanupExpiredSessions(db);
 setInterval(() => cleanupExpiredSessions(db), 3600_000);
+startOutboundDeliveryWorker(db);
+startOutboundTerminalCleanupWorker(db);
+startProcessedInboxCleanupWorker(db);

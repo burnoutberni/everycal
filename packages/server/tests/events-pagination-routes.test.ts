@@ -32,6 +32,40 @@ describe("events pagination routes", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects RSVP to followers-only remote event without follower relationship", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u1", "alice");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/private", "private", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, 'offset_only', ?)")
+      .run("https://remote.example/events/followers-only", "https://remote.example/users/private", "Followers Only", "2026-01-01", "2026-01-01T00:00:00.000Z", "followers_only");
+
+    const res = await app.request("http://localhost/api/v1/events/rsvp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventUri: "https://remote.example/events/followers-only", status: "going" }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects RSVP to private remote event", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u1", "alice");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/private", "private", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, 'offset_only', ?)")
+      .run("https://remote.example/events/private", "https://remote.example/users/private", "Private", "2026-01-02", "2026-01-02T00:00:00.000Z", "private");
+
+    const res = await app.request("http://localhost/api/v1/events/rsvp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventUri: "https://remote.example/events/private", status: "going" }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
   it("paginates merged local+remote events without duplicates across cursor pages", async () => {
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u4", "dana");
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u5", "erin");

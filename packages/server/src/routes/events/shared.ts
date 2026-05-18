@@ -94,6 +94,20 @@ export function buildRemoteTagFilter(tagList: string[]): { sql: string; params: 
   return { sql: ` AND (${conditions})`, params };
 }
 
+export function buildRemoteVisibilityFilter(currentUserId?: string): { sql: string; params: unknown[] } {
+  if (!currentUserId) return { sql: "(re.visibility IN ('public','unlisted'))", params: [] };
+  return {
+    sql: `(
+      re.visibility IN ('public','unlisted')
+      OR (
+        re.visibility = 'followers_only'
+        AND re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
+      )
+    )`,
+    params: [currentUserId],
+  };
+}
+
 type MergedCursor = { startAtUtc: string; id: string };
 
 export function encodeMergedCursor(value: MergedCursor): string {

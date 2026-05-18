@@ -26,9 +26,23 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
 
     const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(body.eventUri);
     const remoteEvent = !localEvent
-      ? db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get(body.eventUri)
+      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(body.eventUri) as
+        | { uri: string; actor_uri: string; visibility: string }
+        | undefined
       : null;
     if (!localEvent && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+
+    if (remoteEvent) {
+      if (remoteEvent.visibility === "private") {
+        return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+      }
+      if (remoteEvent.visibility === "followers_only") {
+        const follows = db
+          .prepare("SELECT 1 FROM remote_following WHERE account_id = ? AND actor_uri = ?")
+          .get(user.id, remoteEvent.actor_uri);
+        if (!follows) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+      }
+    }
 
     db.prepare(
       `INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, ?)

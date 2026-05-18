@@ -1,5 +1,7 @@
+import type { EventVisibility } from "@everycal/core";
 import type { DB } from "../db.js";
 import { sanitizeHtml, stripHtml } from "./security.js";
+import { deriveVisibilityFromActivityPubAddressing } from "./federation.js";
 import { uniqueRemoteEventSlug } from "./slugs.js";
 import {
   datePartFromUtcInstantInTimezone,
@@ -11,9 +13,18 @@ import {
 interface UpsertRemoteEventOptions {
   clearCanceled?: boolean;
   temporal?: NormalizedRemoteTemporal;
+  visibility?: EventVisibility;
+  allowActorUriCorrection?: boolean;
+  actorFollowersUrl?: string | null;
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function normalizeRemoteEventUri(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
 
 function deriveRemoteStoredDatePart(
   rawValue: string | null | undefined,
@@ -51,6 +62,7 @@ export function upsertRemoteEvent(
   options: UpsertRemoteEventOptions = {},
 ): { uri: string; slug: string } {
   const clearCanceled = options.clearCanceled === true;
+  const allowActorUriCorrection = options.allowActorUriCorrection === true;
   const tags = (object.tag as Array<{ name: string }>) || [];
   const tagString = tags
     .map((t) => stripHtml(t.name?.replace(/^#/, "") || ""))
@@ -87,22 +99,37 @@ export function upsertRemoteEvent(
     ? JSON.stringify(imageAttribution)
     : null;
 
-  const uri = object.id as string;
-  const existing = db.prepare("SELECT slug FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null } | undefined;
+  const uri = normalizeRemoteEventUri(object.id);
+  if (!uri) {
+    throw new Error("Remote event id is required");
+  }
+  let visibility = options.visibility;
+  if (!visibility) {
+    const hasAddressing = Object.hasOwn(object, "to") || Object.hasOwn(object, "cc");
+    visibility = hasAddressing
+      ? deriveVisibilityFromActivityPubAddressing(object, {
+        actorFollowersUrl: options.actorFollowersUrl,
+      })
+      : "public";
+  }
+  const existing = db.prepare("SELECT slug, actor_uri FROM remote_events WHERE uri = ?").get(uri) as { slug: string | null; actor_uri: string } | undefined;
   if (existing) {
     const resolvedSlug = existing.slug || uniqueRemoteEventSlug(db, actorUri, title || "event");
+    const shouldUpdateActorUri = allowActorUriCorrection && existing.actor_uri !== actorUri;
     db.prepare(
       `UPDATE remote_events SET
         slug = ?,
+        ${shouldUpdateActorUri ? "actor_uri = ?," : ""}
         title = ?, description = ?, start_date = ?, end_date = ?, all_day = ?,
         start_on = ?, end_on = ?,
         start_at_utc = ?, end_at_utc = ?, event_timezone = ?, timezone_quality = ?,
         location_name = ?, location_address = ?, location_latitude = ?, location_longitude = ?,
         image_url = ?, image_media_type = ?, image_alt = ?, image_attribution = ?,
-        url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, fetched_at = datetime('now')${clearCanceled ? ", canceled = 0" : ""}
+        url = ?, tags = ?, raw_json = ?, published = ?, updated = ?, visibility = ?, fetched_at = datetime('now')${clearCanceled ? ", canceled = 0" : ""}
        WHERE uri = ?`
     ).run(
       resolvedSlug,
+      ...(shouldUpdateActorUri ? [actorUri] : []),
       title,
       description,
       startDate,
@@ -127,6 +154,7 @@ export function upsertRemoteEvent(
       JSON.stringify(object).slice(0, 100_000),
       (object.published as string) || null,
       (object.updated as string) || null,
+      visibility,
       uri,
     );
     return { uri, slug: resolvedSlug };
@@ -137,8 +165,8 @@ export function upsertRemoteEvent(
     `INSERT INTO remote_events (uri, actor_uri, slug, title, description, start_date, end_date,
       all_day, start_on, end_on, start_at_utc, end_at_utc, event_timezone, timezone_quality,
       location_name, location_address, location_latitude, location_longitude,
-      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, canceled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      image_url, image_media_type, image_alt, image_attribution, url, tags, raw_json, published, updated, visibility, canceled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     actorUri,
@@ -167,6 +195,7 @@ export function upsertRemoteEvent(
     JSON.stringify(object).slice(0, 100_000),
     (object.published as string) || null,
     (object.updated as string) || null,
+    visibility,
     0,
   );
 

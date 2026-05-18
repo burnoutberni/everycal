@@ -38,7 +38,7 @@ vi.mock("../src/routes/og-images.js", async () => {
 import { eventRoutes } from "../src/routes/events.js";
 import { userRoutes } from "../src/routes/users.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
-import { fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
+import { AP_PUBLIC, fetchAP, resolveRemoteActor, deliverToFollowers, validateFederationUrl } from "../src/lib/federation.js";
 import { notifyEventUpdated } from "../src/lib/notifications.js";
 import { clearLocalOgImage, generateAndSaveOgImage } from "../src/routes/og-images.js";
 import { __resetOgJobQueueForTests, __waitForOgJobQueueIdleForTests } from "../src/lib/og-job-queue.js";
@@ -474,6 +474,175 @@ describe("event slug canonical behavior", () => {
 
     expect(create.status).toBe(201);
     expect(generateAndSaveOgImage).not.toHaveBeenCalled();
+  });
+
+  it("does not federate Delete for private events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Delete",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const deletion = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "DELETE",
+    });
+
+    expect(deletion.status).toBe(200);
+    expect(deliverToFollowers).not.toHaveBeenCalled();
+  });
+
+  it("federates Delete for non-private events", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Delete",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const deletion = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "DELETE",
+    });
+
+    expect(deletion.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as { type?: string } | undefined;
+    expect(payload?.type).toBe("Delete");
+  });
+
+  it("federates Delete when visibility changes from public to private", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Private",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Private Updated",
+        visibility: "private",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Delete");
+    expect(payload?.to).toContain(AP_PUBLIC);
+  });
+
+  it("federates Update when visibility changes from private to public", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Then Public",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Then Public Updated",
+        visibility: "public",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Update");
+    expect(payload?.to).toContain(AP_PUBLIC);
+  });
+
+  it("uses updated visibility addressing for Update emission", async () => {
+    const app = makeApp(db, { id: "u1", username: "alice" });
+
+    const create = await app.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Followers",
+        startDate: "2026-01-01T10:00:00",
+        eventTimezone: "UTC",
+        visibility: "public",
+      }),
+    });
+    const created = await create.json() as { id: string };
+    expect(create.status).toBe(201);
+
+    vi.mocked(deliverToFollowers).mockClear();
+
+    const update = await app.request(`http://localhost/api/v1/events/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Public Then Followers Updated",
+        visibility: "followers_only",
+      }),
+    });
+
+    expect(update.status).toBe(200);
+    expect(deliverToFollowers).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(deliverToFollowers).mock.calls[0]?.[2] as {
+      type?: string;
+      to?: string[];
+      cc?: string[];
+    } | undefined;
+    expect(payload?.type).toBe("Update");
+    expect(payload?.to?.[0]).toContain("/users/alice/followers");
+    expect(payload?.cc).toEqual([]);
   });
 
   it("rejects switching a timed event to all-day without date-only fields", async () => {
@@ -1647,6 +1816,35 @@ describe("event slug canonical behavior", () => {
     expect((await remoteRes.json() as { source: string }).source).toBe("remote");
   });
 
+  it("/events/by-slug/:username/:slug allows followers-only remote events for followers", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, visibility, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/followers-only",
+        "https://remote.example/users/alice",
+        "followers-only-slug",
+        "Followers Only Remote",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "followers_only",
+        "offset_only"
+      );
+
+    const appAnon = makeApp(db);
+    const anonRes = await appAnon.request("http://localhost/api/v1/events/by-slug/alice@remote.example/followers-only-slug");
+    expect(anonRes.status).toBe(404);
+
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u2", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const appFollower = makeApp(db, { id: "u2", username: "bob" });
+    const followerRes = await appFollower.request("http://localhost/api/v1/events/by-slug/alice@remote.example/followers-only-slug");
+    expect(followerRes.status).toBe(200);
+    expect((await followerRes.json() as { source: string }).source).toBe("remote");
+  });
+
   it("/users/:username/events returns remote canonical temporal fields", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
@@ -1910,6 +2108,128 @@ describe("event slug canonical behavior", () => {
     const app = makeApp(db);
     const res = await app.request(`http://localhost/api/v1/events/${oldId}`);
     expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id does not expose followers-only remote events to unauthenticated users", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-1",
+        "https://remote.example/users/alice",
+        "private-1",
+        "Followers Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "followers_only"
+      );
+
+    const app = makeApp(db);
+    const encoded = encodeURIComponent("https://remote.example/events/private-1");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id allows followers-only remote events for authenticated followers", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-2",
+        "https://remote.example/users/alice",
+        "private-2",
+        "Followers Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "followers_only"
+      );
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u1", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-2");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+    const body = await res.json() as { id: string };
+
+    expect(res.status).toBe(200);
+    expect(body.id).toBe("https://remote.example/events/private-2");
+  });
+
+  it("GET /events/:id does not expose private remote events to authenticated followers", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-4",
+        "https://remote.example/users/alice",
+        "private-4",
+        "Private Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "private"
+      );
+    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
+      .run("u1", "https://remote.example/users/alice", "https://remote.example/inbox");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-4");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id does not expose private remote events to authenticated RSVPs", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example/users/alice", "alice", "https://remote.example/inbox", "remote.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://remote.example/events/private-5",
+        "https://remote.example/users/alice",
+        "private-5",
+        "Private Event",
+        "2026-01-01T10:00:00Z",
+        "2026-01-01T10:00:00Z",
+        "offset_only",
+        "private"
+      );
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')")
+      .run("u1", "https://remote.example/events/private-5");
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const encoded = encodeURIComponent("https://remote.example/events/private-5");
+    const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("/events/resolve rejects unauthenticated access to fetched followers-only remote events", async () => {
+    vi.mocked(fetchAP).mockResolvedValue({
+      id: "https://remote.example/events/private-3",
+      type: "Event",
+      name: "Followers Event",
+      startTime: "2026-01-01T10:00:00Z",
+      attributedTo: "https://remote.example/users/alice",
+      to: ["https://remote.example/users/alice/followers"],
+      cc: [],
+    });
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: "https://remote.example/users/alice",
+      preferred_username: "alice",
+      display_name: "Alice",
+      inbox: "https://remote.example/inbox",
+      domain: "remote.example",
+    } as any);
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2Fprivate-3");
+
+    expect(res.status).toBe(403);
+    const persisted = db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get("https://remote.example/events/private-3");
+    expect(persisted).toBeUndefined();
   });
 
   it("initializes an empty database to current schema version", () => {

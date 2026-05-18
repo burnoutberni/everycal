@@ -14,7 +14,9 @@ import { createHash } from "node:crypto";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
+  deriveVisibilityFromActivityPubAddressing,
   formatRemoteActorIdentity,
+  getAttributedActor,
   fetchAP,
   resolveRemoteActor,
   fetchRemoteOutbox,
@@ -25,7 +27,7 @@ import {
 import { generateKeyPair } from "../lib/crypto.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
-import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
@@ -56,6 +58,25 @@ function buildFollowActivity(actorUrl: string, actorUri: string): { id: string; 
   };
 }
 
+
+function extractApObjectUri(obj: unknown): string | undefined {
+  if (typeof obj === "string") return obj;
+  if (obj && typeof obj === "object" && typeof (obj as Record<string, unknown>).id === "string") {
+    return (obj as Record<string, string>).id;
+  }
+  return undefined;
+}
+
+async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {
+  if (!object) return null;
+  if (typeof object === "string") return (await fetchAP(object)) as Record<string, unknown>;
+  const obj = object as Record<string, unknown>;
+  if (typeof obj.id === "string" && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
+    return (await fetchAP(obj.id as string)) as Record<string, unknown>;
+  }
+  return obj;
+}
+
 function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActivityId?: string | null): Record<string, unknown> {
   return {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -80,6 +101,72 @@ function parseMaxAgeHours(raw: string | undefined): number {
 
 export function federationRoutes(db: DB): Hono {
   const router = new Hono();
+
+  function isQueueHealthAllowed(user: { id: string; username: string }): boolean {
+    const raw = process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
+    if (!raw) return false;
+    const allowed = new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
+    return allowed.has(user.id) || allowed.has(user.username);
+  }
+
+  router.get("/queue-health", requireAuth(), (c) => {
+    const user = c.get("user");
+    if (!user || !isQueueHealthAllowed(user)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
+    const outboundCounts = db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+         COALESCE(SUM(CASE WHEN state = 'processing' THEN 1 ELSE 0 END), 0) AS processing,
+         COALESCE(SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+         COALESCE(SUM(CASE WHEN state = 'delivered' THEN 1 ELSE 0 END), 0) AS delivered
+       FROM outbound_activity_deliveries`
+    ).get() as { pending: number; processing: number; failed: number; delivered: number };
+
+    const oldestPending = db.prepare(
+      `SELECT
+         CAST((julianday('now') - julianday(MIN(next_retry_at))) * 86400 AS INTEGER) AS retry_age_seconds
+       FROM outbound_activity_deliveries
+       WHERE state = 'pending'`
+    ).get() as { retry_age_seconds: number | null };
+
+    const dedupeCounts = db.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END), 0) AS processing,
+         COALESCE(SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END), 0) AS processed,
+         COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+         MIN(received_at) AS oldest_received_at,
+         MAX(received_at) AS newest_received_at
+       FROM processed_inbox_activities`
+    ).get() as {
+      total: number;
+      processing: number;
+      processed: number;
+      failed: number;
+      oldest_received_at: string | null;
+      newest_received_at: string | null;
+    };
+
+    return c.json({
+      outboundQueue: {
+        pending: outboundCounts.pending,
+        processing: outboundCounts.processing,
+        failed: outboundCounts.failed,
+        delivered: outboundCounts.delivered,
+        oldestPendingRetryAgeSeconds: Math.max(0, oldestPending.retry_age_seconds ?? 0),
+      },
+      inboxDedupe: {
+        total: dedupeCounts.total,
+        processing: dedupeCounts.processing,
+        processed: dedupeCounts.processed,
+        failed: dedupeCounts.failed,
+        oldestReceivedAt: dedupeCounts.oldest_received_at,
+        newestReceivedAt: dedupeCounts.newest_received_at,
+      },
+    });
+  });
 
   // Search for a remote actor via WebFinger (auth required to prevent SSRF)
   router.get("/search", requireAuth(), async (c) => {
@@ -196,44 +283,91 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const activityType = activity.type as string;
-
-        // Create = actor created the event; Announce = actor reposted/boosted the event
-        if (activityType !== "Create" && activityType !== "Announce") continue;
-
-        let object = activity.object;
-        if (!object) continue;
-
-        // Object may be a URL (reference) or minimal {id, type} — fetch full object if needed
-        if (typeof object === "string") {
-          try {
-            object = await fetchAP(object);
-          } catch (err) {
-            console.warn(`Failed to fetch event object ${object}:`, err);
+        const requiresActorMatch = activityType === "Delete"
+          || activityType === "Create"
+          || activityType === "Update"
+          || activityType === "Announce";
+        if (requiresActorMatch) {
+          if (typeof activity.actor !== "string" || activity.actor !== actor.uri) {
+            console.warn(`Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`);
             continue;
           }
         }
 
-        const obj = object as Record<string, unknown>;
-        if (obj.type !== "Event") continue;
+        if (activityType === "Delete") {
+          const objectUri = normalizeRemoteEventUri(extractApObjectUri(activity.object));
+          if (!objectUri) continue;
+          const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
+          if (existing?.actor_uri === actor.uri) {
+            db.prepare("UPDATE remote_events SET canceled = 1, updated = COALESCE(?, updated), fetched_at = datetime('now') WHERE uri = ?")
+              .run((activity.updated as string) || (activity.published as string) || null, objectUri);
+            imported++;
+          } else if (existing) {
+            console.warn(`Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+          }
+          continue;
+        }
 
-        // If object is a minimal reference (has id but missing name/startTime), fetch full object
-        if (obj.id && !obj.name && !obj.title && !obj.startTime && !obj.startDate) {
-          try {
-            object = await fetchAP(obj.id as string);
-          } catch (err) {
-            console.warn(`Failed to fetch event ${obj.id}:`, err);
+        // Create/Update = actor created or changed the event; Announce = actor reposted/boosted the event
+        if (activityType !== "Create" && activityType !== "Update" && activityType !== "Announce") continue;
+
+        let fullObj: Record<string, unknown> | null;
+        try {
+          fullObj = await resolveActivityObject(activity.object);
+        } catch (err) {
+          console.warn(`Failed to fetch event object ${extractApObjectUri(activity.object) || "unknown"}:`, err);
+          continue;
+        }
+        if (!fullObj || fullObj.type !== "Event") continue;
+        const objectUri = normalizeRemoteEventUri(fullObj.id);
+        if (!objectUri) {
+          console.warn(`Rejected pulled ${activityType}: event object missing valid string id`);
+          continue;
+        }
+
+        const attributedTo = getAttributedActor(fullObj);
+        if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "unparseable") {
+          console.warn(`Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`);
+          continue;
+        }
+        if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
+          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
+          continue;
+        }
+        const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
+        if (activityType === "Update") {
+          if (existing && existing.actor_uri !== actor.uri) {
+            console.warn(`Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
             continue;
           }
         }
 
-        const fullObj = object as Record<string, unknown>;
         const title = fullObj.name ?? fullObj.title;
         const startTime = fullObj.startTime ?? fullObj.startDate;
         if (!title || !startTime) continue;
 
         const temporal = normalizeApTemporal(fullObj);
         if (!temporal) continue;
-        const upserted = upsertRemoteEvent(db, fullObj, actor.uri, { temporal });
+        const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
+          ? attributedTo.actor
+          : actor.uri;
+        const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
+        if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
+          console.warn(
+            `Ignoring actor correction for pulled Announce ${objectUri}: existing owner ${existing.actor_uri} differs from attributedTo ${attributedTo.actor}`,
+          );
+        }
+        const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
+          temporal,
+          clearCanceled: activityType === "Update",
+          allowActorUriCorrection,
+          visibility:
+            ("to" in activity || "cc" in activity)
+              ? deriveVisibilityFromActivityPubAddressing(activity, {
+                actorFollowersUrl: actor.followers_url,
+              })
+              : undefined,
+        });
         if (isRemoteActivityOgEligible(activity, fullObj)) {
           enqueueOgJob(`remote:${upserted.uri}`, async () => {
             try {
@@ -513,7 +647,7 @@ export function federationRoutes(db: DB): Hono {
              ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
       FROM remote_events re
       LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
-      WHERE 1=1
+      WHERE re.visibility IN ('public','unlisted')
     `;
     const params: unknown[] = [];
 

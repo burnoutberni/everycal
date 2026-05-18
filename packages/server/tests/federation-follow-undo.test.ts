@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 
@@ -29,6 +29,7 @@ function makeApp(db: DB, userId = "owner", username = "owner") {
 
 describe("federation follow/unfollow Undo references", () => {
   let db: DB;
+  const previousQueueHealthAllowlist = process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
 
   beforeEach(() => {
     db = initDatabase(":memory:");
@@ -54,6 +55,15 @@ describe("federation follow/unfollow Undo references", () => {
       last_fetched_at: new Date().toISOString(),
     });
     vi.mocked(deliverActivity).mockResolvedValue(true);
+    delete process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
+  });
+
+  afterEach(() => {
+    if (previousQueueHealthAllowlist === undefined) {
+      delete process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
+    } else {
+      process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS = previousQueueHealthAllowlist;
+    }
   });
 
   it("stores follow activity id for remote follow", async () => {
@@ -286,5 +296,73 @@ describe("federation follow/unfollow Undo references", () => {
       .prepare("SELECT COUNT(*) AS count FROM remote_following WHERE actor_uri = ?")
       .get("https://remote.example/users/alice") as { count: number };
     expect(remaining.count).toBe(0);
+  });
+
+  it("returns queue and dedupe observability state", async () => {
+    process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS = "owner";
+
+    db.prepare("UPDATE accounts SET private_key = ? WHERE id = ?").run("private-key", "owner");
+
+    db.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, next_retry_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now', '-2 minutes'))")
+      .run("job-pending", "https://remote.example/inbox", "owner", "http://localhost/users/owner", "http://localhost/users/owner#main-key", "{}");
+    db.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state) VALUES (?, ?, ?, ?, ?, ?, 'processing')")
+      .run("job-processing", "https://remote.example/inbox", "owner", "http://localhost/users/owner", "http://localhost/users/owner#main-key", "{}");
+    db.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state) VALUES (?, ?, ?, ?, ?, ?, 'failed')")
+      .run("job-failed", "https://remote.example/inbox", "owner", "http://localhost/users/owner", "http://localhost/users/owner#main-key", "{}");
+
+    db.prepare(
+      "INSERT INTO processed_inbox_activities (activity_id, actor_uri, target_context, status, received_at) VALUES (?, ?, ?, ?, datetime('now', '-3 minutes'))"
+    ).run("a1", "https://remote.example/users/alice", "user:owner", "processed");
+    db.prepare(
+      "INSERT INTO processed_inbox_activities (activity_id, actor_uri, target_context, status, received_at) VALUES (?, ?, ?, ?, datetime('now', '-2 minutes'))"
+    ).run("a2", "https://remote.example/users/alice", "user:owner", "failed");
+    db.prepare(
+      "INSERT INTO processed_inbox_activities (activity_id, actor_uri, target_context, status, received_at) VALUES (?, ?, ?, ?, datetime('now', '-1 minutes'))"
+    ).run("a3", "https://remote.example/users/alice", "user:owner", "processing");
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/federation/queue-health");
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      outboundQueue: {
+        pending: number;
+        processing: number;
+        failed: number;
+        delivered: number;
+        oldestPendingRetryAgeSeconds: number;
+      };
+      inboxDedupe: {
+        total: number;
+        processing: number;
+        processed: number;
+        failed: number;
+        oldestReceivedAt: string | null;
+        newestReceivedAt: string | null;
+      };
+    };
+
+    expect(body.outboundQueue.pending).toBe(1);
+    expect(body.outboundQueue.processing).toBe(1);
+    expect(body.outboundQueue.failed).toBe(1);
+    expect(body.outboundQueue.delivered).toBe(0);
+    expect(body.outboundQueue.oldestPendingRetryAgeSeconds).toBeGreaterThanOrEqual(60);
+    expect(body.inboxDedupe.total).toBe(3);
+    expect(body.inboxDedupe.processed).toBe(1);
+    expect(body.inboxDedupe.failed).toBe(1);
+    expect(body.inboxDedupe.processing).toBe(1);
+    expect(body.inboxDedupe.oldestReceivedAt).toBeTruthy();
+    expect(body.inboxDedupe.newestReceivedAt).toBeTruthy();
+  });
+
+  it("forbids queue observability for non-allowlisted authenticated users", async () => {
+    process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS = "someone-else";
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/federation/queue-health");
+
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBeTruthy();
   });
 });

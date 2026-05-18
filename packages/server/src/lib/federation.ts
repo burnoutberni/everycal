@@ -2,6 +2,8 @@
  * ActivityPub delivery — send signed activities to remote inboxes.
  */
 
+import crypto from "node:crypto";
+import type { EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
@@ -12,6 +14,139 @@ const DELETED_REMOTE_USERNAME = "deleted";
 export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
+
+export const AP_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+const EVENT_VISIBILITY_VALUES: ReadonlySet<EventVisibility> = new Set([
+  "public",
+  "unlisted",
+  "followers_only",
+  "private",
+]);
+const OUTBOUND_MAX_ATTEMPTS = 5;
+const OUTBOUND_BASE_BACKOFF_MS = 60_000;
+const OUTBOUND_PROCESS_LIMIT = 25;
+const OUTBOUND_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
+const OUTBOUND_DELIVERY_TIMEOUT_MS = Math.max(1_000, Math.min(120_000, OUTBOUND_CLAIM_TIMEOUT_MS - 1_000));
+const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
+const OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN = 60_000;
+const OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT = 30;
+const OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT = 90;
+const INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT = 30;
+const INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT = 90;
+const INBOX_PROCESSED_MAX_ROWS_DEFAULT = 0;
+const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT = 3600_000;
+const INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN = 60_000;
+const outboundQueueRuns = new WeakMap<DB, Promise<{ processed: number; delivered: number; failed: number }>>();
+
+function toSqliteDateTime(date: Date): string {
+  return date.toISOString().replace("T", " ").slice(0, 19);
+}
+
+export function normalizeAudience(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+export function hasActivityPubAudience(value: unknown): boolean {
+  return normalizeAudience(value).length > 0;
+}
+
+export type AttributedActorResult =
+  | { status: "absent" }
+  | { status: "parsed"; actor: string }
+  | { status: "unparseable" };
+
+function parseAttributedActorValue(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof (value as Record<string, unknown>).id === "string") {
+    return (value as Record<string, string>).id;
+  }
+  return null;
+}
+
+export function getAttributedActor(obj: Record<string, unknown>): AttributedActorResult {
+  if (!("attributedTo" in obj)) return { status: "absent" };
+
+  const raw = obj.attributedTo;
+  if (raw == null) return { status: "absent" };
+
+  const parsedSingle = parseAttributedActorValue(raw);
+  if (parsedSingle) return { status: "parsed", actor: parsedSingle };
+
+  if (Array.isArray(raw)) {
+    for (const value of raw) {
+      const parsed = parseAttributedActorValue(value);
+      if (parsed) return { status: "parsed", actor: parsed };
+    }
+  }
+
+  return { status: "unparseable" };
+}
+
+export function visibilityToActivityPubAddressing(
+  visibility: EventVisibility | string | null | undefined,
+  actorUri?: string,
+): { to: string[]; cc: string[] } {
+  const followers = actorUri ? `${actorUri}/followers` : undefined;
+  const normalizedVisibility = normalizeEventVisibility(visibility);
+  switch (normalizedVisibility) {
+    case "unlisted":
+      return { to: followers ? [followers] : [], cc: [AP_PUBLIC] };
+    case "followers_only":
+      return { to: followers ? [followers] : [], cc: [] };
+    case "private":
+      return { to: [], cc: [] };
+    default:
+      return { to: [AP_PUBLIC], cc: followers ? [followers] : [] };
+  }
+}
+
+export function normalizeEventVisibility(
+  visibility: EventVisibility | string | null | undefined,
+  fallback: EventVisibility = "private",
+): EventVisibility {
+  if (typeof visibility === "string" && EVENT_VISIBILITY_VALUES.has(visibility as EventVisibility)) {
+    return visibility as EventVisibility;
+  }
+  return fallback;
+}
+
+function normalizeAudienceUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    const normalizedPath = parsed.pathname.endsWith("/") && parsed.pathname !== "/"
+      ? parsed.pathname.slice(0, -1)
+      : parsed.pathname;
+    return `${parsed.origin}${normalizedPath}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export function deriveVisibilityFromActivityPubAddressing(
+  source: Record<string, unknown>,
+  options: { actorFollowersUrl?: string | null } = {},
+): EventVisibility {
+  const to = normalizeAudience(source.to);
+  const cc = normalizeAudience(source.cc);
+  const recipients = [...to, ...cc];
+  if (to.includes(AP_PUBLIC)) return "public";
+  if (cc.includes(AP_PUBLIC)) return "unlisted";
+  const expectedFollowersUrl = options.actorFollowersUrl ? normalizeAudienceUrl(options.actorFollowersUrl) : null;
+  if (expectedFollowersUrl && recipients.some((recipient) => normalizeAudienceUrl(recipient) === expectedFollowersUrl)) {
+    return "followers_only";
+  }
+  if (recipients.length > 0) return "private";
+  return "private";
+}
+
 
 /** Software types that support a Mastodon-compatible directory API */
 const DIRECTORY_SUPPORTED = ["mastodon", "pleroma", "glitch", "hometown"];
@@ -391,12 +526,12 @@ export interface RemoteActor {
 /**
  * Send a signed activity to a remote inbox.
  */
-export async function deliverActivity(
+async function deliverActivityWithResult(
   inbox: string,
   activity: Record<string, unknown>,
   privateKeyPem: string,
   keyId: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; error: string | null }> {
   // Validate inbox URL to prevent SSRF
   await validateFederationUrl(inbox);
 
@@ -404,27 +539,328 @@ export async function deliverActivity(
   const headers = signRequest("POST", inbox, body, privateKeyPem, keyId);
   headers["User-Agent"] = USER_AGENT;
 
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), OUTBOUND_DELIVERY_TIMEOUT_MS);
+
   try {
     const res = await fetch(inbox, {
       method: "POST",
       headers,
       body,
+      signal: controller.signal,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error(`Delivery to ${inbox} failed: ${res.status} ${text.slice(0, 200)}`);
-      return false;
+      const message = `Delivery to ${inbox} failed: ${res.status} ${text.slice(0, 200)}`;
+      return { ok: false, error: message };
     }
-    return true;
+    return { ok: true, error: null };
   } catch (err) {
-    console.error(`Delivery to ${inbox} failed:`, err);
-    return false;
+    if (controller.signal.aborted) {
+      return { ok: false, error: `Delivery to ${inbox} timed out after ${OUTBOUND_DELIVERY_TIMEOUT_MS}ms` };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Delivery to ${inbox} failed: ${message}` };
+  } finally {
+    clearTimeout(timeoutHandle);
   }
+}
+
+export async function deliverActivity(
+  inbox: string,
+  activity: Record<string, unknown>,
+  privateKeyPem: string,
+  keyId: string
+): Promise<boolean> {
+  const result = await deliverActivityWithResult(inbox, activity, privateKeyPem, keyId);
+  if (!result.ok && result.error) {
+    console.error(result.error);
+  }
+  return result.ok;
 }
 
 /**
  * Deliver an activity to all remote followers of a local account.
  */
+export function enqueueOutboundDelivery(
+  db: DB,
+  params: { destinationInbox: string; senderAccountId: string; senderActorUri: string; activity: Record<string, unknown> },
+): string {
+  const id = crypto.randomUUID();
+  const senderKeyId = `${params.senderActorUri}#main-key`;
+  db.prepare(
+    `INSERT INTO outbound_activity_deliveries
+      (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, next_retry_at, state)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'pending')`,
+  ).run(id, params.destinationInbox, params.senderAccountId, params.senderActorUri, senderKeyId, JSON.stringify(params.activity));
+  return id;
+}
+
+function nextBackoffMs(attemptCount: number): number {
+  return OUTBOUND_BASE_BACKOFF_MS * Math.pow(2, Math.max(0, attemptCount - 1));
+}
+
+function parseEnvNumber(rawValue: string | undefined, fallback: number): number {
+  if (rawValue === undefined) return fallback;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseRetentionDays(rawValue: string | undefined, fallback: number): number {
+  return Math.max(0, Math.floor(parseEnvNumber(rawValue, fallback)));
+}
+
+function parseCleanupIntervalMs(rawValue: string | undefined): number {
+  return Math.max(OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_MIN, parseEnvNumber(rawValue, OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT));
+}
+
+function parseMaxRows(rawValue: string | undefined, fallback: number): number {
+  return Math.max(0, Math.floor(parseEnvNumber(rawValue, fallback)));
+}
+
+export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROCESS_LIMIT): Promise<{ processed: number; delivered: number; failed: number }> {
+  const existingRun = outboundQueueRuns.get(db);
+  if (existingRun) return existingRun;
+
+  const run = (async () => {
+    const workerId = crypto.randomUUID();
+    const staleClaimBefore = toSqliteDateTime(new Date(Date.now() - OUTBOUND_CLAIM_TIMEOUT_MS));
+    const claimJobs = db.transaction((batchLimit: number, currentWorkerId: string, staleClaimCutoff: string) => {
+      db.prepare(
+        `UPDATE outbound_activity_deliveries
+         SET state = 'pending', claimed_at = NULL, worker_id = NULL, updated_at = datetime('now')
+         WHERE state = 'processing' AND claimed_at IS NOT NULL AND claimed_at <= ?`,
+      ).run(staleClaimCutoff);
+
+       db.prepare(
+         `UPDATE outbound_activity_deliveries
+          SET state = 'processing', claimed_at = datetime('now'), worker_id = ?, updated_at = datetime('now')
+          WHERE id IN (
+            SELECT id
+            FROM outbound_activity_deliveries
+            WHERE state = 'pending' AND worker_id IS NULL AND next_retry_at <= datetime('now')
+            ORDER BY next_retry_at, created_at
+            LIMIT ?
+          )
+            AND state = 'pending'
+            AND worker_id IS NULL`,
+       ).run(currentWorkerId, batchLimit);
+
+       return db.prepare(
+         `SELECT d.*, a.private_key
+          FROM outbound_activity_deliveries d
+          JOIN accounts a ON a.id = d.sender_account_id
+          WHERE d.state = 'processing' AND d.worker_id = ?
+          ORDER BY d.claimed_at, d.created_at`,
+       ).all(currentWorkerId) as Array<{
+         id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+         sender_key_id: string | null; attempt_count: number; private_key: string | null;
+       }>;
+    });
+
+    const jobs = claimJobs(limit, workerId, staleClaimBefore) as Array<{
+      id: string; destination_inbox: string; sender_account_id: string; sender_actor_uri: string; activity_json: string;
+      sender_key_id: string | null; attempt_count: number; private_key: string | null;
+    }>;
+    let delivered = 0;
+    let failed = 0;
+    for (const job of jobs) {
+      if (!job.private_key) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run("sender account has no private key", job.id, workerId);
+        failed++;
+        continue;
+      }
+      let activity: Record<string, unknown>;
+      try {
+        activity = JSON.parse(job.activity_json) as Record<string, unknown>;
+      } catch {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run("invalid stored activity JSON", job.id, workerId);
+        failed++;
+        continue;
+      }
+      const keyId = job.sender_key_id || `${job.sender_actor_uri}#main-key`;
+      let ok = false;
+      let deliveryError: string | null = null;
+      try {
+        const result = await deliverActivityWithResult(job.destination_inbox, activity, job.private_key, keyId);
+        ok = result.ok;
+        deliveryError = result.error;
+        if (!ok && deliveryError) {
+          console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
+        }
+      } catch (err) {
+        deliveryError = err instanceof Error ? err.message : String(err);
+        console.error(`[Federation] outbound delivery ${job.id} threw`, err);
+      }
+      const attempts = job.attempt_count + 1;
+      if (ok) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'delivered', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = NULL, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, job.id, workerId);
+        delivered++;
+      } else if (attempts >= OUTBOUND_MAX_ATTEMPTS) {
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'failed', attempt_count = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, deliveryError || `delivery failed after ${attempts} attempts`, job.id, workerId);
+        failed++;
+        console.error(`[Federation] outbound delivery ${job.id} failed permanently after ${attempts} attempts`);
+      } else {
+        const retryAt = toSqliteDateTime(new Date(Date.now() + nextBackoffMs(attempts)));
+        db.prepare("UPDATE outbound_activity_deliveries SET state = 'pending', attempt_count = ?, next_retry_at = ?, claimed_at = NULL, worker_id = NULL, last_error = ?, updated_at = datetime('now') WHERE id = ? AND state = 'processing' AND worker_id = ?")
+          .run(attempts, retryAt, deliveryError || `delivery attempt ${attempts} failed`, job.id, workerId);
+      }
+    }
+    return { processed: jobs.length, delivered, failed };
+  })();
+
+  outboundQueueRuns.set(db, run);
+  try {
+    return await run;
+  } finally {
+    if (outboundQueueRuns.get(db) === run) outboundQueueRuns.delete(db);
+  }
+}
+
+export function startOutboundDeliveryWorker(db: DB): NodeJS.Timeout | null {
+  const rawInterval = process.env.OUTBOUND_DELIVERY_INTERVAL_MS;
+  const intervalMs = Math.max(1000, parseEnvNumber(rawInterval, 30000));
+  const run = () => {
+    processOutboundDeliveryQueue(db).catch((err) => console.error("[Federation] outbound delivery worker failed", err));
+  };
+  run();
+  return setInterval(run, intervalMs);
+}
+
+export function cleanupTerminalOutboundDeliveries(
+  db: DB,
+  options: { deliveredRetentionDays?: number; failedRetentionDays?: number } = {}
+): { deletedDelivered: number; deletedFailed: number } {
+  const deliveredRetentionDays = Math.max(0, Math.floor(options.deliveredRetentionDays ?? OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT));
+  const failedRetentionDays = Math.max(0, Math.floor(options.failedRetentionDays ?? OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT));
+  const cleanup = db.transaction((deliveredDays: number, failedDays: number) => {
+    const deletedDelivered = db
+      .prepare("DELETE FROM outbound_activity_deliveries WHERE state = 'delivered' AND updated_at < datetime('now', '-' || ? || ' days')")
+      .run(deliveredDays).changes;
+    const deletedFailed = db
+      .prepare("DELETE FROM outbound_activity_deliveries WHERE state = 'failed' AND updated_at < datetime('now', '-' || ? || ' days')")
+      .run(failedDays).changes;
+    return { deletedDelivered, deletedFailed };
+  });
+  return cleanup(deliveredRetentionDays, failedRetentionDays) as { deletedDelivered: number; deletedFailed: number };
+}
+
+export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | null {
+  const deliveredRetentionDays = parseRetentionDays(
+    process.env.OUTBOUND_RETAIN_DELIVERED_DAYS,
+    OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT
+  );
+  const failedRetentionDays = parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
+  const intervalMs = parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
+
+  const run = () => {
+    try {
+      const result = cleanupTerminalOutboundDeliveries(db, { deliveredRetentionDays, failedRetentionDays });
+      if (result.deletedDelivered > 0 || result.deletedFailed > 0) {
+        console.log(
+          `[Federation] cleaned terminal outbound rows: delivered=${result.deletedDelivered}, failed=${result.deletedFailed}`
+        );
+      }
+    } catch (err) {
+      console.error("[Federation] outbound terminal cleanup failed", err);
+    }
+  };
+
+  run();
+  return setInterval(run, intervalMs);
+}
+
+export function cleanupProcessedInboxActivities(
+  db: DB,
+  options: {
+    processedRetentionDays?: number;
+    failedRetentionDays?: number;
+    maxRows?: number;
+  } = {}
+): { deletedProcessed: number; deletedFailed: number; deletedCapped: number } {
+  const processedRetentionDays = Math.max(0, Math.floor(options.processedRetentionDays ?? INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT));
+  const failedRetentionDays = Math.max(0, Math.floor(options.failedRetentionDays ?? INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT));
+  const maxRows = Math.max(0, Math.floor(options.maxRows ?? INBOX_PROCESSED_MAX_ROWS_DEFAULT));
+
+  const cleanup = db.transaction((processedDays: number, failedDays: number, keepRows: number) => {
+    const deletedProcessed = db
+      .prepare(
+        "DELETE FROM processed_inbox_activities WHERE status = 'processed' AND received_at < datetime('now', '-' || ? || ' days')"
+      )
+      .run(processedDays).changes;
+
+    const deletedFailed = db
+      .prepare(
+        "DELETE FROM processed_inbox_activities WHERE status = 'failed' AND received_at < datetime('now', '-' || ? || ' days')"
+      )
+      .run(failedDays).changes;
+
+    let deletedCapped = 0;
+    if (keepRows > 0) {
+      deletedCapped = db
+        .prepare(
+          `DELETE FROM processed_inbox_activities
+           WHERE rowid IN (
+             SELECT rowid
+             FROM processed_inbox_activities
+             WHERE status IN ('processed', 'failed')
+             ORDER BY datetime(received_at) DESC, rowid DESC
+             LIMIT -1 OFFSET ?
+           )`
+        )
+        .run(keepRows).changes;
+    }
+
+    return { deletedProcessed, deletedFailed, deletedCapped };
+  });
+
+  return cleanup(processedRetentionDays, failedRetentionDays, maxRows) as {
+    deletedProcessed: number;
+    deletedFailed: number;
+    deletedCapped: number;
+  };
+}
+
+export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null {
+  const processedRetentionDays = parseRetentionDays(
+    process.env.INBOX_PROCESSED_RETAIN_DAYS,
+    INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT,
+  );
+  const failedRetentionDays = parseRetentionDays(
+    process.env.INBOX_FAILED_RETAIN_DAYS,
+    INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT,
+  );
+  const maxRows = parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
+  const intervalMs = Math.max(
+    INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN,
+    parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
+  );
+
+  const run = () => {
+    try {
+      const result = cleanupProcessedInboxActivities(db, {
+        processedRetentionDays,
+        failedRetentionDays,
+        maxRows,
+      });
+      if (result.deletedProcessed > 0 || result.deletedFailed > 0 || result.deletedCapped > 0) {
+        console.log(
+          `[Federation] cleaned processed inbox rows: processed=${result.deletedProcessed}, failed=${result.deletedFailed}, capped=${result.deletedCapped}`
+        );
+      }
+    } catch (err) {
+      console.error("[Federation] processed inbox cleanup failed", err);
+    }
+  };
+
+  run();
+  return setInterval(run, intervalMs);
+}
+
 export async function deliverToFollowers(
   db: DB,
   accountId: string,
@@ -436,22 +872,19 @@ export async function deliverToFollowers(
   if (!account?.private_key) return;
 
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-  const keyId = `${baseUrl}/users/${account.username}#main-key`;
+  const actorUri = `${baseUrl}/users/${account.username}`;
 
-  // Collect unique inboxes (prefer shared inboxes to reduce requests)
   const followers = db
     .prepare("SELECT follower_actor_uri, follower_inbox, follower_shared_inbox FROM remote_follows WHERE account_id = ?")
     .all(accountId) as { follower_actor_uri: string; follower_inbox: string; follower_shared_inbox: string | null }[];
 
   const inboxes = new Set<string>();
-  for (const f of followers) {
-    inboxes.add(f.follower_shared_inbox || f.follower_inbox);
-  }
+  for (const f of followers) inboxes.add(f.follower_shared_inbox || f.follower_inbox);
 
-  // Fire-and-forget delivery (don't block the request)
-  for (const inbox of inboxes) {
-    deliverActivity(inbox, activity, account.private_key, keyId).catch(() => {});
-  }
+  if (inboxes.size === 0) return;
+
+  for (const inbox of inboxes) enqueueOutboundDelivery(db, { destinationInbox: inbox, senderAccountId: accountId, senderActorUri: actorUri, activity });
+  processOutboundDeliveryQueue(db, Math.min(inboxes.size, OUTBOUND_PROCESS_LIMIT)).catch(() => {});
 }
 
 /**

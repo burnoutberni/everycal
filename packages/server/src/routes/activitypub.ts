@@ -18,11 +18,15 @@ import { generateKeyPair, verifySignature } from "../lib/crypto.js";
 import {
   resolveRemoteActor,
   deliverActivity,
+  deriveVisibilityFromActivityPubAddressing,
+  getAttributedActor,
+  normalizeEventVisibility,
+  visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
-import { upsertRemoteEvent } from "../lib/remote-events.js";
+import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
@@ -165,7 +169,7 @@ export function activityPubRoutes(db: DB): Hono {
     const ownedCount = (
       db
         .prepare(
-          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility = 'public'"
+          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility IN ('public', 'unlisted')"
         )
         .get(account.id) as { cnt: number }
     ).cnt;
@@ -210,7 +214,7 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
          FROM events e
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.account_id = ? AND e.visibility = 'public'
+         WHERE e.account_id = ? AND e.visibility IN ('public', 'unlisted')
          GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
@@ -244,8 +248,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Create",
       actor: actorUrl,
       published: toISO8601(row.created_at as string) ?? row.created_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: rowToAPEvent(row, actorUrl, baseUrl),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -255,8 +258,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -265,8 +267,7 @@ export function activityPubRoutes(db: DB): Hono {
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
-      to: ["https://www.w3.org/ns/activitystreams#Public"],
-      cc: [`${actorUrl}/followers`],
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
@@ -384,40 +385,55 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = activity.actor as string;
+    const actorUri = parseActorUri(activity.actor);
+    if (!actorUri) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
 
     // Verify the incoming activity has a valid HTTP Signature
-    if (actorUri) {
-      // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
-      const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
-      if (!skipVerify) {
-        const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
-        if (!verified) {
-          console.log(`  ⚠️  Signature verification failed for ${actorUri}`);
-          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
-        }
+    // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
+    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    if (!skipVerify) {
+      const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
+      if (!verified) {
+        console.log(`  ⚠️  Signature verification failed for ${actorUri}`);
+        return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
       }
+    }
+
+    const targetContext = inboxTargetContext("user", username);
+    const claimedInboxActivity = claimInboxActivityProcessing(db, activity, actorUri, targetContext);
+    if (!claimedInboxActivity) {
+      console.log(`  ⏭ Skipping duplicate inbox activity ${activity.id}`);
+      return c.json({ ok: true, duplicate: true }, 202);
     }
 
     console.log(`📬 Inbox for ${username}: ${type} from ${actorUri}`);
 
-    switch (type) {
-      case "Follow":
-        await handleFollow(db, account, activity);
-        break;
-      case "Undo":
-        await handleUndo(db, account, activity);
-        break;
-      case "Create":
-      case "Update":
-        handleCreateUpdate(db, activity, type);
-        break;
-      case "Delete":
-        handleDelete(db, activity);
-        break;
-      default:
-        console.log(`  ⏭ Ignored activity type: ${type}`);
+    try {
+      switch (type) {
+        case "Follow":
+          await handleFollow(db, account, activity, actorUri);
+          break;
+        case "Undo":
+          await handleUndo(db, account, activity, actorUri);
+          break;
+        case "Create":
+        case "Update":
+          handleCreateUpdate(db, activity, type, actorUri);
+          break;
+        case "Delete":
+          handleDelete(db, activity, actorUri);
+          break;
+        default:
+          console.log(`  ⏭ Ignored activity type: ${type}`);
+      }
+    } catch (error) {
+      markInboxActivityFailed(db, activity, actorUri, targetContext, error);
+      throw error;
     }
+
+    markInboxActivityProcessed(db, activity, actorUri, targetContext);
 
     return c.json({ ok: true }, 202);
   });
@@ -442,62 +458,77 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = activity.actor as string;
+    const actorUri = parseActorUri(activity.actor);
+    if (!actorUri) {
+      return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
 
     // Verify HTTP Signature
-    if (actorUri) {
-      const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
-      if (!skipVerify) {
-        const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
-        if (!verified) {
-          console.log(`  ⚠️  Shared inbox signature verification failed for ${actorUri}`);
-          return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
-        }
+    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    if (!skipVerify) {
+      const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
+      if (!verified) {
+        console.log(`  ⚠️  Shared inbox signature verification failed for ${actorUri}`);
+        return c.json({ error: t(getLocale(c), "common.invalid_signature") }, 401);
       }
+    }
+
+    const targetContext = inboxTargetContext("shared", "inbox");
+    const claimedInboxActivity = claimInboxActivityProcessing(db, activity, actorUri, targetContext);
+    if (!claimedInboxActivity) {
+      console.log(`  ⏭ Skipping duplicate shared inbox activity ${activity.id}`);
+      return c.json({ ok: true, duplicate: true }, 202);
     }
 
     console.log(`📬 Shared inbox: ${type} from ${actorUri}`);
 
-    switch (type) {
-      case "Follow": {
-        // Find the target local account from the Follow object.
-        // ActivityPub allows object to be either a string IRI or an object with id.
-        const objectUri = extractObjectUri(activity.object);
-        const baseUrl = getBaseUrl();
-        const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
-        if (match) {
-          const account = db
-            .prepare("SELECT id, username FROM accounts WHERE username = ?")
-            .get(match[1]) as { id: string; username: string } | undefined;
-          if (account) await handleFollow(db, account, activity);
-        } else if (objectUri) {
-          console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
-        }
-        break;
-      }
-      case "Undo": {
-        const inner = activity.object as Record<string, unknown>;
-        if (inner?.type === "Follow") {
-          const objectUri = extractObjectUri(inner.object);
+    try {
+      switch (type) {
+        case "Follow": {
+          // Find the target local account from the Follow object.
+          // ActivityPub allows object to be either a string IRI or an object with id.
+          const objectUri = extractObjectUri(activity.object);
           const baseUrl = getBaseUrl();
           const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
           if (match) {
             const account = db
               .prepare("SELECT id, username FROM accounts WHERE username = ?")
               .get(match[1]) as { id: string; username: string } | undefined;
-            if (account) await handleUndo(db, account, activity);
+            if (account) await handleFollow(db, account, activity, actorUri);
+          } else if (objectUri) {
+            console.log(`  ⚠️  Follow object URI did not match local user pattern: ${objectUri}`);
           }
+          break;
         }
-        break;
+        case "Undo": {
+          const inner = activity.object as Record<string, unknown>;
+          if (inner?.type === "Follow") {
+            const objectUri = extractObjectUri(inner.object);
+            const baseUrl = getBaseUrl();
+            const match = objectUri?.match(new RegExp(`^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/users/([^/]+)$`));
+            if (match) {
+              const account = db
+                .prepare("SELECT id, username FROM accounts WHERE username = ?")
+                .get(match[1]) as { id: string; username: string } | undefined;
+              if (account) await handleUndo(db, account, activity, actorUri);
+            }
+          }
+          break;
+        }
+        case "Create":
+        case "Update":
+          handleCreateUpdate(db, activity, type, actorUri);
+          break;
+        case "Delete":
+          handleDelete(db, activity, actorUri);
+          break;
       }
-      case "Create":
-      case "Update":
-        handleCreateUpdate(db, activity, type);
-        break;
-      case "Delete":
-        handleDelete(db, activity);
-        break;
+    } catch (error) {
+      markInboxActivityFailed(db, activity, actorUri, targetContext, error);
+      throw error;
     }
+
+    markInboxActivityProcessed(db, activity, actorUri, targetContext);
 
     return c.json({ ok: true }, 202);
   });
@@ -505,16 +536,92 @@ export function sharedInboxRoute(db: DB): Hono {
   return router;
 }
 
+function inboxTargetContext(kind: "user" | "shared", target: string): string {
+  return `${kind}:${target}`;
+}
+
+function parseActorUri(actor: unknown): string | null {
+  if (typeof actor !== "string") return null;
+  const trimmed = actor.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseActivityId(activityId: unknown): string | null {
+  if (typeof activityId !== "string") return null;
+  const trimmed = activityId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+const INBOX_PROCESSING_CLAIM_TTL_MINUTES = 5;
+
+function claimInboxActivityProcessing(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): boolean {
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) {
+    console.warn("  ⚠️  Inbox activity has no stable id; processing without replay dedupe");
+    return true;
+  }
+
+  const staleThreshold = `-${INBOX_PROCESSING_CLAIM_TTL_MINUTES} minutes`;
+  const result = db.prepare(
+    `INSERT INTO processed_inbox_activities (
+      activity_id,
+      actor_uri,
+      target_context,
+      status,
+      claimed_at,
+      processed_at,
+      last_error,
+      received_at
+    ) VALUES (?, ?, ?, 'processing', datetime('now'), NULL, NULL, datetime('now'))
+    ON CONFLICT(activity_id, actor_uri, target_context) DO UPDATE SET
+      status = 'processing',
+      claimed_at = datetime('now'),
+      last_error = NULL
+    WHERE processed_inbox_activities.status != 'processed'
+      AND (
+        processed_inbox_activities.status = 'failed'
+        OR processed_inbox_activities.claimed_at IS NULL
+        OR processed_inbox_activities.claimed_at <= datetime('now', ?)
+      )`
+  ).run(activityId, actorUri, targetContext, staleThreshold);
+  return result.changes === 1;
+}
+
+function markInboxActivityProcessed(db: DB, activity: Record<string, unknown>, actorUri: string, targetContext: string): void {
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) return;
+  db.prepare(
+    `UPDATE processed_inbox_activities
+     SET status = 'processed', claimed_at = NULL, processed_at = datetime('now'), last_error = NULL
+     WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
+  ).run(activityId, actorUri, targetContext);
+}
+
+function markInboxActivityFailed(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  targetContext: string,
+  error: unknown
+): void {
+  const activityId = parseActivityId(activity.id);
+  if (!activityId) return;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  db.prepare(
+    `UPDATE processed_inbox_activities
+     SET status = 'failed', claimed_at = NULL, last_error = ?
+     WHERE activity_id = ? AND actor_uri = ? AND target_context = ?`
+  ).run(errorMessage, activityId, actorUri, targetContext);
+}
+
 // ---- Activity Handlers ----
 
 async function handleFollow(
   db: DB,
   account: { id: string; username: string },
-  activity: Record<string, unknown>
+  activity: Record<string, unknown>,
+  actorUri: string
 ) {
-  const actorUri = activity.actor as string;
-  if (!actorUri) return;
-
   // Resolve the remote actor to get their inbox
   const remoteActor = await resolveRemoteActor(db, actorUri);
   if (!remoteActor) {
@@ -555,12 +662,11 @@ async function handleFollow(
 async function handleUndo(
   db: DB,
   account: { id: string; username: string },
-  activity: Record<string, unknown>
+  activity: Record<string, unknown>,
+  actorUri: string
 ) {
   const inner = activity.object as Record<string, unknown>;
   if (!inner || inner.type !== "Follow") return;
-
-  const actorUri = activity.actor as string;
   db.prepare(
     "DELETE FROM remote_follows WHERE account_id = ? AND follower_actor_uri = ?"
   ).run(account.id, actorUri);
@@ -580,27 +686,28 @@ function actorHandleFromUri(actorUri: string): { username: string; domain?: stri
   }
 }
 
-function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string) {
+function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityType: string, actorUri: string) {
   const object = activity.object as Record<string, unknown>;
   if (!object || object.type !== "Event") return;
 
   // Validate that actor matches attributedTo (prevent impersonation)
-  const rawAttributedTo = object.attributedTo;
-  const attributedTo =
-    typeof rawAttributedTo === "string"
-      ? rawAttributedTo
-      : Array.isArray(rawAttributedTo)
-        ? (rawAttributedTo[0] as string)
-        : null;
-  const actorUri = activity.actor as string;
+  const attributedTo = getAttributedActor(object);
 
-  // If attributedTo is present, it must match the activity actor
-  if (attributedTo && attributedTo !== actorUri) {
-    console.log(`  ⚠️  Rejecting Create/Update: actor ${actorUri} != attributedTo ${attributedTo}`);
+  if (attributedTo.status === "unparseable") {
+    console.log("  ⚠️  Rejecting Create/Update: attributedTo is present but unparseable");
     return;
   }
 
-  const effectiveActor = attributedTo || actorUri;
+  // If attributedTo is present, it must match the activity actor
+  if (attributedTo.status === "parsed" && attributedTo.actor !== actorUri) {
+    console.log(`  ⚠️  Rejecting Create/Update: actor ${actorUri} != attributedTo ${attributedTo.actor}`);
+    return;
+  }
+
+  const effectiveActor = attributedTo.status === "parsed" ? attributedTo.actor : actorUri;
+  const actorFollowersUrl = (db
+    .prepare("SELECT followers_url FROM remote_actors WHERE uri = ?")
+    .get(effectiveActor) as { followers_url: string | null } | undefined)?.followers_url ?? null;
   // Sanitize content from remote servers
   const title = typeof object.name === "string" ? stripHtml(object.name) : "";
   // Extract location
@@ -617,7 +724,17 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     }
   }
 
-  const uri = object.id as string;
+  const uri = normalizeRemoteEventUri(object.id);
+  if (!uri) {
+    console.log(`  ⚠️  Skipping ${activityType}: Event object.id is missing or not a non-empty string`);
+    return;
+  }
+  const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
+  if (owner && owner.actor_uri !== effectiveActor) {
+    console.log(`  ⚠️  Rejecting Create/Update: actor ${effectiveActor} doesn't own existing event ${uri} (owner: ${owner.actor_uri})`);
+    return;
+  }
+
   const temporal = normalizeApTemporal(object);
   if (!temporal) return;
   const startDate = temporal.startDate;
@@ -651,6 +768,13 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   const upserted = upsertRemoteEvent(db, object, effectiveActor, {
     clearCanceled: true,
     temporal,
+    actorFollowersUrl,
+    visibility:
+      ("to" in activity || "cc" in activity)
+        ? deriveVisibilityFromActivityPubAddressing(activity, {
+          actorFollowersUrl,
+        })
+        : undefined,
   });
 
   if (isRemoteActivityOgEligible(activity, object)) {
@@ -698,8 +822,7 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
-function handleDelete(db: DB, activity: Record<string, unknown>) {
-  const actorUri = activity.actor as string;
+function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: string) {
   const rawObject = activity.object;
   const objectUri: string | undefined =
     typeof rawObject === "string"
@@ -779,12 +902,16 @@ function rowToAPEvent(
   const eventUrl = `${baseUrl}/events/${row.id}`;
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
+  const { to, cc } = visibilityToActivityPubAddressing(
+    normalizeEventVisibility(row.visibility as string),
+    actorUrl,
+  );
   const event = buildApEventObject({
     id: eventUrl,
     name: row.title as string,
     attributedTo: actorUrl,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [`${actorUrl}/followers`],
+    to,
+    cc,
     allDay: isAllDay,
     startDate: row.start_date,
     endDate: row.end_date,
@@ -927,7 +1054,7 @@ export function activityPubEventRoutes(db: DB): Hono {
          FROM events e
          JOIN accounts a ON a.id = e.account_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.id = ? AND e.visibility = 'public'
+         WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')
          GROUP BY e.id`
       )
       .get(id) as Record<string, unknown> | undefined;

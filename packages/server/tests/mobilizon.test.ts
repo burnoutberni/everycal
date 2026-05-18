@@ -5,7 +5,7 @@
  * to verify interoperability with Mobilizon instances.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { initDatabase, type DB } from "../src/db.js";
 import {
   fetchAP,
@@ -15,16 +15,94 @@ import {
 } from "../src/lib/federation.js";
 
 const ACTOR_URI = "https://events.htu.at/@htubarrierefrei";
+const PROBE_ACCEPT =
+  'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"';
+const PROBE_USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
+
+async function probeLiveFederation(
+  fetchFn: typeof fetch,
+  url: string,
+  timeoutMs: number
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchFn(url, {
+      headers: {
+        Accept: PROBE_ACCEPT,
+        "User-Agent": PROBE_USER_AGENT,
+      },
+      signal: controller.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+let liveFederationReachable = false;
+
+describe("live federation reachability probe", () => {
+  it("returns false for non-2xx responses", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, { status: 503 })
+    );
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      false
+    );
+  });
+
+  it("returns true for 2xx responses", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      true
+    );
+  });
+
+  it("returns false when fetch throws", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("network error"));
+    await expect(probeLiveFederation(fetchMock, ACTOR_URI, 1000)).resolves.toBe(
+      false
+    );
+  });
+
+  it("sends ActivityPub Accept and User-Agent headers", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    await probeLiveFederation(fetchMock, ACTOR_URI, 1000);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      ACTOR_URI,
+      expect.objectContaining({
+        headers: {
+          Accept: PROBE_ACCEPT,
+          "User-Agent": PROBE_USER_AGENT,
+        },
+        signal: expect.any(AbortSignal),
+      })
+    );
+  });
+});
 
 describe("Mobilizon federation (events.htu.at)", () => {
   let db: DB;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = initDatabase(":memory:");
+    liveFederationReachable = await probeLiveFederation(fetch, ACTOR_URI, 4000);
   });
 
   describe("fetchAP", () => {
-    it("fetches a Mobilizon Group actor", async () => {
+    it("fetches a Mobilizon Group actor", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const actor = (await fetchAP(ACTOR_URI)) as Record<string, unknown>;
       expect(actor.type).toBe("Group");
       expect(actor.preferredUsername).toBe("htubarrierefrei");
@@ -34,7 +112,8 @@ describe("Mobilizon federation (events.htu.at)", () => {
       expect(actor.publicKey).toBeTruthy();
     });
 
-    it("fetches outbox collection", async () => {
+    it("fetches outbox collection", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const outbox = (await fetchAP(
         `${ACTOR_URI}/outbox`
       )) as Record<string, unknown>;
@@ -45,7 +124,8 @@ describe("Mobilizon federation (events.htu.at)", () => {
   });
 
   describe("resolveRemoteActor", () => {
-    it("resolves and caches a Mobilizon actor", async () => {
+    it("resolves and caches a Mobilizon actor", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI, true);
       expect(actor).not.toBeNull();
       expect(actor!.type).toBe("Group");
@@ -59,6 +139,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("returns cached actor on second call", async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI);
       expect(actor).not.toBeNull();
       expect(actor!.display_name).toContain("Barrierefreiheit");
@@ -67,6 +148,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
 
   describe("fetchRemoteOutbox", () => {
     it("fetches all events with pagination", { timeout: 30000 }, async () => {
+      if (!liveFederationReachable) return;
       const items = await fetchRemoteOutbox(`${ACTOR_URI}/outbox`, 10);
       expect(items.length).toBeGreaterThan(10); // Should span multiple pages
 
@@ -87,6 +169,10 @@ describe("Mobilizon federation (events.htu.at)", () => {
     let events: Record<string, unknown>[];
 
     beforeAll(async () => {
+      if (!liveFederationReachable) {
+        events = [];
+        return;
+      }
       const items = await fetchRemoteOutbox(`${ACTOR_URI}/outbox`, 10);
       events = items.map(
         (item) => (item as Record<string, unknown>).object as Record<string, unknown>
@@ -94,6 +180,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses event names", () => {
+      if (!liveFederationReachable) return;
       for (const event of events) {
         expect(typeof event.name).toBe("string");
         expect((event.name as string).length).toBeGreaterThan(0);
@@ -101,6 +188,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses PostalAddress locations", () => {
+      if (!liveFederationReachable) return;
       const withLocation = events.filter((e) => e.location);
       expect(withLocation.length).toBeGreaterThan(0);
 
@@ -121,6 +209,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses tags", () => {
+      if (!liveFederationReachable) return;
       const withTags = events.filter(
         (e) => (e.tag as unknown[])?.length > 0
       );
@@ -136,6 +225,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("parses Document attachments (images)", () => {
+      if (!liveFederationReachable) return;
       const withAttachments = events.filter(
         (e) => (e.attachment as unknown[])?.length > 0
       );
@@ -159,6 +249,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("handles attributedTo pointing to group", () => {
+      if (!liveFederationReachable) return;
       for (const event of events) {
         // Mobilizon events have attributedTo pointing to the group
         expect(event.attributedTo).toBe(ACTOR_URI);
@@ -168,6 +259,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
 
   describe("store remote events", () => {
     beforeAll(async () => {
+      if (!liveFederationReachable) return;
       const actor = await resolveRemoteActor(db, ACTOR_URI);
       const items = await fetchRemoteOutbox(actor!.outbox!, 10);
 
@@ -243,6 +335,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores all events in the database", () => {
+      if (!liveFederationReachable) return;
       const count = (
         db
           .prepare("SELECT COUNT(*) AS cnt FROM remote_events")
@@ -252,6 +345,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores location data correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           "SELECT location_name, location_address, location_latitude, location_longitude FROM remote_events WHERE location_name IS NOT NULL LIMIT 5"
@@ -268,6 +362,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("stores tags correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           "SELECT tags FROM remote_events WHERE tags IS NOT NULL LIMIT 5"
@@ -286,6 +381,7 @@ describe("Mobilizon federation (events.htu.at)", () => {
     });
 
     it("joins with remote_actors correctly", () => {
+      if (!liveFederationReachable) return;
       const rows = db
         .prepare(
           `SELECT re.title, ra.display_name, ra.domain
