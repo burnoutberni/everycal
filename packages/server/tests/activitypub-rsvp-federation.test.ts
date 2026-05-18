@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 
@@ -91,13 +91,31 @@ function rsvpActivity(type: string, id: string, extra: Record<string, unknown> =
 
 describe("ActivityPub RSVP federation", () => {
   let db: DB;
+  let prevSkipSignatureVerify: string | undefined;
+  let prevBaseUrl: string | undefined;
 
   beforeEach(() => {
+    prevSkipSignatureVerify = process.env.SKIP_SIGNATURE_VERIFY;
+    prevBaseUrl = process.env.BASE_URL;
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     process.env.BASE_URL = "http://localhost";
     db = initDatabase(":memory:");
     vi.mocked(resolveRemoteActor).mockReset();
     vi.mocked(fetchRemoteOutbox).mockReset();
+  });
+
+  afterEach(() => {
+    if (prevSkipSignatureVerify === undefined) {
+      delete process.env.SKIP_SIGNATURE_VERIFY;
+    } else {
+      process.env.SKIP_SIGNATURE_VERIFY = prevSkipSignatureVerify;
+    }
+
+    if (prevBaseUrl === undefined) {
+      delete process.env.BASE_URL;
+    } else {
+      process.env.BASE_URL = prevBaseUrl;
+    }
   });
 
   it.each([
