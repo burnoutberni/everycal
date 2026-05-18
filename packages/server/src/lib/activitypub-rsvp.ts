@@ -160,7 +160,7 @@ export function shouldApplyRemoteRsvpUpdate(existing: {
     return true;
   }
 
-  return incoming.precedence >= (existing.last_activity_precedence ?? 0);
+  return incoming.precedence > (existing.last_activity_precedence ?? 0);
 }
 
 export function upsertRemoteEventRsvp(

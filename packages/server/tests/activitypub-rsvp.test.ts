@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { localEventIdFromActivityPubUri } from "../src/lib/activitypub-rsvp.js";
+import { localEventIdFromActivityPubUri, shouldApplyRemoteRsvpUpdate } from "../src/lib/activitypub-rsvp.js";
 
 describe("localEventIdFromActivityPubUri", () => {
   let previousBaseUrl: string | undefined;
@@ -49,5 +49,34 @@ describe("localEventIdFromActivityPubUri", () => {
     expect(localEventIdFromActivityPubUri("   ")).toBeNull();
     expect(localEventIdFromActivityPubUri("https://remote.example/not-a-url-parse-error")).toBeNull();
     expect(localEventIdFromActivityPubUri("foo://[::1")).toBeNull();
+  });
+});
+
+describe("shouldApplyRemoteRsvpUpdate", () => {
+  it("does not apply when timestamp and precedence are unchanged", () => {
+    expect(
+      shouldApplyRemoteRsvpUpdate(
+        { last_activity_published_at: "2025-01-01T10:00:00.000Z", last_activity_precedence: 30 },
+        { publishedAt: "2025-01-01T10:00:00.000Z", precedence: 30 },
+      ),
+    ).toBe(false);
+  });
+
+  it("does not apply when both timestamps are missing and precedence is unchanged", () => {
+    expect(
+      shouldApplyRemoteRsvpUpdate(
+        { last_activity_published_at: null, last_activity_precedence: 20 },
+        { publishedAt: null, precedence: 20 },
+      ),
+    ).toBe(false);
+  });
+
+  it("applies when precedence increases with equal timestamp", () => {
+    expect(
+      shouldApplyRemoteRsvpUpdate(
+        { last_activity_published_at: "2025-01-01T10:00:00.000Z", last_activity_precedence: 20 },
+        { publishedAt: "2025-01-01T10:00:00.000Z", precedence: 30 },
+      ),
+    ).toBe(true);
   });
 });
