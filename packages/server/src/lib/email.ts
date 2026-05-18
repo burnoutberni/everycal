@@ -5,7 +5,7 @@
 
 import nodemailer from "nodemailer";
 import { emailT } from "./email-i18n.js";
-import { getBaseUrl } from "./base-url.js";
+import { buildEventUrl, getBaseUrl } from "./base-url.js";
 import type { Transporter } from "nodemailer";
 
 let transporter: Transporter | null = null;
@@ -195,12 +195,7 @@ export interface EventChange {
 
 /** Build event link for emails. Prefer canonical page path /@user/event-slug for both local and remote events. */
 function getEventLink(event: EventInfo): string {
-  const hasExplicitDomain = !!event.account.domain;
-  const username = hasExplicitDomain && event.account.username.includes("@")
-    ? event.account.username.split("@")[0]
-    : event.account.username;
-  const domainPart = hasExplicitDomain ? `@${event.account.domain}` : "";
-  return `${getBaseUrl()}/@${username}${domainPart}/${event.slug}`;
+  return buildEventUrl(event.account.username, event.slug, event.account.domain);
 }
 
 /** Send event reminder. */

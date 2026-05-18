@@ -8,7 +8,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
 import { getLocale, t } from "../lib/i18n.js";
 
 export function wellKnownRoutes(db: DB): Hono {
@@ -36,17 +36,17 @@ export function wellKnownRoutes(db: DB): Hono {
     return c.json(
       {
         subject: resource,
-        aliases: [`${baseUrl}/users/${username}`, `${baseUrl}/@${username}`],
+        aliases: [buildActorUrl(username, baseUrl), buildProfileUrl(username, baseUrl)],
         links: [
           {
             rel: "self",
             type: "application/activity+json",
-            href: `${baseUrl}/users/${username}`,
+            href: buildActorUrl(username, baseUrl),
           },
           {
             rel: "http://webfinger.net/rel/profile-page/",
             type: "text/html",
-            href: `${baseUrl}/@${username}`,
+            href: buildProfileUrl(username, baseUrl),
           },
         ],
       },

@@ -38,7 +38,7 @@ import {
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
-import { getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -492,7 +492,7 @@ export function federationRoutes(db: DB): Hono {
       }
 
       const baseUrl = getBaseUrl();
-      const ourActorUrl = `${baseUrl}/users/${user.username}`;
+      const ourActorUrl = buildActorUrl(user.username, baseUrl);
 
       const followActivity = buildFollowActivity(ourActorUrl, actorUri);
 
@@ -565,7 +565,7 @@ export function federationRoutes(db: DB): Hono {
         privateKey = keys.privateKey;
       }
 
-      const actorUrl = `${baseUrl}/users/${accountKeys.username}`;
+      const actorUrl = buildActorUrl(accountKeys.username, baseUrl);
 
       try {
         if (after) {
@@ -668,7 +668,7 @@ export function federationRoutes(db: DB): Hono {
     let delivered = false;
     if (account.private_key) {
       const baseUrl = getBaseUrl();
-      const ourActorUrl = `${baseUrl}/users/${account.username}`;
+      const ourActorUrl = buildActorUrl(account.username, baseUrl);
 
       const undoActivity = buildUndoFollowActivity(ourActorUrl, actorUri, followRow?.follow_activity_id);
 

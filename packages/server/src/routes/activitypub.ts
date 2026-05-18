@@ -41,7 +41,7 @@ import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
-import { getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -91,7 +91,7 @@ export function activityPubRoutes(db: DB): Hono {
     const keys = ensureKeyPairForAccount(db, account.id as string);
     if (!keys) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const attachment: Record<string, unknown>[] = [];
     if (account.website) {
@@ -112,7 +112,7 @@ export function activityPubRoutes(db: DB): Hono {
       preferredUsername: username,
       name: (account.display_name as string) || username,
       summary: (account.bio as string) || "",
-      url: `${baseUrl}/@${username}`,
+      url: buildProfileUrl(username, baseUrl),
       ...(account.created_at ? { published: toISO8601(account.created_at as string) } : {}),
       inbox: `${actorUrl}/inbox`,
       outbox: `${actorUrl}/outbox`,
@@ -147,7 +147,7 @@ export function activityPubRoutes(db: DB): Hono {
     const username = c.req.param("username");
     const page = c.req.query("page");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -295,7 +295,7 @@ export function activityPubRoutes(db: DB): Hono {
   router.get("/:username/followers", (c) => {
     const username = c.req.param("username");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -331,7 +331,7 @@ export function activityPubRoutes(db: DB): Hono {
   router.get("/:username/following", (c) => {
     const username = c.req.param("username");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -647,7 +647,7 @@ async function handleFollow(
   const keys = ensureKeyPairForAccount(db, account.id);
   if (!keys) return;
   const baseUrl = getBaseUrl();
-  const actorUrl = `${baseUrl}/users/${account.username}`;
+  const actorUrl = buildActorUrl(account.username, baseUrl);
 
   const accept = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -899,7 +899,7 @@ function resolveLocalRsvpEvent(
     return null;
   }
 
-  const ownerActorUri = `${getBaseUrl()}/users/${localEvent.username}`;
+  const ownerActorUri = buildActorUrl(localEvent.username);
   if (rawObject && typeof rawObject === "object") {
     const attributedTo = getAttributedActor(rawObject as Record<string, unknown>);
     if (attributedTo.status === "parsed" && attributedTo.actor !== ownerActorUri) {
@@ -1169,7 +1169,7 @@ export function activityPubEventRoutes(db: DB): Hono {
     if (!row) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${row.username}`;
+    const actorUrl = buildActorUrl(row.username as string, baseUrl);
     const event = rowToAPEvent(row, actorUrl, baseUrl);
 
     return c.json(event, 200, {

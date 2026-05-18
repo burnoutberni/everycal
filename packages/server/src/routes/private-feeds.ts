@@ -12,6 +12,7 @@ import type { DB } from "../db.js";
 import { toICalendar } from "@everycal/core";
 import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
+import { getBaseUrlFromRequest } from "../lib/base-url.js";
 import { rowToEvent } from "../lib/feed-event.js";
 import { findByTokenHash } from "../lib/token-secrets.js";
 
@@ -145,7 +146,7 @@ export function privateFeedRoutes(db: DB): Hono {
   router.get("/calendar-url", privateNoStore, requireAuth(), (c) => {
     const user = c.get("user")!;
     const token = getOrCreateCalendarFeedToken(db, user.id);
-    const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
+    const baseUrl = getBaseUrlFromRequest(c.req.url);
     const url = `${baseUrl}/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(token)}`;
     return c.json({ url });
   });
@@ -153,7 +154,7 @@ export function privateFeedRoutes(db: DB): Hono {
   router.post("/calendar-url/regenerate", privateNoStore, requireAuth(), (c) => {
     const user = c.get("user")!;
     const token = regenerateCalendarFeedToken(db, user.id);
-    const baseUrl = process.env.BASE_URL || new URL(c.req.url).origin;
+    const baseUrl = getBaseUrlFromRequest(c.req.url);
     const url = `${baseUrl}/api/v1/private-feeds/calendar.ics?token=${encodeURIComponent(token)}`;
     return c.json({ url });
   });

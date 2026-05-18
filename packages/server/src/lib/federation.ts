@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import type { EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
-import { getBaseUrl } from "./base-url.js";
+import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
 
@@ -873,7 +873,7 @@ export async function deliverToFollowers(
   if (!account?.private_key) return;
 
   const baseUrl = getBaseUrl();
-  const actorUri = `${baseUrl}/users/${account.username}`;
+  const actorUri = buildActorUrl(account.username, baseUrl);
 
   const followers = db
     .prepare("SELECT follower_actor_uri, follower_inbox, follower_shared_inbox FROM remote_follows WHERE account_id = ?")

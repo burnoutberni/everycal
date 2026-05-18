@@ -10,6 +10,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, extname, resolve, relative, isAbsolute, sep } from "node:path";
+import { buildUploadUrl, getBaseUrlFromRequest } from "../lib/base-url.js";
 import { UPLOAD_DIR } from "../lib/paths.js";
 import { UPLOAD_MAX_SIZE_BYTES, UPLOAD_MAX_SIZE_MB } from "../lib/upload-limits.js";
 
@@ -81,8 +82,8 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
 
     writeFileSync(filepath, buffer);
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-    const url = `${baseUrl}/uploads/${filename}`;
+    const baseUrl = getBaseUrlFromRequest(c.req.url, `http://localhost:${process.env.PORT || 3000}`);
+    const url = buildUploadUrl(filename, baseUrl);
 
     return c.json({ url, mediaType: allowedMime, filename }, 201);
   });

@@ -7,7 +7,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 /** Convert bio to HTML if plain text (Mastodon expects HTML in note). */
@@ -69,8 +69,8 @@ export function directoryRoutes(db: DB): Hono {
 
     const accounts = rows.map((r) => {
       const username = r.username as string;
-      const actorUrl = `${baseUrl}/users/${username}`;
-      const profileUrl = `${baseUrl}/@${username}`;
+      const actorUrl = buildActorUrl(username, baseUrl);
+      const profileUrl = buildProfileUrl(username, baseUrl);
       const lastStatusAt = r.last_status_at as string | null;
       const dateStr = lastStatusAt ? lastStatusAt.slice(0, 10) : null;
 
