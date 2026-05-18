@@ -227,6 +227,48 @@ describe("ActivityPub RSVP federation", () => {
     expect(count.cnt).toBe(1);
   });
 
+  it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {
+    seedRemoteEvent(db);
+    db.prepare("UPDATE accounts SET private_key = ?, public_key = NULL WHERE id = ?").run("LEGACY_PRIVATE", "local1");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: "https://remote.example/users/organizer",
+      type: "Person",
+      preferred_username: "organizer",
+      display_name: "Organizer",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+
+    const res = await authedApp(db).request("http://localhost/api/v1/events/rsvp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventUri: "https://remote.example/events/remote-1", status: "going" }),
+    });
+
+    expect(res.status).toBe(200);
+    const accountKeys = db.prepare("SELECT public_key, private_key FROM accounts WHERE id = ?").get("local1") as {
+      public_key: string | null;
+      private_key: string | null;
+    };
+    expect(accountKeys.public_key).toBeTruthy();
+    expect(accountKeys.private_key).toBeTruthy();
+    expect(accountKeys.private_key).not.toBe("LEGACY_PRIVATE");
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM outbound_activity_deliveries").get() as { cnt: number };
+    expect(count.cnt).toBe(1);
+  });
+
   it("imports RSVP activities from pull-sync outbox parity with the same local state mapping", async () => {
     seedLocalEvent(db);
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")

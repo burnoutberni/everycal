@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type { DB } from "../../db.js";
-import { generateKeyPair } from "../../lib/crypto.js";
+import { ensureKeyPairForAccount } from "../../lib/account-keys.js";
 import { enqueueOutboundDelivery, resolveRemoteActor } from "../../lib/federation.js";
 import { mapLocalRsvpStateToActivityPubType, type LocalRsvpState } from "../../lib/activitypub-rsvp.js";
 import { requireAuth } from "../../middleware/auth.js";
@@ -13,17 +13,6 @@ function getBaseUrl(): string {
   return process.env.BASE_URL || "http://localhost:3000";
 }
 
-function ensureAccountPrivateKey(db: DB, accountId: string): string | null {
-  const row = db.prepare("SELECT private_key, public_key FROM accounts WHERE id = ?").get(accountId) as
-    | { private_key: string | null; public_key: string | null }
-    | undefined;
-  if (!row) return null;
-  if (row.private_key) return row.private_key;
-  const keys = generateKeyPair();
-  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(keys.publicKey, keys.privateKey, accountId);
-  return keys.privateKey;
-}
-
 async function enqueueOutboundRsvpIfNeeded(
   db: DB,
   params: {
@@ -34,7 +23,7 @@ async function enqueueOutboundRsvpIfNeeded(
     nextStatus: LocalRsvpState;
   },
 ): Promise<void> {
-  if (!ensureAccountPrivateKey(db, params.accountId)) return;
+  if (!ensureKeyPairForAccount(db, params.accountId)) return;
   const remoteActor = await resolveRemoteActor(db, params.remoteEventActorUri);
   if (!remoteActor?.inbox) {
     console.log(`[Federation] Skipping RSVP delivery; could not resolve ${params.remoteEventActorUri}`);

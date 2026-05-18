@@ -14,7 +14,8 @@ import type { Context } from "hono";
 import crypto from "node:crypto";
 import { normalizeHashtagName } from "@everycal/core";
 import type { DB } from "../db.js";
-import { generateKeyPair, verifySignature } from "../lib/crypto.js";
+import { verifySignature } from "../lib/crypto.js";
+import { ensureKeyPairForAccount } from "../lib/account-keys.js";
 import {
   resolveRemoteActor,
   deliverActivity,
@@ -70,24 +71,6 @@ function toEpochMillisOrZero(value: unknown): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
-  const row = db
-    .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
-    .get(accountId) as { public_key: string | null; private_key: string | null };
-
-  if (row.public_key && row.private_key) {
-    return { publicKey: row.public_key, privateKey: row.private_key };
-  }
-
-  const keys = generateKeyPair();
-  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
-    keys.publicKey,
-    keys.privateKey,
-    accountId
-  );
-  return keys;
-}
-
 export function activityPubRoutes(db: DB): Hono {
   const router = new Hono();
 
@@ -108,7 +91,8 @@ export function activityPubRoutes(db: DB): Hono {
 
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
-    const keys = ensureKeyPair(db, account.id as string);
+    const keys = ensureKeyPairForAccount(db, account.id as string);
+    if (!keys) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     const baseUrl = getBaseUrl();
     const actorUrl = `${baseUrl}/users/${username}`;
 
@@ -664,6 +648,7 @@ async function handleFollow(
 
   // Send Accept
   const keys = ensureKeyPairForAccount(db, account.id);
+  if (!keys) return;
   const baseUrl = getBaseUrl();
   const actorUrl = `${baseUrl}/users/${account.username}`;
 
@@ -1010,27 +995,6 @@ function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: strin
       console.log(`  ⚠️  Rejecting Delete: actor ${actorUri} doesn't own event ${objectUri} (owner: ${existing.actor_uri})`);
     }
   }
-}
-
-function ensureKeyPairForAccount(
-  db: DB,
-  accountId: string
-): { publicKey: string; privateKey: string } {
-  const row = db
-    .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
-    .get(accountId) as { public_key: string | null; private_key: string | null };
-
-  if (row.public_key && row.private_key) {
-    return { publicKey: row.public_key, privateKey: row.private_key };
-  }
-
-  const keys = generateKeyPair();
-  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
-    keys.publicKey,
-    keys.privateKey,
-    accountId
-  );
-  return keys;
 }
 
 // ---- Helpers ----
