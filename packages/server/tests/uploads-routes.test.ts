@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import sharp from "sharp";
@@ -161,5 +161,6 @@ describe("uploads routes", () => {
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
   });
 });

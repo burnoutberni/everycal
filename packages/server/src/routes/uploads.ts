@@ -80,11 +80,11 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
       return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
     }
 
-    writeFileSync(filepath, buffer);
-
     if (!process.env.BASE_URL || process.env.BASE_URL.trim().length === 0) {
       return c.json({ error: "Server misconfiguration: BASE_URL is required for uploads" }, 500);
     }
+
+    writeFileSync(filepath, buffer);
 
     const baseUrl = getBaseUrl();
     const url = buildUploadUrl(filename, baseUrl);
