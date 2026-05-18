@@ -549,8 +549,7 @@ function parseActorUri(actor: unknown): string | null {
 }
 
 function parseInboxActorUri(activity: Record<string, unknown>): string | null {
-  if (typeof activity.actor === "string") return parseActorUri(activity.actor);
-  return isActivityPubRsvpType(activity.type) ? parseActorUri(activity.actor) : null;
+  return parseActorUri(activity.actor);
 }
 
 function parseActivityId(activityId: unknown): string | null {

@@ -721,7 +721,7 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("First");
   });
 
-  it("rejects user inbox activity when actor is not a string", async () => {
+  it("accepts user inbox activity when actor is an object with id", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
     insertAccount(db, "local1", "alice");
@@ -734,14 +734,13 @@ describe("federation hardening prep", () => {
         id: "https://remote.example/activities/create-non-string-actor",
         type: "Create",
         actor: { id: "https://remote.example/users/bob" },
-        object: eventObject("https://remote.example/events/non-string-actor", "Should Reject", { to: [federation.AP_PUBLIC] }),
+        object: eventObject("https://remote.example/events/non-string-actor", "Should Accept", { to: [federation.AP_PUBLIC] }),
       }),
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid request" });
+    expect(response.status).toBe(202);
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
+    expect(count.cnt).toBe(1);
   });
 
   it("trims user inbox actor string before processing", async () => {

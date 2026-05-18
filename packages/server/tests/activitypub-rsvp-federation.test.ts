@@ -145,6 +145,55 @@ describe("ActivityPub RSVP federation", () => {
     expect(row.status).toBe("going");
   });
 
+  it("accepts object-form actor on non-RSVP user inbox activities", async () => {
+    seedLocalEvent(db);
+    const res = await postInbox(db, {
+      id: "https://remote.example/activities/create-object-actor",
+      type: "Create",
+      actor: { id: remoteActorUri },
+      object: {
+        type: "Note",
+        id: "https://remote.example/notes/1",
+      },
+    });
+
+    expect(res.status).toBe(202);
+    const processed = db.prepare(
+      "SELECT status FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?",
+    ).get(
+      "https://remote.example/activities/create-object-actor",
+      remoteActorUri,
+      "user:alice",
+    ) as { status: string } | undefined;
+    expect(processed?.status).toBe("processed");
+  });
+
+  it("accepts object-form actor on non-RSVP shared inbox activities", async () => {
+    const res = await postInbox(
+      db,
+      {
+        id: "https://remote.example/activities/shared-create-object-actor",
+        type: "Create",
+        actor: { id: remoteActorUri },
+        object: {
+          type: "Note",
+          id: "https://remote.example/notes/2",
+        },
+      },
+      "/inbox",
+    );
+
+    expect(res.status).toBe(202);
+    const processed = db.prepare(
+      "SELECT status FROM processed_inbox_activities WHERE activity_id = ? AND actor_uri = ? AND target_context = ?",
+    ).get(
+      "https://remote.example/activities/shared-create-object-actor",
+      remoteActorUri,
+      "shared:inbox",
+    ) as { status: string } | undefined;
+    expect(processed?.status).toBe("processed");
+  });
+
   it("rejects malformed and impersonation-like RSVP payloads without mutating state", async () => {
     seedLocalEvent(db);
     await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/forged-object-actor", {
