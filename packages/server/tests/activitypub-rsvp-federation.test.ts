@@ -509,4 +509,103 @@ describe("ActivityPub RSVP federation", () => {
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
   });
+
+  it("does not count stale pulled RSVP updates as imported", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-newer", {
+        published: "2026-01-02T00:00:00.000Z",
+      }),
+      rsvpActivity("Leave", "https://remote.example/activities/pulled-older", {
+        published: "2026-01-01T00:00:00.000Z",
+      }),
+    ]);
+
+    const res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 1, total: 2 });
+
+    const row = db.prepare("SELECT status, last_activity_type FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
+      .get("event-1", remoteActorUri) as { status: string; last_activity_type: string };
+    expect(row).toEqual({ status: "going", last_activity_type: "Accept" });
+  });
+
+  it("normalizes pulled RSVP activity ids like inbox handling", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "   https://remote.example/activities/pulled-trim-me   "),
+    ]);
+    let res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    let row = db.prepare("SELECT last_activity_id FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
+      .get("event-1", remoteActorUri) as { last_activity_id: string | null };
+    expect(row.last_activity_id).toBe("https://remote.example/activities/pulled-trim-me");
+
+    db.prepare("DELETE FROM remote_event_rsvps").run();
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "   "),
+    ]);
+    res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    row = db.prepare("SELECT last_activity_id FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
+      .get("event-1", remoteActorUri) as { last_activity_id: string | null };
+    expect(row.last_activity_id).toBeNull();
+  });
 });

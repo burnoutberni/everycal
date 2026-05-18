@@ -81,6 +81,12 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
 
 type PulledRsvpImportResult = { handled: boolean; applied: boolean };
 
+function parseActivityId(activityId: unknown): string | null {
+  if (typeof activityId !== "string") return null;
+  const trimmed = activityId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): PulledRsvpImportResult {
   if (!isActivityPubRsvpType(activity.type)) return { handled: false, applied: false };
   const activityActor = parseApActorReference(activity.actor);
@@ -92,15 +98,15 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
   if (!target) return { handled: true, applied: false };
   const localState = mapActivityPubRsvpToLocalState(activity.type);
   if (localState === undefined) return { handled: true, applied: false };
-  upsertRemoteEventRsvp(db, {
+  const result = upsertRemoteEventRsvp(db, {
     eventId: target.eventId,
     actorUri,
     activityType: activity.type,
-    activityId: typeof activity.id === "string" ? activity.id : null,
+    activityId: parseActivityId(activity.id),
     publishedAt: normalizeApPublished(activity.published ?? activity.updated),
     localState,
   });
-  return { handled: true, applied: true };
+  return { handled: true, applied: result.applied };
 }
 
 
