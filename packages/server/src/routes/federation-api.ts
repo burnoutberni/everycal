@@ -30,6 +30,7 @@ import { listActingAccounts } from "../lib/identities.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import {
   isActivityPubRsvpType,
+  localEventIdFromActivityPubUri,
   mapActivityPubRsvpToLocalState,
   normalizeApPublished,
   parseApActorReference,
@@ -83,21 +84,6 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
     return (await fetchAP(obj.id as string)) as Record<string, unknown>;
   }
   return obj;
-}
-
-function localEventIdFromActivityPubUri(uri: string): string | null {
-  const trimmed = uri.trim();
-  if (!trimmed) return null;
-  const baseUrl = getBaseUrl();
-  try {
-    const parsed = new URL(trimmed);
-    const base = new URL(baseUrl);
-    if (parsed.origin !== base.origin) return null;
-    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
-    return match ? decodeURIComponent(match[1]) : null;
-  } catch {
-    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
-  }
 }
 
 type PulledRsvpImportResult = { handled: boolean; applied: boolean };

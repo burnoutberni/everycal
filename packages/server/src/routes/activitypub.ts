@@ -27,6 +27,7 @@ import {
 import {
   extractApObjectUri,
   isActivityPubRsvpType,
+  localEventIdFromActivityPubUri,
   mapActivityPubRsvpToLocalState,
   normalizeApPublished,
   parseApActorReference,
@@ -829,23 +830,6 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
-
-function localEventIdFromActivityPubUri(uri: string): string | null {
-  const trimmed = uri.trim();
-  if (!trimmed) return null;
-  const baseUrl = getBaseUrl();
-  try {
-    const parsed = new URL(trimmed);
-    const base = new URL(baseUrl);
-    if (parsed.origin !== base.origin) return null;
-    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
-    return match ? decodeURIComponent(match[1]) : null;
-  } catch {
-    // Accept raw local ids only as a local lookup fallback; remote HTTP(S) strings
-    // must match BASE_URL /events/:id above.
-    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
-  }
-}
 
 function resolveLocalRsvpEvent(
   db: DB,

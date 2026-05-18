@@ -1,4 +1,5 @@
 import type { DB } from "../db.js";
+import { getBaseUrl } from "./base-url.js";
 
 export const AP_RSVP_ACTIVITY_TYPES = ["Accept", "TentativeAccept", "Reject", "Join", "Leave"] as const;
 export type ActivityPubRsvpType = (typeof AP_RSVP_ACTIVITY_TYPES)[number];
@@ -73,6 +74,21 @@ export function normalizeApPublished(value: unknown): string | null {
   const ms = Date.parse(value);
   if (!Number.isFinite(ms)) return null;
   return new Date(ms).toISOString();
+}
+
+export function localEventIdFromActivityPubUri(uri: string): string | null {
+  const trimmed = uri.trim();
+  if (!trimmed) return null;
+  const baseUrl = getBaseUrl();
+  try {
+    const parsed = new URL(trimmed);
+    const base = new URL(baseUrl);
+    if (parsed.origin !== base.origin) return null;
+    const match = parsed.pathname.match(/^\/events\/([^/]+)\/?$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return /^https?:\/\//i.test(trimmed) ? null : trimmed;
+  }
 }
 
 export function shouldApplyRemoteRsvpUpdate(existing: {
