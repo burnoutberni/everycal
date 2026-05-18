@@ -77,6 +77,10 @@ export function normalizeApPublished(value: unknown): string | null {
   return new Date(ms).toISOString();
 }
 
+export function normalizeApPublishedWithFallback(published: unknown, updated: unknown): string | null {
+  return normalizeApPublished(published) ?? normalizeApPublished(updated);
+}
+
 export function localEventIdFromActivityPubUri(uri: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) return null;

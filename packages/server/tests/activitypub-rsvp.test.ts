@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { localEventIdFromActivityPubUri, shouldApplyRemoteRsvpUpdate } from "../src/lib/activitypub-rsvp.js";
+import {
+  localEventIdFromActivityPubUri,
+  normalizeApPublishedWithFallback,
+  shouldApplyRemoteRsvpUpdate,
+} from "../src/lib/activitypub-rsvp.js";
 
 describe("localEventIdFromActivityPubUri", () => {
   let previousBaseUrl: string | undefined;
@@ -96,5 +100,28 @@ describe("shouldApplyRemoteRsvpUpdate", () => {
         { publishedAt: null, precedence: 50 },
       ),
     ).toBe(false);
+  });
+});
+
+describe("normalizeApPublishedWithFallback", () => {
+  it("returns normalized published when published is valid", () => {
+    expect(normalizeApPublishedWithFallback("2026-05-03T10:00:00Z", "2026-05-02T10:00:00Z"))
+      .toBe("2026-05-03T10:00:00.000Z");
+  });
+
+  it("falls back to updated when published is invalid", () => {
+    expect(normalizeApPublishedWithFallback("not-a-date", "2026-05-02T10:00:00Z"))
+      .toBe("2026-05-02T10:00:00.000Z");
+  });
+
+  it("falls back to updated when published is blank", () => {
+    expect(normalizeApPublishedWithFallback("", "2026-05-02T10:00:00Z"))
+      .toBe("2026-05-02T10:00:00.000Z");
+    expect(normalizeApPublishedWithFallback("   ", "2026-05-02T10:00:00Z"))
+      .toBe("2026-05-02T10:00:00.000Z");
+  });
+
+  it("returns null when published and updated are both invalid", () => {
+    expect(normalizeApPublishedWithFallback("nope", "still-nope")).toBeNull();
   });
 });

@@ -32,7 +32,7 @@ import {
   extractApObjectUri,
   isActivityPubRsvpType,
   mapActivityPubRsvpToLocalState,
-  normalizeApPublished,
+  normalizeApPublishedWithFallback,
   parseApActorReference,
   resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
@@ -103,7 +103,7 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
     actorUri,
     activityType: activity.type,
     activityId: parseActivityId(activity.id),
-    publishedAt: normalizeApPublished(activity.published ?? activity.updated),
+    publishedAt: normalizeApPublishedWithFallback(activity.published, activity.updated),
     localState,
   });
   return { handled: true, applied: result.applied };

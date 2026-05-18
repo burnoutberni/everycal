@@ -243,6 +243,18 @@ describe("ActivityPub RSVP federation", () => {
     expect(row).toEqual({ status: "not_going", last_activity_type: "Leave" });
   });
 
+  it("falls back to updated when inbound RSVP published is invalid", async () => {
+    seedLocalEvent(db);
+    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/invalid-published", {
+      published: "not-a-date",
+      updated: "2026-05-03T10:00:00Z",
+    }));
+    expect(res.status).toBe(202);
+    const row = db.prepare("SELECT last_activity_published_at FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
+      .get("event-1", remoteActorUri) as { last_activity_published_at: string | null };
+    expect(row.last_activity_published_at).toBe("2026-05-03T10:00:00.000Z");
+  });
+
   it("enqueues outbound RSVP activities through the durable delivery queue and skips no-op transitions", async () => {
     seedRemoteEvent(db);
     vi.mocked(resolveRemoteActor).mockResolvedValue({
@@ -607,5 +619,47 @@ describe("ActivityPub RSVP federation", () => {
     row = db.prepare("SELECT last_activity_id FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
       .get("event-1", remoteActorUri) as { last_activity_id: string | null };
     expect(row.last_activity_id).toBeNull();
+  });
+
+  it("falls back to updated when pulled RSVP published is invalid", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-invalid-published", {
+        published: "",
+        updated: "2026-05-03T10:00:00Z",
+      }),
+    ]);
+
+    const res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    const row = db.prepare("SELECT last_activity_published_at FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
+      .get("event-1", remoteActorUri) as { last_activity_published_at: string | null };
+    expect(row.last_activity_published_at).toBe("2026-05-03T10:00:00.000Z");
   });
 });

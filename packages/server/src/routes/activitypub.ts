@@ -28,7 +28,7 @@ import {
   extractApObjectUri,
   isActivityPubRsvpType,
   mapActivityPubRsvpToLocalState,
-  normalizeApPublished,
+  normalizeApPublishedWithFallback,
   parseApActorReference,
   resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
@@ -875,7 +875,7 @@ function handleRsvpActivity(
     actorUri,
     activityType,
     activityId: parseActivityId(activity.id),
-    publishedAt: normalizeApPublished(activity.published ?? activity.updated),
+    publishedAt: normalizeApPublishedWithFallback(activity.published, activity.updated),
     localState,
   });
 
