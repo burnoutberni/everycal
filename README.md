@@ -200,7 +200,7 @@ ORDER BY datetime(created_at) DESC
 LIMIT 50;
 ```
 
-For inbound RSVP issues, verify the target object is a local `BASE_URL/events/:id` Event, the local event exists, the Event object's `attributedTo` (when supplied) matches the local event owner, and any object-level actor matches the activity actor. For outbound RSVP issues, verify the remote event owner resolves to an inbox and that the local account has a keypair; delivery then follows the normal outbound queue retry policy.
+For inbound RSVP issues, verify the target object resolves to a local event (either a local `BASE_URL/events/:id` Event URL or a raw local event id fallback when the object id is not a parseable URL), the local event exists, the Event object's `attributedTo` (when supplied) matches the local event owner, and any object-level actor matches the activity actor. For outbound RSVP issues, verify the remote event owner resolves to an inbox and that the local account has a keypair; delivery then follows the normal outbound queue retry policy.
 
 **Migration rollout and rollback notes**
 
