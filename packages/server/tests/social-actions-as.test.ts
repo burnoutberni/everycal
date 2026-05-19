@@ -74,7 +74,7 @@ describe("social actions as identity", () => {
   });
 
   it("replaces auto-repost actors with desired chips", async () => {
-    db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run("owner", "target");
+    db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run("owner", "target", "https://localhost/users/target");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/users/target/auto-repost", {
@@ -110,7 +110,7 @@ describe("social actions as identity", () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
-    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run("owner", "ev1");
+    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run("owner", "ev1", "ev1", "https://localhost/users/target");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/ev1/repost", {

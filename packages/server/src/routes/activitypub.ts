@@ -167,21 +167,34 @@ export function activityPubRoutes(db: DB): Hono {
     const repostCount = (
       db
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM reposts r
-           JOIN events e ON e.id = r.event_id
-           WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')`
+          `SELECT (
+             SELECT COUNT(*) FROM reposts r
+             JOIN events e ON e.id = r.event_id
+             WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
+           ) + (
+             SELECT COUNT(*) FROM reposts r
+             JOIN remote_events re ON re.uri = r.event_uri
+             WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')
+           ) AS cnt`
         )
-        .get(account.id) as { cnt: number }
+        .get(account.id, account.id) as { cnt: number }
     ).cnt;
     const autoRepostCount = (
       db
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM auto_reposts ar
-           JOIN events e ON e.account_id = ar.source_account_id
-           WHERE ar.account_id = ? AND e.visibility = 'public'
-             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)`
+          `SELECT (
+             SELECT COUNT(*) FROM auto_reposts ar
+             JOIN events e ON e.account_id = ar.source_account_id
+             WHERE ar.account_id = ? AND e.visibility = 'public'
+               AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+           ) + (
+             SELECT COUNT(*) FROM auto_reposts ar
+             JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+             WHERE ar.account_id = ? AND re.visibility = 'public'
+               AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+           ) AS cnt`
         )
-        .get(account.id, account.id) as { cnt: number }
+        .get(account.id, account.id, account.id, account.id) as { cnt: number }
     ).cnt;
     const totalItems = ownedCount + repostCount + autoRepostCount;
 
@@ -216,8 +229,16 @@ export function activityPubRoutes(db: DB): Hono {
          FROM reposts r
          JOIN events e ON e.id = r.event_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
-         GROUP BY e.id`
+          WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
+          GROUP BY e.id`
+      )
+      .all(account.id) as Record<string, unknown>[];
+    const repostRemoteRows = db
+      .prepare(
+        `SELECT r.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
+         FROM reposts r
+         JOIN remote_events re ON re.uri = r.event_uri
+         WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')`
       )
       .all(account.id) as Record<string, unknown>[];
 
@@ -227,9 +248,18 @@ export function activityPubRoutes(db: DB): Hono {
          FROM auto_reposts ar
          JOIN events e ON e.account_id = ar.source_account_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE ar.account_id = ? AND e.visibility = 'public'
-           AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
-         GROUP BY e.id`
+          WHERE ar.account_id = ? AND e.visibility = 'public'
+            AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+          GROUP BY e.id`
+      )
+      .all(account.id, account.id) as Record<string, unknown>[];
+    const autoRepostRemoteRows = db
+      .prepare(
+        `SELECT ar.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
+         FROM auto_reposts ar
+         JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+         WHERE ar.account_id = ? AND re.visibility = 'public'
+           AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)`
       )
       .all(account.id, account.id) as Record<string, unknown>[];
 
@@ -262,9 +292,27 @@ export function activityPubRoutes(db: DB): Hono {
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
+    const repostRemoteAnnounceItems = repostRemoteRows.map((row) => ({
+      id: `${actorUrl}/announce/${encodeURIComponent(row.uri as string)}`,
+      type: "Announce",
+      actor: actorUrl,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
+      object: row.uri,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
+    }));
+    const autoRepostRemoteAnnounceItems = autoRepostRemoteRows.map((row) => ({
+      id: `${actorUrl}/announce/${encodeURIComponent(row.uri as string)}`,
+      type: "Announce",
+      actor: actorUrl,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
+      object: row.uri,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
+    }));
 
     // Merge and sort by event start date (desc = newest first)
-    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort(
+    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems, ...repostRemoteAnnounceItems, ...autoRepostRemoteAnnounceItems].sort(
       (a, b) => b._sortMs - a._sortMs
     );
 

@@ -10,6 +10,7 @@ import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
 import { buildActorUrl } from "../../lib/base-url.js";
+import { resolveEventUri } from "./shared.js";
 
 async function enqueueOutboundRsvpIfNeeded(
   db: DB,
@@ -121,14 +122,33 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
   router.post("/:id/repost", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
+    const eventUri = resolveEventUri(id);
 
-    const event = db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(id) as
+    const event = db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(eventUri) as
       | { id: string; account_id: string; visibility: string }
       | undefined;
-    if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
-    if (event.visibility !== "public" && event.visibility !== "unlisted") {
-      return c.json({ error: t(getLocale(c), "events.repost_public_unlisted_only") }, 403);
+    const remoteEvent = !event
+      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
+        | { uri: string; actor_uri: string; visibility: string }
+        | undefined
+      : undefined;
+    if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+
+    const canView = event
+      ? event.visibility === "public"
+        || event.visibility === "unlisted"
+        || event.account_id === user.id
+        || (event.visibility === "followers_only" && !!db.prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?").get(user.id, event.account_id))
+      : remoteEvent!.visibility === "public"
+        || remoteEvent!.visibility === "unlisted"
+        || (remoteEvent!.visibility === "followers_only" && !!db.prepare("SELECT 1 FROM remote_following WHERE account_id = ? AND actor_uri = ?").get(user.id, remoteEvent!.actor_uri));
+    if (!canView) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     }
+    const repostTargetUri = event?.id ?? remoteEvent!.uri;
+    const repostSourceActorUri = event
+      ? buildActorUrl((db.prepare("SELECT username FROM accounts WHERE id = ?").get(event.account_id) as { username: string }).username)
+      : remoteEvent!.actor_uri;
 
     let body: { desiredAccountIds?: string[] };
     try {
@@ -140,8 +160,13 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
       throw err;
     }
     if (!body.desiredAccountIds) {
-      if (event.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
-      db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(user.id, id);
+      if (event?.account_id === user.id) return c.json({ error: t(getLocale(c), "events.cannot_repost_own") }, 400);
+      db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+        user.id,
+        event?.id ?? null,
+        repostTargetUri,
+        repostSourceActorUri,
+      );
       return c.json({ ok: true, reposted: true });
     }
 
@@ -152,14 +177,14 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     }
 
     const activeRows = db
-      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
-      .all(id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM reposts WHERE event_uri = ?")
+      .all(repostTargetUri) as Array<{ account_id: string }>;
     const plan = buildActorSelectionPlan({
       actingAccountIds: actingIds,
       desiredAccountIds: body.desiredAccountIds,
       activeAccountIds: activeRows.map((r) => r.account_id),
       validateTransition: ({ accountId, after }) => {
-        if (accountId === event.account_id && after) return t(getLocale(c), "events.cannot_repost_own");
+        if (event && accountId === event.account_id && after) return t(getLocale(c), "events.cannot_repost_own");
         return null;
       },
     });
@@ -174,10 +199,15 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
       },
       plan,
       applyAdd: (accountId) => {
-        db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id) VALUES (?, ?)").run(accountId, id);
+        db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+          accountId,
+          event?.id ?? null,
+          repostTargetUri,
+          repostSourceActorUri,
+        );
       },
       applyRemove: (accountId) => {
-        db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(accountId, id);
+        db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, repostTargetUri);
       },
     });
     const summary = summarizeActorSelection(results);
@@ -198,21 +228,26 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
   router.delete("/:id/repost", requireAuth(), (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
-    db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_id = ?").run(user.id, id);
+    const eventUri = resolveEventUri(id);
+    db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(user.id, eventUri);
     return c.json({ ok: true, reposted: false });
   });
 
   router.get("/:id/repost-actors", requireAuth(), (c) => {
     const user = c.get("user")!;
     const id = c.req.param("id");
-    const event = db.prepare("SELECT id FROM events WHERE id = ?").get(id) as { id: string } | undefined;
-    if (!event) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+    const eventUri = resolveEventUri(id);
+    const event = db.prepare("SELECT id FROM events WHERE id = ?").get(eventUri) as { id: string } | undefined;
+    const remoteEvent = !event
+      ? db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get(eventUri) as { uri: string } | undefined
+      : undefined;
+    if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
 
     const acting = listActingAccounts(db, user.id, "editor");
     const allowed = new Set(acting.map((a) => a.id));
     const activeRows = db
-      .prepare("SELECT account_id FROM reposts WHERE event_id = ?")
-      .all(id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM reposts WHERE event_uri = ?")
+      .all(event?.id ?? remoteEvent!.uri) as Array<{ account_id: string }>;
     const activeAccountIds = activeRows.map((r) => r.account_id).filter((accountId) => allowed.has(accountId));
     return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });

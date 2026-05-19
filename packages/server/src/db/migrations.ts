@@ -218,16 +218,19 @@ CREATE TABLE IF NOT EXISTS remote_event_rsvps (
 
 CREATE TABLE IF NOT EXISTS reposts (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+  event_uri TEXT NOT NULL,
+  source_actor_uri TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (account_id, event_id)
+  PRIMARY KEY (account_id, event_uri)
 );
 
 CREATE TABLE IF NOT EXISTS auto_reposts (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  source_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  source_account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  source_actor_uri TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (account_id, source_account_id)
+  PRIMARY KEY (account_id, source_actor_uri)
 );
 
 CREATE TABLE IF NOT EXISTS actor_selection_operations (
@@ -343,8 +346,10 @@ CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_r
 CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri);
 CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_reposts_event ON reposts(event_id);
+CREATE INDEX IF NOT EXISTS idx_reposts_event_uri ON reposts(event_uri);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id);
+CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_ops_initiated_by ON actor_selection_operations(initiated_by_account_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_items_operation ON actor_selection_operation_items(operation_id);
 CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC);
@@ -598,6 +603,54 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri)");
     },
   },
+  {
+    version: 11,
+    name: "universal_reposts",
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS reposts_tmp (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+        event_uri TEXT NOT NULL,
+        source_actor_uri TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, event_uri)
+      )`);
+      db.exec(`INSERT OR IGNORE INTO reposts_tmp (account_id, event_id, event_uri, source_actor_uri, created_at)
+        SELECT r.account_id,
+               r.event_id,
+               COALESCE(r.event_uri, r.event_id) AS event_uri,
+               COALESCE(r.source_actor_uri, ('https://local.invalid/users/' || e_owner.username)) AS source_actor_uri,
+               r.created_at
+        FROM reposts r
+        LEFT JOIN events e ON e.id = r.event_id
+        LEFT JOIN accounts e_owner ON e_owner.id = e.account_id`);
+      db.exec("DROP TABLE reposts");
+      db.exec("ALTER TABLE reposts_tmp RENAME TO reposts");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_event ON reposts(event_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_event_uri ON reposts(event_uri)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS auto_reposts_tmp (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        source_account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+        source_actor_uri TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, source_actor_uri)
+      )`);
+      db.exec(`INSERT OR IGNORE INTO auto_reposts_tmp (account_id, source_account_id, source_actor_uri, created_at)
+        SELECT ar.account_id,
+               ar.source_account_id,
+               COALESCE(ar.source_actor_uri, ('https://local.invalid/users/' || a.username)) AS source_actor_uri,
+               ar.created_at
+        FROM auto_reposts ar
+        LEFT JOIN accounts a ON a.id = ar.source_account_id`);
+      db.exec("DROP TABLE auto_reposts");
+      db.exec("ALTER TABLE auto_reposts_tmp RENAME TO auto_reposts");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;

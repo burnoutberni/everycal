@@ -29,6 +29,7 @@ import {
 } from "../lib/actor-selection.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
+import { buildActorUrl } from "../lib/base-url.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -54,6 +55,8 @@ export function userRoutes(db: DB): Hono {
       SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
       UNION
       SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+      UNION
+      SELECT re.uri FROM auto_reposts ar JOIN remote_events re ON re.actor_uri = ar.source_actor_uri WHERE ar.account_id = accounts.id AND re.visibility = 'public'
     )) AS events_count`;
 
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
@@ -152,6 +155,8 @@ export function userRoutes(db: DB): Hono {
       SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
       UNION
       SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+      UNION
+      SELECT re.uri FROM auto_reposts ar JOIN remote_events re ON re.actor_uri = ar.source_actor_uri WHERE ar.account_id = accounts.id AND re.visibility = 'public'
     )) AS events_count`;
 
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
@@ -178,8 +183,8 @@ export function userRoutes(db: DB): Hono {
       result.following = !!follow;
 
       const autoRepost = db
-        .prepare("SELECT 1 FROM auto_reposts WHERE account_id = ? AND source_account_id = ?")
-        .get(currentUser.id, row.id);
+        .prepare("SELECT 1 FROM auto_reposts WHERE account_id = ? AND (source_account_id = ? OR source_actor_uri = ?)")
+        .get(currentUser.id, row.id, buildActorUrl(row.username as string));
       result.autoReposting = !!autoRepost;
     }
 
@@ -355,7 +360,7 @@ export function userRoutes(db: DB): Hono {
       WHERE ar.account_id = ?
         ${autoRepostVisibilityClause}
         AND e.account_id != ?
-        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
+        AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     {
@@ -473,10 +478,28 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
 
-    const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+    const parts = username.split("@");
+    const isRemoteHandle = parts.length >= 2 && parts[0] && parts[1];
+    const localTarget = !isRemoteHandle
+      ? db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username) as { id: string; username: string } | undefined
+      : undefined;
+    let sourceActorUri: string | null = null;
+    let sourceAccountId: string | null = null;
+    if (localTarget) {
+      sourceAccountId = localTarget.id;
+      sourceActorUri = buildActorUrl(localTarget.username);
+    } else if (isRemoteHandle) {
+      const localPart = parts[0]!;
+      const domain = parts.slice(1).join("@");
+      let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
+      if (!remote) {
+        const actorUri = `https://${domain}/users/${localPart}`;
+        const resolved = await resolveRemoteActor(db, actorUri);
+        if (resolved?.uri) remote = { uri: resolved.uri };
+      }
+      sourceActorUri = remote?.uri ?? null;
+    }
+    if (!sourceActorUri) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
     let body: { actorUri?: string; desiredAccountIds?: string[] };
     try {
       body = await readActorSelectionPayload(c);
@@ -488,10 +511,11 @@ export function userRoutes(db: DB): Hono {
     }
 
     if (!body.desiredAccountIds) {
-      if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
-      db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(
+      if (sourceAccountId === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
+      db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
         currentUser.id,
-        target.id
+        sourceAccountId,
+        sourceActorUri,
       );
       return c.json({ ok: true, autoReposting: true });
     }
@@ -503,14 +527,14 @@ export function userRoutes(db: DB): Hono {
     }
 
     const activeRows = db
-      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
-      .all(target.id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_actor_uri = ? OR (? IS NOT NULL AND source_account_id = ?)")
+      .all(sourceActorUri, sourceAccountId, sourceAccountId) as Array<{ account_id: string }>;
     const plan = buildActorSelectionPlan({
       actingAccountIds: actingIds,
       desiredAccountIds: body.desiredAccountIds,
       activeAccountIds: activeRows.map((r) => r.account_id),
       validateTransition: ({ accountId, after }) => {
-        if (accountId === target.id && after) return t(getLocale(c), "users.cannot_autorepost_yourself");
+        if (sourceAccountId && accountId === sourceAccountId && after) return t(getLocale(c), "users.cannot_autorepost_yourself");
         return null;
       },
     });
@@ -520,15 +544,15 @@ export function userRoutes(db: DB): Hono {
       operation: {
         actionKind: "auto_repost",
         targetType: "account",
-        targetId: target.id,
+        targetId: sourceActorUri,
         initiatedByAccountId: currentUser.id,
       },
       plan,
       applyAdd: (accountId) => {
-        db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(accountId, target.id);
+        db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(accountId, sourceAccountId, sourceActorUri);
       },
       applyRemove: (accountId) => {
-        db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(accountId, target.id);
+        db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND (source_actor_uri = ? OR (? IS NOT NULL AND source_account_id = ?))").run(accountId, sourceActorUri, sourceAccountId, sourceAccountId);
       },
     });
     const summary = summarizeActorSelection(results);
@@ -565,16 +589,14 @@ export function userRoutes(db: DB): Hono {
   router.get("/:username/auto-repost-actors", requireAuth(), (c) => {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
-    const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
+    const target = db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username) as { id: string; username: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const acting = listActingAccounts(db, currentUser.id, "editor");
     const allowed = new Set(acting.map((a) => a.id));
     const activeRows = db
-      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
-      .all(target.id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_actor_uri = ? OR source_account_id = ?")
+      .all(buildActorUrl(target.username), target.id) as Array<{ account_id: string }>;
     const activeAccountIds = activeRows.map((r) => r.account_id).filter((id) => allowed.has(id));
 
     return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
@@ -586,13 +608,14 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
+      .prepare("SELECT id, username FROM accounts WHERE username = ?")
+      .get(username) as { id: string; username: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
-    db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(
+    db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND (source_account_id = ? OR source_actor_uri = ?)").run(
       currentUser.id,
-      target.id
+      target.id,
+      buildActorUrl(target.username),
     );
 
     return c.json({ ok: true, autoReposting: false });

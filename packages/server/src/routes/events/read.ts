@@ -212,13 +212,15 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe')
         )`;
         params.push(user!.id);
-      } else if (isMineScope) {
-        sql += ` AND (
-          re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
-          OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
-        )`;
-        params.push(user!.id, user!.id);
-      }
+        } else if (isMineScope) {
+          sql += ` AND (
+            re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
+            OR re.uri IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+            OR re.actor_uri IN (SELECT source_actor_uri FROM auto_reposts WHERE account_id = ?)
+            OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
+          )`;
+          params.push(user!.id, user!.id, user!.id, user!.id);
+        }
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
