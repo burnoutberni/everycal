@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildActorUrl, buildEventUrl, buildProfileUrl, buildUploadUrl, getBaseUrl, getBaseUrlFromRequest } from "../src/lib/base-url.js";
+import { buildActorUrl, buildEventUrl, buildProfileUrl, buildUploadUrl, getBaseUrl, getBaseUrlFromRequest, validateBaseUrlConfig } from "../src/lib/base-url.js";
 
 const originalBaseUrl = process.env.BASE_URL;
 
@@ -67,5 +67,27 @@ describe("getBaseUrlFromRequest", () => {
   it("falls back to request origin when BASE_URL is unset", () => {
     delete process.env.BASE_URL;
     expect(getBaseUrlFromRequest("https://request-origin.example.org/path")).toBe("https://request-origin.example.org");
+  });
+});
+
+describe("validateBaseUrlConfig", () => {
+  it("does nothing when BASE_URL is unset", () => {
+    delete process.env.BASE_URL;
+    expect(() => validateBaseUrlConfig()).not.toThrow();
+  });
+
+  it("does nothing when BASE_URL is blank", () => {
+    process.env.BASE_URL = "   ";
+    expect(() => validateBaseUrlConfig()).not.toThrow();
+  });
+
+  it("throws a clear startup error when BASE_URL is invalid", () => {
+    process.env.BASE_URL = "localhost:3000";
+    expect(() => validateBaseUrlConfig()).toThrow(/Invalid BASE_URL configuration/);
+  });
+
+  it("accepts a valid absolute BASE_URL", () => {
+    process.env.BASE_URL = "https://events.example.com/root/";
+    expect(() => validateBaseUrlConfig()).not.toThrow();
   });
 });

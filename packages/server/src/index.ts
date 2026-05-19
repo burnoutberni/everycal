@@ -48,6 +48,9 @@ import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
 import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
+import { validateBaseUrlConfig } from "./lib/base-url.js";
+
+validateBaseUrlConfig();
 
 const app = new Hono();
 const db = initDatabase(DATABASE_PATH);

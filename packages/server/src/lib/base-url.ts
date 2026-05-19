@@ -29,6 +29,17 @@ export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
   return normalizeAbsoluteUrl(fallback);
 }
 
+export function validateBaseUrlConfig(): void {
+  const envBaseUrl = process.env.BASE_URL;
+  if (!envBaseUrl || envBaseUrl.trim().length === 0) return;
+  try {
+    normalizeAbsoluteUrl(envBaseUrl);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Invalid URL";
+    throw new Error(`Invalid BASE_URL configuration: ${detail}`);
+  }
+}
+
 export function getBaseUrlFromRequest(requestUrl: string, fallback?: string): string {
   const envBase = process.env.BASE_URL;
   if (envBase && envBase.trim().length > 0) return getBaseUrl(fallback);
