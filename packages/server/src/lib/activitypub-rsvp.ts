@@ -127,6 +127,8 @@ export function resolveLocalRsvpEventTarget(
 
     embeddedAttributedTo = getAttributedActor(object);
     if (embeddedAttributedTo.status === "unparseable") return null;
+  } else {
+    return null;
   }
 
   const eventId = localEventIdFromActivityPubUri(objectUri);
@@ -145,7 +147,7 @@ export function resolveLocalRsvpEventTarget(
   if (options.inboxUsername && localEvent.username !== options.inboxUsername) return null;
 
   const ownerActorUri = buildActorUrl(localEvent.username);
-  if (embeddedAttributedTo?.status === "parsed" && embeddedAttributedTo.actor !== ownerActorUri) {
+  if (embeddedAttributedTo.status !== "parsed" || embeddedAttributedTo.actor !== ownerActorUri) {
     return null;
   }
 

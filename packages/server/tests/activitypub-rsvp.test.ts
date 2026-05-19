@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initDatabase, type DB } from "../src/db.js";
 import {
   localEventIdFromActivityPubUri,
   normalizeApPublishedWithFallback,
+  resolveLocalRsvpEventTarget,
   shouldApplyRemoteRsvpUpdate,
 } from "../src/lib/activitypub-rsvp.js";
 
@@ -128,5 +130,59 @@ describe("normalizeApPublishedWithFallback", () => {
 
   it("returns null when published and updated are both invalid", () => {
     expect(normalizeApPublishedWithFallback("nope", "still-nope")).toBeNull();
+  });
+});
+
+describe("resolveLocalRsvpEventTarget", () => {
+  let db: DB;
+  let previousBaseUrl: string | undefined;
+
+  beforeEach(() => {
+    previousBaseUrl = process.env.BASE_URL;
+    process.env.BASE_URL = "http://localhost";
+    db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("a1", "alice");
+    db.prepare(
+      "INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("event-1", "a1", "Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", "public");
+  });
+
+  afterEach(() => {
+    if (previousBaseUrl === undefined) {
+      delete process.env.BASE_URL;
+      return;
+    }
+    process.env.BASE_URL = previousBaseUrl;
+  });
+
+  it("rejects RSVP targets that reference the event as a string", () => {
+    const target = resolveLocalRsvpEventTarget(db, {
+      type: "Accept",
+      actor: "https://remote.example/users/bob",
+      object: "http://localhost/events/event-1",
+    });
+    expect(target).toBeNull();
+  });
+
+  it("rejects RSVP targets without attributedTo/actor owner metadata", () => {
+    const target = resolveLocalRsvpEventTarget(db, {
+      type: "Accept",
+      actor: "https://remote.example/users/bob",
+      object: { type: "Event", id: "http://localhost/events/event-1" },
+    });
+    expect(target).toBeNull();
+  });
+
+  it("accepts RSVP targets when Event.attributedTo matches local owner", () => {
+    const target = resolveLocalRsvpEventTarget(db, {
+      type: "Accept",
+      actor: "https://remote.example/users/bob",
+      object: {
+        type: "Event",
+        id: "http://localhost/events/event-1",
+        attributedTo: "http://localhost/users/alice",
+      },
+    });
+    expect(target).toEqual({ eventId: "event-1", ownerActorUri: "http://localhost/users/alice" });
   });
 });

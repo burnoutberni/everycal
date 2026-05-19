@@ -84,7 +84,11 @@ function rsvpActivity(type: string, id: string, extra: Record<string, unknown> =
     id,
     type,
     actor: remoteActorUri,
-    object: localEventUrl,
+    object: {
+      type: "Event",
+      id: localEventUrl,
+      attributedTo: "http://localhost/users/alice",
+    },
     published: "2026-05-01T10:00:00Z",
     ...extra,
   };
@@ -200,6 +204,12 @@ describe("ActivityPub RSVP federation", () => {
 
   it("rejects malformed and impersonation-like RSVP payloads without mutating state", async () => {
     seedLocalEvent(db);
+    await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/string-object", {
+      object: localEventUrl,
+    }));
+    await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/missing-attributed-to", {
+      object: { type: "Event", id: localEventUrl },
+    }));
     await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/forged-object-actor", {
       object: { type: "Event", id: localEventUrl, actor: "https://remote.example/users/eve" },
     }));
