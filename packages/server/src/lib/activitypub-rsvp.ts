@@ -83,9 +83,9 @@ export function normalizeApPublishedWithFallback(published: unknown, updated: un
 export function localEventIdFromActivityPubUri(uri: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) return null;
-  const baseUrl = getBaseUrl();
   const schemeLikePattern = /^[a-z][a-z0-9+.-]*:/i;
   try {
+    const baseUrl = getBaseUrl();
     const parsed = new URL(trimmed);
     const base = new URL(baseUrl);
     if (parsed.origin !== base.origin) return null;
@@ -94,7 +94,12 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
     if (!parsed.pathname.startsWith(eventPathPrefix)) return null;
     const eventPathRemainder = parsed.pathname.slice(eventPathPrefix.length);
     const match = eventPathRemainder.match(/^([^/]+)\/?$/);
-    return match ? decodeURIComponent(match[1]) : null;
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
   } catch {
     return schemeLikePattern.test(trimmed) ? null : trimmed;
   }
