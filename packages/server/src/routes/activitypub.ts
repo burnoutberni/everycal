@@ -856,11 +856,6 @@ function handleRsvpActivity(
   }
 
   const localState = mapActivityPubRsvpToLocalState(activityType);
-  if (localState === undefined) {
-    console.log(`  ⏭ Ignored unmapped RSVP activity type: ${String(activityType)}`);
-    return;
-  }
-
   const target = resolveLocalRsvpEvent(db, activity, options);
   if (!target) return;
 

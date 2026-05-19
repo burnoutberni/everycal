@@ -97,7 +97,6 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
   const target = resolveLocalRsvpEventTarget(db, activity);
   if (!target) return { handled: true, applied: false };
   const localState = mapActivityPubRsvpToLocalState(activity.type);
-  if (localState === undefined) return { handled: true, applied: false };
   const result = upsertRemoteEventRsvp(db, {
     eventId: target.eventId,
     actorUri,

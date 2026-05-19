@@ -27,8 +27,7 @@ export function isActivityPubRsvpType(type: unknown): type is ActivityPubRsvpTyp
   return typeof type === "string" && AP_RSVP_ACTIVITY_TYPES.includes(type as ActivityPubRsvpType);
 }
 
-export function mapActivityPubRsvpToLocalState(type: unknown): LocalRsvpState | undefined {
-  if (!isActivityPubRsvpType(type)) return undefined;
+export function mapActivityPubRsvpToLocalState(type: ActivityPubRsvpType): LocalRsvpState {
   return AP_RSVP_TO_LOCAL_STATE[type];
 }
 
