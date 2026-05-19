@@ -103,7 +103,11 @@ function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, act
   }
   const activityActor = parseApActorReference(activity.actor);
   if (activityActor !== actorUri) {
-    console.warn(`Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`);
+    boundedConsoleLog(
+      `pull-rsvp-actor-mismatch:${actorUri}:${String(activity.type)}`,
+      `Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`,
+      { level: "warn" },
+    );
     return { handled: true, applied: false };
   }
   const target = resolveLocalRsvpEventTarget(db, activity);
@@ -339,7 +343,11 @@ export function federationRoutes(db: DB): Hono {
           || activityType === "Announce";
         if (requiresActorMatch) {
           if (typeof activity.actor !== "string" || activity.actor !== actor.uri) {
-            console.warn(`Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`);
+            boundedConsoleLog(
+              `pull-activity-actor-mismatch:${actor.uri}:${activityType}`,
+              `Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`,
+              { level: "warn" },
+            );
             continue;
           }
         }
@@ -353,7 +361,11 @@ export function federationRoutes(db: DB): Hono {
               .run((activity.updated as string) || (activity.published as string) || null, objectUri);
             imported++;
           } else if (existing) {
-            console.warn(`Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+            boundedConsoleLog(
+              `pull-delete-owner-mismatch:${actor.uri}:${objectUri}`,
+              `Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`,
+              { level: "warn" },
+            );
           }
           continue;
         }
@@ -371,23 +383,39 @@ export function federationRoutes(db: DB): Hono {
         if (!fullObj || fullObj.type !== "Event") continue;
         const objectUri = normalizeRemoteEventUri(fullObj.id);
         if (!objectUri) {
-          console.warn(`Rejected pulled ${activityType}: event object missing valid string id`);
+          boundedConsoleLog(
+            `pull-event-missing-id:${actor.uri}:${activityType}`,
+            `Rejected pulled ${activityType}: event object missing valid string id`,
+            { level: "warn" },
+          );
           continue;
         }
 
         const attributedTo = getAttributedActor(fullObj);
         if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "unparseable") {
-          console.warn(`Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`);
+          boundedConsoleLog(
+            `pull-attributed-to-unparseable:${actor.uri}:${activityType}:${objectUri}`,
+            `Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`,
+            { level: "warn" },
+          );
           continue;
         }
         if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
-          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
+          boundedConsoleLog(
+            `pull-attributed-to-actor-mismatch:${actor.uri}:${activityType}:${objectUri}`,
+            `Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`,
+            { level: "warn" },
+          );
           continue;
         }
         const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
         if (activityType === "Update") {
           if (existing && existing.actor_uri !== actor.uri) {
-            console.warn(`Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+            boundedConsoleLog(
+              `pull-update-owner-mismatch:${actor.uri}:${objectUri}`,
+              `Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`,
+              { level: "warn" },
+            );
             continue;
           }
         }
@@ -403,8 +431,10 @@ export function federationRoutes(db: DB): Hono {
           : actor.uri;
         const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
         if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
-          console.warn(
+          boundedConsoleLog(
+            `pull-announce-owner-correction-ignored:${actor.uri}:${objectUri}`,
             `Ignoring actor correction for pulled Announce ${objectUri}: existing owner ${existing.actor_uri} differs from attributedTo ${attributedTo.actor}`,
+            { level: "warn" },
           );
         }
         const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
