@@ -855,12 +855,6 @@ function handleRsvpActivity(
     return;
   }
 
-  const activityActor = parseActorUri(activity.actor);
-  if (activityActor !== actorUri) {
-    console.log(`  ⚠️  Rejecting RSVP: actor reference ${String(activity.actor)} does not match ${actorUri}`);
-    return;
-  }
-
   const localState = mapActivityPubRsvpToLocalState(activityType);
   if (localState === undefined) {
     console.log(`  ⏭ Ignored unmapped RSVP activity type: ${String(activityType)}`);
