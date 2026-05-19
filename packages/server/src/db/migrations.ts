@@ -1,4 +1,5 @@
 import type { DB } from "../db.js";
+import { buildActorUrl } from "../lib/base-url.js";
 import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
@@ -651,6 +652,42 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri)");
     },
   },
+  {
+    version: 12,
+    name: "canonicalize_synthetic_local_actor_uris",
+    up: (db) => {
+      const localInvalidPrefix = "https://local.invalid/users/";
+
+      const autoRows = db
+        .prepare(`SELECT ar.account_id, ar.source_actor_uri, a.username
+                  FROM auto_reposts ar
+                  JOIN accounts a ON a.id = ar.source_account_id
+                  WHERE ar.source_actor_uri LIKE ?`)
+        .all(`${localInvalidPrefix}%`) as Array<{ account_id: string; source_actor_uri: string; username: string }>;
+
+      const repostRows = db
+        .prepare(`SELECT r.account_id, r.event_uri, r.source_actor_uri, a.username
+                  FROM reposts r
+                  JOIN events e ON e.id = r.event_id
+                  JOIN accounts a ON a.id = e.account_id
+                  WHERE r.source_actor_uri LIKE ?`)
+        .all(`${localInvalidPrefix}%`) as Array<{ account_id: string; event_uri: string; source_actor_uri: string; username: string }>;
+
+      const updateAuto = db.prepare("UPDATE auto_reposts SET source_actor_uri = ? WHERE account_id = ? AND source_actor_uri = ?");
+      const updateRepost = db.prepare("UPDATE reposts SET source_actor_uri = ? WHERE account_id = ? AND event_uri = ? AND source_actor_uri = ?");
+
+      const apply = db.transaction(() => {
+        for (const row of autoRows) {
+          updateAuto.run(buildActorUrl(row.username), row.account_id, row.source_actor_uri);
+        }
+        for (const row of repostRows) {
+          updateRepost.run(buildActorUrl(row.username), row.account_id, row.event_uri, row.source_actor_uri);
+        }
+      });
+
+      apply();
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
