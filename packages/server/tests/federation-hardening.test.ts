@@ -35,6 +35,7 @@ function eventObject(id: string, name: string, extra: Record<string, unknown> = 
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   resetBoundedLogStateForTests();
