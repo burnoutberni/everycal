@@ -155,22 +155,22 @@ describe("resolveLocalRsvpEventTarget", () => {
     process.env.BASE_URL = previousBaseUrl;
   });
 
-  it("rejects RSVP targets that reference the event as a string", () => {
+  it("accepts RSVP targets that reference the event as a string", () => {
     const target = resolveLocalRsvpEventTarget(db, {
       type: "Accept",
       actor: "https://remote.example/users/bob",
       object: "http://localhost/events/event-1",
     });
-    expect(target).toBeNull();
+    expect(target).toEqual({ eventId: "event-1", ownerActorUri: "http://localhost/users/alice" });
   });
 
-  it("rejects RSVP targets without attributedTo/actor owner metadata", () => {
+  it("accepts RSVP targets without attributedTo/actor owner metadata", () => {
     const target = resolveLocalRsvpEventTarget(db, {
       type: "Accept",
       actor: "https://remote.example/users/bob",
       object: { type: "Event", id: "http://localhost/events/event-1" },
     });
-    expect(target).toBeNull();
+    expect(target).toEqual({ eventId: "event-1", ownerActorUri: "http://localhost/users/alice" });
   });
 
   it("accepts RSVP targets when Event.attributedTo matches local owner", () => {
