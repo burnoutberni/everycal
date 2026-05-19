@@ -108,6 +108,7 @@ export function resolveLocalRsvpEventTarget(
   options: { inboxUsername?: string } = {},
 ): LocalRsvpEventTarget | null {
   const rawObject = activity.object;
+  let embeddedAttributedTo: ReturnType<typeof getAttributedActor> | null = null;
   const objectUri = extractApObjectUri(rawObject);
   if (!objectUri) return null;
 
@@ -119,7 +120,7 @@ export function resolveLocalRsvpEventTarget(
     const activityActor = parseApActorReference(activity.actor);
     if (innerActor && activityActor && innerActor !== activityActor) return null;
 
-    const embeddedAttributedTo = getAttributedActor(object);
+    embeddedAttributedTo = getAttributedActor(object);
     if (embeddedAttributedTo.status === "unparseable") return null;
   }
 
@@ -137,9 +138,8 @@ export function resolveLocalRsvpEventTarget(
   if (options.inboxUsername && localEvent.username !== options.inboxUsername) return null;
 
   const ownerActorUri = buildActorUrl(localEvent.username);
-  if (rawObject && typeof rawObject === "object") {
-    const attributedTo = getAttributedActor(rawObject as Record<string, unknown>);
-    if (attributedTo.status === "parsed" && attributedTo.actor !== ownerActorUri) return null;
+  if (embeddedAttributedTo?.status === "parsed" && embeddedAttributedTo.actor !== ownerActorUri) {
+    return null;
   }
 
   return { eventId, ownerActorUri };
