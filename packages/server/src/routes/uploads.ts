@@ -84,9 +84,14 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
       return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
     }
 
-    writeFileSync(filepath, buffer);
+    let baseUrl: string;
+    try {
+      baseUrl = getBaseUrl();
+    } catch {
+      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
+    }
 
-    const baseUrl = getBaseUrl();
+    writeFileSync(filepath, buffer);
     const url = buildUploadUrl(filename, baseUrl);
 
     return c.json({ url, mediaType: allowedMime, filename }, 201);

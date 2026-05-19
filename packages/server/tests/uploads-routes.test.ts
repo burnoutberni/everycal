@@ -188,4 +188,26 @@ describe("uploads routes", () => {
     });
     expect(readdirSync(uploadDir)).toEqual([]);
   });
+
+  it("returns 500 and does not write when BASE_URL is invalid", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u10", "jules");
+    process.env.BASE_URL = "localhost:3000";
+
+    const app = makeApp(db, uploadDir, { id: "u10", username: "jules" });
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    }).png().toBuffer();
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "ok.png", { type: "image/png" }));
+
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
 });

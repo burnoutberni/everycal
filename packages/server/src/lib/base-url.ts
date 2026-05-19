@@ -23,11 +23,7 @@ export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
   const hasEnvBaseUrl = !!envBaseUrl && envBaseUrl.trim().length > 0;
 
   if (hasEnvBaseUrl) {
-    try {
-      return normalizeAbsoluteUrl(envBaseUrl);
-    } catch {
-      return normalizeAbsoluteUrl(fallback);
-    }
+    return normalizeAbsoluteUrl(envBaseUrl);
   }
 
   return normalizeAbsoluteUrl(fallback);
