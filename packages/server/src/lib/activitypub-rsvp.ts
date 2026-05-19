@@ -1,5 +1,5 @@
 import type { DB } from "../db.js";
-import { getAttributedActor } from "./federation.js";
+import { getAttributedActor, isEventFederationEligible } from "./federation.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 
 export const AP_RSVP_ACTIVITY_TYPES = ["Accept", "TentativeAccept", "Reject", "Join", "Leave"] as const;
@@ -133,12 +133,14 @@ export function resolveLocalRsvpEventTarget(
   if (!eventId) return null;
 
   const localEvent = db.prepare(
-    `SELECT e.id, a.username
+    `SELECT e.id, e.visibility, a.username
      FROM events e
      JOIN accounts a ON a.id = e.account_id
      WHERE e.id = ?`,
-  ).get(eventId) as { id: string; username: string } | undefined;
+  ).get(eventId) as { id: string; visibility: string; username: string } | undefined;
   if (!localEvent) return null;
+
+  if (!isEventFederationEligible(localEvent.visibility)) return null;
 
   if (options.inboxUsername && localEvent.username !== options.inboxUsername) return null;
 

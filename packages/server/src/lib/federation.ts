@@ -119,6 +119,11 @@ export function normalizeEventVisibility(
   return fallback;
 }
 
+export function isEventFederationEligible(visibility: EventVisibility | string | null | undefined): boolean {
+  const normalizedVisibility = normalizeEventVisibility(visibility);
+  return normalizedVisibility === "public" || normalizedVisibility === "unlisted";
+}
+
 function normalizeAudienceUrl(value: string): string | null {
   try {
     const parsed = new URL(value);

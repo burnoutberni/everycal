@@ -32,14 +32,14 @@ import { resetBoundedLogStateForTests } from "../src/lib/bounded-log.js";
 const localEventUrl = "http://localhost/events/event-1";
 const remoteActorUri = "https://remote.example/users/bob";
 
-function seedLocalEvent(db: DB): void {
+function seedLocalEvent(db: DB, visibility = "public"): void {
   db.prepare("INSERT INTO accounts (id, username, account_type, private_key, public_key) VALUES (?, ?, 'person', ?, ?)")
     .run("local1", "alice", "PRIVATE", "PUBLIC");
   db.prepare(
     `INSERT INTO events (
       id, account_id, title, start_date, start_at_utc, event_timezone, visibility
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run("event-1", "local1", "Local Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", "public");
+  ).run("event-1", "local1", "Local Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", visibility);
 }
 
 function seedRemoteEvent(db: DB): void {
@@ -209,6 +209,14 @@ describe("ActivityPub RSVP federation", () => {
     await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/non-local", {
       object: "https://other.example/events/not-local",
     }));
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("rejects inbound RSVP for local events that are not federation-eligible", async () => {
+    seedLocalEvent(db, "private");
+    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/private-target"));
+    expect(res.status).toBe(202);
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
   });
@@ -754,5 +762,45 @@ describe("ActivityPub RSVP federation", () => {
     const row = db.prepare("SELECT last_activity_published_at FROM remote_event_rsvps WHERE event_id = ? AND actor_uri = ?")
       .get("event-1", remoteActorUri) as { last_activity_published_at: string | null };
     expect(row.last_activity_published_at).toBe("2026-05-03T10:00:00.000Z");
+  });
+
+  it("rejects pulled RSVP for local events that are not federation-eligible", async () => {
+    seedLocalEvent(db, "private");
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Accept", "https://remote.example/activities/pulled-private-target"),
+    ]);
+
+    const res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
   });
 });
