@@ -28,6 +28,13 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
   const router = new Hono();
 
   router.post("/", requireAuth(), async (c) => {
+    let baseUrl: string;
+    try {
+      baseUrl = getBaseUrl("");
+    } catch {
+      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
+    }
+
     const body = await c.req.parseBody();
     const file = body["file"];
 
@@ -78,17 +85,6 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
     const rel = relative(uploadDirResolved, resolvedPath);
     if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       return c.json({ error: t(getLocale(c), "uploads.invalid_path") }, 400);
-    }
-
-    if (!process.env.BASE_URL || process.env.BASE_URL.trim().length === 0) {
-      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
-    }
-
-    let baseUrl: string;
-    try {
-      baseUrl = getBaseUrl();
-    } catch {
-      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
     }
 
     writeFileSync(filepath, buffer);

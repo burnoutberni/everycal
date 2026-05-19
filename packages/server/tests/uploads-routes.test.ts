@@ -210,4 +210,18 @@ describe("uploads routes", () => {
     await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
     expect(readdirSync(uploadDir)).toEqual([]);
   });
+
+  it("fails before body validation when BASE_URL is invalid", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u11", "kira");
+    process.env.BASE_URL = "localhost:3000";
+
+    const app = makeApp(db, uploadDir, { id: "u11", username: "kira" });
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
 });
