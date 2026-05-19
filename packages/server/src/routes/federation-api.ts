@@ -342,7 +342,8 @@ export function federationRoutes(db: DB): Hono {
           || activityType === "Update"
           || activityType === "Announce";
         if (requiresActorMatch) {
-          if (typeof activity.actor !== "string" || activity.actor !== actor.uri) {
+          const activityActor = parseApActorReference(activity.actor);
+          if (activityActor !== actor.uri) {
             boundedConsoleLog(
               `pull-activity-actor-mismatch:${actor.uri}:${activityType}`,
               `Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`,
