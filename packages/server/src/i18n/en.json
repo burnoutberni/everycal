@@ -98,7 +98,8 @@
     "file_type_not_allowed": "File type not allowed. Accepted: {{accepted}}",
     "only_images_allowed": "Only image files are allowed.",
     "invalid_image": "File content does not appear to be a valid image.",
-    "invalid_path": "Invalid path"
+    "invalid_path": "Invalid path",
+    "base_url_required": "Server misconfiguration: BASE_URL is required for uploads"
   },
   "activitypub": {
     "accept_activity_json": "Not acceptable. Request with Accept: application/activity+json",

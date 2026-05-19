@@ -81,7 +81,7 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
     }
 
     if (!process.env.BASE_URL || process.env.BASE_URL.trim().length === 0) {
-      return c.json({ error: "Server misconfiguration: BASE_URL is required for uploads" }, 500);
+      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
     }
 
     writeFileSync(filepath, buffer);

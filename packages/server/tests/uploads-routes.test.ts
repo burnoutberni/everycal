@@ -163,4 +163,29 @@ describe("uploads routes", () => {
     await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
     expect(readdirSync(uploadDir)).toEqual([]);
   });
+
+  it("localizes missing BASE_URL upload error using request locale", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u9", "ines");
+    delete process.env.BASE_URL;
+
+    const app = makeApp(db, uploadDir, { id: "u9", username: "ines" });
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    }).png().toBuffer();
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "ok.png", { type: "image/png" }));
+
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+      headers: { "accept-language": "de" },
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Server-Fehlkonfiguration: BASE_URL ist für Uploads erforderlich",
+    });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
 });
