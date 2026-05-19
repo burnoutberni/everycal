@@ -43,6 +43,7 @@ import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
 import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
+import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -423,6 +424,7 @@ export function activityPubRoutes(db: DB): Hono {
           handleRsvpActivity(db, activity, actorUri, { inboxUsername: username });
           break;
         default:
+          if (logUnknownRsvpVerbIfApplicable(db, activity, actorUri, "user-inbox")) break;
           console.log(`  ⏭ Ignored activity type: ${type}`);
       }
     } catch (error) {
@@ -526,6 +528,8 @@ export function sharedInboxRoute(db: DB): Hono {
         case "Leave":
           handleRsvpActivity(db, activity, actorUri);
           break;
+        default:
+          if (logUnknownRsvpVerbIfApplicable(db, activity, actorUri, "shared-inbox")) break;
       }
     } catch (error) {
       markInboxActivityFailed(db, activity, actorUri, targetContext, error);
@@ -550,6 +554,25 @@ function parseActorUri(actor: unknown): string | null {
 
 function parseInboxActorUri(activity: Record<string, unknown>): string | null {
   return parseActorUri(activity.actor);
+}
+
+function logUnknownRsvpVerbIfApplicable(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  source: "user-inbox" | "shared-inbox",
+): boolean {
+  const type = activity.type;
+  if (typeof type !== "string" || isActivityPubRsvpType(type)) return false;
+  const target = resolveLocalRsvpEventTarget(db, activity);
+  if (!target) return false;
+
+  boundedConsoleLog(
+    `unknown-rsvp:${source}:${type}:${actorUri}`,
+    `  ⏭ Ignored unknown RSVP activity type: ${type} from ${actorUri} for ${target.eventId}`,
+    { level: "warn" },
+  );
+  return true;
 }
 
 function parseActivityId(activityId: unknown): string | null {

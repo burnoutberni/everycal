@@ -41,6 +41,7 @@ import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
+import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -88,7 +89,18 @@ function parseActivityId(activityId: unknown): string | null {
 }
 
 function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): PulledRsvpImportResult {
-  if (!isActivityPubRsvpType(activity.type)) return { handled: false, applied: false };
+  if (!isActivityPubRsvpType(activity.type)) {
+    const target = resolveLocalRsvpEventTarget(db, activity);
+    if (target && typeof activity.type === "string") {
+      boundedConsoleLog(
+        `unknown-rsvp:pull-sync:${activity.type}:${actorUri}`,
+        `Ignored unknown pulled RSVP activity type: ${activity.type} from ${actorUri} for ${target.eventId}`,
+        { level: "warn" },
+      );
+      return { handled: true, applied: false };
+    }
+    return { handled: false, applied: false };
+  }
   const activityActor = parseApActorReference(activity.actor);
   if (activityActor !== actorUri) {
     console.warn(`Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`);

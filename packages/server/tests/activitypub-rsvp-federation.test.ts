@@ -27,6 +27,7 @@ import { activityPubRoutes, sharedInboxRoute } from "../src/routes/activitypub.j
 import { eventRoutes } from "../src/routes/events.js";
 import { federationRoutes } from "../src/routes/federation-api.js";
 import { fetchRemoteOutbox, resolveRemoteActor } from "../src/lib/federation.js";
+import { resetBoundedLogStateForTests } from "../src/lib/bounded-log.js";
 
 const localEventUrl = "http://localhost/events/event-1";
 const remoteActorUri = "https://remote.example/users/bob";
@@ -105,6 +106,9 @@ describe("ActivityPub RSVP federation", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
+    resetBoundedLogStateForTests();
+
     if (prevSkipSignatureVerify === undefined) {
       delete process.env.SKIP_SIGNATURE_VERIFY;
     } else {
@@ -207,6 +211,32 @@ describe("ActivityPub RSVP federation", () => {
     }));
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
+  });
+
+  it("rate-limits logs for unknown RSVP verbs in inbox requests", async () => {
+    seedLocalEvent(db);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const unknownRsvp = rsvpActivity("Interested", "https://remote.example/activities/interested-1");
+    const secondUnknownRsvp = rsvpActivity("Interested", "https://remote.example/activities/interested-2");
+
+    expect((await postInbox(db, unknownRsvp)).status).toBe(202);
+    expect((await postInbox(db, secondUnknownRsvp)).status).toBe(202);
+    const initialUnknownLogs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Ignored unknown RSVP activity type"));
+    expect(initialUnknownLogs).toHaveLength(1);
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    expect((await postInbox(db, rsvpActivity("Interested", "https://remote.example/activities/interested-3"))).status).toBe(202);
+
+    const unknownLogs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Ignored unknown RSVP activity type"));
+    expect(unknownLogs).toHaveLength(2);
+    expect(unknownLogs[1]).toContain("suppressed 1 similar logs in last 300s");
   });
 
   it("deduplicates stable activity ids before applying RSVP mutations", async () => {
@@ -475,6 +505,69 @@ describe("ActivityPub RSVP federation", () => {
     expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 1 });
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
+  });
+
+  it("rate-limits logs for unknown RSVP verbs during pull-sync", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+      .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/outbox");
+    vi.mocked(resolveRemoteActor).mockResolvedValue({
+      uri: remoteActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: "Bob",
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Interested", "https://remote.example/activities/pulled-unknown-1"),
+      rsvpActivity("Interested", "https://remote.example/activities/pulled-unknown-2"),
+    ]);
+
+    let res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 2 });
+    const firstUnknownPullLogs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Ignored unknown pulled RSVP activity type"));
+    expect(firstUnknownPullLogs).toHaveLength(1);
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    vi.mocked(fetchRemoteOutbox).mockResolvedValue([
+      rsvpActivity("Interested", "https://remote.example/activities/pulled-unknown-3"),
+    ]);
+
+    res = await authedApp(db).request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: remoteActorUri }),
+    });
+    expect(res.status).toBe(200);
+    const unknownPullLogs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Ignored unknown pulled RSVP activity type"));
+    expect(unknownPullLogs).toHaveLength(2);
+    expect(unknownPullLogs[1]).toContain("suppressed 1 similar logs in last 300s");
   });
 
   it("applies inbox-equivalent object-form target validation for pulled RSVP activities", async () => {
