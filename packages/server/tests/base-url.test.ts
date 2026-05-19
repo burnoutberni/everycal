@@ -31,6 +31,16 @@ describe("getBaseUrl", () => {
     process.env.BASE_URL = "   ";
     expect(getBaseUrl("https://fallback.example.com/")).toBe("https://fallback.example.com");
   });
+
+  it("falls back when BASE_URL is not an absolute URL", () => {
+    process.env.BASE_URL = "localhost:3000";
+    expect(getBaseUrl("https://fallback.example.com/")).toBe("https://fallback.example.com");
+  });
+
+  it("uses default fallback when BASE_URL is invalid and no fallback is provided", () => {
+    process.env.BASE_URL = "localhost:3000";
+    expect(getBaseUrl()).toBe("http://localhost:3000");
+  });
 });
 
 describe("base URL builders", () => {

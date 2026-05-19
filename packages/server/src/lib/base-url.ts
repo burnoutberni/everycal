@@ -4,21 +4,33 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
-  const raw = (process.env.BASE_URL && process.env.BASE_URL.trim().length > 0)
-    ? process.env.BASE_URL
-    : fallback;
-  const normalized = raw.trim();
-
-  try {
-    const parsed = new URL(normalized);
-    parsed.search = "";
-    parsed.hash = "";
-    parsed.pathname = trimTrailingSlashes(parsed.pathname);
-    return trimTrailingSlashes(parsed.toString());
-  } catch {
-    return trimTrailingSlashes(normalized);
+function normalizeAbsoluteUrl(value: string): string {
+  const parsed = new URL(value.trim());
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("BASE_URL must use http or https");
   }
+  if (!parsed.hostname) {
+    throw new Error("BASE_URL must include a hostname");
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.pathname = trimTrailingSlashes(parsed.pathname);
+  return trimTrailingSlashes(parsed.toString());
+}
+
+export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
+  const envBaseUrl = process.env.BASE_URL;
+  const hasEnvBaseUrl = !!envBaseUrl && envBaseUrl.trim().length > 0;
+
+  if (hasEnvBaseUrl) {
+    try {
+      return normalizeAbsoluteUrl(envBaseUrl);
+    } catch {
+      return normalizeAbsoluteUrl(fallback);
+    }
+  }
+
+  return normalizeAbsoluteUrl(fallback);
 }
 
 export function getBaseUrlFromRequest(requestUrl: string, fallback?: string): string {
