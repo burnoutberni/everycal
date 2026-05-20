@@ -4,8 +4,11 @@
 
 import Database from "better-sqlite3";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
+import { validateBaseUrlConfig } from "./lib/base-url.js";
 
 export type DB = Database.Database;
+
+const CANONICAL_REPOST_MIGRATION_VERSION = 10;
 
 function hasUserTables(db: DB): boolean {
   const row = db
@@ -573,6 +576,21 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
   }
 }
 
+function validateBaseUrlForPendingMigrations(fromVersion: number): void {
+  const isTestEnv = process.env.NODE_ENV === "test";
+  const requiresCanonicalRepostMigration = fromVersion < CANONICAL_REPOST_MIGRATION_VERSION;
+  if (isTestEnv || !requiresCanonicalRepostMigration) return;
+
+  try {
+    validateBaseUrlConfig();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `BASE_URL preflight check failed before database migrations: ${detail}. Set BASE_URL before starting the server so canonical federation URLs are migrated correctly.`
+    );
+  }
+}
+
 export function initDatabase(path: string): DB {
   const db = new Database(path);
   try {
@@ -591,6 +609,7 @@ export function initDatabase(path: string): DB {
 
     if (currentVersion === 0) {
       if (!hasUserTables(db)) {
+        validateBaseUrlForPendingMigrations(currentVersion);
         applyPendingMigrations(db, 0);
       } else {
         throw new Error(
@@ -598,6 +617,7 @@ export function initDatabase(path: string): DB {
         );
       }
     } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+      validateBaseUrlForPendingMigrations(currentVersion);
       applyPendingMigrations(db, currentVersion);
     }
     validateSchema(db);
