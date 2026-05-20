@@ -201,6 +201,25 @@ describe("social actions as identity", () => {
     expect(row.event_uri).toBe("http://localhost:3000/events/ev-canonical");
   });
 
+  it("accepts canonical local event URI as repost id", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-canonical-uri", "target", "target", "event-canonical-uri", "Event Canonical URI", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+
+    const app = makeApp(db);
+    const canonicalId = encodeURIComponent("http://localhost:3000/events/ev-canonical-uri");
+    const res = await app.request(`http://localhost/api/v1/events/${canonicalId}/repost`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.prepare("SELECT event_id, event_uri FROM reposts WHERE account_id = ?").get("owner") as { event_id: string; event_uri: string };
+    expect(row.event_id).toBe("ev-canonical-uri");
+    expect(row.event_uri).toBe("http://localhost:3000/events/ev-canonical-uri");
+  });
+
   it("deletes repost for canonical local event_uri", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -222,6 +241,31 @@ describe("social actions as identity", () => {
     const remaining = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
       .get("owner", "http://localhost:3000/events/ev-legacy") as { ok: number } | undefined;
     expect(body.removed).toBe(true);
+    expect(remaining).toBeUndefined();
+  });
+
+  it("deletes repost when id is canonical local event URI", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-delete-canonical", "target", "target", "event-delete-canonical", "Event Delete Canonical", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-delete-canonical",
+      "http://localhost:3000/events/ev-delete-canonical",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const canonicalId = encodeURIComponent("http://localhost:3000/events/ev-delete-canonical");
+    const res = await app.request(`http://localhost/api/v1/events/${canonicalId}/repost`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { removed: boolean };
+    expect(body.removed).toBe(true);
+    const remaining = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
+      .get("owner", "http://localhost:3000/events/ev-delete-canonical") as { ok: number } | undefined;
     expect(remaining).toBeUndefined();
   });
 
@@ -273,6 +317,28 @@ describe("social actions as identity", () => {
     expect(body.activeAccountIds).toEqual(expect.arrayContaining(["owner", "identity1"]));
     expect(body.activeAccountIds).toHaveLength(2);
     expect(body.actorIds).toEqual(expect.arrayContaining(["owner", "identity1"]));
+  });
+
+  it("includes repost actors when id is canonical local event URI", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-actors-canonical", "target", "target", "event-actors-canonical", "Event Actors Canonical", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-actors-canonical",
+      "http://localhost:3000/events/ev-actors-canonical",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const canonicalId = encodeURIComponent("http://localhost:3000/events/ev-actors-canonical");
+    const res = await app.request(`http://localhost/api/v1/events/${canonicalId}/repost-actors`, {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { activeAccountIds: string[] };
+    expect(body.activeAccountIds).toContain("owner");
   });
 
   it("dedupes auto-repost when explicit repost exists with URL-form event_uri", async () => {

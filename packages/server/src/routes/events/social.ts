@@ -16,6 +16,25 @@ function buildLocalEventUri(eventId: string): string {
   return buildUrl(getBaseUrl(), "events", eventId);
 }
 
+function resolveLocalEventId(input: string): string | null {
+  const baseUrl = getBaseUrl();
+  const eventUri = resolveEventUri(input);
+  if (!eventUri.startsWith("http://") && !eventUri.startsWith("https://")) {
+    return eventUri;
+  }
+
+  try {
+    const parsedEventUrl = new URL(eventUri);
+    const parsedBaseUrl = new URL(baseUrl);
+    if (parsedEventUrl.origin !== parsedBaseUrl.origin) return null;
+    const segments = parsedEventUrl.pathname.split("/").filter(Boolean);
+    if (segments.length !== 2 || segments[0] !== "events") return null;
+    return decodeURIComponent(segments[1]);
+  } catch {
+    return null;
+  }
+}
+
 function deleteRepostsForEvent(db: DB, accountId: string, eventUri: string): number {
   return db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, eventUri).changes;
 }
@@ -131,10 +150,13 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const user = c.get("user")!;
     const id = c.req.param("id");
     const eventUri = resolveEventUri(id);
+    const localEventId = resolveLocalEventId(id);
 
-    const event = db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(eventUri) as
-      | { id: string; account_id: string; visibility: string }
-      | undefined;
+    const event = localEventId
+      ? db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string }
+        | undefined
+      : undefined;
     const remoteEvent = !event
       ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
         | { uri: string; actor_uri: string; visibility: string }
@@ -237,7 +259,10 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const user = c.get("user")!;
     const id = c.req.param("id");
     const eventUri = resolveEventUri(id);
-    const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(eventUri) as { id: string } | undefined;
+    const localEventId = resolveLocalEventId(id);
+    const localEvent = localEventId
+      ? db.prepare("SELECT id FROM events WHERE id = ?").get(localEventId) as { id: string } | undefined
+      : undefined;
     const deleteTargetUri = localEvent ? buildLocalEventUri(localEvent.id) : eventUri;
     const removed = deleteRepostsForEvent(db, user.id, deleteTargetUri) > 0;
     return c.json({ ok: true, reposted: false, removed });
@@ -247,7 +272,10 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const user = c.get("user")!;
     const id = c.req.param("id");
     const eventUri = resolveEventUri(id);
-    const event = db.prepare("SELECT id FROM events WHERE id = ?").get(eventUri) as { id: string } | undefined;
+    const localEventId = resolveLocalEventId(id);
+    const event = localEventId
+      ? db.prepare("SELECT id FROM events WHERE id = ?").get(localEventId) as { id: string } | undefined
+      : undefined;
     const remoteEvent = !event
       ? db.prepare("SELECT uri FROM remote_events WHERE uri = ?").get(eventUri) as { uri: string } | undefined
       : undefined;
