@@ -706,6 +706,11 @@ export const MIGRATIONS: Migration[] = [
     version: 14,
     name: "canonicalize_local_repost_event_uris",
     up: (db) => {
+      const isTestEnv = process.env.NODE_ENV === "test";
+      const configuredBaseUrl = process.env.BASE_URL;
+      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
+        throw new Error("BASE_URL must be configured before running migration v14 (canonicalize_local_repost_event_uris)");
+      }
       const baseUrl = getBaseUrl();
       const rows = db.prepare(
         `SELECT r.account_id, r.event_uri, e.id AS event_id

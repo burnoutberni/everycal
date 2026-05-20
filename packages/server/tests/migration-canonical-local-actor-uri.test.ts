@@ -115,9 +115,11 @@ describe("migration enforce_local_repost_event_ids", () => {
 
 describe("migration canonicalize_local_repost_event_uris", () => {
   const previousBaseUrl = process.env.BASE_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
 
   afterEach(() => {
     process.env.BASE_URL = previousBaseUrl;
+    process.env.NODE_ENV = previousNodeEnv;
   });
 
   it("rewrites local repost event_uri values to canonical local event URLs", () => {
@@ -145,6 +147,22 @@ describe("migration canonicalize_local_repost_event_uris", () => {
 
     expect(localRow.event_uri).toBe("https://everycal.example/events/event-1");
     expect(remoteRow.event_uri).toBe("https://remote.example/events/1");
+
+    db.close();
+  });
+
+  it("throws when BASE_URL is missing outside test env", () => {
+    process.env.NODE_ENV = "test";
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 13);
+
+    delete process.env.BASE_URL;
+    process.env.NODE_ENV = "production";
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 14);
+    if (!migration) throw new Error("migration 14 not found");
+
+    expect(() => migration.up(db)).toThrow(/BASE_URL must be configured before running migration v14/);
 
     db.close();
   });
