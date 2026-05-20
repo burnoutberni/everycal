@@ -71,6 +71,55 @@ function toEpochMillisOrZero(value: unknown): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
+function normalizeDigestAlgorithm(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function parseLegacyDigestHeader(digestHeader: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  for (const token of digestHeader.split(",")) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const algorithm = normalizeDigestAlgorithm(trimmed.slice(0, eqIndex));
+    const value = trimmed.slice(eqIndex + 1).trim().replace(/^"|"$/g, "");
+    if (!algorithm || !value) continue;
+    parsed.set(algorithm, value);
+  }
+  return parsed;
+}
+
+function parseContentDigestHeader(contentDigestHeader: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  for (const token of contentDigestHeader.split(",")) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const algorithm = normalizeDigestAlgorithm(trimmed.slice(0, eqIndex));
+    const rawValue = trimmed.slice(eqIndex + 1).trim();
+    const sfByteSequence = rawValue.match(/^:([A-Za-z0-9+/=]+):$/);
+    const normalizedValue = sfByteSequence ? sfByteSequence[1] : rawValue.replace(/^"|"$/g, "");
+    if (!algorithm || !normalizedValue) continue;
+    parsed.set(algorithm, normalizedValue);
+  }
+  return parsed;
+}
+
+export function hasMatchingRequestDigest(rawBody: string, digestHeader?: string, contentDigestHeader?: string): boolean {
+  const expectedDigest = crypto.createHash("sha256").update(rawBody).digest("base64");
+  const digestValue = digestHeader ? parseLegacyDigestHeader(digestHeader).get("sha-256") : undefined;
+  if (digestValue && digestValue === expectedDigest) return true;
+
+  const contentDigestValue = contentDigestHeader
+    ? parseContentDigestHeader(contentDigestHeader).get("sha-256")
+    : undefined;
+  if (contentDigestValue && contentDigestValue === expectedDigest) return true;
+
+  return false;
+}
+
 export function activityPubRoutes(db: DB): Hono {
   const router = new Hono();
 
@@ -1120,12 +1169,12 @@ async function verifyInboxSignature(
   try {
     // Verify the Digest header matches the body (prevents body tampering)
     const digestHeader = c.req.header("digest");
-    if (!digestHeader) {
-      console.log(`  ⚠️  Missing Digest header from ${actorUri}`);
+    const contentDigestHeader = c.req.header("content-digest");
+    if (!digestHeader && !contentDigestHeader) {
+      console.log(`  ⚠️  Missing Digest/Content-Digest header from ${actorUri}`);
       return false;
     }
-    const expectedDigest = `SHA-256=${crypto.createHash("sha256").update(rawBody).digest("base64")}`;
-    if (digestHeader !== expectedDigest) {
+    if (!hasMatchingRequestDigest(rawBody, digestHeader, contentDigestHeader)) {
       console.log(`  ⚠️  Digest mismatch for ${actorUri}`);
       return false;
     }
