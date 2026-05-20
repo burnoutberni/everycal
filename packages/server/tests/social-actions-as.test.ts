@@ -1,8 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 import { userRoutes } from "../src/routes/users.js";
 import { eventRoutes } from "../src/routes/events.js";
+
+const originalBaseUrl = process.env.BASE_URL;
+
+afterEach(() => {
+  if (originalBaseUrl === undefined) {
+    delete process.env.BASE_URL;
+  } else {
+    process.env.BASE_URL = originalBaseUrl;
+  }
+});
 
 function makeApp(db: DB, userId = "owner") {
   const app = new Hono();
@@ -218,6 +228,26 @@ describe("social actions as identity", () => {
     const row = db.prepare("SELECT event_id, event_uri FROM reposts WHERE account_id = ?").get("owner") as { event_id: string; event_uri: string };
     expect(row.event_id).toBe("ev-canonical-uri");
     expect(row.event_uri).toBe("http://localhost:3000/events/ev-canonical-uri");
+  });
+
+  it("accepts canonical local event URI with base-path prefix as repost id", async () => {
+    process.env.BASE_URL = "http://localhost:3000/app";
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-base-path-uri", "target", "target", "event-base-path-uri", "Event Base Path URI", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+
+    const app = makeApp(db);
+    const canonicalId = encodeURIComponent("http://localhost:3000/app/events/ev-base-path-uri");
+    const res = await app.request(`http://localhost/api/v1/events/${canonicalId}/repost`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.prepare("SELECT event_id, event_uri FROM reposts WHERE account_id = ?").get("owner") as { event_id: string; event_uri: string };
+    expect(row.event_id).toBe("ev-base-path-uri");
+    expect(row.event_uri).toBe("http://localhost:3000/app/events/ev-base-path-uri");
   });
 
   it("deletes repost for canonical local event_uri", async () => {

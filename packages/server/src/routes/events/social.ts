@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import type { DB } from "../../db.js";
 import { ensureKeyPairForAccount } from "../../lib/account-keys.js";
 import { enqueueOutboundDelivery, resolveRemoteActor } from "../../lib/federation.js";
-import { mapLocalRsvpStateToActivityPubType, type LocalRsvpState } from "../../lib/activitypub-rsvp.js";
+import { localEventIdFromActivityPubUri, mapLocalRsvpStateToActivityPubType, type LocalRsvpState } from "../../lib/activitypub-rsvp.js";
 import { createActivityId } from "../../lib/activity-ids.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { getLocale, t } from "../../lib/i18n.js";
@@ -18,22 +18,8 @@ function buildLocalEventUri(eventId: string): string {
 }
 
 function resolveLocalEventId(input: string): string | null {
-  const baseUrl = getBaseUrl();
   const eventUri = resolveEventUri(input);
-  if (!eventUri.startsWith("http://") && !eventUri.startsWith("https://")) {
-    return eventUri;
-  }
-
-  try {
-    const parsedEventUrl = new URL(eventUri);
-    const parsedBaseUrl = new URL(baseUrl);
-    if (parsedEventUrl.origin !== parsedBaseUrl.origin) return null;
-    const segments = parsedEventUrl.pathname.split("/").filter(Boolean);
-    if (segments.length !== 2 || segments[0] !== "events") return null;
-    return decodeURIComponent(segments[1]);
-  } catch {
-    return null;
-  }
+  return localEventIdFromActivityPubUri(eventUri);
 }
 
 function deleteRepostsForEvent(db: DB, accountId: string, eventUri: string): number {
