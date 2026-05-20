@@ -9,8 +9,21 @@ import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
-import { buildActorUrl } from "../../lib/base-url.js";
+import { buildActorUrl, getBaseUrl } from "../../lib/base-url.js";
 import { resolveEventUri } from "./shared.js";
+
+function buildLocalEventUriCandidates(eventId: string): string[] {
+  const candidates = new Set<string>([eventId, `${getBaseUrl()}/events/${eventId}`]);
+  return Array.from(candidates);
+}
+
+function deleteRepostsForEvent(db: DB, accountId: string, eventUris: string[]): number {
+  if (eventUris.length === 0) return 0;
+  if (eventUris.length === 1) {
+    return db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, eventUris[0]).changes;
+  }
+  return db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri IN (?, ?)").run(accountId, eventUris[0], eventUris[1]).changes;
+}
 
 async function enqueueOutboundRsvpIfNeeded(
   db: DB,
@@ -146,6 +159,7 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
       return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     }
     const repostTargetUri = event?.id ?? remoteEvent!.uri;
+    const repostTargetUris = event ? buildLocalEventUriCandidates(event.id) : [repostTargetUri];
     const repostSourceActorUri = event
       ? buildActorUrl((db.prepare("SELECT username FROM accounts WHERE id = ?").get(event.account_id) as { username: string }).username)
       : remoteEvent!.actor_uri;
@@ -177,8 +191,10 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     }
 
     const activeRows = db
-      .prepare("SELECT account_id FROM reposts WHERE event_uri = ?")
-      .all(repostTargetUri) as Array<{ account_id: string }>;
+      .prepare(event
+        ? "SELECT DISTINCT account_id FROM reposts WHERE event_uri IN (?, ?)"
+        : "SELECT DISTINCT account_id FROM reposts WHERE event_uri = ?")
+      .all(...repostTargetUris) as Array<{ account_id: string }>;
     const plan = buildActorSelectionPlan({
       actingAccountIds: actingIds,
       desiredAccountIds: body.desiredAccountIds,
@@ -207,7 +223,7 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
         );
       },
       applyRemove: (accountId) => {
-        db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, repostTargetUri);
+        deleteRepostsForEvent(db, accountId, repostTargetUris);
       },
     });
     const summary = summarizeActorSelection(results);
@@ -229,8 +245,10 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const user = c.get("user")!;
     const id = c.req.param("id");
     const eventUri = resolveEventUri(id);
-    db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(user.id, eventUri);
-    return c.json({ ok: true, reposted: false });
+    const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(eventUri) as { id: string } | undefined;
+    const eventUris = localEvent ? buildLocalEventUriCandidates(localEvent.id) : [eventUri];
+    const removed = deleteRepostsForEvent(db, user.id, eventUris) > 0;
+    return c.json({ ok: true, reposted: false, removed });
   });
 
   router.get("/:id/repost-actors", requireAuth(), (c) => {

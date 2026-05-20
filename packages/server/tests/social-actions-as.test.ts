@@ -146,6 +146,56 @@ describe("social actions as identity", () => {
     expect(res.status).toBe(400);
   });
 
+  it("deletes repost for legacy local URL-form event_uri", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-legacy", "target", "target", "event-legacy", "Event Legacy", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-legacy",
+      "http://localhost:3000/events/ev-legacy",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/ev-legacy/repost", {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { removed: boolean };
+    const remaining = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
+      .get("owner", "http://localhost:3000/events/ev-legacy") as { ok: number } | undefined;
+    expect(body.removed).toBe(true);
+    expect(remaining).toBeUndefined();
+  });
+
+  it("removes legacy local URL-form repost rows via desiredAccountIds", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-mixed", "target", "target", "event-mixed", "Event Mixed", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-mixed",
+      "http://localhost:3000/events/ev-mixed",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/ev-mixed/repost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ desiredAccountIds: [] }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { removed: number };
+    const remaining = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
+      .get("owner", "http://localhost:3000/events/ev-mixed") as { ok: number } | undefined;
+    expect(body.removed).toBe(1);
+    expect(remaining).toBeUndefined();
+  });
+
   it("reports partial failure for follow actor updates", async () => {
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/users/collective/follow", {
