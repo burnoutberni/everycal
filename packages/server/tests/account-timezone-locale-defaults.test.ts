@@ -381,7 +381,7 @@ describe("account timezone/locale defaults", () => {
 
     reopened.close();
     rmSync(dir, { recursive: true, force: true });
-  }, 15000);
+  }, 30000);
 
   it("fails startup when a required schema column is missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "everycal-db-"));

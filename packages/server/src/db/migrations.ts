@@ -1,4 +1,5 @@
 import type { DB } from "../db.js";
+import { getBaseUrl } from "../lib/base-url.js";
 import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
@@ -203,18 +204,43 @@ CREATE TABLE IF NOT EXISTS event_rsvps (
   PRIMARY KEY (account_id, event_uri)
 );
 
+CREATE TABLE IF NOT EXISTS remote_event_rsvps (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  actor_uri TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('going','maybe','not_going')),
+  last_activity_id TEXT,
+  last_activity_type TEXT NOT NULL,
+  last_activity_published_at TEXT,
+  last_activity_precedence INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (event_id, actor_uri)
+);
+
 CREATE TABLE IF NOT EXISTS reposts (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+  event_uri TEXT NOT NULL,
+  source_actor_uri TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (account_id, event_id)
+  PRIMARY KEY (account_id, event_uri)
 );
 
 CREATE TABLE IF NOT EXISTS auto_reposts (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  source_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  source_account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  source_actor_uri TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (account_id, source_account_id)
+  PRIMARY KEY (account_id, source_actor_uri)
+);
+
+CREATE TABLE IF NOT EXISTS federation_activity_ids (
+  activity_id TEXT PRIMARY KEY,
+  logical_key TEXT NOT NULL UNIQUE,
+  actor_uri TEXT NOT NULL,
+  activity_type TEXT NOT NULL,
+  object_uri TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS actor_selection_operations (
@@ -326,10 +352,15 @@ CREATE INDEX IF NOT EXISTS idx_remote_events_start_on ON remote_events(start_on)
 CREATE INDEX IF NOT EXISTS idx_remote_following_account ON remote_following(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_account ON event_rsvps(account_id);
 CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_uri);
+CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_rsvps(event_id, status);
+CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri);
 CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_reposts_event ON reposts(event_id);
+CREATE INDEX IF NOT EXISTS idx_reposts_event_uri ON reposts(event_uri);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id);
+CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri);
+CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_ops_initiated_by ON actor_selection_operations(initiated_by_account_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_items_operation ON actor_selection_operation_items(operation_id);
 CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC);
@@ -563,6 +594,115 @@ export const MIGRATIONS: Migration[] = [
         END`);
     },
   },
+  {
+    version: 10,
+    name: "universal_reposts_canonicalization",
+    up: (db) => {
+      const isTestEnv = process.env.NODE_ENV === "test";
+      const configuredBaseUrl = process.env.BASE_URL;
+      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
+        throw new Error("BASE_URL must be configured before running migration v10 (universal_reposts_canonicalization)");
+      }
+      const baseUrl = getBaseUrl();
+
+      db.exec(`CREATE TABLE IF NOT EXISTS remote_event_rsvps (
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        actor_uri TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('going','maybe','not_going')),
+        last_activity_id TEXT,
+        last_activity_type TEXT NOT NULL,
+        last_activity_published_at TEXT,
+        last_activity_precedence INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (event_id, actor_uri)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_rsvps(event_id, status)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri)");
+
+      const repostColumns = db.prepare("PRAGMA table_info(reposts)").all() as Array<{ name: string }>;
+      const autoRepostColumns = db.prepare("PRAGMA table_info(auto_reposts)").all() as Array<{ name: string }>;
+      const hasRepostEventUri = repostColumns.some((column) => column.name === "event_uri");
+      const hasRepostSourceActorUri = repostColumns.some((column) => column.name === "source_actor_uri");
+      const hasAutoRepostSourceActorUri = autoRepostColumns.some((column) => column.name === "source_actor_uri");
+
+      const repostEventUriExpr = hasRepostEventUri ? "r.event_uri" : "r.event_id";
+      const repostSourceActorUriExpr = hasRepostSourceActorUri ? "r.source_actor_uri" : "NULL";
+      const autoRepostSourceActorUriExpr = hasAutoRepostSourceActorUri ? "ar.source_actor_uri" : "NULL";
+
+      db.exec(`CREATE TABLE IF NOT EXISTS reposts_tmp (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+        event_uri TEXT NOT NULL,
+        source_actor_uri TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, event_uri)
+      )`);
+      db.prepare(`INSERT OR IGNORE INTO reposts_tmp (account_id, event_id, event_uri, source_actor_uri, created_at)
+        SELECT r.account_id,
+               r.event_id,
+               CASE
+                  WHEN r.event_id IS NOT NULL THEN (? || '/events/' || r.event_id)
+                  ELSE NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '')
+                END AS event_uri,
+                 CASE
+                   WHEN e_owner.username IS NOT NULL THEN (? || '/users/' || e_owner.username)
+                   ELSE ${repostSourceActorUriExpr}
+                 END AS source_actor_uri,
+                r.created_at
+        FROM reposts r
+        LEFT JOIN events e ON e.id = r.event_id
+        LEFT JOIN accounts e_owner ON e_owner.id = e.account_id
+        WHERE r.event_id IS NOT NULL OR NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '') IS NOT NULL
+        ORDER BY datetime(r.created_at) ASC, r.rowid ASC`).run(baseUrl, baseUrl);
+      db.exec("DROP TABLE reposts");
+      db.exec("ALTER TABLE reposts_tmp RENAME TO reposts");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_event ON reposts(event_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_event_uri ON reposts(event_uri)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS auto_reposts_tmp (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        source_account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+        source_actor_uri TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (account_id, source_actor_uri)
+      )`);
+      db.prepare(`INSERT OR IGNORE INTO auto_reposts_tmp (account_id, source_account_id, source_actor_uri, created_at)
+        SELECT ar.account_id,
+               CASE WHEN a.id IS NOT NULL THEN ar.source_account_id ELSE NULL END AS source_account_id,
+               COALESCE(
+                  ${autoRepostSourceActorUriExpr},
+                  CASE
+                    WHEN a.username IS NOT NULL THEN (? || '/users/' || a.username)
+                    ELSE ('https://local.invalid/users/deleted-' || COALESCE(ar.source_account_id, 'row-' || ar.rowid))
+                  END
+                ) AS source_actor_uri,
+                ar.created_at
+        FROM auto_reposts ar
+        LEFT JOIN accounts a ON a.id = ar.source_account_id`).run(baseUrl);
+      db.exec("DROP TABLE auto_reposts");
+      db.exec("ALTER TABLE auto_reposts_tmp RENAME TO auto_reposts");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri)");
+    },
+  },
+  {
+    version: 11,
+    name: "federation_activity_ids",
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS federation_activity_ids (
+        activity_id TEXT PRIMARY KEY,
+        logical_key TEXT NOT NULL UNIQUE,
+        actor_uri TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        object_uri TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 11;

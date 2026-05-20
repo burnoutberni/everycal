@@ -9,6 +9,8 @@ import { deriveVisibilityFromActivityPubAddressing, fetchAP, resolveRemoteActor,
 import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
+import { getBaseUrl } from "../../lib/base-url.js";
+import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteTagFilter, buildRemoteVisibilityFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
 
@@ -56,7 +58,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
             )`;
           params.push(user!.id, user!.id, user!.id);
         } else if (isMineScope) {
-          const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+          const baseUrl = getBaseUrl();
           const feed = buildFeedQuery({ userId: user!.id, baseUrl });
           sql = `SELECT DISTINCT t.tag FROM event_tags t
             WHERE t.event_id IN (SELECT combined.id FROM (${feed.sql}) AS combined WHERE 1=1`;
@@ -160,7 +162,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           )`;
         params.push(user!.id, user!.id, user!.id);
       } else if (isMineScope) {
-        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const baseUrl = getBaseUrl();
         const feed = buildFeedQuery({ userId: user!.id, baseUrl });
         sql = feed.sql;
         params.push(...feed.params);
@@ -211,13 +213,15 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe')
         )`;
         params.push(user!.id);
-      } else if (isMineScope) {
-        sql += ` AND (
-          re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
-          OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
-        )`;
-        params.push(user!.id, user!.id);
-      }
+        } else if (isMineScope) {
+          sql += ` AND (
+            re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
+            OR re.uri IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+            OR re.actor_uri IN (SELECT source_actor_uri FROM auto_reposts WHERE account_id = ?)
+            OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
+          )`;
+          params.push(user!.id, user!.id, user!.id, user!.id);
+        }
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
@@ -344,7 +348,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const { limit, offset } = parseLimitOffset(c, { defaultLimit: 50, maxLimit: 200 });
 
       const fetchLocal: MergedFetcher = (after, fetchLimit) => {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = getBaseUrl();
       const feed = buildFeedQuery({ userId: user.id, baseUrl });
       let sql = feed.sql;
       const params = [...feed.params];
@@ -424,12 +428,12 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const currentUser = c.get("user");
     const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
 
-    if (username.includes("@")) {
-      const [preferredUsername, domain] = username.split("@");
-      if (!preferredUsername || !domain) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
       const remoteRow = db
         .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteVisibility.sql}`)
-        .get(preferredUsername, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+        .get(localPart, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
       if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const event = formatRemoteEvent(remoteRow);
       if (currentUser) attachSingleEventContext(event, remoteRow.uri as string, currentUser.id);

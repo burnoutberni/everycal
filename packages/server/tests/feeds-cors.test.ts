@@ -326,7 +326,7 @@ describe("public feed visibility", () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run("bob-unlisted-hidden", "bob-id", "bob-u2", "Bob Unlisted Hidden", "2026-03-04", "2026-03-04T00:00:00.000Z", "UTC", 1, "unlisted");
 
-    db.prepare("INSERT INTO reposts (account_id, event_id) VALUES (?, ?)").run("alice-id", "bob-unlisted-reposted");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run("alice-id", "bob-unlisted-reposted", "bob-unlisted-reposted", "https://localhost/users/bob");
 
     const res = await app.request("http://localhost/api/v1/feeds/alice.json");
     expect(res.status).toBe(200);

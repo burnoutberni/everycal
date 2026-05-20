@@ -14,7 +14,8 @@ import type { Context } from "hono";
 import crypto from "node:crypto";
 import { normalizeHashtagName } from "@everycal/core";
 import type { DB } from "../db.js";
-import { generateKeyPair, verifySignature } from "../lib/crypto.js";
+import { verifySignature } from "../lib/crypto.js";
+import { ensureKeyPairForAccount } from "../lib/account-keys.js";
 import {
   resolveRemoteActor,
   deliverActivity,
@@ -23,6 +24,15 @@ import {
   normalizeEventVisibility,
   visibilityToActivityPubAddressing,
 } from "../lib/federation.js";
+import {
+  extractApObjectUri,
+  isActivityPubRsvpType,
+  mapActivityPubRsvpToLocalState,
+  normalizeApPublishedWithFallback,
+  parseApActorReference,
+  resolveLocalRsvpEventTarget,
+  upsertRemoteEventRsvp,
+} from "../lib/activitypub-rsvp.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
@@ -32,6 +42,9 @@ import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
+import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
+import { ensureStableActivityId } from "../lib/activity-ids.js";
+import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -41,10 +54,6 @@ const AP_CONTENT_TYPES = [
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
-}
-
-function getBaseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
 }
 
 /** Convert SQLite datetime to ISO 8601 for ActivityPub (required by spec). */
@@ -62,22 +71,53 @@ function toEpochMillisOrZero(value: unknown): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-function ensureKeyPair(db: DB, accountId: string): { publicKey: string; privateKey: string } {
-  const row = db
-    .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
-    .get(accountId) as { public_key: string | null; private_key: string | null };
+function normalizeDigestAlgorithm(value: string): string {
+  return value.trim().toLowerCase();
+}
 
-  if (row.public_key && row.private_key) {
-    return { publicKey: row.public_key, privateKey: row.private_key };
+function parseLegacyDigestHeader(digestHeader: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  for (const token of digestHeader.split(",")) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const algorithm = normalizeDigestAlgorithm(trimmed.slice(0, eqIndex));
+    const value = trimmed.slice(eqIndex + 1).trim().replace(/^"|"$/g, "");
+    if (!algorithm || !value) continue;
+    parsed.set(algorithm, value);
   }
+  return parsed;
+}
 
-  const keys = generateKeyPair();
-  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
-    keys.publicKey,
-    keys.privateKey,
-    accountId
-  );
-  return keys;
+function parseContentDigestHeader(contentDigestHeader: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  for (const token of contentDigestHeader.split(",")) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const algorithm = normalizeDigestAlgorithm(trimmed.slice(0, eqIndex));
+    const rawValue = trimmed.slice(eqIndex + 1).trim();
+    const sfByteSequence = rawValue.match(/^:([A-Za-z0-9+/=]+):$/);
+    const normalizedValue = sfByteSequence ? sfByteSequence[1] : rawValue.replace(/^"|"$/g, "");
+    if (!algorithm || !normalizedValue) continue;
+    parsed.set(algorithm, normalizedValue);
+  }
+  return parsed;
+}
+
+export function hasMatchingRequestDigest(rawBody: string, digestHeader?: string, contentDigestHeader?: string): boolean {
+  const expectedDigest = crypto.createHash("sha256").update(rawBody).digest("base64");
+  const digestValue = digestHeader ? parseLegacyDigestHeader(digestHeader).get("sha-256") : undefined;
+  if (digestValue && digestValue === expectedDigest) return true;
+
+  const contentDigestValue = contentDigestHeader
+    ? parseContentDigestHeader(contentDigestHeader).get("sha-256")
+    : undefined;
+  if (contentDigestValue && contentDigestValue === expectedDigest) return true;
+
+  return false;
 }
 
 export function activityPubRoutes(db: DB): Hono {
@@ -100,9 +140,10 @@ export function activityPubRoutes(db: DB): Hono {
 
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
-    const keys = ensureKeyPair(db, account.id as string);
+    const keys = ensureKeyPairForAccount(db, account.id as string);
+    if (!keys) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const attachment: Record<string, unknown>[] = [];
     if (account.website) {
@@ -123,12 +164,12 @@ export function activityPubRoutes(db: DB): Hono {
       preferredUsername: username,
       name: (account.display_name as string) || username,
       summary: (account.bio as string) || "",
-      url: `${baseUrl}/@${username}`,
+      url: buildProfileUrl(username, baseUrl),
       ...(account.created_at ? { published: toISO8601(account.created_at as string) } : {}),
-      inbox: `${actorUrl}/inbox`,
-      outbox: `${actorUrl}/outbox`,
-      followers: `${actorUrl}/followers`,
-      following: `${actorUrl}/following`,
+      inbox: buildUrl(actorUrl, "inbox"),
+      outbox: buildUrl(actorUrl, "outbox"),
+      followers: buildUrl(actorUrl, "followers"),
+      following: buildUrl(actorUrl, "following"),
       manuallyApprovesFollowers: false,
       discoverable: true,
       publicKey: {
@@ -144,7 +185,7 @@ export function activityPubRoutes(db: DB): Hono {
       } : {}),
       ...(attachment.length > 0 ? { attachment } : {}),
       endpoints: {
-        sharedInbox: `${baseUrl}/inbox`,
+        sharedInbox: buildUrl(baseUrl, "inbox"),
       },
     };
 
@@ -158,7 +199,7 @@ export function activityPubRoutes(db: DB): Hono {
     const username = c.req.param("username");
     const page = c.req.query("page");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -176,21 +217,34 @@ export function activityPubRoutes(db: DB): Hono {
     const repostCount = (
       db
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM reposts r
-           JOIN events e ON e.id = r.event_id
-           WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')`
+          `SELECT (
+             SELECT COUNT(*) FROM reposts r
+             JOIN events e ON e.id = r.event_id
+             WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
+           ) + (
+             SELECT COUNT(*) FROM reposts r
+             JOIN remote_events re ON re.uri = r.event_uri
+             WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')
+           ) AS cnt`
         )
-        .get(account.id) as { cnt: number }
+        .get(account.id, account.id) as { cnt: number }
     ).cnt;
     const autoRepostCount = (
       db
         .prepare(
-          `SELECT COUNT(*) AS cnt FROM auto_reposts ar
-           JOIN events e ON e.account_id = ar.source_account_id
-           WHERE ar.account_id = ? AND e.visibility = 'public'
-             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)`
+          `SELECT (
+             SELECT COUNT(*) FROM auto_reposts ar
+             JOIN events e ON e.account_id = ar.source_account_id
+             WHERE ar.account_id = ? AND e.visibility = 'public'
+               AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
+           ) + (
+             SELECT COUNT(*) FROM auto_reposts ar
+             JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+             WHERE ar.account_id = ? AND re.visibility = 'public'
+               AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+           ) AS cnt`
         )
-        .get(account.id, account.id) as { cnt: number }
+        .get(account.id, account.id, account.id, account.id) as { cnt: number }
     ).cnt;
     const totalItems = ownedCount + repostCount + autoRepostCount;
 
@@ -198,10 +252,10 @@ export function activityPubRoutes(db: DB): Hono {
       return c.json(
         {
           "@context": "https://www.w3.org/ns/activitystreams",
-          id: `${actorUrl}/outbox`,
+          id: buildUrl(actorUrl, "outbox"),
           type: "OrderedCollection",
           totalItems,
-          first: `${actorUrl}/outbox?page=1`,
+          first: `${buildUrl(actorUrl, "outbox")}?page=1`,
         },
         200,
         { "Content-Type": "application/activity+json; charset=utf-8" }
@@ -225,8 +279,16 @@ export function activityPubRoutes(db: DB): Hono {
          FROM reposts r
          JOIN events e ON e.id = r.event_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
-         GROUP BY e.id`
+          WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
+          GROUP BY e.id`
+      )
+      .all(account.id) as Record<string, unknown>[];
+    const repostRemoteRows = db
+      .prepare(
+        `SELECT r.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
+         FROM reposts r
+         JOIN remote_events re ON re.uri = r.event_uri
+         WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')`
       )
       .all(account.id) as Record<string, unknown>[];
 
@@ -236,15 +298,24 @@ export function activityPubRoutes(db: DB): Hono {
          FROM auto_reposts ar
          JOIN events e ON e.account_id = ar.source_account_id
          LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE ar.account_id = ? AND e.visibility = 'public'
-           AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
-         GROUP BY e.id`
+          WHERE ar.account_id = ? AND e.visibility = 'public'
+            AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
+          GROUP BY e.id`
+      )
+      .all(account.id, account.id) as Record<string, unknown>[];
+    const autoRepostRemoteRows = db
+      .prepare(
+        `SELECT ar.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
+         FROM auto_reposts ar
+         JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+         WHERE ar.account_id = ? AND re.visibility = 'public'
+           AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)`
       )
       .all(account.id, account.id) as Record<string, unknown>[];
 
-    const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
+    const eventUrl = (id: string) => buildUrl(baseUrl, "events", id);
     const createItems = ownedRows.map((row) => ({
-      id: `${baseUrl}/events/${row.id}/activity`,
+      id: buildUrl(baseUrl, "events", row.id as string, "activity"),
       type: "Create",
       actor: actorUrl,
       published: toISO8601(row.created_at as string) ?? row.created_at,
@@ -254,7 +325,12 @@ export function activityPubRoutes(db: DB): Hono {
     }));
 
     const repostAnnounceItems = repostRows.map((row) => ({
-      id: `${actorUrl}/announce/${row.id}`,
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: eventUrl(row.id as string),
+        logicalKey: `announce:${account.id}:${eventUrl(row.id as string)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -263,7 +339,12 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
-      id: `${actorUrl}/announce/${row.id}`,
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: eventUrl(row.id as string),
+        logicalKey: `announce:${account.id}:${eventUrl(row.id as string)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -271,9 +352,37 @@ export function activityPubRoutes(db: DB): Hono {
       object: eventUrl(row.id as string),
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
+    const repostRemoteAnnounceItems = repostRemoteRows.map((row) => ({
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: row.uri as string,
+        logicalKey: `announce:${account.id}:${String(row.uri)}`,
+      }),
+      type: "Announce",
+      actor: actorUrl,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
+      object: row.uri,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
+    }));
+    const autoRepostRemoteAnnounceItems = autoRepostRemoteRows.map((row) => ({
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: row.uri as string,
+        logicalKey: `announce:${account.id}:${String(row.uri)}`,
+      }),
+      type: "Announce",
+      actor: actorUrl,
+      published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
+      ...visibilityToActivityPubAddressing(normalizeEventVisibility(row.visibility as string), actorUrl),
+      object: row.uri,
+      _sortMs: toEpochMillisOrZero(row.start_at_utc),
+    }));
 
     // Merge and sort by event start date (desc = newest first)
-    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems].sort(
+    const allItems = [...createItems, ...repostAnnounceItems, ...autoRepostAnnounceItems, ...repostRemoteAnnounceItems, ...autoRepostRemoteAnnounceItems].sort(
       (a, b) => b._sortMs - a._sortMs
     );
 
@@ -287,14 +396,14 @@ export function activityPubRoutes(db: DB): Hono {
 
     const result: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${actorUrl}/outbox?page=${pageNum}`,
+      id: `${buildUrl(actorUrl, "outbox")}?page=${pageNum}`,
       type: "OrderedCollectionPage",
-      partOf: `${actorUrl}/outbox`,
+      partOf: buildUrl(actorUrl, "outbox"),
       orderedItems,
     };
 
     if (pageItems.length === limit) {
-      result.next = `${actorUrl}/outbox?page=${pageNum + 1}`;
+      result.next = `${buildUrl(actorUrl, "outbox")}?page=${pageNum + 1}`;
     }
 
     return c.json(result, 200, {
@@ -306,7 +415,7 @@ export function activityPubRoutes(db: DB): Hono {
   router.get("/:username/followers", (c) => {
     const username = c.req.param("username");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -329,7 +438,7 @@ export function activityPubRoutes(db: DB): Hono {
     return c.json(
       {
         "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${actorUrl}/followers`,
+        id: buildUrl(actorUrl, "followers"),
         type: "OrderedCollection",
         totalItems: remoteCount + localCount,
       },
@@ -342,7 +451,7 @@ export function activityPubRoutes(db: DB): Hono {
   router.get("/:username/following", (c) => {
     const username = c.req.param("username");
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${username}`;
+    const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
       .prepare("SELECT id FROM accounts WHERE username = ?")
@@ -358,7 +467,7 @@ export function activityPubRoutes(db: DB): Hono {
     return c.json(
       {
         "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${actorUrl}/following`,
+        id: buildUrl(actorUrl, "following"),
         type: "OrderedCollection",
         totalItems: localCount,
       },
@@ -385,7 +494,7 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = parseActorUri(activity.actor);
+    const actorUri = parseInboxActorUri(activity);
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
@@ -425,7 +534,15 @@ export function activityPubRoutes(db: DB): Hono {
         case "Delete":
           handleDelete(db, activity, actorUri);
           break;
+        case "Accept":
+        case "TentativeAccept":
+        case "Reject":
+        case "Join":
+        case "Leave":
+          handleRsvpActivity(db, activity, actorUri, { inboxUsername: username });
+          break;
         default:
+          if (logUnknownRsvpVerbIfApplicable(db, activity, actorUri, "user-inbox")) break;
           console.log(`  ⏭ Ignored activity type: ${type}`);
       }
     } catch (error) {
@@ -458,7 +575,7 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     const type = activity.type as string;
-    const actorUri = parseActorUri(activity.actor);
+    const actorUri = parseInboxActorUri(activity);
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
@@ -522,6 +639,15 @@ export function sharedInboxRoute(db: DB): Hono {
         case "Delete":
           handleDelete(db, activity, actorUri);
           break;
+        case "Accept":
+        case "TentativeAccept":
+        case "Reject":
+        case "Join":
+        case "Leave":
+          handleRsvpActivity(db, activity, actorUri);
+          break;
+        default:
+          if (logUnknownRsvpVerbIfApplicable(db, activity, actorUri, "shared-inbox")) break;
       }
     } catch (error) {
       markInboxActivityFailed(db, activity, actorUri, targetContext, error);
@@ -541,9 +667,30 @@ function inboxTargetContext(kind: "user" | "shared", target: string): string {
 }
 
 function parseActorUri(actor: unknown): string | null {
-  if (typeof actor !== "string") return null;
-  const trimmed = actor.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return parseApActorReference(actor);
+}
+
+function parseInboxActorUri(activity: Record<string, unknown>): string | null {
+  return parseActorUri(activity.actor);
+}
+
+function logUnknownRsvpVerbIfApplicable(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  source: "user-inbox" | "shared-inbox",
+): boolean {
+  const type = activity.type;
+  if (typeof type !== "string" || isActivityPubRsvpType(type)) return false;
+  const target = resolveLocalRsvpEventTarget(db, activity);
+  if (!target) return false;
+
+  boundedConsoleLog(
+    `unknown-rsvp:${source}:${type}:${actorUri}`,
+    `  ⏭ Ignored unknown RSVP activity type: ${type} from ${actorUri} for ${target.eventId}`,
+    { level: "warn" },
+  );
+  return true;
 }
 
 function parseActivityId(activityId: unknown): string | null {
@@ -639,8 +786,9 @@ async function handleFollow(
 
   // Send Accept
   const keys = ensureKeyPairForAccount(db, account.id);
+  if (!keys) return;
   const baseUrl = getBaseUrl();
-  const actorUrl = `${baseUrl}/users/${account.username}`;
+  const actorUrl = buildActorUrl(account.username, baseUrl);
 
   const accept = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -822,6 +970,52 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   console.log(`  ✅ Stored remote event: ${object.name}`);
 }
 
+
+function resolveLocalRsvpEvent(
+  db: DB,
+  activity: Record<string, unknown>,
+  options: { inboxUsername?: string } = {},
+): { eventId: string; ownerActorUri: string } | null {
+  const target = resolveLocalRsvpEventTarget(db, activity, options);
+  if (!target) {
+    console.log("  ⚠️  Rejecting RSVP: invalid local Event target");
+    return null;
+  }
+  return target;
+}
+
+function handleRsvpActivity(
+  db: DB,
+  activity: Record<string, unknown>,
+  actorUri: string,
+  options: { inboxUsername?: string } = {},
+): void {
+  const activityType = activity.type;
+  if (!isActivityPubRsvpType(activityType)) {
+    console.log(`  ⏭ Ignored non-RSVP activity type: ${String(activityType)}`);
+    return;
+  }
+
+  const localState = mapActivityPubRsvpToLocalState(activityType);
+  const target = resolveLocalRsvpEvent(db, activity, options);
+  if (!target) return;
+
+  const result = upsertRemoteEventRsvp(db, {
+    eventId: target.eventId,
+    actorUri,
+    activityType,
+    activityId: parseActivityId(activity.id),
+    publishedAt: normalizeApPublishedWithFallback(activity.published, activity.updated),
+    localState,
+  });
+
+  if (result.applied) {
+    console.log(`  ✅ Stored remote RSVP ${activityType} from ${actorUri} for ${target.eventId} as ${result.status}`);
+  } else {
+    console.log(`  ⏭ Ignored stale remote RSVP ${activityType} from ${actorUri} for ${target.eventId}`);
+  }
+}
+
 function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: string) {
   const rawObject = activity.object;
   const objectUri: string | undefined =
@@ -862,36 +1056,11 @@ function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: strin
   }
 }
 
-function ensureKeyPairForAccount(
-  db: DB,
-  accountId: string
-): { publicKey: string; privateKey: string } {
-  const row = db
-    .prepare("SELECT public_key, private_key FROM accounts WHERE id = ?")
-    .get(accountId) as { public_key: string | null; private_key: string | null };
-
-  if (row.public_key && row.private_key) {
-    return { publicKey: row.public_key, privateKey: row.private_key };
-  }
-
-  const keys = generateKeyPair();
-  db.prepare("UPDATE accounts SET public_key = ?, private_key = ? WHERE id = ?").run(
-    keys.publicKey,
-    keys.privateKey,
-    accountId
-  );
-  return keys;
-}
-
 // ---- Helpers ----
 
 /** Extract URI from ActivityPub object (string IRI or object with id). */
 function extractObjectUri(obj: unknown): string | undefined {
-  if (typeof obj === "string") return obj;
-  if (obj && typeof obj === "object" && "id" in obj && typeof (obj as Record<string, unknown>).id === "string") {
-    return (obj as Record<string, string>).id;
-  }
-  return undefined;
+  return extractApObjectUri(obj);
 }
 
 function rowToAPEvent(
@@ -899,7 +1068,7 @@ function rowToAPEvent(
   actorUrl: string,
   baseUrl: string
 ): Record<string, unknown> {
-  const eventUrl = `${baseUrl}/events/${row.id}`;
+  const eventUrl = buildUrl(baseUrl, "events", row.id as string);
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
   const { to, cc } = visibilityToActivityPubAddressing(
@@ -1000,12 +1169,12 @@ async function verifyInboxSignature(
   try {
     // Verify the Digest header matches the body (prevents body tampering)
     const digestHeader = c.req.header("digest");
-    if (!digestHeader) {
-      console.log(`  ⚠️  Missing Digest header from ${actorUri}`);
+    const contentDigestHeader = c.req.header("content-digest");
+    if (!digestHeader && !contentDigestHeader) {
+      console.log(`  ⚠️  Missing Digest/Content-Digest header from ${actorUri}`);
       return false;
     }
-    const expectedDigest = `SHA-256=${crypto.createHash("sha256").update(rawBody).digest("base64")}`;
-    if (digestHeader !== expectedDigest) {
+    if (!hasMatchingRequestDigest(rawBody, digestHeader, contentDigestHeader)) {
       console.log(`  ⚠️  Digest mismatch for ${actorUri}`);
       return false;
     }
@@ -1062,7 +1231,7 @@ export function activityPubEventRoutes(db: DB): Hono {
     if (!row) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     const baseUrl = getBaseUrl();
-    const actorUrl = `${baseUrl}/users/${row.username}`;
+    const actorUrl = buildActorUrl(row.username as string, baseUrl);
     const event = rowToAPEvent(row, actorUrl, baseUrl);
 
     return c.json(event, 200, {

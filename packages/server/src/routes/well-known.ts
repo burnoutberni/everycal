@@ -8,6 +8,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { getLocale, t } from "../lib/i18n.js";
 
 export function wellKnownRoutes(db: DB): Hono {
@@ -23,7 +24,7 @@ export function wellKnownRoutes(db: DB): Hono {
     const [, username, domain] = match;
 
     // Validate the domain matches our server's domain
-    const baseUrl = process.env.BASE_URL || `https://${domain}`;
+    const baseUrl = getBaseUrl(`https://${domain}`);
     const expectedDomain = new URL(baseUrl).hostname;
     if (domain !== expectedDomain) {
       return c.json({ error: t(getLocale(c), "wellknown.unknown_domain") }, 404);
@@ -35,17 +36,17 @@ export function wellKnownRoutes(db: DB): Hono {
     return c.json(
       {
         subject: resource,
-        aliases: [`${baseUrl}/users/${username}`, `${baseUrl}/@${username}`],
+        aliases: [buildActorUrl(username, baseUrl), buildProfileUrl(username, baseUrl)],
         links: [
           {
             rel: "self",
             type: "application/activity+json",
-            href: `${baseUrl}/users/${username}`,
+            href: buildActorUrl(username, baseUrl),
           },
           {
             rel: "http://webfinger.net/rel/profile-page/",
             type: "text/html",
-            href: `${baseUrl}/@${username}`,
+            href: buildProfileUrl(username, baseUrl),
           },
         ],
       },
@@ -55,19 +56,19 @@ export function wellKnownRoutes(db: DB): Hono {
   });
 
   router.get("/nodeinfo", (c) => {
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+    const baseUrl = getBaseUrl();
     return c.json({
       links: [
         {
           rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
-          href: `${baseUrl}/nodeinfo/2.0`,
+          href: buildUrl(baseUrl, "nodeinfo", "2.0"),
         },
       ],
     });
   });
 
   router.get("/host-meta", (c) => {
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+    const baseUrl = getBaseUrl();
     // Escape XML special characters in the base URL
     const safeBaseUrl = baseUrl
       .replace(/&/g, "&amp;")

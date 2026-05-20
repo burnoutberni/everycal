@@ -28,9 +28,20 @@ import { generateKeyPair } from "../lib/crypto.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { listActingAccounts } from "../lib/identities.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
+import {
+  extractApObjectUri,
+  isActivityPubRsvpType,
+  mapActivityPubRsvpToLocalState,
+  normalizeApPublishedWithFallback,
+  parseApActorReference,
+  resolveLocalRsvpEventTarget,
+  upsertRemoteEventRsvp,
+} from "../lib/activitypub-rsvp.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
+import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
+import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -59,14 +70,6 @@ function buildFollowActivity(actorUrl: string, actorUri: string): { id: string; 
 }
 
 
-function extractApObjectUri(obj: unknown): string | undefined {
-  if (typeof obj === "string") return obj;
-  if (obj && typeof obj === "object" && typeof (obj as Record<string, unknown>).id === "string") {
-    return (obj as Record<string, string>).id;
-  }
-  return undefined;
-}
-
 async function resolveActivityObject(object: unknown): Promise<Record<string, unknown> | null> {
   if (!object) return null;
   if (typeof object === "string") return (await fetchAP(object)) as Record<string, unknown>;
@@ -76,6 +79,51 @@ async function resolveActivityObject(object: unknown): Promise<Record<string, un
   }
   return obj;
 }
+
+type PulledRsvpImportResult = { handled: boolean; applied: boolean };
+
+function parseActivityId(activityId: unknown): string | null {
+  if (typeof activityId !== "string") return null;
+  const trimmed = activityId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function importPulledRsvpActivity(db: DB, activity: Record<string, unknown>, actorUri: string): PulledRsvpImportResult {
+  if (!isActivityPubRsvpType(activity.type)) {
+    const target = resolveLocalRsvpEventTarget(db, activity);
+    if (target && typeof activity.type === "string") {
+      boundedConsoleLog(
+        `unknown-rsvp:pull-sync:${activity.type}:${actorUri}`,
+        `Ignored unknown pulled RSVP activity type: ${activity.type} from ${actorUri} for ${target.eventId}`,
+        { level: "warn" },
+      );
+      return { handled: true, applied: false };
+    }
+    return { handled: false, applied: false };
+  }
+  const activityActor = parseApActorReference(activity.actor);
+  if (activityActor !== actorUri) {
+    boundedConsoleLog(
+      `pull-rsvp-actor-mismatch:${actorUri}:${String(activity.type)}`,
+      `Rejected pulled ${String(activity.type)}: activity actor ${String(activity.actor)} != outbox actor ${actorUri}`,
+      { level: "warn" },
+    );
+    return { handled: true, applied: false };
+  }
+  const target = resolveLocalRsvpEventTarget(db, activity);
+  if (!target) return { handled: true, applied: false };
+  const localState = mapActivityPubRsvpToLocalState(activity.type);
+  const result = upsertRemoteEventRsvp(db, {
+    eventId: target.eventId,
+    actorUri,
+    activityType: activity.type,
+    activityId: parseActivityId(activity.id),
+    publishedAt: normalizeApPublishedWithFallback(activity.published, activity.updated),
+    localState,
+  });
+  return { handled: true, applied: result.applied };
+}
+
 
 function buildUndoFollowActivity(actorUrl: string, actorUri: string, followActivityId?: string | null): Record<string, unknown> {
   return {
@@ -283,13 +331,24 @@ export function federationRoutes(db: DB): Hono {
         }
 
         const activityType = activity.type as string;
+        const rsvpImport = importPulledRsvpActivity(db, activity, actor.uri);
+        if (rsvpImport.handled) {
+          if (rsvpImport.applied) imported++;
+          continue;
+        }
+
         const requiresActorMatch = activityType === "Delete"
           || activityType === "Create"
           || activityType === "Update"
           || activityType === "Announce";
         if (requiresActorMatch) {
-          if (typeof activity.actor !== "string" || activity.actor !== actor.uri) {
-            console.warn(`Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`);
+          const activityActor = parseApActorReference(activity.actor);
+          if (activityActor !== actor.uri) {
+            boundedConsoleLog(
+              `pull-activity-actor-mismatch:${actor.uri}:${activityType}`,
+              `Rejected pulled ${activityType}: activity actor ${String(activity.actor)} != outbox actor ${actor.uri}`,
+              { level: "warn" },
+            );
             continue;
           }
         }
@@ -303,7 +362,11 @@ export function federationRoutes(db: DB): Hono {
               .run((activity.updated as string) || (activity.published as string) || null, objectUri);
             imported++;
           } else if (existing) {
-            console.warn(`Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+            boundedConsoleLog(
+              `pull-delete-owner-mismatch:${actor.uri}:${objectUri}`,
+              `Rejected pulled Delete for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`,
+              { level: "warn" },
+            );
           }
           continue;
         }
@@ -321,23 +384,39 @@ export function federationRoutes(db: DB): Hono {
         if (!fullObj || fullObj.type !== "Event") continue;
         const objectUri = normalizeRemoteEventUri(fullObj.id);
         if (!objectUri) {
-          console.warn(`Rejected pulled ${activityType}: event object missing valid string id`);
+          boundedConsoleLog(
+            `pull-event-missing-id:${actor.uri}:${activityType}`,
+            `Rejected pulled ${activityType}: event object missing valid string id`,
+            { level: "warn" },
+          );
           continue;
         }
 
         const attributedTo = getAttributedActor(fullObj);
         if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "unparseable") {
-          console.warn(`Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`);
+          boundedConsoleLog(
+            `pull-attributed-to-unparseable:${actor.uri}:${activityType}:${objectUri}`,
+            `Rejected pulled ${activityType} for ${fullObj.id}: unparseable attributedTo`,
+            { level: "warn" },
+          );
           continue;
         }
         if ((activityType === "Create" || activityType === "Update") && attributedTo.status === "parsed" && attributedTo.actor !== actor.uri) {
-          console.warn(`Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`);
+          boundedConsoleLog(
+            `pull-attributed-to-actor-mismatch:${actor.uri}:${activityType}:${objectUri}`,
+            `Rejected pulled ${activityType}: actor ${actor.uri} != attributedTo ${attributedTo.actor}`,
+            { level: "warn" },
+          );
           continue;
         }
         const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
         if (activityType === "Update") {
           if (existing && existing.actor_uri !== actor.uri) {
-            console.warn(`Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`);
+            boundedConsoleLog(
+              `pull-update-owner-mismatch:${actor.uri}:${objectUri}`,
+              `Rejected pulled Update for ${objectUri}: actor ${actor.uri} does not own ${existing.actor_uri}`,
+              { level: "warn" },
+            );
             continue;
           }
         }
@@ -353,8 +432,10 @@ export function federationRoutes(db: DB): Hono {
           : actor.uri;
         const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
         if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
-          console.warn(
+          boundedConsoleLog(
+            `pull-announce-owner-correction-ignored:${actor.uri}:${objectUri}`,
             `Ignoring actor correction for pulled Announce ${objectUri}: existing owner ${existing.actor_uri} differs from attributedTo ${attributedTo.actor}`,
+            { level: "warn" },
           );
         }
         const upserted = upsertRemoteEvent(db, fullObj, ownerActorUri, {
@@ -430,8 +511,8 @@ export function federationRoutes(db: DB): Hono {
         privateKey = keys.privateKey;
       }
 
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const ourActorUrl = `${baseUrl}/users/${user.username}`;
+      const baseUrl = getBaseUrl();
+      const ourActorUrl = buildActorUrl(user.username, baseUrl);
 
       const followActivity = buildFollowActivity(ourActorUrl, actorUri);
 
@@ -467,7 +548,7 @@ export function federationRoutes(db: DB): Hono {
       activeAccountIds: activeRows.map((r) => r.account_id),
     });
     const followRefs = new Map(activeRows.map((row) => [row.account_id, row.follow_activity_id]));
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+    const baseUrl = getBaseUrl();
     const operationId = createHash("sha256")
       .update(`${Date.now()}-${user.id}-${actorUri}-${Math.random()}`)
       .digest("hex")
@@ -504,7 +585,7 @@ export function federationRoutes(db: DB): Hono {
         privateKey = keys.privateKey;
       }
 
-      const actorUrl = `${baseUrl}/users/${accountKeys.username}`;
+      const actorUrl = buildActorUrl(accountKeys.username, baseUrl);
 
       try {
         if (after) {
@@ -606,8 +687,8 @@ export function federationRoutes(db: DB): Hono {
 
     let delivered = false;
     if (account.private_key) {
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-      const ourActorUrl = `${baseUrl}/users/${account.username}`;
+      const baseUrl = getBaseUrl();
+      const ourActorUrl = buildActorUrl(account.username, baseUrl);
 
       const undoActivity = buildUndoFollowActivity(ourActorUrl, actorUri, followRow?.follow_activity_id);
 

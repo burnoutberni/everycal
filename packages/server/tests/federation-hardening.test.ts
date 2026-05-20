@@ -8,6 +8,7 @@ import { serializeRemoteEvent } from "../src/lib/event-serializers.js";
 import { upsertRemoteEvent } from "../src/lib/remote-events.js";
 import * as remoteEvents from "../src/lib/remote-events.js";
 import * as federation from "../src/lib/federation.js";
+import { resetBoundedLogStateForTests } from "../src/lib/bounded-log.js";
 import { generateKeyPair } from "../src/lib/crypto.js";
 
 function insertAccount(db: DB, id = "acct1", username = "alice") {
@@ -34,8 +35,10 @@ function eventObject(id: string, name: string, extra: Record<string, unknown> = 
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  resetBoundedLogStateForTests();
   delete process.env.SKIP_SIGNATURE_VERIFY;
   delete process.env.OUTBOUND_RETAIN_DELIVERED_DAYS;
   delete process.env.OUTBOUND_RETAIN_FAILED_DAYS;
@@ -721,7 +724,7 @@ describe("federation hardening prep", () => {
     expect(row.title).toBe("First");
   });
 
-  it("rejects user inbox activity when actor is not a string", async () => {
+  it("accepts user inbox activity when actor is an object with id", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
     insertAccount(db, "local1", "alice");
@@ -734,14 +737,13 @@ describe("federation hardening prep", () => {
         id: "https://remote.example/activities/create-non-string-actor",
         type: "Create",
         actor: { id: "https://remote.example/users/bob" },
-        object: eventObject("https://remote.example/events/non-string-actor", "Should Reject", { to: [federation.AP_PUBLIC] }),
+        object: eventObject("https://remote.example/events/non-string-actor", "Should Accept", { to: [federation.AP_PUBLIC] }),
       }),
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid request" });
+    expect(response.status).toBe(202);
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
+    expect(count.cnt).toBe(1);
   });
 
   it("trims user inbox actor string before processing", async () => {
@@ -1503,7 +1505,7 @@ describe("federation hardening prep", () => {
       domain: "remote.example",
       last_fetched_at: new Date().toISOString(),
     });
-    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+    const fetchOutboxSpy = vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
       { id: "https://remote.example/activities/update", type: "Update", actor: actorUri, object: eventObject("https://remote.example/events/pulled", "New", { to: ["https://remote.example/users/bob/followers"], cc: [federation.AP_PUBLIC] }) },
       { id: "https://remote.example/activities/delete", type: "Delete", actor: actorUri, object: "https://remote.example/events/pulled" },
     ]);
@@ -1656,6 +1658,60 @@ describe("federation hardening prep", () => {
     expect(await res.json()).toMatchObject({ ok: true, imported: 1, total: 1 });
 
     const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/object-attributed") as { title: string };
+    expect(row.title).toBe("New");
+  });
+
+  it("accepts pulled Update when activity.actor is an object with id", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    upsertRemoteEvent(db, eventObject("https://remote.example/events/object-actor", "Old", { to: [federation.AP_PUBLIC] }), actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/update-object-actor",
+        type: "Update",
+        actor: { id: actorUri },
+        object: eventObject("https://remote.example/events/object-actor", "New", {
+          attributedTo: actorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 1, total: 1 });
+
+    const row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get("https://remote.example/events/object-actor") as { title: string };
     expect(row.title).toBe("New");
   });
 
@@ -2049,6 +2105,101 @@ describe("federation hardening prep", () => {
 
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/mismatched-actor") as { cnt: number };
     expect(count.cnt).toBe(0);
+  });
+
+  it("rate-limits pulled actor mismatch logs during fetch-actor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const outboxActorUri = insertRemoteActor(db);
+    const otherActorUri = insertRemoteActor(db, "https://remote.example/users/carol");
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: outboxActorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-mismatched-actor-1",
+        type: "Create",
+        actor: otherActorUri,
+        object: eventObject("https://remote.example/events/mismatched-actor-1", "Ignore", {
+          attributedTo: outboxActorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+      {
+        id: "https://remote.example/activities/create-mismatched-actor-2",
+        type: "Create",
+        actor: otherActorUri,
+        object: eventObject("https://remote.example/events/mismatched-actor-2", "Ignore Too", {
+          attributedTo: outboxActorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+
+    const first = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: outboxActorUri }),
+    });
+    expect(first.status).toBe(200);
+
+    const firstLogs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Rejected pulled Create: activity actor"));
+    expect(firstLogs).toHaveLength(1);
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-mismatched-actor-3",
+        type: "Create",
+        actor: otherActorUri,
+        object: eventObject("https://remote.example/events/mismatched-actor-3", "Ignore Again", {
+          attributedTo: outboxActorUri,
+          to: [federation.AP_PUBLIC],
+        }),
+      },
+    ]);
+
+    const second = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri: outboxActorUri }),
+    });
+    expect(second.status).toBe(200);
+
+    const logs = warnSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("Rejected pulled Create: activity actor"));
+    expect(logs).toHaveLength(2);
+    expect(logs[1]).toContain("suppressed 1 similar logs in last 300s");
   });
 
   it("rejects pulled Delete when activity.actor is missing", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import sharp from "sharp";
@@ -36,15 +36,23 @@ describe("uploads routes", () => {
   let db: DB;
   let uploadDir: string;
   let maliciousSiblingDir: string | null;
+  let previousBaseUrl: string | undefined;
 
   beforeEach(() => {
     process.env.OPEN_REGISTRATIONS = "true";
+    previousBaseUrl = process.env.BASE_URL;
+    process.env.BASE_URL = "http://localhost:3000";
     db = initDatabase(":memory:");
     uploadDir = mkdtempSync(join(tmpdir(), "everycal-uploads-test-"));
     maliciousSiblingDir = null;
   });
 
   afterEach(() => {
+    if (previousBaseUrl === undefined) {
+      delete process.env.BASE_URL;
+    } else {
+      process.env.BASE_URL = previousBaseUrl;
+    }
     rmSync(uploadDir, { recursive: true, force: true });
     if (maliciousSiblingDir) {
       rmSync(maliciousSiblingDir, { recursive: true, force: true });
@@ -131,5 +139,89 @@ describe("uploads routes", () => {
     const res = await app.request("http://localhost/uploads/.derived.jpg");
 
     expect(res.status).toBe(404);
+  });
+
+  it("returns 500 when BASE_URL is missing during upload", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u8", "hana");
+    delete process.env.BASE_URL;
+
+    const app = makeApp(db, uploadDir, { id: "u8", username: "hana" });
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    }).png().toBuffer();
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "ok.png", { type: "image/png" }));
+
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+      headers: { host: "attacker.example" },
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
+
+  it("localizes missing BASE_URL upload error using request locale", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u9", "ines");
+    delete process.env.BASE_URL;
+
+    const app = makeApp(db, uploadDir, { id: "u9", username: "ines" });
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    }).png().toBuffer();
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "ok.png", { type: "image/png" }));
+
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+      headers: { "accept-language": "de" },
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Server-Fehlkonfiguration: BASE_URL ist für Uploads erforderlich",
+    });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
+
+  it("returns 500 and does not write when BASE_URL is invalid", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u10", "jules");
+    process.env.BASE_URL = "localhost:3000";
+
+    const app = makeApp(db, uploadDir, { id: "u10", username: "jules" });
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    }).png().toBuffer();
+
+    const formData = new FormData();
+    formData.append("file", new File([image], "ok.png", { type: "image/png" }));
+
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+      body: formData,
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
+
+  it("fails before body validation when BASE_URL is invalid", async () => {
+    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u11", "kira");
+    process.env.BASE_URL = "localhost:3000";
+
+    const app = makeApp(db, uploadDir, { id: "u11", username: "kira" });
+    const res = await app.request("http://internal-host/api/v1/uploads", {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Server misconfiguration: BASE_URL is required for uploads" });
+    expect(readdirSync(uploadDir)).toEqual([]);
   });
 });

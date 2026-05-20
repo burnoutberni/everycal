@@ -5,6 +5,7 @@
 import crypto from "node:crypto";
 import type { EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
+import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
 
@@ -116,6 +117,11 @@ export function normalizeEventVisibility(
     return visibility as EventVisibility;
   }
   return fallback;
+}
+
+export function isEventFederationEligible(visibility: EventVisibility | string | null | undefined): boolean {
+  const normalizedVisibility = normalizeEventVisibility(visibility);
+  return normalizedVisibility === "public" || normalizedVisibility === "unlisted";
 }
 
 function normalizeAudienceUrl(value: string): string | null {
@@ -871,8 +877,8 @@ export async function deliverToFollowers(
     .get(accountId) as { username: string; private_key: string | null } | undefined;
   if (!account?.private_key) return;
 
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-  const actorUri = `${baseUrl}/users/${account.username}`;
+  const baseUrl = getBaseUrl();
+  const actorUri = buildActorUrl(account.username, baseUrl);
 
   const followers = db
     .prepare("SELECT follower_actor_uri, follower_inbox, follower_shared_inbox FROM remote_follows WHERE account_id = ?")

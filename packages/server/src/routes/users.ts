@@ -29,6 +29,9 @@ import {
 } from "../lib/actor-selection.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
+import { buildActorUrl, buildUrl } from "../lib/base-url.js";
+import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
+import { parseRemoteHandle } from "../lib/remote-handle.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -48,21 +51,12 @@ export function userRoutes(db: DB): Hono {
     let sql: string;
     let params: unknown[];
 
-    const eventsCountSubquery = `(SELECT COUNT(*) FROM (
-      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
-    )) AS events_count`;
-
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
 
     if (q) {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                    ${eventsCountSubquery}
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
              WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
              ORDER BY username ASC LIMIT ? OFFSET ?`;
@@ -70,8 +64,7 @@ export function userRoutes(db: DB): Hono {
     } else {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                    ${eventsCountSubquery}
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
              WHERE discoverable = 1
              ORDER BY created_at DESC LIMIT ? OFFSET ?`;
@@ -79,6 +72,12 @@ export function userRoutes(db: DB): Hono {
     }
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const accountIds = rows.map((row) => row.id as string);
+    const eventsCountByAccountId = loadPublicEventsCountsByAccountId(db, accountIds);
+    for (const row of rows) {
+      const accountId = row.id as string;
+      row.events_count = eventsCountByAccountId.get(accountId) ?? 0;
+    }
     return c.json({ users: rows.map(formatUser) });
   });
 
@@ -88,12 +87,9 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         const remoteRow = db
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
@@ -143,16 +139,9 @@ export function userRoutes(db: DB): Hono {
           source: "remote",
           domain: remoteRow.domain,
         });
-      }
     }
 
-    const eventsCountSubquery = `(SELECT COUNT(*) FROM (
-      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
-    )) AS events_count`;
+    const eventsCountSubquery = `${buildPublicEventsCountSubquery()} AS events_count`;
 
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
 
@@ -178,8 +167,8 @@ export function userRoutes(db: DB): Hono {
       result.following = !!follow;
 
       const autoRepost = db
-        .prepare("SELECT 1 FROM auto_reposts WHERE account_id = ? AND source_account_id = ?")
-        .get(currentUser.id, row.id);
+        .prepare("SELECT 1 FROM auto_reposts WHERE account_id = ? AND (source_account_id = ? OR source_actor_uri = ?)")
+        .get(currentUser.id, row.id, buildActorUrl(row.username as string));
       result.autoReposting = !!autoRepost;
     }
 
@@ -209,12 +198,9 @@ export function userRoutes(db: DB): Hono {
     }
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         const remoteActor = db
           .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string } | undefined;
@@ -250,7 +236,6 @@ export function userRoutes(db: DB): Hono {
           events = events.map((e) => ({ ...e, rsvpStatus: rsvpMap.get(e.id as string) || null }));
         }
         return c.json({ events });
-      }
     }
 
     const account = db
@@ -355,7 +340,7 @@ export function userRoutes(db: DB): Hono {
       WHERE ar.account_id = ?
         ${autoRepostVisibilityClause}
         AND e.account_id != ?
-        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
+        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     {
@@ -473,10 +458,26 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
 
-    const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
-    if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+    const remoteHandle = parseRemoteHandle(username);
+    const localTarget = !remoteHandle
+      ? db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username) as { id: string; username: string } | undefined
+      : undefined;
+    let sourceActorUri: string | null = null;
+    let sourceAccountId: string | null = null;
+    if (localTarget) {
+      sourceAccountId = localTarget.id;
+      sourceActorUri = buildActorUrl(localTarget.username);
+    } else if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
+      let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
+      if (!remote) {
+        const actorUri = buildUrl(`https://${domain}`, "users", localPart);
+        const resolved = await resolveRemoteActor(db, actorUri);
+        if (resolved?.uri) remote = { uri: resolved.uri };
+      }
+      sourceActorUri = remote?.uri ?? null;
+    }
+    if (!sourceActorUri) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
     let body: { actorUri?: string; desiredAccountIds?: string[] };
     try {
       body = await readActorSelectionPayload(c);
@@ -488,10 +489,11 @@ export function userRoutes(db: DB): Hono {
     }
 
     if (!body.desiredAccountIds) {
-      if (target.id === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
-      db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(
+      if (sourceAccountId === currentUser.id) return c.json({ error: t(getLocale(c), "users.cannot_autorepost_yourself") }, 400);
+      db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
         currentUser.id,
-        target.id
+        sourceAccountId,
+        sourceActorUri,
       );
       return c.json({ ok: true, autoReposting: true });
     }
@@ -503,14 +505,14 @@ export function userRoutes(db: DB): Hono {
     }
 
     const activeRows = db
-      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
-      .all(target.id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_actor_uri = ? OR (? IS NOT NULL AND source_account_id = ?)")
+      .all(sourceActorUri, sourceAccountId, sourceAccountId) as Array<{ account_id: string }>;
     const plan = buildActorSelectionPlan({
       actingAccountIds: actingIds,
       desiredAccountIds: body.desiredAccountIds,
       activeAccountIds: activeRows.map((r) => r.account_id),
       validateTransition: ({ accountId, after }) => {
-        if (accountId === target.id && after) return t(getLocale(c), "users.cannot_autorepost_yourself");
+        if (sourceAccountId && accountId === sourceAccountId && after) return t(getLocale(c), "users.cannot_autorepost_yourself");
         return null;
       },
     });
@@ -520,15 +522,15 @@ export function userRoutes(db: DB): Hono {
       operation: {
         actionKind: "auto_repost",
         targetType: "account",
-        targetId: target.id,
+        targetId: sourceActorUri,
         initiatedByAccountId: currentUser.id,
       },
       plan,
       applyAdd: (accountId) => {
-        db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id) VALUES (?, ?)").run(accountId, target.id);
+        db.prepare("INSERT OR IGNORE INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(accountId, sourceAccountId, sourceActorUri);
       },
       applyRemove: (accountId) => {
-        db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(accountId, target.id);
+        db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND (source_actor_uri = ? OR (? IS NOT NULL AND source_account_id = ?))").run(accountId, sourceActorUri, sourceAccountId, sourceAccountId);
       },
     });
     const summary = summarizeActorSelection(results);
@@ -565,16 +567,14 @@ export function userRoutes(db: DB): Hono {
   router.get("/:username/auto-repost-actors", requireAuth(), (c) => {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
-    const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
+    const target = db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username) as { id: string; username: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
     const acting = listActingAccounts(db, currentUser.id, "editor");
     const allowed = new Set(acting.map((a) => a.id));
     const activeRows = db
-      .prepare("SELECT account_id FROM auto_reposts WHERE source_account_id = ?")
-      .all(target.id) as Array<{ account_id: string }>;
+      .prepare("SELECT account_id FROM auto_reposts WHERE source_actor_uri = ? OR source_account_id = ?")
+      .all(buildActorUrl(target.username), target.id) as Array<{ account_id: string }>;
     const activeAccountIds = activeRows.map((r) => r.account_id).filter((id) => allowed.has(id));
 
     return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
@@ -586,13 +586,14 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     const target = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
-      .get(username) as { id: string } | undefined;
+      .prepare("SELECT id, username FROM accounts WHERE username = ?")
+      .get(username) as { id: string; username: string } | undefined;
     if (!target) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
-    db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND source_account_id = ?").run(
+    db.prepare("DELETE FROM auto_reposts WHERE account_id = ? AND (source_account_id = ? OR source_actor_uri = ?)").run(
       currentUser.id,
-      target.id
+      target.id,
+      buildActorUrl(target.username),
     );
 
     return c.json({ ok: true, autoReposting: false });
@@ -603,17 +604,14 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         let actor = db
           .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
         if (!actor) {
-          const actorUri = `https://${domain}/users/${localPart}`;
+          const actorUri = buildUrl(`https://${domain}`, "users", localPart);
           const resolved = await resolveRemoteActor(db, actorUri);
           actor = resolved ? { uri: resolved.uri, followers_url: resolved.followers_url } : undefined;
         }
@@ -627,7 +625,6 @@ export function userRoutes(db: DB): Hono {
         } catch {
           return c.json({ users: [] });
         }
-      }
     }
 
     const account = db
@@ -668,17 +665,14 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         let actor = db
           .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
         if (!actor) {
-          const actorUri = `https://${domain}/users/${localPart}`;
+          const actorUri = buildUrl(`https://${domain}`, "users", localPart);
           const resolved = await resolveRemoteActor(db, actorUri);
           actor = resolved ? { uri: resolved.uri, following_url: resolved.following_url } : undefined;
         }
@@ -692,7 +686,6 @@ export function userRoutes(db: DB): Hono {
         } catch {
           return c.json({ users: [] });
         }
-      }
     }
 
     const account = db

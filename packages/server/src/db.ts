@@ -4,8 +4,11 @@
 
 import Database from "better-sqlite3";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
+import { validateBaseUrlConfig } from "./lib/base-url.js";
 
 export type DB = Database.Database;
+
+const CANONICAL_REPOST_MIGRATION_VERSION = 10;
 
 function hasUserTables(db: DB): boolean {
   const row = db
@@ -185,8 +188,20 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
   remote_following: ["account_id", "actor_uri", "actor_inbox", "follow_activity_id", "follow_object_uri", "created_at"],
   domain_discovery: ["domain", "last_discovered_at", "software_type"],
   event_rsvps: ["account_id", "event_uri", "status", "created_at"],
-  reposts: ["account_id", "event_id", "created_at"],
-  auto_reposts: ["account_id", "source_account_id", "created_at"],
+  remote_event_rsvps: [
+    "event_id",
+    "actor_uri",
+    "status",
+    "last_activity_id",
+    "last_activity_type",
+    "last_activity_published_at",
+    "last_activity_precedence",
+    "created_at",
+    "updated_at",
+  ],
+  reposts: ["account_id", "event_id", "event_uri", "source_actor_uri", "created_at"],
+  auto_reposts: ["account_id", "source_account_id", "source_actor_uri", "created_at"],
+  federation_activity_ids: ["activity_id", "logical_key", "actor_uri", "activity_type", "object_uri", "created_at"],
   actor_selection_operations: [
     "id",
     "action_kind",
@@ -334,10 +349,30 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
   },
   { table: "event_rsvps", name: "idx_event_rsvps_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "event_rsvps", name: "idx_event_rsvps_event", unique: false, columns: [{ name: "event_uri" }] },
+  {
+    table: "remote_event_rsvps",
+    name: "idx_remote_event_rsvps_event_status",
+    unique: false,
+    columns: [{ name: "event_id" }, { name: "status" }],
+  },
+  {
+    table: "remote_event_rsvps",
+    name: "idx_remote_event_rsvps_actor",
+    unique: false,
+    columns: [{ name: "actor_uri" }],
+  },
   { table: "reposts", name: "idx_reposts_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "reposts", name: "idx_reposts_event", unique: false, columns: [{ name: "event_id" }] },
+  { table: "reposts", name: "idx_reposts_event_uri", unique: false, columns: [{ name: "event_uri" }] },
   { table: "auto_reposts", name: "idx_auto_reposts_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "auto_reposts", name: "idx_auto_reposts_source", unique: false, columns: [{ name: "source_account_id" }] },
+  { table: "auto_reposts", name: "idx_auto_reposts_source_actor", unique: false, columns: [{ name: "source_actor_uri" }] },
+  {
+    table: "federation_activity_ids",
+    name: "idx_federation_activity_ids_actor_type_object",
+    unique: false,
+    columns: [{ name: "actor_uri" }, { name: "activity_type" }, { name: "object_uri" }],
+  },
   {
     table: "actor_selection_operations",
     name: "idx_actor_selection_ops_initiated_by",
@@ -541,6 +576,21 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
   }
 }
 
+function validateBaseUrlForPendingMigrations(fromVersion: number): void {
+  const isTestEnv = process.env.NODE_ENV === "test";
+  const requiresCanonicalRepostMigration = fromVersion < CANONICAL_REPOST_MIGRATION_VERSION;
+  if (isTestEnv || !requiresCanonicalRepostMigration) return;
+
+  try {
+    validateBaseUrlConfig();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `BASE_URL preflight check failed before database migrations: ${detail}. Set BASE_URL before starting the server so canonical federation URLs are migrated correctly.`
+    );
+  }
+}
+
 export function initDatabase(path: string): DB {
   const db = new Database(path);
   try {
@@ -559,6 +609,7 @@ export function initDatabase(path: string): DB {
 
     if (currentVersion === 0) {
       if (!hasUserTables(db)) {
+        validateBaseUrlForPendingMigrations(currentVersion);
         applyPendingMigrations(db, 0);
       } else {
         throw new Error(
@@ -566,6 +617,7 @@ export function initDatabase(path: string): DB {
         );
       }
     } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+      validateBaseUrlForPendingMigrations(currentVersion);
       applyPendingMigrations(db, currentVersion);
     }
     validateSchema(db);

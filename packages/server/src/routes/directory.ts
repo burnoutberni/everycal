@@ -7,11 +7,9 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
+import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
+import { loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
-
-function getBaseUrl(): string {
-  return process.env.BASE_URL || "http://localhost:3000";
-}
 
 /** Convert bio to HTML if plain text (Mastodon expects HTML in note). */
 function bioToNote(bio: string | null): string {
@@ -39,13 +37,6 @@ export function directoryRoutes(db: DB): Hono {
     const order = c.req.query("order") || "active";
     const baseUrl = getBaseUrl();
 
-    const eventsCountSubquery = `(SELECT COUNT(*) FROM (
-      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-      UNION
-      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
-    ))`;
     const lastEventSubquery = `(SELECT MAX(e.updated_at) FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted'))`;
 
     const orderClause =
@@ -61,7 +52,6 @@ export function directoryRoutes(db: DB): Hono {
                 accounts.avatar_url, accounts.is_bot, accounts.created_at,
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                ${eventsCountSubquery} AS statuses_count,
                 ${lastEventSubquery} AS last_status_at
          FROM accounts
          WHERE accounts.discoverable = 1
@@ -70,10 +60,13 @@ export function directoryRoutes(db: DB): Hono {
       )
       .all(limit, offset) as Record<string, unknown>[];
 
+    const accountIds = rows.map((row) => row.id as string);
+    const eventsCountByAccountId = loadPublicEventsCountsByAccountId(db, accountIds);
+
     const accounts = rows.map((r) => {
       const username = r.username as string;
-      const actorUrl = `${baseUrl}/users/${username}`;
-      const profileUrl = `${baseUrl}/@${username}`;
+      const actorUrl = buildActorUrl(username, baseUrl);
+      const profileUrl = buildProfileUrl(username, baseUrl);
       const lastStatusAt = r.last_status_at as string | null;
       const dateStr = lastStatusAt ? lastStatusAt.slice(0, 10) : null;
 
@@ -93,7 +86,7 @@ export function directoryRoutes(db: DB): Hono {
         header_static: null,
         followers_count: (r.followers_count as number) ?? 0,
         following_count: (r.following_count as number) ?? 0,
-        statuses_count: (r.statuses_count as number) ?? 0,
+        statuses_count: eventsCountByAccountId.get(r.id as string) ?? 0,
         last_status_at: dateStr,
         discoverable: true,
         uri: actorUrl,

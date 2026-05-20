@@ -98,7 +98,8 @@
     "file_type_not_allowed": "Dateityp nicht erlaubt. Akzeptiert: {{accepted}}",
     "only_images_allowed": "Nur Bilddateien sind erlaubt.",
     "invalid_image": "Dateiinhalt scheint kein gültiges Bild zu sein.",
-    "invalid_path": "Ungültiger Pfad"
+    "invalid_path": "Ungültiger Pfad",
+    "base_url_required": "Server-Fehlkonfiguration: BASE_URL ist für Uploads erforderlich"
   },
   "activitypub": {
     "accept_activity_json": "Nicht akzeptabel. Anfrage mit Accept: application/activity+json",

@@ -10,6 +10,7 @@ import { getLocale, t } from "../lib/i18n.js";
 import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, extname, resolve, relative, isAbsolute, sep } from "node:path";
+import { buildUploadUrl, getBaseUrl } from "../lib/base-url.js";
 import { UPLOAD_DIR } from "../lib/paths.js";
 import { UPLOAD_MAX_SIZE_BYTES, UPLOAD_MAX_SIZE_MB } from "../lib/upload-limits.js";
 
@@ -27,6 +28,13 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
   const router = new Hono();
 
   router.post("/", requireAuth(), async (c) => {
+    let baseUrl: string;
+    try {
+      baseUrl = getBaseUrl("");
+    } catch {
+      return c.json({ error: t(getLocale(c), "uploads.base_url_required") }, 500);
+    }
+
     const body = await c.req.parseBody();
     const file = body["file"];
 
@@ -80,9 +88,7 @@ export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } 
     }
 
     writeFileSync(filepath, buffer);
-
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-    const url = `${baseUrl}/uploads/${filename}`;
+    const url = buildUploadUrl(filename, baseUrl);
 
     return c.json({ url, mediaType: allowedMime, filename }, 201);
   });

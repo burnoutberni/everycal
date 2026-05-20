@@ -119,11 +119,13 @@ pnpm --filter @everycal/web build
 
 ## Federation reliability and operations
 
-EveryCal's ActivityPub federation is designed to preserve transport safety and remote server intent before RSVP/attendance interactions are added.
+EveryCal's ActivityPub federation is complete for event create/update/delete, delivery reliability, replay protection, pull-sync parity, and RSVP/attendance interactions.
 
 - **Remote visibility preservation**: inbound inbox ingest and `/api/v1/federation/fetch-actor` pull imports derive remote event visibility from ActivityPub `to`/`cc` addressing. `public`, `unlisted`, `followers_only`, and `private` values are stored with remote events and returned in API serializers.
 - **Outbound addressing**: local event `visibility` is centrally mapped to ActivityPub audiences. `public` sends Public in `to` and followers in `cc`; `unlisted` sends followers in `to` and Public in `cc`; `followers_only` sends followers in `to`; `private` emits no broad ActivityPub audience.
-- **Pull-sync parity**: remote outbox imports process `Create`, `Announce`, `Update(Event)`, and `Delete`. Update and delete imports validate that the outbox actor owns the event before mutating local remote-event state.
+- **Pull-sync parity**: remote outbox imports process `Create`, `Announce`, `Update(Event)`, `Delete`, and RSVP interactions targeting local Event objects. Update and delete imports validate that the outbox actor owns the event before mutating local remote-event state; pulled RSVPs validate that the outbox actor is the RSVP actor before mutating attendance.
+- **RSVP federation mapping**: inbound `Accept` and `Join` map to `going`; `TentativeAccept` maps to `maybe`; `Reject` and `Leave` map to a non-attending tombstone (`not_going`) for remote attendees. Local outbound RSVP changes emit `Accept` for `going`, `TentativeAccept` for `maybe`, and `Leave` for clearing an RSVP. Unknown RSVP verbs are no-ops with bounded logs.
+- **RSVP ordering and replay behavior**: stable inbound activity ids use the shared `processed_inbox_activities` claim/processed flow, so duplicate deliveries do not reapply mutations. RSVP rows also store the last activity type, id, published timestamp, and precedence; newer `published`/`updated` timestamps win, and equal or missing timestamps converge by precedence (`Leave` > `Reject` > `TentativeAccept` > `Accept` > `Join`) so reordered delivery is deterministic. Activities without stable ids are processed conservatively through the same convergent upsert and logged without creating unbounded replay work.
 - **Durable outbound retries**: follower delivery is persisted to `outbound_activity_deliveries` and processed by a periodic worker. Successful deliveries are marked `delivered`; transient failures remain `pending` with exponential backoff; exhausted jobs become `failed` with `last_error` for inspection.
 - **Inbox idempotency**: successfully handled inbox activities with stable ActivityPub `id` values are recorded in `processed_inbox_activities`. Duplicate replays for the same actor and target inbox are skipped without reapplying mutations. Activities without stable ids are still processed and logged.
 
@@ -179,9 +181,30 @@ WHERE activity_id = 'https://remote.example/activity/id';
 
 If a remote retries the same signed activity, the row count for that `activity_id` should remain one per `(actor_uri, target_context)` and the affected event/follow state should not change after the first successful processing.
 
+
+**RSVP federation troubleshooting**
+
+```sql
+SELECT event_id, actor_uri, status, last_activity_type, last_activity_id,
+       last_activity_published_at, updated_at
+FROM remote_event_rsvps
+ORDER BY datetime(updated_at) DESC
+LIMIT 50;
+
+SELECT destination_inbox, sender_actor_uri, activity_json, state, last_error
+FROM outbound_activity_deliveries
+WHERE activity_json LIKE '%"type":"Accept"%'
+   OR activity_json LIKE '%"type":"TentativeAccept"%'
+   OR activity_json LIKE '%"type":"Leave"%'
+ORDER BY datetime(created_at) DESC
+LIMIT 50;
+```
+
+For inbound RSVP issues, verify the target object resolves to a local event (either a local `BASE_URL/events/:id` Event URL or a raw local event id fallback when the object id is not a parseable URL), the local event exists, the Event object's `attributedTo` (when supplied) matches the local event owner, and any object-level actor matches the activity actor. For outbound RSVP issues, verify the remote event owner resolves to an inbox and that the local account has a keypair; delivery then follows the normal outbound queue retry policy.
+
 **Migration rollout and rollback notes**
 
-- The migration sequence is mostly additive: it adds `remote_events.visibility`, `processed_inbox_activities`, and supporting indexes, and includes a data-preserving rebuild/normalization step for `outbound_activity_deliveries` (`CREATE ..._tmp` + `INSERT` + `DROP` + `RENAME`).
+- The migration sequence is additive for RSVP federation: it adds `remote_event_rsvps` plus lookup indexes for remote attendees of local events. Earlier federation hardening migrations added `remote_events.visibility`, `processed_inbox_activities`, and supporting indexes, and include a data-preserving rebuild/normalization step for `outbound_activity_deliveries` (`CREATE ..._tmp` + `INSERT` + `DROP` + `RENAME`).
 - Legacy remote events are safely backfilled to `public` because older EveryCal releases treated remote events as public.
-- Roll forward before enabling new RSVP federation interactions so update/delete pull parity and replay protection are already active.
-- Rollback to an older binary should leave the resulting tables/columns in place. Avoid destructive schema rollback unless you have exported or intentionally discarded queued outbound deliveries and processed-inbox audit rows, and take a DB backup first if you may need to restore pre-migration state.
+- Roll forward before enabling RSVP federation interactions so update/delete pull parity, replay protection, and the `remote_event_rsvps` table are all active.
+- Rollback to an older binary should leave the resulting tables/columns in place; older binaries will ignore `remote_event_rsvps` but should not drop it. Avoid destructive schema rollback unless you have exported or intentionally discarded queued outbound deliveries and processed-inbox audit rows, and take a DB backup first if you may need to restore pre-migration state.
