@@ -83,10 +83,21 @@ export function normalizeApPublishedWithFallback(published: unknown, updated: un
 export function localEventIdFromActivityPubUri(uri: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) return null;
+  let normalizedInput = trimmed;
+  if (trimmed.includes("%")) {
+    try {
+      const decoded = decodeURIComponent(trimmed).trim();
+      if (/^https?:\/\//i.test(decoded)) {
+        normalizedInput = decoded;
+      }
+    } catch {
+      // keep raw input; later URL handling decides validity
+    }
+  }
   const schemeLikePattern = /^[a-z][a-z0-9+.-]*:/i;
   try {
     const baseUrl = getBaseUrl();
-    const parsed = new URL(trimmed);
+    const parsed = new URL(normalizedInput);
     const base = new URL(baseUrl);
     if (parsed.origin !== base.origin) return null;
     const basePath = base.pathname.replace(/\/+$/, "");
@@ -101,7 +112,7 @@ export function localEventIdFromActivityPubUri(uri: string): string | null {
       return null;
     }
   } catch {
-    return schemeLikePattern.test(trimmed) ? null : trimmed;
+    return schemeLikePattern.test(normalizedInput) ? null : normalizedInput;
   }
 }
 

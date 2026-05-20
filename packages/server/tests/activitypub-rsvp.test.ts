@@ -40,6 +40,11 @@ describe("localEventIdFromActivityPubUri", () => {
     expect(localEventIdFromActivityPubUri("http://localhost/events/hello%20world")).toBe("hello world");
   });
 
+  it("parses URL-encoded local event URIs", () => {
+    expect(localEventIdFromActivityPubUri("http%3A%2F%2Flocalhost%2Fevents%2Fevent-1")).toBe("event-1");
+    expect(localEventIdFromActivityPubUri("https%3A%2F%2Fremote.example%2Fevents%2Fevent-1")).toBeNull();
+  });
+
   it("returns null for malformed percent-encoding in local event URIs", () => {
     expect(localEventIdFromActivityPubUri("http://localhost/events/%E0%A4")).toBeNull();
     expect(localEventIdFromActivityPubUri("http://localhost/events/%")).toBeNull();
