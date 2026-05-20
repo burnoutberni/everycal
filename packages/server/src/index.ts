@@ -31,6 +31,7 @@ import { uploadRoutes } from "./routes/uploads.js";
 import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
 import { activityPubRoutes, activityPubEventRoutes, sharedInboxRoute } from "./routes/activitypub.js";
 import { federationRoutes } from "./routes/federation-api.js";
+import { adminRoutes } from "./routes/admin.js";
 import { directoryRoutes } from "./routes/directory.js";
 import { locationRoutes } from "./routes/locations.js";
 import { imageRoutes } from "./routes/images.js";
@@ -169,6 +170,7 @@ app.route("/api/v1/uploads", uploadRoutes());
 app.route("/api/v1/locations", locationRoutes(db));
 app.route("/api/v1/images", imageRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
+app.route("/api/v1/admin", adminRoutes(db));
 
 // ActivityPub / WebFinger / NodeInfo
 app.route("/.well-known", wellKnownRoutes(db));

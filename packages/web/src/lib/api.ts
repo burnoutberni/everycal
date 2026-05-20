@@ -179,6 +179,7 @@ export interface User {
   avatarUrl?: string | null;
   website?: string | null;
   isBot?: boolean;
+  isAdmin?: boolean;
   discoverable?: boolean;
   city?: string | null;
   cityLat?: number | null;

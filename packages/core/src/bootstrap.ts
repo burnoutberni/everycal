@@ -7,6 +7,7 @@ export type BootstrapViewer = {
   avatarUrl?: string | null;
   themePreference?: "system" | "light" | "dark";
   notificationPrefs?: { onboardingCompleted?: boolean };
+  isAdmin?: boolean;
 };
 
 export type AppBootstrap = {
@@ -61,6 +62,7 @@ function isBootstrapViewer(value: unknown): value is BootstrapViewer {
   ) {
     return false;
   }
+  if (viewer.isAdmin !== undefined && typeof viewer.isAdmin !== "boolean") return false;
   return true;
 }
 
@@ -90,5 +92,6 @@ export function bootstrapViewerToUser(viewer: BootstrapViewer | null | undefined
       eventCancelledEnabled: true,
       onboardingCompleted: viewer.notificationPrefs?.onboardingCompleted ?? false,
     },
+    ...(viewer.isAdmin !== undefined ? { isAdmin: viewer.isAdmin } : {}),
   };
 }

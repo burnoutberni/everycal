@@ -703,6 +703,31 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri)");
     },
   },
+  {
+    version: 12,
+    name: "admin_surface_v1",
+    up: (db) => {
+            const accountColumns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>;
+      if (!accountColumns.some((column) => column.name === "is_admin")) db.exec("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+      if (!accountColumns.some((column) => column.name === "is_disabled")) db.exec("ALTER TABLE accounts ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0");
+      const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+      if (!eventColumns.some((column) => column.name === "moderation_state")) db.exec("ALTER TABLE events ADD COLUMN moderation_state TEXT NOT NULL DEFAULT 'visible'");
+      if (!eventColumns.some((column) => column.name === "moderation_reason")) db.exec("ALTER TABLE events ADD COLUMN moderation_reason TEXT");
+      if (!eventColumns.some((column) => column.name === "moderated_at")) db.exec("ALTER TABLE events ADD COLUMN moderated_at TEXT");
+      const remoteEventColumns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+      if (!remoteEventColumns.some((column) => column.name === "moderation_state")) db.exec("ALTER TABLE remote_events ADD COLUMN moderation_state TEXT NOT NULL DEFAULT 'visible'");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_audit_log (id TEXT PRIMARY KEY, admin_account_id TEXT NOT NULL, action_type TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS federation_blocks (id TEXT PRIMARY KEY, block_type TEXT NOT NULL CHECK(block_type IN ('actor','domain')), actor_uri TEXT, domain TEXT, created_by_account_id TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS federation_tombstones (id TEXT PRIMARY KEY, object_type TEXT NOT NULL, object_id TEXT NOT NULL, reason TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT)");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_by_account_id TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_job_runs (id TEXT PRIMARY KEY, job_type TEXT NOT NULL, status TEXT NOT NULL, payload_json TEXT, result_json TEXT, created_by_account_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), started_at TEXT, finished_at TEXT)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_events_moderation_state ON events(moderation_state)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_moderation_state ON remote_events(moderation_state)");
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;

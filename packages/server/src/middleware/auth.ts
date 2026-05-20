@@ -18,6 +18,7 @@ export interface AuthUser {
   id: string;
   username: string;
   displayName: string | null;
+  isAdmin?: boolean;
   preferredLanguage?: string;
 }
 
@@ -75,6 +76,16 @@ export function requireAuth() {
   });
 }
 
+export function requireAdmin() {
+  return createMiddleware(async (c, next) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: t(getLocale(c), "common.authentication_required") }, 401);
+    if (!user.isAdmin) return c.json({ error: "forbidden" }, 403);
+    await next();
+    return undefined;
+  });
+}
+
 // ---- session helpers ----
 
 export function createSession(db: DB, accountId: string): { token: string; expiresAt: string } {
@@ -94,22 +105,24 @@ function resolveSession(db: DB, token: string): AuthUser | null {
   const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(
-      `SELECT a.id, a.username, a.display_name, a.preferred_language
+      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin
        FROM sessions s
        JOIN accounts a ON a.id = s.account_id
-       WHERE s.token = ? AND s.expires_at > datetime('now')`
+       WHERE s.token = ? AND s.expires_at > datetime('now') AND a.is_disabled = 0`
     )
     .get(tokenHash) as {
       id: string;
       username: string;
       display_name: string | null;
       preferred_language: string | null;
+      is_admin: number;
     } | undefined;
   if (!row) return null;
   return {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
+    isAdmin: !!row.is_admin,
     preferredLanguage: row.preferred_language || undefined,
   };
 }
@@ -147,26 +160,27 @@ function resolveApiKey(db: DB, key: string): AuthUser | null {
     username: string;
     display_name: string | null;
     preferred_language: string | null;
+    is_admin: number;
   }[];
 
   if (prefix) {
     // Fast path: lookup by prefix (typically 0-1 results)
     rows = db
       .prepare(
-        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language
+        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language, a.is_admin
          FROM api_keys k
          JOIN accounts a ON a.id = k.account_id
-         WHERE k.key_prefix = ?`
+         WHERE k.key_prefix = ? AND a.is_disabled = 0`
       )
       .all(prefix) as typeof rows;
   } else {
     // Fallback for legacy keys without prefix
     rows = db
       .prepare(
-        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language
+        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language, a.is_admin
          FROM api_keys k
          JOIN accounts a ON a.id = k.account_id
-         WHERE k.key_prefix IS NULL`
+         WHERE k.key_prefix IS NULL AND a.is_disabled = 0`
       )
       .all() as typeof rows;
   }
@@ -179,6 +193,7 @@ function resolveApiKey(db: DB, key: string): AuthUser | null {
         id: row.id,
         username: row.username,
         displayName: row.display_name,
+        isAdmin: !!row.is_admin,
         preferredLanguage: row.preferred_language || undefined,
       };
     }
