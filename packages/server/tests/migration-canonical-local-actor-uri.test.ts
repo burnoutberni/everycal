@@ -130,6 +130,42 @@ describe("migration universal_reposts_canonicalization", () => {
     db.close();
   });
 
+  it("skips legacy repost rows with empty canonical event_uri", () => {
+    process.env.BASE_URL = "https://everycal.example";
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 9);
+    db.exec("DROP TABLE reposts");
+    db.exec(`CREATE TABLE reposts (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+      event_uri TEXT NOT NULL,
+      source_actor_uri TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, event_uri)
+    )`);
+
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?)").run("reader", "reader", "owner", "alice");
+    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
+
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("reader", null, "", null, "2026-01-01T00:00:00Z");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("reader", "event-1", "legacy-event-id", null, "2026-01-02T00:00:00Z");
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 10);
+    if (!migration) throw new Error("migration 10 not found");
+    migration.up(db);
+
+    const rows = db.prepare("SELECT event_id, event_uri FROM reposts WHERE account_id = ? ORDER BY created_at ASC")
+      .all("reader") as Array<{ event_id: string | null; event_uri: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event_id).toBe("event-1");
+    expect(rows[0].event_uri).toBe("https://everycal.example/events/event-1");
+
+    db.close();
+  });
+
   it("throws when BASE_URL is missing outside test env", () => {
     delete process.env.BASE_URL;
     process.env.NODE_ENV = "production";

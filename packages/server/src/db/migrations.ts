@@ -632,17 +632,18 @@ export const MIGRATIONS: Migration[] = [
         SELECT r.account_id,
                r.event_id,
                CASE
-                 WHEN r.event_id IS NOT NULL THEN '${baseUrl}/events/' || r.event_id
-                 ELSE COALESCE(${repostEventUriExpr}, '')
-               END AS event_uri,
-                CASE
-                  WHEN e_owner.username IS NOT NULL THEN '${baseUrl}/users/' || e_owner.username
-                  ELSE ${repostSourceActorUriExpr}
-                END AS source_actor_uri,
-               r.created_at
+                  WHEN r.event_id IS NOT NULL THEN '${baseUrl}/events/' || r.event_id
+                  ELSE NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '')
+                END AS event_uri,
+                 CASE
+                   WHEN e_owner.username IS NOT NULL THEN '${baseUrl}/users/' || e_owner.username
+                   ELSE ${repostSourceActorUriExpr}
+                 END AS source_actor_uri,
+                r.created_at
         FROM reposts r
         LEFT JOIN events e ON e.id = r.event_id
         LEFT JOIN accounts e_owner ON e_owner.id = e.account_id
+        WHERE r.event_id IS NOT NULL OR NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '') IS NOT NULL
         ORDER BY datetime(r.created_at) ASC, r.rowid ASC`);
       db.exec("DROP TABLE reposts");
       db.exec("ALTER TABLE reposts_tmp RENAME TO reposts");
