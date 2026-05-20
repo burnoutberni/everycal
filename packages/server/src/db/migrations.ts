@@ -1,5 +1,5 @@
 import type { DB } from "../db.js";
-import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
@@ -721,7 +721,7 @@ export const MIGRATIONS: Migration[] = [
       const updateRow = db.prepare("UPDATE reposts SET event_uri = ? WHERE account_id = ? AND event_uri = ?");
       const canonicalize = db.transaction(() => {
         for (const row of rows) {
-          const canonicalUri = `${baseUrl}/events/${row.event_id}`;
+          const canonicalUri = buildUrl(baseUrl, "events", row.event_id);
           if (row.event_uri !== canonicalUri) {
             updateRow.run(canonicalUri, row.account_id, row.event_uri);
           }

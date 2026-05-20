@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildActorUrl, buildEventUrl, buildProfileUrl, buildUploadUrl, getBaseUrl, getBaseUrlFromRequest, validateBaseUrlConfig } from "../src/lib/base-url.js";
+import { buildActorUrl, buildEventUrl, buildProfileUrl, buildUploadUrl, buildUrl, getBaseUrl, getBaseUrlFromRequest, validateBaseUrlConfig } from "../src/lib/base-url.js";
 
 const originalBaseUrl = process.env.BASE_URL;
 
@@ -44,11 +44,23 @@ describe("getBaseUrl", () => {
 });
 
 describe("base URL builders", () => {
+  it("builds URLs with joined and encoded segments", () => {
+    expect(buildUrl("https://events.example.com/", "events", "a b")).toBe("https://events.example.com/events/a%20b");
+    expect(buildUrl("https://events.example.com", "@alice@example.net", "launch/party")).toBe("https://events.example.com/@alice@example.net/launch%2Fparty");
+  });
+
   it("builds actor, profile, and upload URLs from base URL", () => {
     const baseUrl = "https://events.example.com";
     expect(buildActorUrl("alice", baseUrl)).toBe("https://events.example.com/users/alice");
     expect(buildProfileUrl("alice", baseUrl)).toBe("https://events.example.com/@alice");
     expect(buildUploadUrl("image.webp", baseUrl)).toBe("https://events.example.com/uploads/image.webp");
+  });
+
+  it("encodes unsafe path characters while preserving @", () => {
+    const baseUrl = "https://events.example.com";
+    expect(buildActorUrl("alice bob", baseUrl)).toBe("https://events.example.com/users/alice%20bob");
+    expect(buildProfileUrl("alice@example.net", baseUrl)).toBe("https://events.example.com/@alice@example.net");
+    expect(buildEventUrl("alice@example.net", "launch party", "example.net", baseUrl)).toBe("https://events.example.com/@alice@example.net/launch%20party");
   });
 
   it("builds event URL for local and remote-style usernames", () => {

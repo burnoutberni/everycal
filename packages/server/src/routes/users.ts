@@ -29,7 +29,7 @@ import {
 } from "../lib/actor-selection.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
-import { buildActorUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery } from "../lib/activity-count.js";
 
 export function userRoutes(db: DB): Hono {
@@ -468,7 +468,7 @@ export function userRoutes(db: DB): Hono {
       const { localPart, domain } = remoteHandle;
       let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
       if (!remote) {
-        const actorUri = `https://${domain}/users/${localPart}`;
+        const actorUri = buildUrl(`https://${domain}`, "users", localPart);
         const resolved = await resolveRemoteActor(db, actorUri);
         if (resolved?.uri) remote = { uri: resolved.uri };
       }
@@ -608,7 +608,7 @@ export function userRoutes(db: DB): Hono {
           .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
         if (!actor) {
-          const actorUri = `https://${domain}/users/${localPart}`;
+          const actorUri = buildUrl(`https://${domain}`, "users", localPart);
           const resolved = await resolveRemoteActor(db, actorUri);
           actor = resolved ? { uri: resolved.uri, followers_url: resolved.followers_url } : undefined;
         }
@@ -669,7 +669,7 @@ export function userRoutes(db: DB): Hono {
           .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
         if (!actor) {
-          const actorUri = `https://${domain}/users/${localPart}`;
+          const actorUri = buildUrl(`https://${domain}`, "users", localPart);
           const resolved = await resolveRemoteActor(db, actorUri);
           actor = resolved ? { uri: resolved.uri, following_url: resolved.following_url } : undefined;
         }

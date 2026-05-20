@@ -18,6 +18,10 @@ function normalizeAbsoluteUrl(value: string): string {
   return trimTrailingSlashes(parsed.toString());
 }
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(/%40/g, "@");
+}
+
 export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
   const envBaseUrl = process.env.BASE_URL;
   const hasEnvBaseUrl = !!envBaseUrl && envBaseUrl.trim().length > 0;
@@ -27,6 +31,17 @@ export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
   }
 
   return normalizeAbsoluteUrl(fallback);
+}
+
+export function buildUrl(baseUrl: string, ...segments: Array<string | number>): string {
+  const normalizedBaseUrl = trimTrailingSlashes(baseUrl);
+  const normalizedSegments = segments
+    .map((segment) => String(segment))
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodePathSegment(segment));
+
+  if (normalizedSegments.length === 0) return normalizedBaseUrl;
+  return `${normalizedBaseUrl}/${normalizedSegments.join("/")}`;
 }
 
 export function validateBaseUrlConfig(): void {
@@ -54,19 +69,19 @@ export function getBaseUrlFromRequest(requestUrl: string, fallback?: string): st
 }
 
 export function buildActorUrl(username: string, baseUrl = getBaseUrl()): string {
-  return `${baseUrl}/users/${username}`;
+  return buildUrl(baseUrl, "users", username);
 }
 
 export function buildProfileUrl(username: string, baseUrl = getBaseUrl()): string {
-  return `${baseUrl}/@${username}`;
+  return buildUrl(baseUrl, `@${username}`);
 }
 
 export function buildEventUrl(username: string, slug: string, domain?: string | null, baseUrl = getBaseUrl()): string {
   const localUsername = domain && username.includes("@") ? username.split("@")[0] : username;
   const domainPart = domain ? `@${domain}` : "";
-  return `${baseUrl}/@${localUsername}${domainPart}/${slug}`;
+  return buildUrl(baseUrl, `@${localUsername}${domainPart}`, slug);
 }
 
 export function buildUploadUrl(filename: string, baseUrl = getBaseUrl()): string {
-  return `${baseUrl}/uploads/${filename}`;
+  return buildUrl(baseUrl, "uploads", filename);
 }

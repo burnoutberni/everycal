@@ -13,7 +13,7 @@ import { uniqueLocalEventSlug } from "../../lib/slugs.js";
 import { isValidIanaTimezone } from "../../lib/timezone.js";
 import { AP_CONTEXT, EVERYCAL_CONTEXT, buildApEventObject } from "../../lib/activitypub-event.js";
 import { computeMaterialEventChanges, deriveCanonicalTemporalFields, deriveStoredDatePart, normalizePartialUpdateTemporalFields, normalizeEventWriteInput, sanitizeEventWriteFields } from "../../lib/event-write.js";
-import { buildActorUrl, buildEventUrl, getBaseUrl } from "../../lib/base-url.js";
+import { buildActorUrl, buildEventUrl, buildUrl, getBaseUrl } from "../../lib/base-url.js";
 import type { EventRouteContext } from "./context.js";
 
 export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRouteContext): void {
@@ -159,13 +159,13 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
       const addressing = visibilityToActivityPubAddressing(visibility, actorUrl);
       const createActivity = {
         "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
-        id: `${baseUrl}/events/${id}/activity`,
+        id: buildUrl(baseUrl, "events", id, "activity"),
         type: "Create",
         actor: actorUrl,
         published: publishedAt,
         ...addressing,
         object: buildApEventObject({
-          id: `${baseUrl}/events/${id}`,
+          id: buildUrl(baseUrl, "events", id),
           name: body.title,
           attributedTo: actorUrl,
           ...addressing,
@@ -407,10 +407,10 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
         const actorUrl = buildActorUrl(actorAccount.username, baseUrl);
         const deleteActivity = {
           "@context": "https://www.w3.org/ns/activitystreams",
-          id: `${baseUrl}/events/${id}/delete`,
+          id: buildUrl(baseUrl, "events", id, "delete"),
           type: "Delete",
           actor: actorUrl,
-          object: `${baseUrl}/events/${id}`,
+          object: buildUrl(baseUrl, "events", id),
           ...visibilityToActivityPubAddressing(normalizeEventVisibility(existing.visibility as string), actorUrl),
         };
         deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});
@@ -431,13 +431,13 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
           const addressing = visibilityToActivityPubAddressing(nextVisibility, actorUrl);
           const updateActivity = {
             "@context": [AP_CONTEXT, EVERYCAL_CONTEXT],
-            id: `${baseUrl}/events/${id}/update`,
+            id: buildUrl(baseUrl, "events", id, "update"),
             type: "Update",
             actor: actorUrl,
             published: updatedAt,
             ...addressing,
             object: buildApEventObject({
-              id: `${baseUrl}/events/${id}`,
+              id: buildUrl(baseUrl, "events", id),
               name: updated.title as string,
               attributedTo: actorUrl,
               ...addressing,
@@ -523,10 +523,10 @@ export function registerEventWriteRoutes(router: Hono, db: DB, context: EventRou
     const actorUrl = buildActorUrl(actorAccount.username, baseUrl);
     const deleteActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${baseUrl}/events/${id}/delete`,
+      id: buildUrl(baseUrl, "events", id, "delete"),
       type: "Delete",
       actor: actorUrl,
-      object: `${baseUrl}/events/${id}`,
+      object: buildUrl(baseUrl, "events", id),
       ...visibilityToActivityPubAddressing(normalizeEventVisibility(existing.visibility as string), actorUrl),
     };
     deliverToFollowers(db, existing.account_id, deleteActivity).catch(() => {});

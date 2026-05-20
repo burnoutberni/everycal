@@ -8,7 +8,7 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { getLocale, t } from "../lib/i18n.js";
 
 export function wellKnownRoutes(db: DB): Hono {
@@ -61,7 +61,7 @@ export function wellKnownRoutes(db: DB): Hono {
       links: [
         {
           rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
-          href: `${baseUrl}/nodeinfo/2.0`,
+          href: buildUrl(baseUrl, "nodeinfo", "2.0"),
         },
       ],
     });

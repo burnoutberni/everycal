@@ -42,7 +42,7 @@ import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
-import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
+import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
@@ -116,10 +116,10 @@ export function activityPubRoutes(db: DB): Hono {
       summary: (account.bio as string) || "",
       url: buildProfileUrl(username, baseUrl),
       ...(account.created_at ? { published: toISO8601(account.created_at as string) } : {}),
-      inbox: `${actorUrl}/inbox`,
-      outbox: `${actorUrl}/outbox`,
-      followers: `${actorUrl}/followers`,
-      following: `${actorUrl}/following`,
+      inbox: buildUrl(actorUrl, "inbox"),
+      outbox: buildUrl(actorUrl, "outbox"),
+      followers: buildUrl(actorUrl, "followers"),
+      following: buildUrl(actorUrl, "following"),
       manuallyApprovesFollowers: false,
       discoverable: true,
       publicKey: {
@@ -135,7 +135,7 @@ export function activityPubRoutes(db: DB): Hono {
       } : {}),
       ...(attachment.length > 0 ? { attachment } : {}),
       endpoints: {
-        sharedInbox: `${baseUrl}/inbox`,
+        sharedInbox: buildUrl(baseUrl, "inbox"),
       },
     };
 
@@ -202,10 +202,10 @@ export function activityPubRoutes(db: DB): Hono {
       return c.json(
         {
           "@context": "https://www.w3.org/ns/activitystreams",
-          id: `${actorUrl}/outbox`,
+          id: buildUrl(actorUrl, "outbox"),
           type: "OrderedCollection",
           totalItems,
-          first: `${actorUrl}/outbox?page=1`,
+          first: `${buildUrl(actorUrl, "outbox")}?page=1`,
         },
         200,
         { "Content-Type": "application/activity+json; charset=utf-8" }
@@ -263,9 +263,9 @@ export function activityPubRoutes(db: DB): Hono {
       )
       .all(account.id, account.id) as Record<string, unknown>[];
 
-    const eventUrl = (id: string) => `${baseUrl}/events/${id}`;
+    const eventUrl = (id: string) => buildUrl(baseUrl, "events", id);
     const createItems = ownedRows.map((row) => ({
-      id: `${baseUrl}/events/${row.id}/activity`,
+      id: buildUrl(baseUrl, "events", row.id as string, "activity"),
       type: "Create",
       actor: actorUrl,
       published: toISO8601(row.created_at as string) ?? row.created_at,
@@ -275,7 +275,7 @@ export function activityPubRoutes(db: DB): Hono {
     }));
 
     const repostAnnounceItems = repostRows.map((row) => ({
-      id: `${actorUrl}/announce/${row.id}`,
+      id: buildUrl(actorUrl, "announce", row.id as string),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -284,7 +284,7 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
-      id: `${actorUrl}/announce/${row.id}`,
+      id: buildUrl(actorUrl, "announce", row.id as string),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -293,7 +293,7 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const repostRemoteAnnounceItems = repostRemoteRows.map((row) => ({
-      id: `${actorUrl}/announce/${encodeURIComponent(row.uri as string)}`,
+      id: buildUrl(actorUrl, "announce", row.uri as string),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -302,7 +302,7 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostRemoteAnnounceItems = autoRepostRemoteRows.map((row) => ({
-      id: `${actorUrl}/announce/${encodeURIComponent(row.uri as string)}`,
+      id: buildUrl(actorUrl, "announce", row.uri as string),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -326,14 +326,14 @@ export function activityPubRoutes(db: DB): Hono {
 
     const result: Record<string, unknown> = {
       "@context": "https://www.w3.org/ns/activitystreams",
-      id: `${actorUrl}/outbox?page=${pageNum}`,
+      id: `${buildUrl(actorUrl, "outbox")}?page=${pageNum}`,
       type: "OrderedCollectionPage",
-      partOf: `${actorUrl}/outbox`,
+      partOf: buildUrl(actorUrl, "outbox"),
       orderedItems,
     };
 
     if (pageItems.length === limit) {
-      result.next = `${actorUrl}/outbox?page=${pageNum + 1}`;
+      result.next = `${buildUrl(actorUrl, "outbox")}?page=${pageNum + 1}`;
     }
 
     return c.json(result, 200, {
@@ -368,7 +368,7 @@ export function activityPubRoutes(db: DB): Hono {
     return c.json(
       {
         "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${actorUrl}/followers`,
+        id: buildUrl(actorUrl, "followers"),
         type: "OrderedCollection",
         totalItems: remoteCount + localCount,
       },
@@ -397,7 +397,7 @@ export function activityPubRoutes(db: DB): Hono {
     return c.json(
       {
         "@context": "https://www.w3.org/ns/activitystreams",
-        id: `${actorUrl}/following`,
+        id: buildUrl(actorUrl, "following"),
         type: "OrderedCollection",
         totalItems: localCount,
       },
@@ -998,7 +998,7 @@ function rowToAPEvent(
   actorUrl: string,
   baseUrl: string
 ): Record<string, unknown> {
-  const eventUrl = `${baseUrl}/events/${row.id}`;
+  const eventUrl = buildUrl(baseUrl, "events", row.id as string);
   const tags = row.tags ? (row.tags as string).split(",") : [];
   const isAllDay = !!row.all_day;
   const { to, cc } = visibilityToActivityPubAddressing(

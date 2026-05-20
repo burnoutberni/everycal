@@ -9,11 +9,11 @@ import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
-import { buildActorUrl, getBaseUrl } from "../../lib/base-url.js";
+import { buildActorUrl, buildUrl, getBaseUrl } from "../../lib/base-url.js";
 import { resolveEventUri } from "./shared.js";
 
 function buildLocalEventUri(eventId: string): string {
-  return `${getBaseUrl()}/events/${eventId}`;
+  return buildUrl(getBaseUrl(), "events", eventId);
 }
 
 function deleteRepostsForEvent(db: DB, accountId: string, eventUri: string): number {
