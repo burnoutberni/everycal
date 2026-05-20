@@ -3,7 +3,6 @@
  */
 
 import { Hono } from "hono";
-import { domainToASCII } from "node:url";
 import type { DB } from "../db.js";
 import {
   buildDateRangeFilter,
@@ -32,6 +31,7 @@ import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
+import { parseRemoteHandle } from "../lib/remote-handle.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -885,28 +885,4 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function parseRemoteHandle(value: string): { localPart: string; domain: string } | null {
-  const handle = value.trim();
-  if (!handle || /\s/.test(handle)) return null;
-  if (handle.includes("://") || handle.includes("/") || handle.includes("?") || handle.includes("#") || handle.includes(":")) {
-    return null;
-  }
-
-  const firstAt = handle.indexOf("@");
-  const lastAt = handle.lastIndexOf("@");
-  if (firstAt <= 0 || firstAt !== lastAt || firstAt >= handle.length - 1) return null;
-
-  const localPart = handle.slice(0, firstAt);
-  const rawDomain = handle.slice(firstAt + 1);
-  if (!/^[A-Za-z0-9._-]+$/.test(localPart)) return null;
-
-  const domain = domainToASCII(rawDomain);
-  if (!domain) return null;
-
-  const domainPattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])$/;
-  if (!domainPattern.test(domain)) return null;
-
-  return { localPart, domain };
 }

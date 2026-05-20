@@ -3,6 +3,7 @@ import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
 import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federation.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "./event-serializers.js";
+import { parseRemoteHandle } from "./remote-handle.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -99,10 +100,9 @@ function getCurrentUserPayload(db: DB, currentUser: AuthUser | null): Record<str
 }
 
 function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | null): Record<string, unknown> | null {
-  const atIdx = username.indexOf("@");
-  if (atIdx > 0 && atIdx < username.length - 1) {
-    const localPart = username.slice(0, atIdx);
-    const domain = username.slice(atIdx + 1);
+  const remoteHandle = parseRemoteHandle(username);
+  if (remoteHandle) {
+    const { localPart, domain } = remoteHandle;
     const remoteRow = db
       .prepare(
         `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
@@ -200,10 +200,9 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
 }
 
 function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null, limit: number): Record<string, unknown>[] {
-  const atIdx = username.indexOf("@");
-  if (atIdx > 0 && atIdx < username.length - 1) {
-    const localPart = username.slice(0, atIdx);
-    const domain = username.slice(atIdx + 1);
+  const remoteHandle = parseRemoteHandle(username);
+  if (remoteHandle) {
+    const { localPart, domain } = remoteHandle;
     const remoteActor = db
       .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
       .get(localPart, domain) as { uri: string } | undefined;
@@ -309,9 +308,9 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
 }
 
 function getEventByProfileSlug(db: DB, username: string, slug: string, currentUser: AuthUser | null): Record<string, unknown> | null {
-  if (username.includes("@")) {
-    const [preferredUsername, domain] = username.split("@");
-    if (!preferredUsername || !domain) return null;
+  const remoteHandle = parseRemoteHandle(username);
+  if (remoteHandle) {
+    const { localPart, domain } = remoteHandle;
     const remoteRow = db
       .prepare(
         `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
@@ -320,7 +319,7 @@ function getEventByProfileSlug(db: DB, username: string, slug: string, currentUs
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`
       )
-      .get(preferredUsername, domain, slug) as Record<string, unknown> | undefined;
+      .get(localPart, domain, slug) as Record<string, unknown> | undefined;
     if (!remoteRow) return null;
     const event = formatRemoteEvent(remoteRow);
     if (currentUser) {

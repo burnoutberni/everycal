@@ -148,6 +148,19 @@ describe("social actions as identity", () => {
     }
   });
 
+  it("accepts remote handles with explicit federation ports", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://remote.example:8443/users/alice", "alice", "https://remote.example:8443/inbox", "remote.example:8443");
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/users/alice@remote.example:8443");
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { username?: string; source?: string };
+    expect(body.username).toBe("alice@remote.example:8443");
+    expect(body.source).toBe("remote");
+  });
+
   it("replaces repost actors with desired chips", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"

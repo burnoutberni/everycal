@@ -10,6 +10,7 @@ import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
 import { getBaseUrl } from "../../lib/base-url.js";
+import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteTagFilter, buildRemoteVisibilityFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
 
@@ -427,12 +428,12 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const currentUser = c.get("user");
     const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
 
-    if (username.includes("@")) {
-      const [preferredUsername, domain] = username.split("@");
-      if (!preferredUsername || !domain) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
       const remoteRow = db
         .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteVisibility.sql}`)
-        .get(preferredUsername, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+        .get(localPart, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
       if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const event = formatRemoteEvent(remoteRow);
       if (currentUser) attachSingleEventContext(event, remoteRow.uri as string, currentUser.id);
