@@ -71,14 +71,14 @@ describe("getBaseUrlFromRequest", () => {
 });
 
 describe("validateBaseUrlConfig", () => {
-  it("does nothing when BASE_URL is unset", () => {
+  it("throws when BASE_URL is unset", () => {
     delete process.env.BASE_URL;
-    expect(() => validateBaseUrlConfig()).not.toThrow();
+    expect(() => validateBaseUrlConfig()).toThrow(/BASE_URL must be configured/);
   });
 
-  it("does nothing when BASE_URL is blank", () => {
+  it("throws when BASE_URL is blank", () => {
     process.env.BASE_URL = "   ";
-    expect(() => validateBaseUrlConfig()).not.toThrow();
+    expect(() => validateBaseUrlConfig()).toThrow(/BASE_URL must be configured/);
   });
 
   it("throws a clear startup error when BASE_URL is invalid", () => {

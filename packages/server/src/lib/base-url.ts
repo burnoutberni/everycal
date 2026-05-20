@@ -31,7 +31,9 @@ export function getBaseUrl(fallback = DEFAULT_BASE_URL): string {
 
 export function validateBaseUrlConfig(): void {
   const envBaseUrl = process.env.BASE_URL;
-  if (!envBaseUrl || envBaseUrl.trim().length === 0) return;
+  if (!envBaseUrl || envBaseUrl.trim().length === 0) {
+    throw new Error("BASE_URL must be configured before starting the server");
+  }
   try {
     normalizeAbsoluteUrl(envBaseUrl);
   } catch (error) {
