@@ -15,25 +15,25 @@
   "dependencies": {
     "@everycal/core": "workspace:*",
     "@everycal/og": "workspace:*",
-    "@hono/node-server": "^1.19.14",
+    "@hono/node-server": "^2.0.3",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^12.10.0",
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
-    "hono": "^4.12.14",
-    "nanoid": "^5.1.9",
-    "nodemailer": "^8.0.5",
-    "sanitize-html": "^2.17.3",
+    "hono": "^4.12.21",
+    "nanoid": "^5.1.11",
+    "nodemailer": "^8.0.7",
+    "sanitize-html": "^2.17.4",
     "sharp": "^0.34.5",
-    "vike": "^0.4.258"
+    "vike": "^0.4.259"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/nodemailer": "^8.0.0",
     "@types/sanitize-html": "^2.16.1",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.7"
   }
 }
