@@ -628,15 +628,15 @@ export const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (account_id, event_uri)
       )`);
-      db.exec(`INSERT OR IGNORE INTO reposts_tmp (account_id, event_id, event_uri, source_actor_uri, created_at)
+      db.prepare(`INSERT OR IGNORE INTO reposts_tmp (account_id, event_id, event_uri, source_actor_uri, created_at)
         SELECT r.account_id,
                r.event_id,
                CASE
-                  WHEN r.event_id IS NOT NULL THEN '${baseUrl}/events/' || r.event_id
+                  WHEN r.event_id IS NOT NULL THEN (? || '/events/' || r.event_id)
                   ELSE NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '')
                 END AS event_uri,
                  CASE
-                   WHEN e_owner.username IS NOT NULL THEN '${baseUrl}/users/' || e_owner.username
+                   WHEN e_owner.username IS NOT NULL THEN (? || '/users/' || e_owner.username)
                    ELSE ${repostSourceActorUriExpr}
                  END AS source_actor_uri,
                 r.created_at
@@ -644,7 +644,7 @@ export const MIGRATIONS: Migration[] = [
         LEFT JOIN events e ON e.id = r.event_id
         LEFT JOIN accounts e_owner ON e_owner.id = e.account_id
         WHERE r.event_id IS NOT NULL OR NULLIF(TRIM(COALESCE(${repostEventUriExpr}, '')), '') IS NOT NULL
-        ORDER BY datetime(r.created_at) ASC, r.rowid ASC`);
+        ORDER BY datetime(r.created_at) ASC, r.rowid ASC`).run(baseUrl, baseUrl);
       db.exec("DROP TABLE reposts");
       db.exec("ALTER TABLE reposts_tmp RENAME TO reposts");
       db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id)");
@@ -658,19 +658,19 @@ export const MIGRATIONS: Migration[] = [
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (account_id, source_actor_uri)
       )`);
-      db.exec(`INSERT OR IGNORE INTO auto_reposts_tmp (account_id, source_account_id, source_actor_uri, created_at)
+      db.prepare(`INSERT OR IGNORE INTO auto_reposts_tmp (account_id, source_account_id, source_actor_uri, created_at)
         SELECT ar.account_id,
                CASE WHEN a.id IS NOT NULL THEN ar.source_account_id ELSE NULL END AS source_account_id,
                COALESCE(
                   ${autoRepostSourceActorUriExpr},
                   CASE
-                    WHEN a.username IS NOT NULL THEN '${baseUrl}/users/' || a.username
+                    WHEN a.username IS NOT NULL THEN (? || '/users/' || a.username)
                     ELSE ('https://local.invalid/users/deleted-' || COALESCE(ar.source_account_id, 'row-' || ar.rowid))
                   END
                 ) AS source_actor_uri,
                 ar.created_at
         FROM auto_reposts ar
-        LEFT JOIN accounts a ON a.id = ar.source_account_id`);
+        LEFT JOIN accounts a ON a.id = ar.source_account_id`).run(baseUrl);
       db.exec("DROP TABLE auto_reposts");
       db.exec("ALTER TABLE auto_reposts_tmp RENAME TO auto_reposts");
       db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id)");
