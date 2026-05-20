@@ -12,9 +12,11 @@ function applyMigrationsThrough(db: DB, maxVersion: number): void {
 
 describe("migration canonicalize_synthetic_local_actor_uris", () => {
   const previousBaseUrl = process.env.BASE_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
 
   afterEach(() => {
     process.env.BASE_URL = previousBaseUrl;
+    process.env.NODE_ENV = previousNodeEnv;
   });
 
   it("rewrites local.invalid actor URIs to canonical local actor URLs", () => {
@@ -62,6 +64,20 @@ describe("migration canonicalize_synthetic_local_actor_uris", () => {
     const autoRow = db.prepare("SELECT source_actor_uri FROM auto_reposts WHERE account_id = ? AND source_account_id = ?")
       .get("reader", "source") as { source_actor_uri: string };
     expect(autoRow.source_actor_uri).toBe("https://remote.example/users/bob");
+
+    db.close();
+  });
+
+  it("throws when BASE_URL is missing outside test env", () => {
+    delete process.env.BASE_URL;
+    process.env.NODE_ENV = "production";
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 11);
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 12);
+    if (!migration) throw new Error("migration 12 not found");
+
+    expect(() => migration.up(db)).toThrow(/BASE_URL must be configured before running migration v12/);
 
     db.close();
   });

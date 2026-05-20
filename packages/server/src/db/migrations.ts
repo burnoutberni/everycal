@@ -1,5 +1,5 @@
 import type { DB } from "../db.js";
-import { buildActorUrl } from "../lib/base-url.js";
+import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
 import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
@@ -656,6 +656,13 @@ export const MIGRATIONS: Migration[] = [
     version: 12,
     name: "canonicalize_synthetic_local_actor_uris",
     up: (db) => {
+      const isTestEnv = process.env.NODE_ENV === "test";
+      const configuredBaseUrl = process.env.BASE_URL;
+      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
+        throw new Error("BASE_URL must be configured before running migration v12 (canonicalize_synthetic_local_actor_uris)");
+      }
+      const baseUrl = getBaseUrl();
+
       const localInvalidPrefix = "https://local.invalid/users/";
 
       const autoRows = db
@@ -678,10 +685,10 @@ export const MIGRATIONS: Migration[] = [
 
       const apply = db.transaction(() => {
         for (const row of autoRows) {
-          updateAuto.run(buildActorUrl(row.username), row.account_id, row.source_actor_uri);
+          updateAuto.run(buildActorUrl(row.username, baseUrl), row.account_id, row.source_actor_uri);
         }
         for (const row of repostRows) {
-          updateRepost.run(buildActorUrl(row.username), row.account_id, row.event_uri, row.source_actor_uri);
+          updateRepost.run(buildActorUrl(row.username, baseUrl), row.account_id, row.event_uri, row.source_actor_uri);
         }
       });
 
