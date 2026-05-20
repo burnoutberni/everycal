@@ -1,5 +1,5 @@
 import type { DB } from "../db.js";
-import { buildActorUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
+import { getBaseUrl } from "../lib/base-url.js";
 import { hashTokenSecret } from "../lib/token-secrets.js";
 
 export type Migration = {
@@ -586,8 +586,15 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 10,
-    name: "remote_event_rsvps",
+    name: "universal_reposts_canonicalization",
     up: (db) => {
+      const isTestEnv = process.env.NODE_ENV === "test";
+      const configuredBaseUrl = process.env.BASE_URL;
+      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
+        throw new Error("BASE_URL must be configured before running migration v10 (universal_reposts_canonicalization)");
+      }
+      const baseUrl = getBaseUrl();
+
       db.exec(`CREATE TABLE IF NOT EXISTS remote_event_rsvps (
         event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
         actor_uri TEXT NOT NULL,
@@ -602,12 +609,17 @@ export const MIGRATIONS: Migration[] = [
       )`);
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_event_status ON remote_event_rsvps(event_id, status)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_event_rsvps_actor ON remote_event_rsvps(actor_uri)");
-    },
-  },
-  {
-    version: 11,
-    name: "universal_reposts",
-    up: (db) => {
+
+      const repostColumns = db.prepare("PRAGMA table_info(reposts)").all() as Array<{ name: string }>;
+      const autoRepostColumns = db.prepare("PRAGMA table_info(auto_reposts)").all() as Array<{ name: string }>;
+      const hasRepostEventUri = repostColumns.some((column) => column.name === "event_uri");
+      const hasRepostSourceActorUri = repostColumns.some((column) => column.name === "source_actor_uri");
+      const hasAutoRepostSourceActorUri = autoRepostColumns.some((column) => column.name === "source_actor_uri");
+
+      const repostEventUriExpr = hasRepostEventUri ? "r.event_uri" : "r.event_id";
+      const repostSourceActorUriExpr = hasRepostSourceActorUri ? "r.source_actor_uri" : "NULL";
+      const autoRepostSourceActorUriExpr = hasAutoRepostSourceActorUri ? "ar.source_actor_uri" : "NULL";
+
       db.exec(`CREATE TABLE IF NOT EXISTS reposts_tmp (
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
@@ -619,12 +631,19 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`INSERT OR IGNORE INTO reposts_tmp (account_id, event_id, event_uri, source_actor_uri, created_at)
         SELECT r.account_id,
                r.event_id,
-               COALESCE(r.event_uri, r.event_id) AS event_uri,
-               COALESCE(r.source_actor_uri, ('https://local.invalid/users/' || e_owner.username)) AS source_actor_uri,
+               CASE
+                 WHEN r.event_id IS NOT NULL THEN '${baseUrl}/events/' || r.event_id
+                 ELSE COALESCE(${repostEventUriExpr}, '')
+               END AS event_uri,
+                CASE
+                  WHEN e_owner.username IS NOT NULL THEN '${baseUrl}/users/' || e_owner.username
+                  ELSE ${repostSourceActorUriExpr}
+                END AS source_actor_uri,
                r.created_at
         FROM reposts r
         LEFT JOIN events e ON e.id = r.event_id
-        LEFT JOIN accounts e_owner ON e_owner.id = e.account_id`);
+        LEFT JOIN accounts e_owner ON e_owner.id = e.account_id
+        ORDER BY datetime(r.created_at) ASC, r.rowid ASC`);
       db.exec("DROP TABLE reposts");
       db.exec("ALTER TABLE reposts_tmp RENAME TO reposts");
       db.exec("CREATE INDEX IF NOT EXISTS idx_reposts_account ON reposts(account_id)");
@@ -640,9 +659,15 @@ export const MIGRATIONS: Migration[] = [
       )`);
       db.exec(`INSERT OR IGNORE INTO auto_reposts_tmp (account_id, source_account_id, source_actor_uri, created_at)
         SELECT ar.account_id,
-               ar.source_account_id,
-               COALESCE(ar.source_actor_uri, ('https://local.invalid/users/' || a.username)) AS source_actor_uri,
-               ar.created_at
+               CASE WHEN a.id IS NOT NULL THEN ar.source_account_id ELSE NULL END AS source_account_id,
+               COALESCE(
+                  ${autoRepostSourceActorUriExpr},
+                  CASE
+                    WHEN a.username IS NOT NULL THEN '${baseUrl}/users/' || a.username
+                    ELSE ('https://local.invalid/users/deleted-' || COALESCE(ar.source_account_id, 'row-' || ar.rowid))
+                  END
+                ) AS source_actor_uri,
+                ar.created_at
         FROM auto_reposts ar
         LEFT JOIN accounts a ON a.id = ar.source_account_id`);
       db.exec("DROP TABLE auto_reposts");
@@ -652,88 +677,6 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri)");
     },
   },
-  {
-    version: 12,
-    name: "canonicalize_synthetic_local_actor_uris",
-    up: (db) => {
-      const isTestEnv = process.env.NODE_ENV === "test";
-      const configuredBaseUrl = process.env.BASE_URL;
-      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
-        throw new Error("BASE_URL must be configured before running migration v12 (canonicalize_synthetic_local_actor_uris)");
-      }
-      const baseUrl = getBaseUrl();
-
-      const localInvalidPrefix = "https://local.invalid/users/";
-
-      const autoRows = db
-        .prepare(`SELECT ar.account_id, ar.source_actor_uri, a.username
-                  FROM auto_reposts ar
-                  JOIN accounts a ON a.id = ar.source_account_id
-                  WHERE ar.source_actor_uri LIKE ?`)
-        .all(`${localInvalidPrefix}%`) as Array<{ account_id: string; source_actor_uri: string; username: string }>;
-
-      const repostRows = db
-        .prepare(`SELECT r.account_id, r.event_uri, r.source_actor_uri, a.username
-                  FROM reposts r
-                  JOIN events e ON e.id = r.event_id
-                  JOIN accounts a ON a.id = e.account_id
-                  WHERE r.source_actor_uri LIKE ?`)
-        .all(`${localInvalidPrefix}%`) as Array<{ account_id: string; event_uri: string; source_actor_uri: string; username: string }>;
-
-      const updateAuto = db.prepare("UPDATE auto_reposts SET source_actor_uri = ? WHERE account_id = ? AND source_actor_uri = ?");
-      const updateRepost = db.prepare("UPDATE reposts SET source_actor_uri = ? WHERE account_id = ? AND event_uri = ? AND source_actor_uri = ?");
-
-      const apply = db.transaction(() => {
-        for (const row of autoRows) {
-          updateAuto.run(buildActorUrl(row.username, baseUrl), row.account_id, row.source_actor_uri);
-        }
-        for (const row of repostRows) {
-          updateRepost.run(buildActorUrl(row.username, baseUrl), row.account_id, row.event_uri, row.source_actor_uri);
-        }
-      });
-
-      apply();
-    },
-  },
-  {
-    version: 13,
-    name: "enforce_local_repost_event_ids",
-    up: (db) => {
-      db.exec("DELETE FROM reposts WHERE event_id IS NULL AND event_uri NOT LIKE 'http%'");
-    },
-  },
-  {
-    version: 14,
-    name: "canonicalize_local_repost_event_uris",
-    up: (db) => {
-      const isTestEnv = process.env.NODE_ENV === "test";
-      const configuredBaseUrl = process.env.BASE_URL;
-      if (!isTestEnv && (!configuredBaseUrl || configuredBaseUrl.trim().length === 0)) {
-        throw new Error("BASE_URL must be configured before running migration v14 (canonicalize_local_repost_event_uris)");
-      }
-      const baseUrl = getBaseUrl();
-      const rows = db.prepare(
-        `SELECT r.account_id, r.event_uri, e.id AS event_id
-         FROM reposts r
-         JOIN events e ON e.id = r.event_id`
-      ).all() as Array<{ account_id: string; event_uri: string; event_id: string }>;
-
-      const updateRow = db.prepare("UPDATE reposts SET event_uri = ? WHERE account_id = ? AND event_uri = ?");
-      const canonicalize = db.transaction(() => {
-        for (const row of rows) {
-          const canonicalUri = buildUrl(baseUrl, "events", row.event_id);
-          if (row.event_uri !== canonicalUri) {
-            updateRow.run(canonicalUri, row.account_id, row.event_uri);
-          }
-        }
-      });
-      canonicalize();
-
-      db.exec(`DELETE FROM reposts
-               WHERE event_id IS NOT NULL
-                 AND event_uri NOT LIKE 'http%'`);
-    },
-  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 10;

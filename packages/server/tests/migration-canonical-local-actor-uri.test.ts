@@ -10,7 +10,24 @@ function applyMigrationsThrough(db: DB, maxVersion: number): void {
   }
 }
 
-describe("migration canonicalize_synthetic_local_actor_uris", () => {
+function recreateLegacyRepostTables(db: DB): void {
+  db.exec("DROP TABLE reposts");
+  db.exec("DROP TABLE auto_reposts");
+  db.exec(`CREATE TABLE reposts (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, event_id)
+  )`);
+  db.exec(`CREATE TABLE auto_reposts (
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    source_account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, source_account_id)
+  )`);
+}
+
+describe("migration universal_reposts_canonicalization", () => {
   const previousBaseUrl = process.env.BASE_URL;
   const previousNodeEnv = process.env.NODE_ENV;
 
@@ -19,51 +36,96 @@ describe("migration canonicalize_synthetic_local_actor_uris", () => {
     process.env.NODE_ENV = previousNodeEnv;
   });
 
-  it("rewrites local.invalid actor URIs to canonical local actor URLs", () => {
+  it("rewrites local repost fields to canonical URLs and keeps remote URIs", () => {
     process.env.BASE_URL = "https://everycal.example";
     const db = new Database(":memory:");
-    applyMigrationsThrough(db, 11);
+    applyMigrationsThrough(db, 9);
+    recreateLegacyRepostTables(db);
 
     db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?), (?, ?)").run("reader", "reader", "owner", "alice", "source", "bob");
     db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
 
-    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
-      .run("reader", "source", "https://local.invalid/users/bob");
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-      .run("reader", "event-1", "event-1", "https://local.invalid/users/alice");
+    db.prepare("INSERT INTO reposts (account_id, event_id, created_at) VALUES (?, ?, ?)")
+      .run("reader", "event-1", "2026-01-01T00:00:00Z");
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, created_at) VALUES (?, ?, ?)")
+      .run("reader", "source", "2026-01-01T00:00:00Z");
 
-    const migration = MIGRATIONS.find((entry) => entry.version === 12);
-    if (!migration) throw new Error("migration 12 not found");
+    const migration = MIGRATIONS.find((entry) => entry.version === 10);
+    if (!migration) throw new Error("migration 10 not found");
     migration.up(db);
 
+    const repostRow = db.prepare("SELECT event_uri, source_actor_uri FROM reposts WHERE account_id = ? AND event_id = ?")
+      .get("reader", "event-1") as { event_uri: string; source_actor_uri: string };
     const autoRow = db.prepare("SELECT source_actor_uri FROM auto_reposts WHERE account_id = ? AND source_account_id = ?")
       .get("reader", "source") as { source_actor_uri: string };
+
+    expect(repostRow.event_uri).toBe("https://everycal.example/events/event-1");
+    expect(repostRow.source_actor_uri).toBe("https://everycal.example/users/alice");
     expect(autoRow.source_actor_uri).toBe("https://everycal.example/users/bob");
 
-    const repostRow = db.prepare("SELECT source_actor_uri FROM reposts WHERE account_id = ? AND event_id = ?")
-      .get("reader", "event-1") as { source_actor_uri: string };
-    expect(repostRow.source_actor_uri).toBe("https://everycal.example/users/alice");
+    db.close();
+  });
+
+  it("does not fail when source_account_id is NULL or missing", () => {
+    process.env.BASE_URL = "https://everycal.example";
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 9);
+    recreateLegacyRepostTables(db);
+
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?)").run("reader", "reader");
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, created_at) VALUES (?, ?, ?)")
+      .run("reader", null, "2026-01-01T00:00:00Z");
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, created_at) VALUES (?, ?, ?)")
+      .run("reader", "missing", "2026-01-02T00:00:00Z");
+    db.exec("PRAGMA foreign_keys = ON");
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 10);
+    if (!migration) throw new Error("migration 10 not found");
+    migration.up(db);
+
+    const rows = db.prepare("SELECT source_actor_uri FROM auto_reposts WHERE account_id = ? ORDER BY created_at ASC")
+      .all("reader") as Array<{ source_actor_uri: string }>;
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].source_actor_uri.startsWith("https://local.invalid/users/deleted-")).toBe(true);
+    expect(rows[1].source_actor_uri).toBe("https://local.invalid/users/deleted-missing");
 
     db.close();
   });
 
-  it("leaves non-synthetic source actor URIs unchanged", () => {
+  it("deduplicates repost PK collisions created by canonical event_uri rewrite", () => {
     process.env.BASE_URL = "https://everycal.example";
     const db = new Database(":memory:");
-    applyMigrationsThrough(db, 11);
+    applyMigrationsThrough(db, 9);
+    db.exec("DROP TABLE reposts");
+    db.exec(`CREATE TABLE reposts (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+      event_uri TEXT NOT NULL,
+      source_actor_uri TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, event_uri)
+    )`);
 
-    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?)").run("reader", "reader", "source", "bob");
-    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
-      .run("reader", "source", "https://remote.example/users/bob");
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?)").run("reader", "reader", "owner", "alice");
+    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
 
-    const migration = MIGRATIONS.find((entry) => entry.version === 12);
-    if (!migration) throw new Error("migration 12 not found");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("reader", "event-1", "event-1", "https://local.invalid/users/alice", "2026-01-01T00:00:00Z");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("reader", "event-1", "https://everycal.example/events/event-1", "https://everycal.example/users/alice", "2026-01-02T00:00:00Z");
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 10);
+    if (!migration) throw new Error("migration 10 not found");
     migration.up(db);
 
-    const autoRow = db.prepare("SELECT source_actor_uri FROM auto_reposts WHERE account_id = ? AND source_account_id = ?")
-      .get("reader", "source") as { source_actor_uri: string };
-    expect(autoRow.source_actor_uri).toBe("https://remote.example/users/bob");
+    const rows = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id = ?")
+      .all("reader", "event-1") as Array<{ event_uri: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event_uri).toBe("https://everycal.example/events/event-1");
 
     db.close();
   });
@@ -72,97 +134,12 @@ describe("migration canonicalize_synthetic_local_actor_uris", () => {
     delete process.env.BASE_URL;
     process.env.NODE_ENV = "production";
     const db = new Database(":memory:");
-    applyMigrationsThrough(db, 11);
+    applyMigrationsThrough(db, 9);
 
-    const migration = MIGRATIONS.find((entry) => entry.version === 12);
-    if (!migration) throw new Error("migration 12 not found");
+    const migration = MIGRATIONS.find((entry) => entry.version === 10);
+    if (!migration) throw new Error("migration 10 not found");
 
-    expect(() => migration.up(db)).toThrow(/BASE_URL must be configured before running migration v12/);
-
-    db.close();
-  });
-});
-
-describe("migration enforce_local_repost_event_ids", () => {
-  it("removes local repost rows missing event_id and keeps remote rows", () => {
-    const db = new Database(":memory:");
-    applyMigrationsThrough(db, 12);
-
-    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?) ").run("reader", "reader", "owner", "alice");
-    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
-
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-      .run("reader", null, "event-1", "https://everycal.example/users/alice");
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-      .run("reader", null, "https://remote.example/events/1", "https://remote.example/users/alice");
-
-    const migration = MIGRATIONS.find((entry) => entry.version === 13);
-    if (!migration) throw new Error("migration 13 not found");
-    migration.up(db);
-
-    const localRow = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
-      .get("reader", "event-1") as { ok: number } | undefined;
-    const remoteRow = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
-      .get("reader", "https://remote.example/events/1") as { ok: number } | undefined;
-
-    expect(localRow).toBeUndefined();
-    expect(remoteRow?.ok).toBe(1);
-
-    db.close();
-  });
-});
-
-describe("migration canonicalize_local_repost_event_uris", () => {
-  const previousBaseUrl = process.env.BASE_URL;
-  const previousNodeEnv = process.env.NODE_ENV;
-
-  afterEach(() => {
-    process.env.BASE_URL = previousBaseUrl;
-    process.env.NODE_ENV = previousNodeEnv;
-  });
-
-  it("rewrites local repost event_uri values to canonical local event URLs", () => {
-    process.env.BASE_URL = "https://everycal.example";
-    const db = new Database(":memory:");
-    applyMigrationsThrough(db, 13);
-
-    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?), (?, ?)").run("reader", "reader", "owner", "alice", "remote-owner", "remote-owner");
-    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
-
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-      .run("reader", "event-1", "event-1", "https://everycal.example/users/alice");
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-      .run("reader", null, "https://remote.example/events/1", "https://remote.example/users/remote-owner");
-
-    const migration = MIGRATIONS.find((entry) => entry.version === 14);
-    if (!migration) throw new Error("migration 14 not found");
-    migration.up(db);
-
-    const localRow = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id = ?")
-      .get("reader", "event-1") as { event_uri: string };
-    const remoteRow = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id IS NULL")
-      .get("reader") as { event_uri: string };
-
-    expect(localRow.event_uri).toBe("https://everycal.example/events/event-1");
-    expect(remoteRow.event_uri).toBe("https://remote.example/events/1");
-
-    db.close();
-  });
-
-  it("throws when BASE_URL is missing outside test env", () => {
-    process.env.NODE_ENV = "test";
-    const db = new Database(":memory:");
-    applyMigrationsThrough(db, 13);
-
-    delete process.env.BASE_URL;
-    process.env.NODE_ENV = "production";
-
-    const migration = MIGRATIONS.find((entry) => entry.version === 14);
-    if (!migration) throw new Error("migration 14 not found");
-
-    expect(() => migration.up(db)).toThrow(/BASE_URL must be configured before running migration v14/);
+    expect(() => migration.up(db)).toThrow(/BASE_URL must be configured before running migration v10/);
 
     db.close();
   });
