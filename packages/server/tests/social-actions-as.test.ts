@@ -106,6 +106,38 @@ describe("social actions as identity", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects ambiguous remote handles for auto-repost", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://evil.host/users/alice", "alice", "https://evil.host/inbox", "evil@host");
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/users/alice@evil@host/auto-repost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects ambiguous remote handles for remote user routes", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://evil.host/users/alice", "alice", "https://evil.host/inbox", "evil@host");
+
+    const app = makeApp(db);
+    const paths = [
+      "/api/v1/users/alice@evil@host",
+      "/api/v1/users/alice@evil@host/events",
+      "/api/v1/users/alice@evil@host/followers",
+      "/api/v1/users/alice@evil@host/following",
+    ];
+
+    for (const path of paths) {
+      const res = await app.request(`http://localhost${path}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
   it("replaces repost actors with desired chips", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"

@@ -84,12 +84,9 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         const remoteRow = db
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
@@ -139,7 +136,6 @@ export function userRoutes(db: DB): Hono {
           source: "remote",
           domain: remoteRow.domain,
         });
-      }
     }
 
     const eventsCountSubquery = `${buildPublicEventsCountSubquery()} AS events_count`;
@@ -199,12 +195,9 @@ export function userRoutes(db: DB): Hono {
     }
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         const remoteActor = db
           .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string } | undefined;
@@ -240,7 +233,6 @@ export function userRoutes(db: DB): Hono {
           events = events.map((e) => ({ ...e, rsvpStatus: rsvpMap.get(e.id as string) || null }));
         }
         return c.json({ events });
-      }
     }
 
     const account = db
@@ -463,9 +455,8 @@ export function userRoutes(db: DB): Hono {
     const currentUser = c.get("user")!;
     const username = c.req.param("username");
 
-    const parts = username.split("@");
-    const isRemoteHandle = parts.length >= 2 && parts[0] && parts[1];
-    const localTarget = !isRemoteHandle
+    const remoteHandle = parseRemoteHandle(username);
+    const localTarget = !remoteHandle
       ? db.prepare("SELECT id, username FROM accounts WHERE username = ?").get(username) as { id: string; username: string } | undefined
       : undefined;
     let sourceActorUri: string | null = null;
@@ -473,9 +464,8 @@ export function userRoutes(db: DB): Hono {
     if (localTarget) {
       sourceAccountId = localTarget.id;
       sourceActorUri = buildActorUrl(localTarget.username);
-    } else if (isRemoteHandle) {
-      const localPart = parts[0]!;
-      const domain = parts.slice(1).join("@");
+    } else if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
       let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
       if (!remote) {
         const actorUri = `https://${domain}/users/${localPart}`;
@@ -611,12 +601,9 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         let actor = db
           .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
@@ -635,7 +622,6 @@ export function userRoutes(db: DB): Hono {
         } catch {
           return c.json({ users: [] });
         }
-      }
     }
 
     const account = db
@@ -676,12 +662,9 @@ export function userRoutes(db: DB): Hono {
     const username = c.req.param("username");
 
     // Remote profile: username@domain format
-    const atIdx = username.indexOf("@");
-    if (atIdx > 0 && atIdx < username.length - 1) {
-      const parts = username.split("@");
-      const localPart = parts[0];
-      const domain = parts.slice(1).join("@");
-      if (localPart && domain) {
+    const remoteHandle = parseRemoteHandle(username);
+    if (remoteHandle) {
+      const { localPart, domain } = remoteHandle;
         let actor = db
           .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
@@ -700,7 +683,6 @@ export function userRoutes(db: DB): Hono {
         } catch {
           return c.json({ users: [] });
         }
-      }
     }
 
     const account = db
@@ -900,4 +882,25 @@ function formatEvent(row: Record<string, unknown>): Record<string, unknown> {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function parseRemoteHandle(value: string): { localPart: string; domain: string } | null {
+  const handle = value.trim();
+  if (!handle || /\s/.test(handle)) return null;
+  if (handle.includes("://") || handle.includes("/") || handle.includes("?") || handle.includes("#") || handle.includes(":")) {
+    return null;
+  }
+
+  const firstAt = handle.indexOf("@");
+  const lastAt = handle.lastIndexOf("@");
+  if (firstAt <= 0 || firstAt !== lastAt || firstAt >= handle.length - 1) return null;
+
+  const localPart = handle.slice(0, firstAt);
+  const domain = handle.slice(firstAt + 1);
+  if (!/^[A-Za-z0-9._-]+$/.test(localPart)) return null;
+
+  const domainPattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])$/;
+  if (!domainPattern.test(domain)) return null;
+
+  return { localPart, domain };
 }
