@@ -30,7 +30,7 @@ import {
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { buildActorUrl, buildUrl } from "../lib/base-url.js";
-import { buildPublicEventsCountSubquery } from "../lib/activity-count.js";
+import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -50,15 +50,12 @@ export function userRoutes(db: DB): Hono {
     let sql: string;
     let params: unknown[];
 
-    const eventsCountSubquery = `${buildPublicEventsCountSubquery()} AS events_count`;
-
     const followersCountSubquery = `(SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id)`;
 
     if (q) {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                    ${eventsCountSubquery}
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
              WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
              ORDER BY username ASC LIMIT ? OFFSET ?`;
@@ -66,8 +63,7 @@ export function userRoutes(db: DB): Hono {
     } else {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
-                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                    ${eventsCountSubquery}
+                    (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
              WHERE discoverable = 1
              ORDER BY created_at DESC LIMIT ? OFFSET ?`;
@@ -75,6 +71,12 @@ export function userRoutes(db: DB): Hono {
     }
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const accountIds = rows.map((row) => row.id as string);
+    const eventsCountByAccountId = loadPublicEventsCountsByAccountId(db, accountIds);
+    for (const row of rows) {
+      const accountId = row.id as string;
+      row.events_count = eventsCountByAccountId.get(accountId) ?? 0;
+    }
     return c.json({ users: rows.map(formatUser) });
   });
 

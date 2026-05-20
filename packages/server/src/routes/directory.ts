@@ -8,7 +8,7 @@
 import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
-import { buildPublicEventsCountSubquery } from "../lib/activity-count.js";
+import { loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 /** Convert bio to HTML if plain text (Mastodon expects HTML in note). */
@@ -37,7 +37,6 @@ export function directoryRoutes(db: DB): Hono {
     const order = c.req.query("order") || "active";
     const baseUrl = getBaseUrl();
 
-    const eventsCountSubquery = buildPublicEventsCountSubquery();
     const lastEventSubquery = `(SELECT MAX(e.updated_at) FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted'))`;
 
     const orderClause =
@@ -53,7 +52,6 @@ export function directoryRoutes(db: DB): Hono {
                 accounts.avatar_url, accounts.is_bot, accounts.created_at,
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-                ${eventsCountSubquery} AS statuses_count,
                 ${lastEventSubquery} AS last_status_at
          FROM accounts
          WHERE accounts.discoverable = 1
@@ -61,6 +59,9 @@ export function directoryRoutes(db: DB): Hono {
          LIMIT ? OFFSET ?`
       )
       .all(limit, offset) as Record<string, unknown>[];
+
+    const accountIds = rows.map((row) => row.id as string);
+    const eventsCountByAccountId = loadPublicEventsCountsByAccountId(db, accountIds);
 
     const accounts = rows.map((r) => {
       const username = r.username as string;
@@ -85,7 +86,7 @@ export function directoryRoutes(db: DB): Hono {
         header_static: null,
         followers_count: (r.followers_count as number) ?? 0,
         following_count: (r.following_count as number) ?? 0,
-        statuses_count: (r.statuses_count as number) ?? 0,
+        statuses_count: eventsCountByAccountId.get(r.id as string) ?? 0,
         last_status_at: dateStr,
         discoverable: true,
         uri: actorUrl,
