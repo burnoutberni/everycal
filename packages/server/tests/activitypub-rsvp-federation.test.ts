@@ -400,8 +400,57 @@ describe("ActivityPub RSVP federation", () => {
     expect(rows).toHaveLength(2);
     const ids = rows.map((row) => (JSON.parse(row.activity_json) as { id: string }).id);
     expect(ids[0]).not.toBe(ids[1]);
-    expect(ids[0]).toContain("#rsvp/");
-    expect(ids[1]).toContain("#rsvp/");
+    expect(ids[0]).toContain("/activities/");
+    expect(ids[1]).toContain("/activities/");
+    expect(ids[0]).not.toContain(encodeURIComponent("https://remote.example/events/remote-1"));
+    expect(ids[1]).not.toContain(encodeURIComponent("https://remote.example/events/remote-1"));
+
+    const mappings = db
+      .prepare("SELECT activity_id, activity_type, object_uri FROM federation_activity_ids ORDER BY created_at ASC")
+      .all() as Array<{ activity_id: string; activity_type: string; object_uri: string }>;
+    expect(mappings).toHaveLength(2);
+    expect(new Set(mappings.map((row) => row.activity_id))).toEqual(new Set(ids));
+    expect(mappings.map((row) => row.activity_type)).toEqual(["Accept", "TentativeAccept"]);
+    expect(mappings.map((row) => row.object_uri)).toEqual([
+      "https://remote.example/events/remote-1",
+      "https://remote.example/events/remote-1",
+    ]);
+  });
+
+  it("uses stable opaque Announce activity IDs in outbox and persists mapping", async () => {
+    seedLocalEvent(db);
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+      .run("local1", "event-1", "http://localhost/events/event-1", "http://localhost/users/alice");
+
+    const app = inboxApp(db);
+    const first = await app.request("http://localhost/users/alice/outbox?page=1", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+    const second = await app.request("http://localhost/users/alice/outbox?page=1", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstJson = await first.json() as { orderedItems?: Array<{ type?: string; id?: string }> };
+    const secondJson = await second.json() as { orderedItems?: Array<{ type?: string; id?: string }> };
+    const firstAnnounceId = firstJson.orderedItems?.find((item) => item.type === "Announce")?.id;
+    const secondAnnounceId = secondJson.orderedItems?.find((item) => item.type === "Announce")?.id;
+    expect(firstAnnounceId).toBeTruthy();
+    expect(firstAnnounceId).toEqual(secondAnnounceId);
+    expect(firstAnnounceId).toContain("/activities/");
+    expect(firstAnnounceId).not.toContain("/announce/");
+    const announceId = firstAnnounceId as string;
+
+    const mapping = db
+      .prepare("SELECT activity_id, logical_key, activity_type, object_uri FROM federation_activity_ids WHERE activity_id = ?")
+      .get(announceId) as { activity_id: string; logical_key: string; activity_type: string; object_uri: string };
+    expect(mapping.activity_id).toBe(announceId);
+    expect(mapping.logical_key).toBe("announce:local1:http://localhost/events/event-1");
+    expect(mapping.activity_type).toBe("Announce");
+    expect(mapping.object_uri).toBe("http://localhost/events/event-1");
   });
 
   it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {

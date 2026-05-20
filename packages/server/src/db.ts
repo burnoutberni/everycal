@@ -198,6 +198,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
   ],
   reposts: ["account_id", "event_id", "event_uri", "source_actor_uri", "created_at"],
   auto_reposts: ["account_id", "source_account_id", "source_actor_uri", "created_at"],
+  federation_activity_ids: ["activity_id", "logical_key", "actor_uri", "activity_type", "object_uri", "created_at"],
   actor_selection_operations: [
     "id",
     "action_kind",
@@ -363,6 +364,12 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
   { table: "auto_reposts", name: "idx_auto_reposts_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "auto_reposts", name: "idx_auto_reposts_source", unique: false, columns: [{ name: "source_account_id" }] },
   { table: "auto_reposts", name: "idx_auto_reposts_source_actor", unique: false, columns: [{ name: "source_actor_uri" }] },
+  {
+    table: "federation_activity_ids",
+    name: "idx_federation_activity_ids_actor_type_object",
+    unique: false,
+    columns: [{ name: "actor_uri" }, { name: "activity_type" }, { name: "object_uri" }],
+  },
   {
     table: "actor_selection_operations",
     name: "idx_actor_selection_ops_initiated_by",

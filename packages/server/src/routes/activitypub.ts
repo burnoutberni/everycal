@@ -43,6 +43,7 @@ import { normalizeApTemporal } from "../lib/timezone.js";
 import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-event.js";
 import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
+import { ensureStableActivityId } from "../lib/activity-ids.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
@@ -275,7 +276,12 @@ export function activityPubRoutes(db: DB): Hono {
     }));
 
     const repostAnnounceItems = repostRows.map((row) => ({
-      id: buildUrl(actorUrl, "announce", row.id as string),
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: eventUrl(row.id as string),
+        logicalKey: `announce:${account.id}:${eventUrl(row.id as string)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -284,7 +290,12 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostAnnounceItems = autoRepostRows.map((row) => ({
-      id: buildUrl(actorUrl, "announce", row.id as string),
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: eventUrl(row.id as string),
+        logicalKey: `announce:${account.id}:${eventUrl(row.id as string)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -293,7 +304,12 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const repostRemoteAnnounceItems = repostRemoteRows.map((row) => ({
-      id: buildUrl(actorUrl, "announce", row.uri as string),
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: row.uri as string,
+        logicalKey: `announce:${account.id}:${String(row.uri)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,
@@ -302,7 +318,12 @@ export function activityPubRoutes(db: DB): Hono {
       _sortMs: toEpochMillisOrZero(row.start_at_utc),
     }));
     const autoRepostRemoteAnnounceItems = autoRepostRemoteRows.map((row) => ({
-      id: buildUrl(actorUrl, "announce", row.uri as string),
+      id: ensureStableActivityId(db, {
+        actorUri: actorUrl,
+        activityType: "Announce",
+        objectUri: row.uri as string,
+        logicalKey: `announce:${account.id}:${String(row.uri)}`,
+      }),
       type: "Announce",
       actor: actorUrl,
       published: toISO8601(row.reposted_at as string) ?? row.reposted_at,

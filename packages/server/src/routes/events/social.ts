@@ -4,6 +4,7 @@ import type { DB } from "../../db.js";
 import { ensureKeyPairForAccount } from "../../lib/account-keys.js";
 import { enqueueOutboundDelivery, resolveRemoteActor } from "../../lib/federation.js";
 import { mapLocalRsvpStateToActivityPubType, type LocalRsvpState } from "../../lib/activitypub-rsvp.js";
+import { createActivityId } from "../../lib/activity-ids.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
@@ -58,9 +59,15 @@ async function enqueueOutboundRsvpIfNeeded(
 
   const actorUrl = buildActorUrl(params.username);
   const type = mapLocalRsvpStateToActivityPubType(params.nextStatus);
+  const activityId = createActivityId(db, {
+    actorUri: actorUrl,
+    activityType: type,
+    objectUri: params.eventUri,
+    logicalKey: `rsvp:${params.accountId}:${params.eventUri}:${Date.now()}:${nanoid(10)}`,
+  });
   const activity = {
     "@context": "https://www.w3.org/ns/activitystreams",
-    id: `${actorUrl}#rsvp/${encodeURIComponent(params.eventUri)}/${Date.now()}-${nanoid(10)}`,
+    id: activityId,
     type,
     actor: actorUrl,
     object: params.eventUri,

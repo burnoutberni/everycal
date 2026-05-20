@@ -234,6 +234,15 @@ CREATE TABLE IF NOT EXISTS auto_reposts (
   PRIMARY KEY (account_id, source_actor_uri)
 );
 
+CREATE TABLE IF NOT EXISTS federation_activity_ids (
+  activity_id TEXT PRIMARY KEY,
+  logical_key TEXT NOT NULL UNIQUE,
+  actor_uri TEXT NOT NULL,
+  activity_type TEXT NOT NULL,
+  object_uri TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS actor_selection_operations (
   id TEXT PRIMARY KEY,
   action_kind TEXT NOT NULL,
@@ -351,6 +360,7 @@ CREATE INDEX IF NOT EXISTS idx_reposts_event_uri ON reposts(event_uri);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_account ON auto_reposts(account_id);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_source ON auto_reposts(source_account_id);
 CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri);
+CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_ops_initiated_by ON actor_selection_operations(initiated_by_account_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_actor_selection_items_operation ON actor_selection_operation_items(operation_id);
 CREATE INDEX IF NOT EXISTS idx_saved_locations_account ON saved_locations(account_id, used_at DESC);
@@ -678,6 +688,21 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_auto_reposts_source_actor ON auto_reposts(source_actor_uri)");
     },
   },
+  {
+    version: 11,
+    name: "federation_activity_ids",
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS federation_activity_ids (
+        activity_id TEXT PRIMARY KEY,
+        logical_key TEXT NOT NULL UNIQUE,
+        actor_uri TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        object_uri TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri)");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
