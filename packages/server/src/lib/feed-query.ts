@@ -81,7 +81,7 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   const b7Where = `(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
       AND e.visibility = 'public'
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}
-      AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ar.account_id)`;
+      AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ar.account_id AND event_id IS NOT NULL)`;
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);
 
   const sql = `

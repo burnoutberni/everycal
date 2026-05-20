@@ -345,7 +345,7 @@ export function userRoutes(db: DB): Hono {
       WHERE ar.account_id = ?
         ${autoRepostVisibilityClause}
         AND e.account_id != ?
-        AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     {

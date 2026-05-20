@@ -695,6 +695,13 @@ export const MIGRATIONS: Migration[] = [
       apply();
     },
   },
+  {
+    version: 13,
+    name: "enforce_local_repost_event_ids",
+    up: (db) => {
+      db.exec("DELETE FROM reposts WHERE event_id IS NULL AND event_uri NOT LIKE 'http%'");
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;

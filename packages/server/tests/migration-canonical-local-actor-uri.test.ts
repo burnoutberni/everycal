@@ -82,3 +82,33 @@ describe("migration canonicalize_synthetic_local_actor_uris", () => {
     db.close();
   });
 });
+
+describe("migration enforce_local_repost_event_ids", () => {
+  it("removes local repost rows missing event_id and keeps remote rows", () => {
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 12);
+
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?) ").run("reader", "reader", "owner", "alice");
+    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
+
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+      .run("reader", null, "event-1", "https://everycal.example/users/alice");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+      .run("reader", null, "https://remote.example/events/1", "https://remote.example/users/alice");
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 13);
+    if (!migration) throw new Error("migration 13 not found");
+    migration.up(db);
+
+    const localRow = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
+      .get("reader", "event-1") as { ok: number } | undefined;
+    const remoteRow = db.prepare("SELECT 1 AS ok FROM reposts WHERE account_id = ? AND event_uri = ?")
+      .get("reader", "https://remote.example/events/1") as { ok: number } | undefined;
+
+    expect(localRow).toBeUndefined();
+    expect(remoteRow?.ok).toBe(1);
+
+    db.close();
+  });
+});

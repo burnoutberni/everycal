@@ -186,7 +186,7 @@ export function activityPubRoutes(db: DB): Hono {
              SELECT COUNT(*) FROM auto_reposts ar
              JOIN events e ON e.account_id = ar.source_account_id
              WHERE ar.account_id = ? AND e.visibility = 'public'
-               AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+               AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
            ) + (
              SELECT COUNT(*) FROM auto_reposts ar
              JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
@@ -249,7 +249,7 @@ export function activityPubRoutes(db: DB): Hono {
          JOIN events e ON e.account_id = ar.source_account_id
          LEFT JOIN event_tags t ON t.event_id = e.id
           WHERE ar.account_id = ? AND e.visibility = 'public'
-            AND e.id NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+            AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
           GROUP BY e.id`
       )
       .all(account.id, account.id) as Record<string, unknown>[];

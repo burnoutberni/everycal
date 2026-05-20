@@ -225,6 +225,32 @@ describe("social actions as identity", () => {
     expect(body.actorIds).toEqual(expect.arrayContaining(["owner", "identity1"]));
   });
 
+  it("dedupes auto-repost when explicit repost exists with URL-form event_uri", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-dedupe", "target", "target", "event-dedupe", "Event Dedupe", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
+      "owner",
+      "target",
+      "https://localhost/users/target",
+    );
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-dedupe",
+      "http://localhost:3000/events/ev-dedupe",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/users/owner/events?includeReposts=true", {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { events: Array<{ id: string }> };
+    expect(body.events.filter((event) => event.id === "ev-dedupe")).toHaveLength(1);
+  });
+
   it("reports partial failure for follow actor updates", async () => {
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/users/collective/follow", {
