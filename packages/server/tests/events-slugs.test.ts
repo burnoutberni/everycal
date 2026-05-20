@@ -1887,6 +1887,29 @@ describe("event slug canonical behavior", () => {
     expect(body.events[0]?.timezoneQuality).toBe("exact_tzid");
   });
 
+  it("/users/:username/events accepts Unicode IDN handles", async () => {
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
+      .run("https://xn--bcher-kva.example/users/alice", "alice", "https://xn--bcher-kva.example/inbox", "xn--bcher-kva.example");
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, event_timezone, timezone_quality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        "https://xn--bcher-kva.example/events/1",
+        "https://xn--bcher-kva.example/users/alice",
+        "idn-remote-slug",
+        "Remote IDN",
+        "2026-02-01T09:00:00+00:00",
+        "2026-02-01T09:00:00.000Z",
+        "UTC",
+        "exact_tzid",
+      );
+
+    const app = makeApp(db, { id: "u1", username: "alice" });
+    const res = await app.request("http://localhost/api/v1/users/alice@b\u00fccher.example/events");
+    const body = await res.json() as { events: Array<{ slug?: string }> };
+
+    expect(res.status).toBe(200);
+    expect(body.events[0]?.slug).toBe("idn-remote-slug");
+  });
+
   it("/users/:username/events returns local canonical temporal fields", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, slug, title, start_date, end_date, all_day, start_at_utc, end_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'public')"
