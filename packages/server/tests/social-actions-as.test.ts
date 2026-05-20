@@ -196,6 +196,35 @@ describe("social actions as identity", () => {
     expect(remaining).toBeUndefined();
   });
 
+  it("includes local id and canonical URL repost rows in repost-actors", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-repost-actors", "target", "target", "event-repost-actors", "Event Repost Actors", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev-repost-actors",
+      "ev-repost-actors",
+      "https://localhost/users/target",
+    );
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "identity1",
+      "ev-repost-actors",
+      "http://localhost:3000/events/ev-repost-actors",
+      "https://localhost/users/target",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/ev-repost-actors/repost-actors", {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { activeAccountIds: string[]; actorIds: string[] };
+    expect(body.activeAccountIds).toEqual(expect.arrayContaining(["owner", "identity1"]));
+    expect(body.activeAccountIds).toHaveLength(2);
+    expect(body.actorIds).toEqual(expect.arrayContaining(["owner", "identity1"]));
+  });
+
   it("reports partial failure for follow actor updates", async () => {
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/users/collective/follow", {

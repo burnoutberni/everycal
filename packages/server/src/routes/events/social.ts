@@ -263,9 +263,10 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
 
     const acting = listActingAccounts(db, user.id, "editor");
     const allowed = new Set(acting.map((a) => a.id));
-    const activeRows = db
-      .prepare("SELECT account_id FROM reposts WHERE event_uri = ?")
-      .all(event?.id ?? remoteEvent!.uri) as Array<{ account_id: string }>;
+    const repostLookupUris = event ? buildLocalEventUriCandidates(event.id) : [remoteEvent!.uri];
+    const activeRows = (repostLookupUris.length > 1
+      ? db.prepare("SELECT account_id FROM reposts WHERE event_uri IN (?, ?)").all(repostLookupUris[0], repostLookupUris[1])
+      : db.prepare("SELECT account_id FROM reposts WHERE event_uri = ?").all(repostLookupUris[0])) as Array<{ account_id: string }>;
     const activeAccountIds = activeRows.map((r) => r.account_id).filter((accountId) => allowed.has(accountId));
     return c.json({ activeAccountIds, actorIds: Array.from(allowed) });
   });
