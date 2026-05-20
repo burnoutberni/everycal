@@ -112,3 +112,40 @@ describe("migration enforce_local_repost_event_ids", () => {
     db.close();
   });
 });
+
+describe("migration canonicalize_local_repost_event_uris", () => {
+  const previousBaseUrl = process.env.BASE_URL;
+
+  afterEach(() => {
+    process.env.BASE_URL = previousBaseUrl;
+  });
+
+  it("rewrites local repost event_uri values to canonical local event URLs", () => {
+    process.env.BASE_URL = "https://everycal.example";
+    const db = new Database(":memory:");
+    applyMigrationsThrough(db, 13);
+
+    db.prepare("INSERT INTO accounts (id, username) VALUES (?, ?), (?, ?), (?, ?)").run("reader", "reader", "owner", "alice", "remote-owner", "remote-owner");
+    db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("event-1", "owner", "Event", "2026-01-01", "2026-01-01T10:00:00Z", "UTC", "public");
+
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+      .run("reader", "event-1", "event-1", "https://everycal.example/users/alice");
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+      .run("reader", null, "https://remote.example/events/1", "https://remote.example/users/remote-owner");
+
+    const migration = MIGRATIONS.find((entry) => entry.version === 14);
+    if (!migration) throw new Error("migration 14 not found");
+    migration.up(db);
+
+    const localRow = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id = ?")
+      .get("reader", "event-1") as { event_uri: string };
+    const remoteRow = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id IS NULL")
+      .get("reader") as { event_uri: string };
+
+    expect(localRow.event_uri).toBe("https://everycal.example/events/event-1");
+    expect(remoteRow.event_uri).toBe("https://remote.example/events/1");
+
+    db.close();
+  });
+});

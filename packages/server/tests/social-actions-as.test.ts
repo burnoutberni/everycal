@@ -110,7 +110,12 @@ describe("social actions as identity", () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run("ev1", "target", "target", "event-1", "Event 1", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
-    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run("owner", "ev1", "ev1", "https://localhost/users/target");
+    db.prepare("INSERT OR IGNORE INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "owner",
+      "ev1",
+      "http://localhost:3000/events/ev1",
+      "https://localhost/users/target",
+    );
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/ev1/repost", {
@@ -146,7 +151,25 @@ describe("social actions as identity", () => {
     expect(res.status).toBe(400);
   });
 
-  it("deletes repost for legacy local URL-form event_uri", async () => {
+  it("stores canonical local event_uri when creating repost", async () => {
+    db.prepare(
+      "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("ev-canonical", "target", "target", "event-canonical", "Event Canonical", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/ev-canonical/repost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.prepare("SELECT event_uri FROM reposts WHERE account_id = ? AND event_id = ?")
+      .get("owner", "ev-canonical") as { event_uri: string };
+    expect(row.event_uri).toBe("http://localhost:3000/events/ev-canonical");
+  });
+
+  it("deletes repost for canonical local event_uri", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run("ev-legacy", "target", "target", "event-legacy", "Event Legacy", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
@@ -170,7 +193,7 @@ describe("social actions as identity", () => {
     expect(remaining).toBeUndefined();
   });
 
-  it("removes legacy local URL-form repost rows via desiredAccountIds", async () => {
+  it("removes repost rows via desiredAccountIds", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run("ev-mixed", "target", "target", "event-mixed", "Event Mixed", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
@@ -196,22 +219,17 @@ describe("social actions as identity", () => {
     expect(remaining).toBeUndefined();
   });
 
-  it("includes local id and canonical URL repost rows in repost-actors", async () => {
+  it("includes canonical local repost rows in repost-actors", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, created_by_account_id, slug, title, start_date, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run("ev-repost-actors", "target", "target", "event-repost-actors", "Event Repost Actors", "2026-03-01T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "UTC", "public");
     db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
       "owner",
       "ev-repost-actors",
-      "ev-repost-actors",
-      "https://localhost/users/target",
-    );
-    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
-      "identity1",
-      "ev-repost-actors",
       "http://localhost:3000/events/ev-repost-actors",
       "https://localhost/users/target",
     );
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run("identity1", "ev-repost-actors", "http://localhost:3000/events/ev-repost-actors", "https://localhost/users/target");
 
     const app = makeApp(db);
     const res = await app.request("http://localhost/api/v1/events/ev-repost-actors/repost-actors", {

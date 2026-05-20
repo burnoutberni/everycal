@@ -702,6 +702,33 @@ export const MIGRATIONS: Migration[] = [
       db.exec("DELETE FROM reposts WHERE event_id IS NULL AND event_uri NOT LIKE 'http%'");
     },
   },
+  {
+    version: 14,
+    name: "canonicalize_local_repost_event_uris",
+    up: (db) => {
+      const baseUrl = getBaseUrl();
+      const rows = db.prepare(
+        `SELECT r.account_id, r.event_uri, e.id AS event_id
+         FROM reposts r
+         JOIN events e ON e.id = r.event_id`
+      ).all() as Array<{ account_id: string; event_uri: string; event_id: string }>;
+
+      const updateRow = db.prepare("UPDATE reposts SET event_uri = ? WHERE account_id = ? AND event_uri = ?");
+      const canonicalize = db.transaction(() => {
+        for (const row of rows) {
+          const canonicalUri = `${baseUrl}/events/${row.event_id}`;
+          if (row.event_uri !== canonicalUri) {
+            updateRow.run(canonicalUri, row.account_id, row.event_uri);
+          }
+        }
+      });
+      canonicalize();
+
+      db.exec(`DELETE FROM reposts
+               WHERE event_id IS NOT NULL
+                 AND event_uri NOT LIKE 'http%'`);
+    },
+  },
 ];
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
