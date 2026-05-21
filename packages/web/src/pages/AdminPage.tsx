@@ -10,46 +10,11 @@ type FederationActor = { uri: string; preferred_username?: string | null; domain
 type FederationDomain = { domain: string; actor_count: number; error_count: number; gone_count: number; last_fetched_at?: string | null };
 type FederationTombstone = { id: string; object_type: string; object_id: string; reason?: string | null; created_at?: string; expires_at?: string | null };
 type LoginLockout = { username: string; attempts: number; locked_until?: string | null; last_attempt?: string | null };
-type AdminSetting = { key: string; label: string; description?: string; value: boolean | null; effectiveValue: boolean; envOverride: boolean | null; lockedByEnv: boolean };
+type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json'; value: boolean | string | number | null; effectiveValue: boolean | string | number; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean };
 type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
 type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
-type AdminSectionKey = 'health' | 'triage' | 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit';
-
-function flattenHealthMetrics(value: unknown, prefix = ''): Array<{ key: string; label: string; value: string; state: 'good' | 'warn' | 'bad' | 'neutral' }> {
-  if (value == null) return [];
-  if (Array.isArray(value)) {
-    const count = value.length;
-    return [{ key: prefix || 'items', label: prefix || 'Items', value: String(count), state: count > 0 ? 'warn' : 'neutral' }];
-  }
-  if (typeof value === 'object') {
-    const rows: Array<{ key: string; label: string; value: string; state: 'good' | 'warn' | 'bad' | 'neutral' }> = [];
-    Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
-      const key = prefix ? `${prefix}.${k}` : k;
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        rows.push(...flattenHealthMetrics(v, key));
-      } else {
-        const normalized = typeof v === 'boolean' ? (v ? 'healthy' : 'unhealthy') : String(v);
-        const low = normalized.toLowerCase();
-        const state = /(error|fail|down|unhealthy|blocked)/.test(low)
-          ? 'bad'
-          : /(warn|degraded|slow|pending|retry)/.test(low)
-            ? 'warn'
-            : /(ok|healthy|up|ready|running|pass)/.test(low)
-              ? 'good'
-              : 'neutral';
-        rows.push({
-          key,
-          label: key.replace(/[_\.]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-          value: normalized,
-          state,
-        });
-      }
-    });
-    return rows;
-  }
-  return [{ key: prefix || 'status', label: prefix || 'Status', value: String(value), state: 'neutral' }];
-}
+type AdminSectionKey = 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit';
 
 export function AdminPage() {
   const { user } = useAuth();
@@ -84,8 +49,7 @@ export function AdminPage() {
   const [scraperName, setScraperName] = useState('');
   const [scraperDryRun, setScraperDryRun] = useState(true);
   const [revokeAccountId, setRevokeAccountId] = useState('');
-  const [activeSection, setActiveSection] = useState<AdminSectionKey>('health');
-  const [triageMetricQuery, setTriageMetricQuery] = useState('');
+  const [activeSection, setActiveSection] = useState<AdminSectionKey>('settings');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,8 +66,6 @@ export function AdminPage() {
   });
 
   const sections = useMemo(() => ([
-    ['health', 'Health'],
-    ['triage', 'Triage'],
     ['settings', 'Settings'],
     ['accounts', 'Accounts'],
     ['events', 'Events'],
@@ -113,33 +75,15 @@ export function AdminPage() {
     ['jobs', 'Jobs'],
     ['audit', 'Audit'],
   ] as const), []);
-  const healthMetrics = useMemo(() => flattenHealthMetrics(health), [health]);
-  const healthSummary = useMemo(() => {
-    const bad = healthMetrics.filter((m) => m.state === 'bad').length;
-    const warn = healthMetrics.filter((m) => m.state === 'warn').length;
-    const good = healthMetrics.filter((m) => m.state === 'good').length;
-    return { bad, warn, good, total: healthMetrics.length };
-  }, [healthMetrics]);
   const queueFlaggedCount = useMemo(() => moderationQueue.filter((item) => item.moderation_state === 'flagged').length, [moderationQueue]);
   const blockedFederationCount = useMemo(() => federationBlocks.filter((item) => !!item.is_active).length, [federationBlocks]);
-  const activeLockoutCount = useMemo(() => loginLockouts.filter((item) => !!item.locked_until).length, [loginLockouts]);
-  const recentFailedJobs = useMemo(() => jobRuns.filter((run) => run.status !== 'completed').length, [jobRuns]);
-
-  function routeHealthMetric(metric: { key: string; label: string; value: string; state: 'good' | 'warn' | 'bad' | 'neutral' }) {
-    const text = `${metric.key} ${metric.label} ${metric.value}`.toLowerCase();
-    const route = /moderation|event|flag/.test(text)
-      ? { section: 'events' as const, label: 'Review moderation queue' }
-      : /federation|actor|domain|block/.test(text)
-        ? { section: 'federation' as const, label: 'Review federation controls' }
-        : /auth|login|lockout|session|abuse/.test(text)
-          ? { section: 'security' as const, label: 'Review security controls' }
-          : /setting|registration|config|override/.test(text)
-            ? { section: 'settings' as const, label: 'Review runtime settings' }
-            : /job|queue|worker|scraper/.test(text)
-              ? { section: 'jobs' as const, label: 'Review job runs' }
-              : { section: 'triage' as const, label: 'Open triage desk' };
-    return route;
-  }
+  const failedOrRetryingJobs = useMemo(() => jobRuns.filter((run) => /(fail|retry|error)/i.test(run.status)).length, [jobRuns]);
+  const upSinceLabel = useMemo(() => {
+    const uptimeSec = typeof health?.uptimeSec === 'number' ? health.uptimeSec : null;
+    if (!uptimeSec) return 'Unknown';
+    const startedAt = new Date(Date.now() - uptimeSec * 1000);
+    return startedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }, [health]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -302,85 +246,33 @@ export function AdminPage() {
         <div className='settings-card admin-overview-card'>
           <h2 className='settings-section-title mb-1'>Overview</h2>
           <div className='admin-overview-grid'>
-            <article className='admin-overview-item'>
+            <button type='button' className='admin-overview-item' onClick={() => { setQueueState('flagged'); scrollToSection('events'); }}>
               <p className='admin-overview-label'>Flagged events</p>
               <p className='admin-overview-value'>{queueFlaggedCount}</p>
-              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => { setQueueState('flagged'); scrollToSection('events'); }}>Review queue</button>
-            </article>
-            <article className='admin-overview-item'>
+            </button>
+            <button type='button' className='admin-overview-item' onClick={() => scrollToSection('federation')}>
               <p className='admin-overview-label'>Active federation blocks</p>
               <p className='admin-overview-value'>{blockedFederationCount}</p>
-              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('federation')}>Manage blocks</button>
-            </article>
-            <article className='admin-overview-item'>
-              <p className='admin-overview-label'>Active lockouts</p>
-              <p className='admin-overview-value'>{activeLockoutCount}</p>
-              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('security')}>Review lockouts</button>
-            </article>
-            <article className='admin-overview-item'>
-              <p className='admin-overview-label'>Non-complete jobs</p>
-              <p className='admin-overview-value'>{recentFailedJobs}</p>
-              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('jobs')}>Inspect jobs</button>
-            </article>
+            </button>
+            <button type='button' className='admin-overview-item' onClick={() => scrollToSection('jobs')}>
+              <p className='admin-overview-label'>Failed or retrying jobs</p>
+              <p className='admin-overview-value'>{failedOrRetryingJobs}</p>
+            </button>
+            <button type='button' className='admin-overview-item' onClick={() => scrollToSection('accounts')}>
+              <p className='admin-overview-label'>Total accounts</p>
+              <p className='admin-overview-value'>{typeof health?.accounts === 'number' ? health.accounts : '-'}</p>
+            </button>
+            <button type='button' className='admin-overview-item' onClick={() => scrollToSection('events')}>
+              <p className='admin-overview-label'>Total events</p>
+              <p className='admin-overview-value'>{typeof health?.events === 'number' ? health.events : '-'}</p>
+            </button>
+            <button type='button' className='admin-overview-item' onClick={() => refreshHealth().catch((e) => setError(String(e)))}>
+              <p className='admin-overview-label'>Up since</p>
+              <p className='admin-overview-value'>{upSinceLabel}</p>
+            </button>
           </div>
         </div>
       </section>
-
-    <section id='health' ref={(el) => { sectionRefs.current.health = el; }} className='settings-section'>
-      <div className='settings-card'>
-      <div className='flex justify-between items-center mb-1'>
-        <h2 className='settings-section-title'>System health</h2>
-        <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshHealth().catch((e) => setError(String(e)))}>Refresh</button>
-      </div>
-      <div className='admin-health-wrap'>
-        <div className='admin-health-header'>
-          <div className='admin-health-kpi admin-health-kpi-bad'><span>Critical</span><strong>{healthSummary.bad}</strong></div>
-          <div className='admin-health-kpi admin-health-kpi-warn'><span>Warnings</span><strong>{healthSummary.warn}</strong></div>
-          <div className='admin-health-kpi admin-health-kpi-good'><span>Healthy</span><strong>{healthSummary.good}</strong></div>
-          <div className='admin-health-kpi'><span>Total Signals</span><strong>{healthSummary.total}</strong></div>
-        </div>
-        <div className='admin-health-grid'>
-          {healthMetrics.map((m) => {
-            const route = routeHealthMetric(m);
-            return (
-              <article key={m.key} className={`admin-health-metric is-${m.state}`}>
-                <p className='admin-health-metric-label'>{m.label}</p>
-                <p className='admin-health-metric-value'>{m.value}</p>
-                <button
-                  type='button'
-                  className='btn btn-ghost btn-sm admin-health-action'
-                  onClick={() => {
-                    setTriageMetricQuery(m.key);
-                    if (route.section === 'events') setQueueState('flagged');
-                    scrollToSection(route.section);
-                  }}
-                >{route.label}</button>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-      </div>
-    </section>
-
-    <section id='triage' ref={(el) => { sectionRefs.current.triage = el; }} className='settings-section'>
-      <div className='settings-card'>
-      <h2 className='settings-section-title mb-1'>Health triage desk</h2>
-      <p className='text-sm text-muted mb-1'>Use this when a health signal does not map to a specific panel yet.</p>
-      <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => {
-        e.preventDefault();
-        refreshAudit(triageMetricQuery, '', '').catch((err) => setError(String(err)));
-        scrollToSection('audit');
-      }}>
-        <input placeholder='Metric key or keyword' value={triageMetricQuery} onChange={(e) => setTriageMetricQuery(e.target.value)} />
-        <button className='btn btn-primary' type='submit'>Search audit trail</button>
-      </form>
-      <div className='flex gap-1'>
-        <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshHealth().catch((e) => setError(String(e)))}>Refresh health</button>
-        <button type='button' className='btn btn-ghost btn-sm' onClick={() => scrollToSection('settings')}>Review runtime settings</button>
-      </div>
-      </div>
-    </section>
 
     <section id='settings' ref={(el) => { sectionRefs.current.settings = el; }} className='settings-section'>
       <div className='settings-card'>
@@ -394,56 +286,48 @@ export function AdminPage() {
             <div className='flex justify-between items-center gap-1'>
               <div>
                 <strong>{setting.label}</strong>
-                <div className='text-sm text-muted'>Key: {setting.key} · effective: {String(setting.effectiveValue)} · env lock: {String(setting.lockedByEnv)}</div>
+                <div className='text-sm text-muted'>
+                  {typeof setting.effectiveValue === 'boolean'
+                    ? `Current policy: ${setting.effectiveValue ? 'Enabled' : 'Disabled'}`
+                    : `Current value: ${String(setting.effectiveValue)}`}
+                  {setting.lockedByEnv ? ' · Locked by environment variable' : ''}
+                </div>
+                {setting.description ? <div className='text-sm text-muted'>{setting.description}</div> : null}
               </div>
               <div className='flex gap-1'>
-                <button
-                  className='btn btn-ghost btn-sm'
-                  onClick={() => {
-                    openReasonModal({
-                      title: `Set ${setting.label} = true`,
-                      description: 'Writes DB-backed value. Environment override still takes precedence.',
-                      reasonLabel: 'Change reason',
-                      actionLabel: 'Set true',
-                      requireReason: true,
-                      onConfirm: async (reason) => {
-                        await adminFetch('/api/v1/admin/settings/open-registrations', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ value: true, reason }),
+                {typeof setting.effectiveValue === 'boolean' ? (
+                  <label className='checkbox-label'>
+                    <input
+                      type='checkbox'
+                      checked={setting.effectiveValue}
+                      disabled={setting.lockedByEnv || !setting.editable}
+                      onChange={(e) => {
+                        const nextValue = e.target.checked;
+                        openReasonModal({
+                          title: `Set ${setting.label}`,
+                          description: 'Writes DB-backed value. Environment override still takes precedence.',
+                          reasonLabel: 'Change reason',
+                          actionLabel: `Set ${nextValue ? 'enabled' : 'disabled'}`,
+                          actionClassName: nextValue ? undefined : 'btn-danger',
+                          requireReason: true,
+                          onConfirm: async (reason) => {
+                            await adminFetch(`/api/v1/admin/settings/${encodeURIComponent(setting.key)}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ value: nextValue, reason }),
+                            });
+                            setStatus(`Updated ${setting.label.toLowerCase()} to ${nextValue ? 'enabled' : 'disabled'}`);
+                            await refreshSettings();
+                            await refreshAudit();
+                          },
                         });
-                        setStatus('Updated open registrations default to true');
-                        await refreshSettings();
-                        await refreshHealth();
-                        await refreshAudit();
-                      },
-                    });
-                  }}
-                >Enable</button>
-                <button
-                  className='btn btn-danger btn-sm'
-                  onClick={() => {
-                    openReasonModal({
-                      title: `Set ${setting.label} = false`,
-                      description: 'Writes DB-backed value. Environment override still takes precedence.',
-                      reasonLabel: 'Change reason',
-                      actionLabel: 'Set false',
-                      actionClassName: 'btn-danger',
-                      requireReason: true,
-                      onConfirm: async (reason) => {
-                        await adminFetch('/api/v1/admin/settings/open-registrations', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ value: false, reason }),
-                        });
-                        setStatus('Updated open registrations default to false');
-                        await refreshSettings();
-                        await refreshHealth();
-                        await refreshAudit();
-                      },
-                    });
-                  }}
-                >Disable</button>
+                      }}
+                    />
+                    Enabled
+                  </label>
+                ) : (
+                  <span className='text-sm text-muted'>Read-only</span>
+                )}
               </div>
             </div>
           </div>
@@ -469,7 +353,6 @@ export function AdminPage() {
                   <div className='text-sm text-muted'>id: {a.id} · admin: {String(!!a.is_admin)} · disabled: {String(!!a.is_disabled)}</div>
                 </div>
               <div className='flex gap-1'>
-                <button className='btn btn-ghost btn-sm' onClick={() => setRevokeAccountId(a.id)}>Use for revoke</button>
                 <button
                   className='btn btn-danger btn-sm'
                   disabled={!!a.is_disabled || pendingActionKey === `disable:${a.id}`}
@@ -529,7 +412,7 @@ export function AdminPage() {
 
     <section id='events' ref={(el) => { sectionRefs.current.events = el; }} className='settings-section'>
       <div className='settings-card'>
-      <h2 className='settings-section-title mb-1'>Moderate event</h2>
+      <h2 className='settings-section-title mb-1'>Event moderation</h2>
       <p className='text-sm text-muted mb-1'>Apply manual moderation by event ID and review recent queue items.</p>
       <form className='stack-sm' onSubmit={async (e: FormEvent) => {
         e.preventDefault();
@@ -581,13 +464,162 @@ export function AdminPage() {
           {!moderationQueue.length ? <p className='text-sm text-muted'>No items for state: {queueState}.</p> : null}
         </div>
       </div>
+      </div>
+    </section>
+
+    <section id='security' ref={(el) => { sectionRefs.current.security = el; }} className='settings-section'>
+      <div className='settings-card'>
+      <h2 className='settings-section-title mb-1'>Security and abuse</h2>
+      <p className='text-sm text-muted mb-1'>Investigate lockouts and revoke tokens when account access is compromised.</p>
+      <div className='mb-1'>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshLoginLockouts().catch((err) => setError(String(err))); }}>
+          <input placeholder='Search lockouts by username' value={lockoutQuery} onChange={(e) => setLockoutQuery(e.target.value)} />
+          <button className='btn btn-primary' type='submit'>Search</button>
+        </form>
+        <div className='stack-sm'>
+          {loginLockouts.map((lockout) => (
+            <div key={lockout.username} className='card'>
+              <div className='flex justify-between items-center gap-1'>
+                <div>
+                  <strong>@{lockout.username}</strong>
+                  <div className='text-sm text-muted'>attempts: {lockout.attempts} · locked until: {lockout.locked_until || 'not locked'} · last attempt: {lockout.last_attempt || 'n/a'}</div>
+                </div>
+                <button className='btn btn-ghost btn-sm' onClick={() => {
+                  openReasonModal({
+                    title: `Reset lockout for @${lockout.username}`,
+                    description: 'This clears failed login attempts and lock timers for this username.',
+                    reasonLabel: 'Reset reason',
+                    actionLabel: 'Reset lockout',
+                    requireReason: true,
+                    onConfirm: async (reason) => {
+                      await adminFetch(`/api/v1/admin/security/login-lockouts/${encodeURIComponent(lockout.username)}/reset`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason }),
+                      });
+                      setStatus(`Reset lockout state for @${lockout.username}`);
+                      await refreshLoginLockouts();
+                      await refreshAudit();
+                    },
+                  });
+                }}>Reset lockout</button>
+              </div>
+            </div>
+          ))}
+          {!loginLockouts.length ? <p className='text-sm text-muted'>No login lockout records found.</p> : null}
+        </div>
+      </div>
+      <div>
+        <h3 className='text-sm mb-1'>Revoke account auth</h3>
+        <form className='flex gap-1' onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          const accountId = revokeAccountId.trim();
+          if (!accountId) {
+            setError('Provide an account id to revoke authentication.');
+            return;
+          }
+          openReasonModal({
+            title: `Revoke auth for account ${accountId}`,
+            description: 'This revokes all sessions and API keys for the account.',
+            reasonLabel: 'Revocation reason',
+            actionLabel: 'Revoke auth',
+            actionClassName: 'btn-danger',
+            requireReason: true,
+            onConfirm: async (reason) => {
+              const data = await adminFetch(`/api/v1/admin/security/accounts/${encodeURIComponent(accountId)}/revoke-auth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+              });
+              setStatus(`Revoked auth for ${accountId} (sessions: ${data.revokedSessions}, api keys: ${data.revokedApiKeys})`);
+              await refreshAudit();
+            },
+          });
+        }}>
+          <input placeholder='Account ID' value={revokeAccountId} onChange={(e) => setRevokeAccountId(e.target.value)} />
+          <button className='btn btn-danger' type='submit'>Revoke auth now</button>
+        </form>
+      </div>
+      </div>
+    </section>
+
+    <section id='federation' ref={(el) => { sectionRefs.current.federation = el; }} className='settings-section'>
+      <div className='settings-card'>
+      <h2 className='settings-section-title mb-1'>Federation blocklist</h2>
+      <p className='text-sm text-muted mb-1'>Manage remote trust and content suppression in one place.</p>
+      <form className='stack-sm' onSubmit={async (e: FormEvent) => {
+        e.preventDefault();
+        const payload = blockType === 'domain' ? { blockType, domain: blockValue } : { blockType, actorUri: blockValue };
+        await adminFetch('/api/v1/admin/federation/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        setStatus(`Blocked ${blockType}: ${blockValue}`);
+        setBlockValue('');
+        refreshAudit().catch(() => {});
+      }}>
+        <select value={blockType} onChange={(e) => setBlockType(e.target.value as 'actor' | 'domain')}>
+          <option value='domain'>Domain</option>
+          <option value='actor'>Actor URI</option>
+        </select>
+        <input required placeholder={blockType === 'domain' ? 'example.org' : 'https://remote.example/users/alice'} value={blockValue} onChange={(e) => setBlockValue(e.target.value)} />
+        <button className='btn btn-danger' type='submit'>Block now</button>
+      </form>
+      <div className='mt-2'>
+        <div className='flex justify-between items-center mb-1'>
+          <h3 className='text-sm'>Active and recent blocks</h3>
+          <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationBlocks().catch((e) => setError(String(e)))}>Refresh</button>
+        </div>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationBlocks().catch((err) => setError(String(err))); }}>
+          <input placeholder='Search domain or actor URI' value={blockQuery} onChange={(e) => setBlockQuery(e.target.value)} />
+          <button className='btn btn-primary' type='submit'>Search</button>
+        </form>
+        <div className='stack-sm'>
+          {federationBlocks.map((b) => (
+            <div key={b.id} className='card'>
+              <div className='flex justify-between items-center gap-1'>
+                <div>
+                  <strong>{b.block_type === 'domain' ? b.domain : b.actor_uri}</strong>
+                  <div className='text-sm text-muted'>id: {b.id} · type: {b.block_type} · active: {String(!!b.is_active)}</div>
+                </div>
+                <button
+                  className='btn btn-ghost btn-sm'
+                  disabled={!b.is_active || pendingActionKey === `unblock:${b.id}`}
+                  onClick={() => {
+                    openReasonModal({
+                      title: 'Unblock federation target',
+                      description: 'Unblocking does not automatically re-import previously hidden content.',
+                      reasonLabel: 'Unblock reason',
+                      actionLabel: 'Unblock',
+                      requireReason: true,
+                      onConfirm: async (reason) => {
+                        setPendingActionKey(`unblock:${b.id}`);
+                        try {
+                          await adminFetch(`/api/v1/admin/federation/blocks/${b.id}/unblock`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ reason }),
+                          });
+                        } finally {
+                          setPendingActionKey(null);
+                        }
+                        setStatus(`Unblocked ${b.block_type}: ${b.domain || b.actor_uri}`);
+                        await refreshFederationBlocks();
+                        await refreshAudit();
+                      },
+                    });
+                  }}
+                >Unblock</button>
+              </div>
+            </div>
+          ))}
+          {!federationBlocks.length ? <p className='text-sm text-muted'>No federation blocks found.</p> : null}
+        </div>
+      </div>
       <div className='mt-2'>
         <div className='flex justify-between items-center mb-1'>
           <h3 className='text-sm'>Remote actor diagnostics</h3>
           <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationActors().catch((e) => setError(String(e)))}>Refresh</button>
         </div>
         <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationActors().catch((err) => setError(String(err))); }}>
-          <input placeholder='Search URI/domain/username' value={actorQuery} onChange={(e) => setActorQuery(e.target.value)} />
+          <input placeholder='Search URI, domain, or username' value={actorQuery} onChange={(e) => setActorQuery(e.target.value)} />
           <select value={actorStatus} onChange={(e) => setActorStatus(e.target.value)}>
             <option value=''>all statuses</option>
             <option value='active'>active</option>
@@ -682,155 +714,6 @@ export function AdminPage() {
               </div>
             </div>
           ))}
-        </div>
-      </div>
-      </div>
-    </section>
-
-    <section id='security' ref={(el) => { sectionRefs.current.security = el; }} className='settings-section'>
-      <div className='settings-card'>
-      <h2 className='settings-section-title mb-1'>Security and abuse</h2>
-      <p className='text-sm text-muted mb-1'>Investigate lockouts and revoke tokens when account access is compromised.</p>
-      <div className='mb-1'>
-        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshLoginLockouts().catch((err) => setError(String(err))); }}>
-          <input placeholder='Search lockouts by username' value={lockoutQuery} onChange={(e) => setLockoutQuery(e.target.value)} />
-          <button className='btn btn-primary' type='submit'>Search</button>
-        </form>
-        <div className='stack-sm'>
-          {loginLockouts.map((lockout) => (
-            <div key={lockout.username} className='card'>
-              <div className='flex justify-between items-center gap-1'>
-                <div>
-                  <strong>@{lockout.username}</strong>
-                  <div className='text-sm text-muted'>attempts: {lockout.attempts} · locked until: {lockout.locked_until || 'not locked'} · last attempt: {lockout.last_attempt || 'n/a'}</div>
-                </div>
-                <button className='btn btn-ghost btn-sm' onClick={() => {
-                  openReasonModal({
-                    title: `Reset lockout for @${lockout.username}`,
-                    description: 'This clears failed login attempts and lock timers for this username.',
-                    reasonLabel: 'Reset reason',
-                    actionLabel: 'Reset lockout',
-                    requireReason: true,
-                    onConfirm: async (reason) => {
-                      await adminFetch(`/api/v1/admin/security/login-lockouts/${encodeURIComponent(lockout.username)}/reset`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ reason }),
-                      });
-                      setStatus(`Reset lockout state for @${lockout.username}`);
-                      await refreshLoginLockouts();
-                      await refreshAudit();
-                    },
-                  });
-                }}>Reset lockout</button>
-              </div>
-            </div>
-          ))}
-          {!loginLockouts.length ? <p className='text-sm text-muted'>No login lockout records found.</p> : null}
-        </div>
-      </div>
-      <div>
-        <h3 className='text-sm mb-1'>Revoke account auth</h3>
-        <form className='flex gap-1' onSubmit={(e: FormEvent) => {
-          e.preventDefault();
-          const accountId = revokeAccountId.trim();
-          if (!accountId) {
-            setError('Provide an account id to revoke authentication.');
-            return;
-          }
-          openReasonModal({
-            title: `Revoke auth for account ${accountId}`,
-            description: 'This revokes all sessions and API keys for the account.',
-            reasonLabel: 'Revocation reason',
-            actionLabel: 'Revoke auth',
-            actionClassName: 'btn-danger',
-            requireReason: true,
-            onConfirm: async (reason) => {
-              const data = await adminFetch(`/api/v1/admin/security/accounts/${encodeURIComponent(accountId)}/revoke-auth`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reason }),
-              });
-              setStatus(`Revoked auth for ${accountId} (sessions: ${data.revokedSessions}, api keys: ${data.revokedApiKeys})`);
-              await refreshAudit();
-            },
-          });
-        }}>
-          <input placeholder='Account ID' value={revokeAccountId} onChange={(e) => setRevokeAccountId(e.target.value)} />
-          <button className='btn btn-danger' type='submit'>Revoke auth now</button>
-        </form>
-      </div>
-      </div>
-    </section>
-
-    <section id='federation' ref={(el) => { sectionRefs.current.federation = el; }} className='settings-section'>
-      <div className='settings-card'>
-      <h2 className='settings-section-title mb-1'>Federation blocklist</h2>
-      <p className='text-sm text-muted mb-1'>Block hostile domains or actors and keep a traceable unblock flow.</p>
-      <form className='stack-sm' onSubmit={async (e: FormEvent) => {
-        e.preventDefault();
-        const payload = blockType === 'domain' ? { blockType, domain: blockValue } : { blockType, actorUri: blockValue };
-        await adminFetch('/api/v1/admin/federation/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        setStatus(`Blocked ${blockType}: ${blockValue}`);
-        setBlockValue('');
-        refreshAudit().catch(() => {});
-      }}>
-        <select value={blockType} onChange={(e) => setBlockType(e.target.value as 'actor' | 'domain')}>
-          <option value='domain'>Domain</option>
-          <option value='actor'>Actor URI</option>
-        </select>
-        <input required placeholder={blockType === 'domain' ? 'example.org' : 'https://remote.example/users/alice'} value={blockValue} onChange={(e) => setBlockValue(e.target.value)} />
-        <button className='btn btn-danger' type='submit'>Block now</button>
-      </form>
-      <div className='mt-2'>
-        <div className='flex justify-between items-center mb-1'>
-          <h3 className='text-sm'>Active and recent blocks</h3>
-          <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationBlocks().catch((e) => setError(String(e)))}>Refresh</button>
-        </div>
-        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationBlocks().catch((err) => setError(String(err))); }}>
-          <input placeholder='Search domain or actor URI' value={blockQuery} onChange={(e) => setBlockQuery(e.target.value)} />
-          <button className='btn btn-primary' type='submit'>Search</button>
-        </form>
-        <div className='stack-sm'>
-          {federationBlocks.map((b) => (
-            <div key={b.id} className='card'>
-              <div className='flex justify-between items-center gap-1'>
-                <div>
-                  <strong>{b.block_type === 'domain' ? b.domain : b.actor_uri}</strong>
-                  <div className='text-sm text-muted'>id: {b.id} · type: {b.block_type} · active: {String(!!b.is_active)}</div>
-                </div>
-                <button
-                  className='btn btn-ghost btn-sm'
-                  disabled={!b.is_active || pendingActionKey === `unblock:${b.id}`}
-                  onClick={() => {
-                    openReasonModal({
-                      title: 'Unblock federation target',
-                      description: 'Unblocking does not automatically re-import previously hidden content.',
-                      reasonLabel: 'Unblock reason',
-                      actionLabel: 'Unblock',
-                      requireReason: true,
-                      onConfirm: async (reason) => {
-                        setPendingActionKey(`unblock:${b.id}`);
-                        try {
-                          await adminFetch(`/api/v1/admin/federation/blocks/${b.id}/unblock`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ reason }),
-                          });
-                        } finally {
-                          setPendingActionKey(null);
-                        }
-                        setStatus(`Unblocked ${b.block_type}: ${b.domain || b.actor_uri}`);
-                        await refreshFederationBlocks();
-                        await refreshAudit();
-                      },
-                    });
-                  }}
-                >Unblock</button>
-              </div>
-            </div>
-          ))}
-          {!federationBlocks.length ? <p className='text-sm text-muted'>No federation blocks found.</p> : null}
         </div>
       </div>
       </div>

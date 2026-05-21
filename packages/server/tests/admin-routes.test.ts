@@ -39,7 +39,7 @@ describe('admin routes', () => {
     app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
     app.route('/api/v1/admin', adminRoutes(db));
 
-    const settingRes = await app.request('/api/v1/admin/settings/open-registrations', {
+    const settingRes = await app.request('/api/v1/admin/settings/open_registrations', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ value: false, reason: 'maintenance window' }),

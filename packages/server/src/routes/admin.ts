@@ -5,6 +5,66 @@ import { requireAdmin } from '../middleware/auth.js';
 
 const OPEN_REGISTRATIONS_SETTING_KEY = 'open_registrations';
 
+type RuntimeSettingDef = {
+  key: string;
+  label: string;
+  description: string;
+  kind: 'boolean';
+  envVar?: string;
+  defaultValue: boolean;
+  editable: boolean;
+};
+
+const runtimeSettingDefs: RuntimeSettingDef[] = [
+  {
+    key: OPEN_REGISTRATIONS_SETTING_KEY,
+    label: 'Open registrations',
+    description: 'Allow new account registration on this instance.',
+    kind: 'boolean',
+    envVar: 'OPEN_REGISTRATIONS',
+    defaultValue: true,
+    editable: true,
+  },
+  {
+    key: 'trusted_proxy',
+    label: 'Trusted proxy headers',
+    description: 'Trust X-Forwarded-For for rate limit IPs when behind a reverse proxy.',
+    kind: 'boolean',
+    envVar: 'TRUSTED_PROXY',
+    defaultValue: false,
+    editable: false,
+  },
+  {
+    key: 'run_jobs_internally',
+    label: 'Run jobs internally',
+    description: 'Run scraper/reminder jobs in the same container process.',
+    kind: 'boolean',
+    envVar: 'RUN_JOBS_INTERNALLY',
+    defaultValue: true,
+    editable: false,
+  },
+  {
+    key: 'skip_email_verification',
+    label: 'Skip email verification',
+    description: 'Bypass email verification (development use only).',
+    kind: 'boolean',
+    envVar: 'SKIP_EMAIL_VERIFICATION',
+    defaultValue: false,
+    editable: false,
+  },
+  {
+    key: 'skip_signature_verify',
+    label: 'Skip federation signature verification',
+    description: 'Disable ActivityPub signature verification (non-production only).',
+    kind: 'boolean',
+    envVar: 'SKIP_SIGNATURE_VERIFY',
+    defaultValue: false,
+    editable: false,
+  },
+];
+
+const runtimeSettingsByKey = new Map(runtimeSettingDefs.map((setting) => [setting.key, setting]));
+
 function readAdminSetting<T>(db: DB, key: string): T | null {
   const row = db.prepare('SELECT value_json FROM admin_settings WHERE key = ?').get(key) as { value_json: string } | undefined;
   if (!row) return null;
@@ -21,6 +81,31 @@ function readOpenRegistrationsState(db: DB) {
   const envOverride = envRaw === 'true' ? true : envRaw === 'false' ? false : null;
   const effective = envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : true);
   return { effective, envOverride, dbValue };
+}
+
+function parseBooleanEnvOverride(envVar?: string): boolean | null {
+  if (!envVar) return null;
+  const raw = process.env[envVar];
+  return raw === 'true' ? true : raw === 'false' ? false : null;
+}
+
+function readRuntimeSettings(db: DB) {
+  return runtimeSettingDefs.map((def) => {
+    const dbValue = readAdminSetting<boolean>(db, def.key);
+    const envOverride = parseBooleanEnvOverride(def.envVar);
+    const effectiveValue = envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : def.defaultValue);
+    return {
+      key: def.key,
+      label: def.label,
+      description: def.description,
+      kind: def.kind,
+      value: dbValue,
+      effectiveValue,
+      envOverride,
+      lockedByEnv: envOverride !== null,
+      editable: def.editable,
+    };
+  });
 }
 
 function audit(db: DB, adminId: string, action: string, targetType: string, targetId: string, payload: Record<string, unknown> = {}) {
@@ -49,34 +134,28 @@ export function adminRoutes(db: DB) {
   });
 
   app.get('/settings', (c) => {
-    const openRegistrations = readOpenRegistrationsState(db);
     return c.json({
-      items: [
-        {
-          key: OPEN_REGISTRATIONS_SETTING_KEY,
-          label: 'Open registrations',
-          description: 'Allow new account registration on this instance.',
-          value: openRegistrations.dbValue,
-          effectiveValue: openRegistrations.effective,
-          envOverride: openRegistrations.envOverride,
-          lockedByEnv: openRegistrations.envOverride !== null,
-        },
-      ],
+      items: readRuntimeSettings(db),
     });
   });
 
-  app.post('/settings/open-registrations', async (c) => {
+  app.post('/settings/:key', async (c) => {
     const admin = c.get('user')!;
+    const key = c.req.param('key');
+    const def = runtimeSettingsByKey.get(key);
+    if (!def) return c.json({ error: 'unknown_setting' }, 404);
+    if (!def.editable) return c.json({ error: 'setting_read_only' }, 403);
     const body = await c.req.json<{ value?: boolean; reason?: string }>().catch(() => ({} as { value?: boolean; reason?: string }));
     if (typeof body.value !== 'boolean') return c.json({ error: 'invalid_value' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    if (def.kind !== 'boolean') return c.json({ error: 'unsupported_setting_type' }, 400);
     db.prepare(`INSERT INTO admin_settings (key, value_json, updated_by_account_id, updated_at)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_by_account_id=excluded.updated_by_account_id, updated_at=datetime('now')`)
-      .run(OPEN_REGISTRATIONS_SETTING_KEY, JSON.stringify(body.value), admin.id);
-    audit(db, admin.id, 'settings.open_registrations', 'admin_setting', OPEN_REGISTRATIONS_SETTING_KEY, {
+      .run(key, JSON.stringify(body.value), admin.id);
+    audit(db, admin.id, `settings.${key}`, 'admin_setting', key, {
       value: body.value,
-      envLocked: process.env.OPEN_REGISTRATIONS === 'true' || process.env.OPEN_REGISTRATIONS === 'false',
+      envLocked: parseBooleanEnvOverride(def.envVar) !== null,
       reason: body.reason.trim(),
     });
     return c.json({ ok: true });
