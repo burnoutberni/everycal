@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
 import { adminRoutes, cleanupAdminAuditLogs } from '../src/routes/admin.js';
-import { getEffectiveSetting } from '../src/lib/runtime-settings.js';
+import { getEffectiveSetting, runtimeSettingsByKey, runtimeSettingDefs } from '../src/lib/runtime-settings.js';
 
 describe('admin routes', () => {
   it('enforces requireAdmin and writes audit log', async () => {
@@ -244,6 +244,78 @@ describe('admin routes', () => {
     });
     expect(res6.status).toBe(403);
     expect(await res6.json()).toEqual({ error: 'setting_read_only' });
+  });
+
+  it('POST /settings/:key blocks secret persistence for editable settings', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const customSecretDef = {
+      key: 'test_secret_setting',
+      label: 'Test secret setting',
+      description: 'Temporary test-only secret setting.',
+      kind: 'secret' as const,
+      editable: true,
+      source: 'db_with_env_override' as const,
+    };
+    runtimeSettingDefs.push(customSecretDef);
+    runtimeSettingsByKey.set(customSecretDef.key, customSecretDef);
+
+    try {
+      const res = await app.request('/api/v1/admin/settings/test_secret_setting', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 'plaintext-should-not-store', reason: 'security hardening test' }),
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'secret_setting_persistence_disabled' });
+
+      const stored = db.prepare("SELECT value_json FROM admin_settings WHERE key = 'test_secret_setting'").get() as { value_json: string } | undefined;
+      expect(stored).toBeUndefined();
+    } finally {
+      runtimeSettingsByKey.delete(customSecretDef.key);
+      const idx = runtimeSettingDefs.findIndex((def) => def.key === customSecretDef.key);
+      if (idx >= 0) runtimeSettingDefs.splice(idx, 1);
+    }
+  });
+
+  it('GET /settings masks secret values sourced from admin_settings', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?)").run('test_secret_setting', JSON.stringify('raw-secret-value'));
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const customSecretDef = {
+      key: 'test_secret_setting',
+      label: 'Test secret setting',
+      description: 'Temporary test-only secret setting.',
+      kind: 'secret' as const,
+      editable: false,
+      source: 'db_with_env_override' as const,
+    };
+    runtimeSettingDefs.push(customSecretDef);
+    runtimeSettingsByKey.set(customSecretDef.key, customSecretDef);
+
+    try {
+      const res = await app.request('/api/v1/admin/settings');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { items: Array<{ key: string; value: unknown; effectiveValue: unknown; envOverride: unknown }> };
+      const row = body.items.find((item) => item.key === 'test_secret_setting');
+      expect(row).toBeDefined();
+      expect(row?.value).toBe('(set)');
+      expect(row?.effectiveValue).toBe('(set)');
+      expect(row?.envOverride).toBeNull();
+    } finally {
+      runtimeSettingsByKey.delete(customSecretDef.key);
+      const idx = runtimeSettingDefs.findIndex((def) => def.key === customSecretDef.key);
+      if (idx >= 0) runtimeSettingDefs.splice(idx, 1);
+    }
   });
 
   it('GET /accounts lists accounts matching query q', async () => {

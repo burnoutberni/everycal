@@ -60,6 +60,7 @@ export function adminRoutes(db: DB) {
     const def = runtimeSettingsByKey.get(key);
     if (!def) return c.json({ error: 'unknown_setting' }, 404);
     if (!def.editable) return c.json({ error: 'setting_read_only' }, 403);
+    if (def.kind === 'secret') return c.json({ error: 'secret_setting_persistence_disabled' }, 403);
     const body = await c.req.json<{ value?: unknown; reason?: string }>().catch(() => ({} as { value?: unknown; reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     let nextValue: boolean | string | number;
@@ -80,7 +81,7 @@ export function adminRoutes(db: DB) {
       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_by_account_id=excluded.updated_by_account_id, updated_at=datetime('now')`)
       .run(key, JSON.stringify(nextValue), admin.id);
     audit(db, admin.id, `settings.${key}`, 'admin_setting', key, {
-      value: def.kind === 'secret' ? '(updated)' : nextValue,
+      value: nextValue,
       envLocked: readEnvOverride(def) !== null,
       reason: body.reason.trim(),
     });

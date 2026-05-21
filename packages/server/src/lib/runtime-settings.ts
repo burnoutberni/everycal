@@ -123,14 +123,23 @@ export function readRuntimeSettings(db: DB) {
     const effectiveValue = def.source === "db_with_env_override"
       ? (envOverride !== null ? envOverride : (dbValue ?? def.defaultValue ?? null))
       : readEnvValue(def);
+    const maskedDbValue = def.kind === "secret"
+      ? (typeof dbValue === "string" && dbValue.trim().length > 0 ? "(set)" : "(not set)")
+      : dbValue;
+    const maskedEffectiveValue = def.kind === "secret"
+      ? (typeof effectiveValue === "string" && effectiveValue.trim().length > 0 ? "(set)" : "(not set)")
+      : effectiveValue;
+    const maskedEnvOverride = def.kind === "secret"
+      ? (envOverride !== null ? envOverride : null)
+      : envOverride;
     return {
       key: def.key,
       label: def.label,
       description: def.description,
       kind: def.kind,
-      value: dbValue,
-      effectiveValue,
-      envOverride,
+      value: maskedDbValue,
+      effectiveValue: maskedEffectiveValue,
+      envOverride: maskedEnvOverride,
       lockedByEnv: envOverride !== null,
       editable: def.editable,
     };
