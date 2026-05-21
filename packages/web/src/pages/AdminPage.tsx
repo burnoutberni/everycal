@@ -6,6 +6,11 @@ type AnyObj = Record<string, any>;
 type Account = { id: string; username: string; is_admin?: number; is_disabled?: number; account_type?: string; discoverable?: number; email_verified?: number; created_at?: string; is_bot?: number };
 type ModerationItem = { id: string; title: string; start_at_utc?: string; end_at_utc?: string; moderation_state: string; moderation_reason?: string | null; moderated_at?: string | null; account_id?: string; created_by_account_id?: string | null; created_at?: string };
 type FederationBlock = { id: string; block_type: 'actor' | 'domain'; actor_uri?: string | null; domain?: string | null; is_active?: number; created_at?: string };
+type FederationActor = { uri: string; preferred_username?: string | null; domain: string; fetch_status?: string | null; last_fetched_at?: string | null; next_retry_at?: string | null; last_error?: string | null };
+type FederationDomain = { domain: string; actor_count: number; error_count: number; gone_count: number; last_fetched_at?: string | null };
+type FederationTombstone = { id: string; object_type: string; object_id: string; reason?: string | null; created_at?: string; expires_at?: string | null };
+type LoginLockout = { username: string; attempts: number; locked_until?: string | null; last_attempt?: string | null };
+type AdminSetting = { key: string; label: string; description?: string; value: boolean | null; effectiveValue: boolean; envOverride: boolean | null; lockedByEnv: boolean };
 type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
 type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
@@ -53,12 +58,23 @@ export function AdminPage() {
   const [moderationQueue, setModerationQueue] = useState<ModerationItem[]>([]);
   const [federationBlocks, setFederationBlocks] = useState<FederationBlock[]>([]);
   const [jobRuns, setJobRuns] = useState<JobRun[]>([]);
+  const [settings, setSettings] = useState<AdminSetting[]>([]);
+  const [loginLockouts, setLoginLockouts] = useState<LoginLockout[]>([]);
+  const [federationActors, setFederationActors] = useState<FederationActor[]>([]);
+  const [federationDomains, setFederationDomains] = useState<FederationDomain[]>([]);
+  const [federationTombstones, setFederationTombstones] = useState<FederationTombstone[]>([]);
   const [accountQuery, setAccountQuery] = useState('');
   const [queueState, setQueueState] = useState('flagged');
   const [blockQuery, setBlockQuery] = useState('');
   const [auditAction, setAuditAction] = useState('');
   const [auditActor, setAuditActor] = useState('');
   const [auditTarget, setAuditTarget] = useState('');
+  const [lockoutQuery, setLockoutQuery] = useState('');
+  const [actorQuery, setActorQuery] = useState('');
+  const [actorStatus, setActorStatus] = useState('');
+  const [tombstoneType, setTombstoneType] = useState('remote_event');
+  const [tombstoneObjectId, setTombstoneObjectId] = useState('');
+  const [tombstoneReason, setTombstoneReason] = useState('');
   const [eventId, setEventId] = useState('');
   const [eventState, setEventState] = useState('visible');
   const [eventReason, setEventReason] = useState('');
@@ -66,7 +82,7 @@ export function AdminPage() {
   const [blockValue, setBlockValue] = useState('');
   const [scraperName, setScraperName] = useState('');
   const [scraperDryRun, setScraperDryRun] = useState(true);
-  const [activeSection, setActiveSection] = useState<'health' | 'accounts' | 'events' | 'federation' | 'scrapers' | 'jobs' | 'audit'>('health');
+  const [activeSection, setActiveSection] = useState<'health' | 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit'>('health');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,9 +100,11 @@ export function AdminPage() {
 
   const sections = useMemo(() => ([
     ['health', 'Health'],
+    ['settings', 'Settings'],
     ['accounts', 'Accounts'],
     ['events', 'Events'],
     ['federation', 'Federation'],
+    ['security', 'Security'],
     ['scrapers', 'Scrapers'],
     ['jobs', 'Jobs'],
     ['audit', 'Audit'],
@@ -168,6 +186,36 @@ export function AdminPage() {
     setJobRuns(data.items || []);
   }
 
+  async function refreshSettings() {
+    const data = await adminFetch('/api/v1/admin/settings');
+    setSettings(data.items || []);
+  }
+
+  async function refreshLoginLockouts(q = lockoutQuery) {
+    const suffix = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+    const data = await adminFetch(`/api/v1/admin/security/login-lockouts${suffix}`);
+    setLoginLockouts(data.items || []);
+  }
+
+  async function refreshFederationActors() {
+    const params = new URLSearchParams();
+    if (actorQuery.trim()) params.set('q', actorQuery.trim());
+    if (actorStatus.trim()) params.set('status', actorStatus.trim());
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const data = await adminFetch(`/api/v1/admin/federation/actors${suffix}`);
+    setFederationActors(data.items || []);
+  }
+
+  async function refreshFederationDomains() {
+    const data = await adminFetch('/api/v1/admin/federation/domains');
+    setFederationDomains(data.items || []);
+  }
+
+  async function refreshFederationTombstones() {
+    const data = await adminFetch('/api/v1/admin/federation/tombstones');
+    setFederationTombstones(data.items || []);
+  }
+
   function openReasonModal(options: Omit<ConfirmState, 'open' | 'reason' | 'loading'>) {
     setConfirmState({ ...options, open: true, reason: '', loading: false });
   }
@@ -195,6 +243,11 @@ export function AdminPage() {
     refreshAccounts('').catch(() => {});
     refreshModerationQueue('flagged').catch(() => {});
     refreshFederationBlocks('').catch(() => {});
+    refreshFederationActors().catch(() => {});
+    refreshFederationDomains().catch(() => {});
+    refreshFederationTombstones().catch(() => {});
+    refreshSettings().catch(() => {});
+    refreshLoginLockouts('').catch(() => {});
     refreshJobRuns().catch(() => {});
   }, [user?.isAdmin]);
 
@@ -243,6 +296,76 @@ export function AdminPage() {
             </article>
           ))}
         </div>
+      </div>
+      </div>
+    </section>
+
+    <section id='settings' ref={(el) => { sectionRefs.current.settings = el; }} className='settings-section'>
+      <div className='settings-card'>
+      <div className='flex justify-between items-center mb-1'>
+        <h2 className='settings-section-title'>Runtime settings</h2>
+        <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshSettings().catch((e) => setError(String(e)))}>Refresh</button>
+      </div>
+      <div className='stack-sm'>
+        {settings.map((setting) => (
+          <div key={setting.key} className='card'>
+            <div className='flex justify-between items-center gap-1'>
+              <div>
+                <strong>{setting.label}</strong>
+                <div className='text-sm text-muted'>Key: {setting.key} · effective: {String(setting.effectiveValue)} · env lock: {String(setting.lockedByEnv)}</div>
+              </div>
+              <div className='flex gap-1'>
+                <button
+                  className='btn btn-ghost btn-sm'
+                  onClick={() => {
+                    openReasonModal({
+                      title: `Set ${setting.label} = true`,
+                      description: 'Writes DB-backed value. Environment override still takes precedence.',
+                      reasonLabel: 'Change reason',
+                      actionLabel: 'Set true',
+                      requireReason: true,
+                      onConfirm: async (reason) => {
+                        await adminFetch('/api/v1/admin/settings/open-registrations', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ value: true, reason }),
+                        });
+                        setStatus('Updated open registrations default to true');
+                        await refreshSettings();
+                        await refreshHealth();
+                        await refreshAudit();
+                      },
+                    });
+                  }}
+                >Enable</button>
+                <button
+                  className='btn btn-danger btn-sm'
+                  onClick={() => {
+                    openReasonModal({
+                      title: `Set ${setting.label} = false`,
+                      description: 'Writes DB-backed value. Environment override still takes precedence.',
+                      reasonLabel: 'Change reason',
+                      actionLabel: 'Set false',
+                      actionClassName: 'btn-danger',
+                      requireReason: true,
+                      onConfirm: async (reason) => {
+                        await adminFetch('/api/v1/admin/settings/open-registrations', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ value: false, reason }),
+                        });
+                        setStatus('Updated open registrations default to false');
+                        await refreshSettings();
+                        await refreshHealth();
+                        await refreshAudit();
+                      },
+                    });
+                  }}
+                >Disable</button>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
       </div>
     </section>
@@ -372,6 +495,184 @@ export function AdminPage() {
           ))}
           {!moderationQueue.length ? <p className='text-sm text-muted'>No items for state: {queueState}.</p> : null}
         </div>
+      </div>
+      <div className='mt-2'>
+        <div className='flex justify-between items-center mb-1'>
+          <h3 className='text-sm'>Remote actor diagnostics</h3>
+          <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationActors().catch((e) => setError(String(e)))}>Refresh</button>
+        </div>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationActors().catch((err) => setError(String(err))); }}>
+          <input placeholder='Search URI/domain/username' value={actorQuery} onChange={(e) => setActorQuery(e.target.value)} />
+          <select value={actorStatus} onChange={(e) => setActorStatus(e.target.value)}>
+            <option value=''>all statuses</option>
+            <option value='active'>active</option>
+            <option value='error'>error</option>
+            <option value='gone'>gone</option>
+          </select>
+          <button className='btn btn-primary' type='submit'>Filter</button>
+        </form>
+        <div className='stack-sm'>
+          {federationActors.slice(0, 50).map((actor) => (
+            <div key={actor.uri} className='card'>
+              <strong>{actor.preferred_username || actor.uri}</strong>
+              <div className='text-sm text-muted'>domain: {actor.domain} · status: {actor.fetch_status || 'active'} · retry: {actor.next_retry_at || 'n/a'}</div>
+              {actor.last_error ? <div className='text-sm text-muted'>last error: {actor.last_error}</div> : null}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className='mt-2'>
+        <div className='flex justify-between items-center mb-1'>
+          <h3 className='text-sm'>Federation domains</h3>
+          <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationDomains().catch((e) => setError(String(e)))}>Refresh</button>
+        </div>
+        <div className='stack-sm'>
+          {federationDomains.slice(0, 50).map((domain) => (
+            <div key={domain.domain} className='card'>
+              <strong>{domain.domain}</strong>
+              <div className='text-sm text-muted'>actors: {domain.actor_count} · errors: {domain.error_count} · gone: {domain.gone_count}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className='mt-2'>
+        <div className='flex justify-between items-center mb-1'>
+          <h3 className='text-sm'>Federation tombstones</h3>
+          <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshFederationTombstones().catch((e) => setError(String(e)))}>Refresh</button>
+        </div>
+        <form className='stack-sm mb-1' onSubmit={async (e: FormEvent) => {
+          e.preventDefault();
+          if (!tombstoneObjectId.trim() || !tombstoneReason.trim()) {
+            setError('Tombstone object id and reason are required');
+            return;
+          }
+          await adminFetch('/api/v1/admin/federation/tombstones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ objectType: tombstoneType, objectId: tombstoneObjectId.trim(), reason: tombstoneReason.trim() }),
+          });
+          setStatus(`Created tombstone for ${tombstoneType}:${tombstoneObjectId}`);
+          setTombstoneObjectId('');
+          setTombstoneReason('');
+          await refreshFederationTombstones();
+          await refreshAudit();
+        }}>
+          <select value={tombstoneType} onChange={(e) => setTombstoneType(e.target.value)}>
+            <option value='remote_event'>remote_event</option>
+            <option value='remote_actor'>remote_actor</option>
+            <option value='activity'>activity</option>
+          </select>
+          <input placeholder='Object ID or URI' value={tombstoneObjectId} onChange={(e) => setTombstoneObjectId(e.target.value)} />
+          <textarea placeholder='Reason (required)' value={tombstoneReason} onChange={(e) => setTombstoneReason(e.target.value)} />
+          <button className='btn btn-primary' type='submit'>Create tombstone</button>
+        </form>
+        <div className='stack-sm'>
+          {federationTombstones.slice(0, 50).map((stone) => (
+            <div key={stone.id} className='card'>
+              <div className='flex justify-between items-start gap-1'>
+                <div>
+                  <strong>{stone.object_type}: {stone.object_id}</strong>
+                  <div className='text-sm text-muted'>created: {stone.created_at || 'n/a'} · expires: {stone.expires_at || 'none'}</div>
+                  {stone.reason ? <div className='text-sm text-muted'>reason: {stone.reason}</div> : null}
+                </div>
+                <button className='btn btn-ghost btn-sm' onClick={() => {
+                  openReasonModal({
+                    title: 'Delete tombstone',
+                    description: 'This allows future federation fetch of the object again.',
+                    reasonLabel: 'Deletion reason',
+                    actionLabel: 'Delete',
+                    requireReason: true,
+                    onConfirm: async (reason) => {
+                      await adminFetch(`/api/v1/admin/federation/tombstones/${stone.id}/delete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason }),
+                      });
+                      setStatus(`Deleted tombstone ${stone.id}`);
+                      await refreshFederationTombstones();
+                      await refreshAudit();
+                    },
+                  });
+                }}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <section id='security' ref={(el) => { sectionRefs.current.security = el; }} className='settings-section'>
+      <div className='settings-card'>
+      <h2 className='settings-section-title mb-1'>Security and abuse</h2>
+      <div className='mb-1'>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshLoginLockouts().catch((err) => setError(String(err))); }}>
+          <input placeholder='Search lockouts by username' value={lockoutQuery} onChange={(e) => setLockoutQuery(e.target.value)} />
+          <button className='btn btn-primary' type='submit'>Search</button>
+        </form>
+        <div className='stack-sm'>
+          {loginLockouts.map((lockout) => (
+            <div key={lockout.username} className='card'>
+              <div className='flex justify-between items-center gap-1'>
+                <div>
+                  <strong>@{lockout.username}</strong>
+                  <div className='text-sm text-muted'>attempts: {lockout.attempts} · locked until: {lockout.locked_until || 'not locked'} · last attempt: {lockout.last_attempt || 'n/a'}</div>
+                </div>
+                <button className='btn btn-ghost btn-sm' onClick={() => {
+                  openReasonModal({
+                    title: `Reset lockout for @${lockout.username}`,
+                    description: 'This clears failed login attempts and lock timers for this username.',
+                    reasonLabel: 'Reset reason',
+                    actionLabel: 'Reset lockout',
+                    requireReason: true,
+                    onConfirm: async (reason) => {
+                      await adminFetch(`/api/v1/admin/security/login-lockouts/${encodeURIComponent(lockout.username)}/reset`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason }),
+                      });
+                      setStatus(`Reset lockout state for @${lockout.username}`);
+                      await refreshLoginLockouts();
+                      await refreshAudit();
+                    },
+                  });
+                }}>Reset lockout</button>
+              </div>
+            </div>
+          ))}
+          {!loginLockouts.length ? <p className='text-sm text-muted'>No login lockout records found.</p> : null}
+        </div>
+      </div>
+      <div>
+        <h3 className='text-sm mb-1'>Revoke account auth</h3>
+        <form className='flex gap-1' onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          const accountId = accountQuery.trim();
+          if (!accountId) {
+            setError('Provide an account id in the Accounts search field first, then revoke.');
+            return;
+          }
+          openReasonModal({
+            title: `Revoke auth for account ${accountId}`,
+            description: 'This revokes all sessions and API keys for the account.',
+            reasonLabel: 'Revocation reason',
+            actionLabel: 'Revoke auth',
+            actionClassName: 'btn-danger',
+            requireReason: true,
+            onConfirm: async (reason) => {
+              const data = await adminFetch(`/api/v1/admin/security/accounts/${encodeURIComponent(accountId)}/revoke-auth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+              });
+              setStatus(`Revoked auth for ${accountId} (sessions: ${data.revokedSessions}, api keys: ${data.revokedApiKeys})`);
+              await refreshAudit();
+            },
+          });
+        }}>
+          <input placeholder='Use account id from Accounts section' value={accountQuery} onChange={(e) => setAccountQuery(e.target.value)} />
+          <button className='btn btn-danger' type='submit'>Revoke auth now</button>
+        </form>
       </div>
       </div>
     </section>
