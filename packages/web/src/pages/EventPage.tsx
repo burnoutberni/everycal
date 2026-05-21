@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState, useMemo, useRef, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
+import { toErrorMessage } from "@everycal/core";
 import { eventsPathWithTags } from "../lib/urls";
 import { events as eventsApi, users as usersApi, federation, identities as identitiesApi, type CalEvent } from "../lib/api";
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
@@ -447,7 +448,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       setFlagModalOpen(false);
       setFlagReason("");
     } catch (err) {
-      setFlagReasonError(err instanceof Error ? err.message : String(err));
+      setFlagReasonError(toErrorMessage(err, t("common:unexpectedError")));
     } finally {
       setFlagSubmitting(false);
     }

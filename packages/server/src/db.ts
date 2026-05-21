@@ -3,6 +3,7 @@
  */
 
 import Database from "better-sqlite3";
+import { toErrorMessage } from "@everycal/core";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 
@@ -576,7 +577,7 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
     } catch (error) {
       db.exec("ROLLBACK");
       throw new Error(
-        `Failed database migration v${migration.version} (${migration.name}): ${error instanceof Error ? error.message : String(error)}`
+        `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
       );
     }
   }
@@ -590,7 +591,7 @@ function validateBaseUrlForPendingMigrations(fromVersion: number): void {
   try {
     validateBaseUrlConfig();
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = toErrorMessage(error, "validation failed");
     throw new Error(
       `BASE_URL preflight check failed before database migrations: ${detail}. Set BASE_URL before starting the server so canonical federation URLs are migrated correctly.`
     );

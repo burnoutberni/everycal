@@ -11,6 +11,7 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
+import { toErrorMessage } from "@everycal/core";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -257,7 +258,7 @@ export function federationRoutes(db: DB): Hono {
         await validateFederationUrl(self.href);
         actorUri = self.href;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = toErrorMessage(err, "WebFinger lookup failed");
         const msgLower = msg.toLowerCase();
         if (
           msgLower.includes("private/internal") ||
@@ -472,7 +473,7 @@ export function federationRoutes(db: DB): Hono {
 
       return c.json({ ok: true, imported, total: items.length });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err, "Failed to fetch actor outbox");
       return c.json({ error: t(getLocale(c), "federation.failed_to_fetch_outbox", { error: msg }) }, 502);
     }
   });

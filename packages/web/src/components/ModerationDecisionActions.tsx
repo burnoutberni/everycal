@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { toErrorMessage } from "@everycal/core";
 import { ReasonModal } from "./ReasonModal";
 
 type DecisionState = "hidden" | "visible";
@@ -52,7 +53,7 @@ export function ModerationDecisionActions({
       await onResolved?.(decision);
       closeModal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toErrorMessage(err, "Failed to moderate event"));
     } finally {
       setSubmitting(false);
     }

@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toErrorMessage } from '@everycal/core';
 import { useAuth } from '../hooks/useAuth';
 import { CalendarIcon, CheckCalendarIcon, FlagIcon, GlobeIcon, SettingsIcon, ShieldIcon, TimerIcon, UpdateIcon, UserIcon } from '../components/icons';
 import { ModerationDecisionActions } from '../components/ModerationDecisionActions';
@@ -372,7 +373,7 @@ export function AdminPage() {
       setLastRefreshedAt(new Date());
       setRefreshCountdownSec(60);
     } catch (e) {
-      setError(String(e));
+      setError(toErrorMessage(e, 'Failed to refresh admin data'));
     } finally {
       setIsRefreshingAll(false);
     }
@@ -403,7 +404,7 @@ export function AdminPage() {
       setConfirmState((prev) => ({ ...prev, open: false, loading: false }));
     } catch (e) {
       setConfirmState((prev) => ({ ...prev, loading: false }));
-      setError(String(e));
+      setError(toErrorMessage(e, 'Failed to complete admin action'));
     }
   }
 
@@ -545,7 +546,7 @@ export function AdminPage() {
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Accounts</h2>
       <p className='text-sm text-muted mb-1'>Search users, disable compromised accounts, and restore access when resolved.</p>
-      <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAccounts().catch((err) => setError(String(err))); }}>
+      <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAccounts().catch((err) => setError(toErrorMessage(err, 'Failed to refresh accounts'))); }}>
         <input aria-label='Search accounts by username' placeholder='Search username' value={accountQuery} onChange={(e) => setAccountQuery(e.target.value)} />
         <button className='btn btn-primary' type='submit'>Search</button>
       </form>
@@ -691,7 +692,7 @@ export function AdminPage() {
           <h3 className='text-sm'>Moderation requests</h3>
           <span className='text-sm text-muted'>{moderationQueue.length} items</span>
         </div>
-        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshModerationQueue().catch((err) => setError(String(err))); }}>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshModerationQueue().catch((err) => setError(toErrorMessage(err, 'Failed to refresh moderation queue'))); }}>
           <select value={queueState} onChange={(e) => setQueueState(e.target.value)}>
             <option value='flagged'>open requests</option>
             <option value='hidden'>decided: removed</option>
@@ -1017,7 +1018,7 @@ export function AdminPage() {
           <h3 className='text-sm'>Known Federation Users (Actors)</h3>
           <span className='text-sm text-muted'>{federationActors.length} users</span>
         </div>
-        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationActors().catch((err) => setError(String(err))); }}>
+        <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshFederationActors().catch((err) => setError(toErrorMessage(err, 'Failed to refresh federation actors'))); }}>
           <input placeholder='Search URI, domain, or username' value={actorQuery} onChange={(e) => setActorQuery(e.target.value)} />
           <select aria-label='Filter status' value={actorStatus} onChange={(e) => setActorStatus(e.target.value)}>
             <option value=''>all statuses</option>
@@ -1164,7 +1165,7 @@ export function AdminPage() {
                     await refreshJobRuns();
                     await refreshAudit();
                   } catch (err) {
-                    setError(String(err));
+                    setError(toErrorMessage(err, 'Failed to trigger scraper'));
                   } finally {
                     setPendingActionKey(null);
                   }
@@ -1210,7 +1211,7 @@ export function AdminPage() {
         <h2 className='settings-section-title'>Audit trail</h2>
       </div>
       <p className='text-sm text-muted mb-1'>Immutable log for sensitive admin actions and moderation decisions.</p>
-      <form className='flex gap-1 mb-1 flex-wrap' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAudit().catch((err) => setError(String(err))); }}>
+      <form className='flex gap-1 mb-1 flex-wrap' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAudit().catch((err) => setError(toErrorMessage(err, 'Failed to refresh audit trail'))); }}>
         <select aria-label='Filter by action type' value={auditAction} onChange={(e) => setAuditAction(e.target.value)} style={{ flex: '1 1 180px', minWidth: '150px' }}>
           <option value=''>All Actions</option>
           <option value='account.disable'>account.disable</option>
@@ -1407,7 +1408,7 @@ export function AdminPage() {
                 type='button'
                 className={`btn ${confirmState.actionClassName || 'btn-primary'}`}
                 disabled={!!confirmState.loading}
-                onClick={() => submitReasonModal().catch((e) => setError(String(e)))}
+                onClick={() => submitReasonModal().catch((e) => setError(toErrorMessage(e, 'Failed to submit reason')))}
               >{confirmState.loading ? 'Working…' : confirmState.actionLabel}</button>
             </div>
           </div>

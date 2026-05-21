@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { toErrorMessage } from "@everycal/core";
 import type { DB } from "../../db.js";
 import { buildFeedQuery } from "../../lib/feed-query.js";
 import { DateQueryParamError } from "../../lib/date-query.js";
@@ -543,7 +544,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       if (wantsHtml) return c.redirect(path, 302);
       return c.json({ path, event: row ? formatRemoteEvent(row) : null });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err, "Failed to fetch remote event");
       return c.json({ error: t(locale, "events.resolve_fetch_failed", { error: msg }) }, 502);
     }
   });

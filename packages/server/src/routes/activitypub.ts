@@ -12,7 +12,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import crypto from "node:crypto";
-import { normalizeHashtagName } from "@everycal/core";
+import { normalizeHashtagName, toErrorMessage } from "@everycal/core";
 import type { DB } from "../db.js";
 import { verifySignature } from "../lib/crypto.js";
 import { ensureKeyPairForAccount } from "../lib/account-keys.js";
@@ -754,7 +754,7 @@ function markInboxActivityFailed(
 ): void {
   const activityId = parseActivityId(activity.id);
   if (!activityId) return;
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = toErrorMessage(error, "Inbox activity processing failed");
   db.prepare(
     `UPDATE processed_inbox_activities
      SET status = 'failed', claimed_at = NULL, last_error = ?

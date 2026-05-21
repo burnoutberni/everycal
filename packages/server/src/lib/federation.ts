@@ -3,7 +3,7 @@
  */
 
 import crypto from "node:crypto";
-import type { EventVisibility } from "@everycal/core";
+import { toErrorMessage, type EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
@@ -492,7 +492,7 @@ export async function resolveRemoteActor(
     }
 
     const retryAtIso = new Date(Date.now() + FEDERATION_RETRY_DELAY_MS).toISOString();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err, "Failed to resolve remote actor");
     upsertRemoteActorFetchState(db, actorUri, {
       fetchStatus: "error",
       lastError: message,
@@ -566,7 +566,7 @@ async function deliverActivityWithResult(
     if (controller.signal.aborted) {
       return { ok: false, error: `Delivery to ${inbox} timed out after ${OUTBOUND_DELIVERY_TIMEOUT_MS}ms` };
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err, "Outbound delivery failed");
     return { ok: false, error: `Delivery to ${inbox} failed: ${message}` };
   } finally {
     clearTimeout(timeoutHandle);
@@ -698,7 +698,7 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
           console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
         }
       } catch (err) {
-        deliveryError = err instanceof Error ? err.message : String(err);
+        deliveryError = toErrorMessage(err, "Outbound delivery failed");
         console.error(`[Federation] outbound delivery ${job.id} threw`, err);
       }
       const attempts = job.attempt_count + 1;

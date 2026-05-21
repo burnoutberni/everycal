@@ -15,6 +15,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { toErrorMessage } from "@everycal/core";
 import { registry } from "./registry.js";
 import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
@@ -143,7 +144,7 @@ async function main() {
       const events = await scraper.scrape();
       return { scraper, events, error: null as string | null };
     } catch (err) {
-      return { scraper, events: [] as Partial<EveryCalEvent>[], error: String(err) };
+      return { scraper, events: [] as Partial<EveryCalEvent>[], error: toErrorMessage(err, "Scrape failed") };
     }
   });
 
@@ -162,7 +163,7 @@ async function main() {
     try {
       await updateProfile(server, apiKeys[scraper.id], scraper);
     } catch (err) {
-      console.log(`⚠️ profile: ${err instanceof Error ? err.message : err} (continuing with sync)`);
+      console.log(`⚠️ profile: ${toErrorMessage(err, "profile update failed")} (continuing with sync)`);
     }
 
     if (error) {
@@ -200,7 +201,7 @@ async function main() {
         console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} !${r.canceled} ↺${r.rotatedOutPast || 0}`);
       }
     } catch (err) {
-      console.log(`❌ sync: ${err}`);
+      console.log(`❌ sync: ${toErrorMessage(err, "sync failed")}`);
       syncErrors++;
     }
   }
