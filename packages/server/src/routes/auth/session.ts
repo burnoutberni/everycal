@@ -190,7 +190,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot, is_admin FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot, is_admin, is_disabled FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -202,10 +202,11 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
           theme_preference: string | null;
           is_bot: number;
           is_admin: number;
+          is_disabled: number;
         }
       | undefined;
 
-    if (!row || row.is_bot || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
+    if (!row || row.is_bot || row.is_disabled || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
       recordFailedLogin(db, normalizedUsername);
       return c.json({ error: t(getLocale(c), "auth.invalid_username_password") }, 401);
     }

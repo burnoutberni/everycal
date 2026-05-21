@@ -34,8 +34,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'boolean',
     envVar: 'TRUSTED_PROXY',
     defaultValue: false,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'run_jobs_internally',
@@ -44,8 +44,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'boolean',
     envVar: 'RUN_JOBS_INTERNALLY',
     defaultValue: true,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'skip_email_verification',
@@ -54,8 +54,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'boolean',
     envVar: 'SKIP_EMAIL_VERIFICATION',
     defaultValue: false,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'skip_signature_verify',
@@ -64,8 +64,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'boolean',
     envVar: 'SKIP_SIGNATURE_VERIFY',
     defaultValue: false,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'base_url',
@@ -73,8 +73,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Public base URL used for federation and canonical links.',
     kind: 'string',
     envVar: 'BASE_URL',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'cors_origin',
@@ -82,8 +82,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Comma-separated origins allowed for credentialed requests.',
     kind: 'string',
     envVar: 'CORS_ORIGIN',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'port',
@@ -92,8 +92,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'PORT',
     defaultValue: 3000,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'ssr_anon_cache_ttl_ms',
@@ -102,8 +102,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'SSR_ANON_CACHE_TTL_MS',
     defaultValue: 15000,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'database_path',
@@ -111,8 +111,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'SQLite database file path.',
     kind: 'string',
     envVar: 'DATABASE_PATH',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'upload_dir',
@@ -120,8 +120,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Filesystem path for uploaded files.',
     kind: 'string',
     envVar: 'UPLOAD_DIR',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'og_dir',
@@ -129,8 +129,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Filesystem path for generated Open Graph images.',
     kind: 'string',
     envVar: 'OG_DIR',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'federation_queue_health_allowed_accounts',
@@ -138,8 +138,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Account IDs allowed to access federation queue health endpoint.',
     kind: 'string',
     envVar: 'FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'outbound_retain_delivered_days',
@@ -148,8 +148,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'OUTBOUND_RETAIN_DELIVERED_DAYS',
     defaultValue: 30,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'outbound_retain_failed_days',
@@ -158,8 +158,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'OUTBOUND_RETAIN_FAILED_DAYS',
     defaultValue: 90,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'outbound_terminal_cleanup_interval_ms',
@@ -168,8 +168,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS',
     defaultValue: 3600000,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'inbox_processed_retain_days',
@@ -178,8 +178,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'INBOX_PROCESSED_RETAIN_DAYS',
     defaultValue: 30,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'inbox_failed_retain_days',
@@ -188,8 +188,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'INBOX_FAILED_RETAIN_DAYS',
     defaultValue: 90,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'inbox_processed_max_rows',
@@ -198,8 +198,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'INBOX_PROCESSED_MAX_ROWS',
     defaultValue: 0,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'inbox_processed_cleanup_interval_ms',
@@ -208,8 +208,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'INBOX_PROCESSED_CLEANUP_INTERVAL_MS',
     defaultValue: 3600000,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'og_job_concurrency',
@@ -218,8 +218,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'number',
     envVar: 'OG_JOB_CONCURRENCY',
     defaultValue: 3,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_host',
@@ -227,8 +227,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Email transport hostname.',
     kind: 'string',
     envVar: 'SMTP_HOST',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_port',
@@ -236,8 +236,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Email transport port.',
     kind: 'number',
     envVar: 'SMTP_PORT',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_secure',
@@ -246,8 +246,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     kind: 'boolean',
     envVar: 'SMTP_SECURE',
     defaultValue: false,
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_from',
@@ -255,8 +255,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Default sender address for transactional email.',
     kind: 'string',
     envVar: 'SMTP_FROM',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_user',
@@ -264,8 +264,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Configured SMTP auth username.',
     kind: 'secret',
     envVar: 'SMTP_USER',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'smtp_pass',
@@ -273,8 +273,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Configured SMTP auth password.',
     kind: 'secret',
     envVar: 'SMTP_PASS',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'calendar_feed_token_secret',
@@ -282,8 +282,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'Secret used to derive private feed access tokens.',
     kind: 'secret',
     envVar: 'CALENDAR_FEED_TOKEN_SECRET',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'unsplash_access_key',
@@ -291,8 +291,8 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     description: 'API key for Unsplash image search.',
     kind: 'secret',
     envVar: 'UNSPLASH_ACCESS_KEY',
-    editable: false,
-    source: 'env_only',
+    editable: true,
+    source: 'db_with_env_override',
   },
 ];
 
@@ -316,10 +316,35 @@ function readOpenRegistrationsState(db: DB) {
   return { effective, envOverride, dbValue };
 }
 
-function parseBooleanEnvOverride(envVar?: string): boolean | null {
-  if (!envVar) return null;
-  const raw = process.env[envVar];
-  return raw === 'true' ? true : raw === 'false' ? false : null;
+function readDbValue(def: RuntimeSettingDef, db: DB): boolean | string | number | null {
+  if (def.kind === 'boolean') {
+    const raw = readAdminSetting<boolean>(db, def.key);
+    return typeof raw === 'boolean' ? raw : null;
+  }
+  if (def.kind === 'number') {
+    const raw = readAdminSetting<number | string>(db, def.key);
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+  const raw = readAdminSetting<string>(db, def.key);
+  return typeof raw === 'string' ? raw : null;
+}
+
+function readEnvOverride(def: RuntimeSettingDef): boolean | string | number | null {
+  if (!def.envVar) return null;
+  const raw = process.env[def.envVar];
+  if (raw == null || raw.trim() === '') return null;
+  if (def.kind === 'boolean') return raw === 'true' ? true : raw === 'false' ? false : null;
+  if (def.kind === 'number') {
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (def.kind === 'secret') return '(set)';
+  return raw;
 }
 
 function readEnvValue(def: RuntimeSettingDef): boolean | string | number | null {
@@ -337,10 +362,10 @@ function readEnvValue(def: RuntimeSettingDef): boolean | string | number | null 
 
 function readRuntimeSettings(db: DB) {
   return runtimeSettingDefs.map((def) => {
-    const dbValue = def.source === 'db_with_env_override' ? readAdminSetting<boolean>(db, def.key) : null;
-    const envOverride = def.kind === 'boolean' ? parseBooleanEnvOverride(def.envVar) : null;
+    const dbValue = def.source === 'db_with_env_override' ? readDbValue(def, db) : null;
+    const envOverride = readEnvOverride(def);
     const effectiveValue = def.source === 'db_with_env_override'
-      ? (envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : def.defaultValue ?? null))
+      ? (envOverride !== null ? envOverride : (dbValue ?? def.defaultValue ?? null))
       : readEnvValue(def);
     return {
       key: def.key,
@@ -350,7 +375,7 @@ function readRuntimeSettings(db: DB) {
       value: dbValue,
       effectiveValue,
       envOverride,
-      lockedByEnv: def.source === 'db_with_env_override' && envOverride !== null,
+      lockedByEnv: envOverride !== null,
       editable: def.editable,
     };
   });
@@ -393,17 +418,28 @@ export function adminRoutes(db: DB) {
     const def = runtimeSettingsByKey.get(key);
     if (!def) return c.json({ error: 'unknown_setting' }, 404);
     if (!def.editable) return c.json({ error: 'setting_read_only' }, 403);
-    const body = await c.req.json<{ value?: boolean; reason?: string }>().catch(() => ({} as { value?: boolean; reason?: string }));
-    if (typeof body.value !== 'boolean') return c.json({ error: 'invalid_value' }, 400);
+    const body = await c.req.json<{ value?: unknown; reason?: string }>().catch(() => ({} as { value?: unknown; reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
-    if (def.kind !== 'boolean') return c.json({ error: 'unsupported_setting_type' }, 400);
+    let nextValue: boolean | string | number;
+    if (def.kind === 'boolean') {
+      if (typeof body.value !== 'boolean') return c.json({ error: 'invalid_value' }, 400);
+      nextValue = body.value;
+    } else if (def.kind === 'number') {
+      if (typeof body.value !== 'number' || !Number.isFinite(body.value)) return c.json({ error: 'invalid_value' }, 400);
+      nextValue = body.value;
+    } else if (def.kind === 'string' || def.kind === 'secret') {
+      if (typeof body.value !== 'string') return c.json({ error: 'invalid_value' }, 400);
+      nextValue = body.value;
+    } else {
+      return c.json({ error: 'unsupported_setting_type' }, 400);
+    }
     db.prepare(`INSERT INTO admin_settings (key, value_json, updated_by_account_id, updated_at)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_by_account_id=excluded.updated_by_account_id, updated_at=datetime('now')`)
-      .run(key, JSON.stringify(body.value), admin.id);
+      .run(key, JSON.stringify(nextValue), admin.id);
     audit(db, admin.id, `settings.${key}`, 'admin_setting', key, {
-      value: body.value,
-      envLocked: parseBooleanEnvOverride(def.envVar) !== null,
+      value: def.kind === 'secret' ? '(updated)' : nextValue,
+      envLocked: readEnvOverride(def) !== null,
       reason: body.reason.trim(),
     });
     return c.json({ ok: true });
@@ -411,7 +447,16 @@ export function adminRoutes(db: DB) {
 
   app.get('/accounts', (c) => {
     const q = (c.req.query('q') || '').trim();
-    const rows = db.prepare(`SELECT id, username, account_type, discoverable, email_verified, created_at, is_bot, is_disabled, is_admin FROM accounts WHERE username LIKE ? ORDER BY created_at DESC LIMIT 100`).all(`%${q}%`);
+    const rows = db.prepare(`SELECT a.id, a.username, a.account_type, a.discoverable, a.email_verified, a.created_at, a.is_bot, a.is_disabled, a.is_admin,
+        CASE
+          WHEN la.locked_until IS NOT NULL AND la.locked_until > datetime('now') THEN 1
+          ELSE 0
+        END AS is_locked_out
+      FROM accounts a
+      LEFT JOIN login_attempts la ON la.username = a.username
+      WHERE a.username LIKE ?
+      ORDER BY a.created_at DESC
+      LIMIT 100`).all(`%${q}%`);
     return c.json({ items: rows });
   });
 
@@ -449,11 +494,26 @@ export function adminRoutes(db: DB) {
 
   app.get('/events/moderation-queue', (c) => {
     const state = (c.req.query('state') || 'flagged').trim();
-    const rows = db.prepare(`SELECT id, title, start_at_utc, end_at_utc, moderation_state, moderation_reason, moderated_at, account_id, created_by_account_id, created_at
-      FROM events
-      WHERE moderation_state = ?
-      ORDER BY created_at DESC
-      LIMIT 200`).all(state);
+    const selectSql = `SELECT e.id, e.slug, e.title, e.description, e.start_at_utc, e.end_at_utc, e.event_timezone, e.all_day,
+        e.location_name, e.location_address, e.url, e.visibility, e.canceled,
+        e.moderation_state, e.moderation_reason, e.moderated_at, e.account_id, e.created_by_account_id, e.created_at, e.updated_at,
+        owner.username AS owner_username,
+        creator.username AS created_by_username,
+        GROUP_CONCAT(et.tag, ', ') AS tags
+      FROM events e
+      LEFT JOIN accounts owner ON owner.id = e.account_id
+      LEFT JOIN accounts creator ON creator.id = e.created_by_account_id
+      LEFT JOIN event_tags et ON et.event_id = e.id`;
+    const rows = state
+      ? db.prepare(`${selectSql}
+        WHERE e.moderation_state = ?
+        GROUP BY e.id
+        ORDER BY e.created_at DESC
+        LIMIT 200`).all(state)
+      : db.prepare(`${selectSql}
+        GROUP BY e.id
+        ORDER BY e.created_at DESC
+        LIMIT 200`).all();
     return c.json({ items: rows });
   });
 

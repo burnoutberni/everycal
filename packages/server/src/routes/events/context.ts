@@ -61,14 +61,30 @@ export function createEventRouteContext(db: DB) {
     whereClause: string,
     queryParams: unknown[],
     currentUser?: { id: string } | null,
+    options?: { allowAdminFlaggedModerationAccess?: boolean },
   ): Record<string, unknown> | null {
     const row = db
       .prepare(`${LOCAL_EVENT_SELECT} WHERE ${whereClause} GROUP BY e.id`)
       .get(...queryParams) as Record<string, unknown> | undefined;
     if (!row) return null;
-    if (!canViewEvent(db, row.visibility as string, row.account_id as string, currentUser)) return null;
+    if ((row.moderation_state as string | undefined) === "hidden") return null;
+    const canViewNormally = canViewEvent(db, row.visibility as string, row.account_id as string, currentUser);
+    if (!canViewNormally) {
+      const isFlagged = (row.moderation_state as string | undefined) === "flagged";
+      const allowAdminModerationAccess = !!options?.allowAdminFlaggedModerationAccess && isFlagged && currentUser;
+      if (!allowAdminModerationAccess) return null;
+      const adminRow = db.prepare("SELECT is_admin FROM accounts WHERE id = ?").get(currentUser.id) as { is_admin?: number } | undefined;
+      if (!adminRow?.is_admin) return null;
+    }
 
     const event = formatEvent(row);
+    if (currentUser && (row.moderation_state as string | undefined) === "flagged") {
+      const adminRow = db.prepare("SELECT is_admin FROM accounts WHERE id = ?").get(currentUser.id) as { is_admin?: number } | undefined;
+      if (adminRow?.is_admin) {
+        event.moderationState = "flagged";
+        event.moderationReason = (row.moderation_reason as string | null) || null;
+      }
+    }
     if (currentUser) attachSingleEventContext(event, row.id as string, currentUser.id);
     return event;
   }

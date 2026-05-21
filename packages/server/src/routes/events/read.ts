@@ -27,6 +27,8 @@ function canViewRemoteByVisibility(db: DB, visibility: string, actorUri: string,
 
 export function registerEventReadRoutes(router: Hono, db: DB, context: EventRouteContext): void {
   const { attachUserContext, attachSingleEventContext, fetchLocalEvent, getUserRsvps } = context;
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
   router.get("/tags", (c) => {
@@ -252,7 +254,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
         params.push(fetchLimit);
         const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
-        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+        return rows
+          .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
+          .map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const paged = paginateMergedFromFetchers({
@@ -298,7 +302,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
         params.push(fetchLimit);
         const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
-        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+        return rows
+          .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
+          .map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
@@ -369,7 +375,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(fetchLimit);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
+      return rows
+        .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
+        .map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
@@ -440,7 +448,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       return c.json(event);
     }
 
-    const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser);
+    const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser, { allowAdminFlaggedModerationAccess: true });
     if (!event) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     return c.json(event);
@@ -548,7 +556,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const eventUri = resolveEventUri(id);
 
     // Try local first
-    const localEvent = fetchLocalEvent("e.id = ?", [id], currentUser);
+    const localEvent = fetchLocalEvent("e.id = ?", [id], currentUser, { allowAdminFlaggedModerationAccess: true });
     if (localEvent) return c.json(localEvent);
 
     // Fall back to remote events if URI looks like a URL

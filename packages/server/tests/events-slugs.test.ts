@@ -144,6 +144,32 @@ describe("event slug canonical behavior", () => {
     expect(tags.map((row) => row.tag)).toEqual(["art", "music"]);
   });
 
+  it("allows authenticated users to flag local events with a reason", async () => {
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Flag target", startDate: "2026-01-01T10:00:00Z", eventTimezone: "UTC" }),
+    });
+    const created = await create.json() as { id: string };
+
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    const viewerApp = makeApp(db, { id: "u2", username: "bob" });
+    const res = await viewerApp.request(`http://localhost/api/v1/events/${created.id}/flag`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "spam details" }),
+    });
+
+    const row = db.prepare("SELECT moderation_state, moderation_reason, moderated_at FROM events WHERE id = ?").get(created.id) as
+      { moderation_state: string; moderation_reason: string | null; moderated_at: string | null };
+
+    expect(res.status).toBe(200);
+    expect(row.moderation_state).toBe("flagged");
+    expect(row.moderation_reason).toBe("spam details");
+    expect(row.moderated_at).toBeNull();
+  });
+
   it("skips whitespace-only tags on create", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -2153,6 +2179,65 @@ describe("event slug canonical behavior", () => {
     const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
 
     expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id does not expose private local events to admins who are not owners", async () => {
+    db.prepare("INSERT INTO accounts (id, username, is_admin, account_type) VALUES (?, ?, 1, 'person')")
+      .run("admin1", "admin");
+
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Local Event",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+
+    const adminApp = makeApp(db, { id: "admin1", username: "admin" });
+    const res = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+
+    expect(create.status).toBe(201);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id allows admin access for flagged private local events only while moderation is open", async () => {
+    db.prepare("INSERT INTO accounts (id, username, is_admin, account_type) VALUES (?, ?, 1, 'person')")
+      .run("admin1", "admin");
+
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Flagged Event",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string; slug: string };
+
+    db.prepare("UPDATE events SET moderation_state = 'flagged', moderation_reason = 'needs review' WHERE id = ?").run(created.id);
+
+    const adminApp = makeApp(db, { id: "admin1", username: "admin" });
+    const idResWhileFlagged = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+    const slugResWhileFlagged = await adminApp.request(`http://localhost/api/v1/events/by-slug/alice/${created.slug}`);
+
+    db.prepare("UPDATE events SET moderation_state = 'hidden', moderated_at = datetime('now') WHERE id = ?").run(created.id);
+
+    const idResAfterDecision = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+    const slugResAfterDecision = await adminApp.request(`http://localhost/api/v1/events/by-slug/alice/${created.slug}`);
+
+    expect(create.status).toBe(201);
+    expect(idResWhileFlagged.status).toBe(200);
+    expect(slugResWhileFlagged.status).toBe(200);
+    expect(idResAfterDecision.status).toBe(404);
+    expect(slugResAfterDecision.status).toBe(404);
   });
 
   it("GET /events/:id allows followers-only remote events for authenticated followers", async () => {

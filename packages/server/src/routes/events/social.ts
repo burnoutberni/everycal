@@ -71,6 +71,39 @@ async function enqueueOutboundRsvpIfNeeded(
 
 
 export function registerEventSocialRoutes(router: Hono, db: DB): void {
+  router.post("/:id/flag", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const id = c.req.param("id");
+    const eventUri = resolveEventUri(id);
+    const localEventId = resolveLocalEventId(id);
+    const parsed = await parseJsonBody<{ reason?: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const reason = (parsed.reason || "").trim();
+    if (!reason) return c.json({ error: "reason_required" }, 400);
+
+    const event = localEventId
+      ? db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string }
+        | undefined
+      : undefined;
+    const remoteEvent = !event
+      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
+        | { uri: string; actor_uri: string; visibility: string }
+        | undefined
+      : undefined;
+    if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+    if (!event) return c.json({ error: "local_events_only" }, 400);
+
+    const canView = event.visibility === "public"
+      || event.visibility === "unlisted"
+      || event.account_id === user.id
+      || (event.visibility === "followers_only" && !!db.prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?").get(user.id, event.account_id));
+    if (!canView) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+
+    db.prepare("UPDATE events SET moderation_state = 'flagged', moderation_reason = ?, moderated_at = NULL WHERE id = ?").run(reason, event.id);
+    return c.json({ ok: true });
+  });
+
   router.post("/rsvp", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const parsed = await parseJsonBody<{ eventUri: string; status: string | null }>(c);
