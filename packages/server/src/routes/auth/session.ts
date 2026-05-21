@@ -172,7 +172,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot, is_admin FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -183,6 +183,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
           email_verified: number;
           theme_preference: string | null;
           is_bot: number;
+          is_admin: number;
         }
       | undefined;
 
@@ -238,6 +239,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
         id: row.id,
         username: row.username,
         displayName: row.display_name,
+        isAdmin: !!row.is_admin,
         themePreference: row.theme_preference || SYSTEM_THEME_PREFERENCE,
         notificationPrefs,
       },
@@ -269,7 +271,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at, is_admin,
                 theme_preference,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
@@ -316,6 +318,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
       avatarUrl: row.avatar_url,
       website: row.website || null,
       isBot: !!row.is_bot,
+      isAdmin: !!row.is_admin,
       discoverable: !!row.discoverable,
       city: row.city || null,
       cityLat: row.city_lat != null ? Number(row.city_lat) : null,
