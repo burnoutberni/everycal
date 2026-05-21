@@ -14,8 +14,26 @@ import { setSessionCookie, clearSessionCookie } from "./session-cookies.js";
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
   router.post("/register", async (c) => {
+    const openRegistrationsEnv = process.env.OPEN_REGISTRATIONS;
+    const dbSettingRow = db.prepare("SELECT value_json FROM admin_settings WHERE key = 'open_registrations'").get() as { value_json: string } | undefined;
+    let openRegistrationsDb: boolean | null = null;
+    if (dbSettingRow?.value_json) {
+      try {
+        const parsed = JSON.parse(dbSettingRow.value_json);
+        openRegistrationsDb = typeof parsed === "boolean" ? parsed : null;
+      } catch {
+        openRegistrationsDb = null;
+      }
+    }
+    const openRegistrationsEffective =
+      openRegistrationsEnv === "true"
+        ? true
+        : openRegistrationsEnv === "false"
+          ? false
+          : openRegistrationsDb ?? true;
+
     // Check if open registration is enabled
-    if (process.env.OPEN_REGISTRATIONS === "false") {
+    if (!openRegistrationsEffective) {
       return c.json({ error: t(getLocale(c), "auth.registration_closed") }, 403);
     }
 

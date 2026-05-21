@@ -3,6 +3,26 @@ import { nanoid } from 'nanoid';
 import type { DB } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 
+const OPEN_REGISTRATIONS_SETTING_KEY = 'open_registrations';
+
+function readAdminSetting<T>(db: DB, key: string): T | null {
+  const row = db.prepare('SELECT value_json FROM admin_settings WHERE key = ?').get(key) as { value_json: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value_json) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readOpenRegistrationsState(db: DB) {
+  const dbValue = readAdminSetting<boolean>(db, OPEN_REGISTRATIONS_SETTING_KEY);
+  const envRaw = process.env.OPEN_REGISTRATIONS;
+  const envOverride = envRaw === 'true' ? true : envRaw === 'false' ? false : null;
+  const effective = envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : true);
+  return { effective, envOverride, dbValue };
+}
+
 function audit(db: DB, adminId: string, action: string, targetType: string, targetId: string, payload: Record<string, unknown> = {}) {
   db.prepare("INSERT INTO admin_audit_log (id, admin_account_id, action_type, target_type, target_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)").run(
     nanoid(), adminId, action, targetType, targetId, JSON.stringify(payload)
@@ -16,7 +36,50 @@ export function adminRoutes(db: DB) {
   app.get('/health', (c) => {
     const accounts = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as {count:number};
     const events = db.prepare('SELECT COUNT(*) as count FROM events').get() as {count:number};
-    return c.json({ uptimeSec: Math.floor(process.uptime()), schemaVersion: 12, accounts: accounts.count, events: events.count, openRegistrationsEnv: process.env.REGISTRATION_MODE !== 'closed' });
+    const openRegistrations = readOpenRegistrationsState(db);
+    return c.json({
+      uptimeSec: Math.floor(process.uptime()),
+      schemaVersion: 12,
+      accounts: accounts.count,
+      events: events.count,
+      openRegistrations: openRegistrations.effective,
+      openRegistrationsDb: openRegistrations.dbValue,
+      openRegistrationsEnvOverride: openRegistrations.envOverride,
+    });
+  });
+
+  app.get('/settings', (c) => {
+    const openRegistrations = readOpenRegistrationsState(db);
+    return c.json({
+      items: [
+        {
+          key: OPEN_REGISTRATIONS_SETTING_KEY,
+          label: 'Open registrations',
+          description: 'Allow new account registration on this instance.',
+          value: openRegistrations.dbValue,
+          effectiveValue: openRegistrations.effective,
+          envOverride: openRegistrations.envOverride,
+          lockedByEnv: openRegistrations.envOverride !== null,
+        },
+      ],
+    });
+  });
+
+  app.post('/settings/open-registrations', async (c) => {
+    const admin = c.get('user')!;
+    const body = await c.req.json<{ value?: boolean; reason?: string }>().catch(() => ({} as { value?: boolean; reason?: string }));
+    if (typeof body.value !== 'boolean') return c.json({ error: 'invalid_value' }, 400);
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    db.prepare(`INSERT INTO admin_settings (key, value_json, updated_by_account_id, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_by_account_id=excluded.updated_by_account_id, updated_at=datetime('now')`)
+      .run(OPEN_REGISTRATIONS_SETTING_KEY, JSON.stringify(body.value), admin.id);
+    audit(db, admin.id, 'settings.open_registrations', 'admin_setting', OPEN_REGISTRATIONS_SETTING_KEY, {
+      value: body.value,
+      envLocked: process.env.OPEN_REGISTRATIONS === 'true' || process.env.OPEN_REGISTRATIONS === 'false',
+      reason: body.reason.trim(),
+    });
+    return c.json({ ok: true });
   });
 
   app.get('/accounts', (c) => {
@@ -96,6 +159,33 @@ export function adminRoutes(db: DB) {
     return c.json({ items: rows });
   });
 
+  app.get('/federation/actors', (c) => {
+    const q = (c.req.query('q') || '').trim();
+    const status = (c.req.query('status') || '').trim();
+    const domain = (c.req.query('domain') || '').trim();
+    const rows = db.prepare(`SELECT uri, preferred_username, domain, fetch_status, last_fetched_at, next_retry_at, last_error, gone_at, created_at
+      FROM remote_actors
+      WHERE (? = '' OR domain = ?)
+        AND (? = '' OR COALESCE(fetch_status, 'active') = ?)
+        AND (? = '' OR uri LIKE ? OR preferred_username LIKE ? OR domain LIKE ?)
+      ORDER BY COALESCE(next_retry_at, last_fetched_at) DESC
+      LIMIT 200`).all(domain, domain, status, status, q, `%${q}%`, `%${q}%`, `%${q}%`);
+    return c.json({ items: rows });
+  });
+
+  app.get('/federation/domains', (c) => {
+    const rows = db.prepare(`SELECT domain,
+      COUNT(*) AS actor_count,
+      SUM(CASE WHEN fetch_status = 'error' THEN 1 ELSE 0 END) AS error_count,
+      SUM(CASE WHEN fetch_status = 'gone' THEN 1 ELSE 0 END) AS gone_count,
+      MAX(last_fetched_at) AS last_fetched_at
+      FROM remote_actors
+      GROUP BY domain
+      ORDER BY actor_count DESC, domain ASC
+      LIMIT 200`).all();
+    return c.json({ items: rows });
+  });
+
   app.post('/federation/blocks/:id/unblock', async (c) => {
     const admin = c.get('user')!;
     const id = c.req.param('id');
@@ -104,6 +194,87 @@ export function adminRoutes(db: DB) {
     db.prepare('UPDATE federation_blocks SET is_active = 0 WHERE id = ?').run(id);
     audit(db, admin.id, 'federation.unblock', 'federation_block', id, { reason: body.reason.trim() });
     return c.json({ ok: true });
+  });
+
+  app.get('/federation/tombstones', (c) => {
+    const q = (c.req.query('q') || '').trim();
+    const rows = q
+      ? db.prepare(`SELECT id, object_type, object_id, reason, created_at, expires_at
+          FROM federation_tombstones
+          WHERE object_id LIKE ? OR object_type LIKE ?
+          ORDER BY created_at DESC
+          LIMIT 200`).all(`%${q}%`, `%${q}%`)
+      : db.prepare(`SELECT id, object_type, object_id, reason, created_at, expires_at
+          FROM federation_tombstones
+          ORDER BY created_at DESC
+          LIMIT 200`).all();
+    return c.json({ items: rows });
+  });
+
+  app.post('/federation/tombstones', async (c) => {
+    const admin = c.get('user')!;
+    const body = await c.req.json<{ objectType?: string; objectId?: string; reason?: string; expiresAt?: string }>().catch(() => ({} as { objectType?: string; objectId?: string; reason?: string; expiresAt?: string }));
+    if (!body.objectType?.trim() || !body.objectId?.trim()) return c.json({ error: 'object_required' }, 400);
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const id = nanoid();
+    db.prepare('INSERT INTO federation_tombstones (id, object_type, object_id, reason, expires_at) VALUES (?, ?, ?, ?, ?)').run(
+      id,
+      body.objectType.trim(),
+      body.objectId.trim(),
+      body.reason.trim(),
+      body.expiresAt?.trim() || null,
+    );
+    audit(db, admin.id, 'federation.tombstone.create', body.objectType.trim(), body.objectId.trim(), { reason: body.reason.trim() });
+    return c.json({ ok: true, id });
+  });
+
+  app.post('/federation/tombstones/:id/delete', async (c) => {
+    const admin = c.get('user')!;
+    const id = c.req.param('id');
+    const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const row = db.prepare('SELECT object_type, object_id FROM federation_tombstones WHERE id = ?').get(id) as { object_type: string; object_id: string } | undefined;
+    db.prepare('DELETE FROM federation_tombstones WHERE id = ?').run(id);
+    audit(db, admin.id, 'federation.tombstone.delete', row?.object_type || 'federation_tombstone', row?.object_id || id, { reason: body.reason.trim() });
+    return c.json({ ok: true });
+  });
+
+  app.get('/security/login-lockouts', (c) => {
+    const q = (c.req.query('q') || '').trim();
+    const rows = q
+      ? db.prepare(`SELECT username, attempts, locked_until, last_attempt
+          FROM login_attempts
+          WHERE username LIKE ?
+          ORDER BY COALESCE(locked_until, last_attempt) DESC
+          LIMIT 200`).all(`%${q}%`)
+      : db.prepare(`SELECT username, attempts, locked_until, last_attempt
+          FROM login_attempts
+          ORDER BY COALESCE(locked_until, last_attempt) DESC
+          LIMIT 200`).all();
+    return c.json({ items: rows });
+  });
+
+  app.post('/security/login-lockouts/:username/reset', async (c) => {
+    const admin = c.get('user')!;
+    const username = c.req.param('username');
+    const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    db.prepare('DELETE FROM login_attempts WHERE username = ?').run(username);
+    audit(db, admin.id, 'security.lockout.reset', 'account_username', username, { reason: body.reason.trim() });
+    return c.json({ ok: true });
+  });
+
+  app.post('/security/accounts/:id/revoke-auth', async (c) => {
+    const admin = c.get('user')!;
+    const id = c.req.param('id');
+    const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE account_id = ?').get(id) as { count: number };
+    const keyCount = db.prepare('SELECT COUNT(*) as count FROM api_keys WHERE account_id = ?').get(id) as { count: number };
+    db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);
+    db.prepare('DELETE FROM api_keys WHERE account_id = ?').run(id);
+    audit(db, admin.id, 'security.auth.revoke', 'account', id, { reason: body.reason.trim(), revokedSessions: sessionCount.count, revokedApiKeys: keyCount.count });
+    return c.json({ ok: true, revokedSessions: sessionCount.count, revokedApiKeys: keyCount.count });
   });
 
   app.post('/scrapers/trigger', async (c) => {
