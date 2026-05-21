@@ -459,6 +459,38 @@
   gap: 1rem;
 }
 
+.admin-overview-card {
+  background: linear-gradient(165deg, color-mix(in srgb, var(--bg-raised) 92%, transparent), color-mix(in srgb, var(--accent) 5%, var(--bg-raised)));
+}
+
+.admin-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.admin-overview-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: 0.7rem 0.75rem;
+}
+
+.admin-overview-label {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.admin-overview-value {
+  margin: 0.35rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .admin-health-header {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -576,5 +608,10 @@
   .settings-wizard-back,
   .settings-wizard-next {
     flex: 1;
+  }
+
+  .admin-health-header,
+  .admin-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

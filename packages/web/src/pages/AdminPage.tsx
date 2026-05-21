@@ -82,6 +82,7 @@ export function AdminPage() {
   const [blockValue, setBlockValue] = useState('');
   const [scraperName, setScraperName] = useState('');
   const [scraperDryRun, setScraperDryRun] = useState(true);
+  const [revokeAccountId, setRevokeAccountId] = useState('');
   const [activeSection, setActiveSection] = useState<'health' | 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit'>('health');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const [status, setStatus] = useState<string | null>(null);
@@ -116,6 +117,10 @@ export function AdminPage() {
     const good = healthMetrics.filter((m) => m.state === 'good').length;
     return { bad, warn, good, total: healthMetrics.length };
   }, [healthMetrics]);
+  const queueFlaggedCount = useMemo(() => moderationQueue.filter((item) => item.moderation_state === 'flagged').length, [moderationQueue]);
+  const blockedFederationCount = useMemo(() => federationBlocks.filter((item) => !!item.is_active).length, [federationBlocks]);
+  const activeLockoutCount = useMemo(() => loginLockouts.filter((item) => !!item.locked_until).length, [loginLockouts]);
+  const recentFailedJobs = useMemo(() => jobRuns.filter((run) => run.status !== 'completed').length, [jobRuns]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -274,6 +279,29 @@ export function AdminPage() {
       <h1 className='settings-page-title'>Admin Console</h1>
       <p className='text-muted'>Operations center for moderation, federation controls, scraper jobs, and auditability.</p>
       {status ? <p className='text-sm' role='status'>{status}</p> : null}
+      <section className='settings-section'>
+        <div className='settings-card admin-overview-card'>
+          <h2 className='settings-section-title mb-1'>Overview</h2>
+          <div className='admin-overview-grid'>
+            <article className='admin-overview-item'>
+              <p className='admin-overview-label'>Flagged events</p>
+              <p className='admin-overview-value'>{queueFlaggedCount}</p>
+            </article>
+            <article className='admin-overview-item'>
+              <p className='admin-overview-label'>Active federation blocks</p>
+              <p className='admin-overview-value'>{blockedFederationCount}</p>
+            </article>
+            <article className='admin-overview-item'>
+              <p className='admin-overview-label'>Active lockouts</p>
+              <p className='admin-overview-value'>{activeLockoutCount}</p>
+            </article>
+            <article className='admin-overview-item'>
+              <p className='admin-overview-label'>Non-complete jobs</p>
+              <p className='admin-overview-value'>{recentFailedJobs}</p>
+            </article>
+          </div>
+        </div>
+      </section>
 
     <section id='health' ref={(el) => { sectionRefs.current.health = el; }} className='settings-section'>
       <div className='settings-card'>
@@ -373,6 +401,7 @@ export function AdminPage() {
     <section id='accounts' ref={(el) => { sectionRefs.current.accounts = el; }} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Accounts</h2>
+      <p className='text-sm text-muted mb-1'>Search users, disable compromised accounts, and restore access when resolved.</p>
       <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAccounts().catch((err) => setError(String(err))); }}>
         <input aria-label='Search accounts by username' placeholder='Search username' value={accountQuery} onChange={(e) => setAccountQuery(e.target.value)} />
         <button className='btn btn-primary' type='submit'>Search</button>
@@ -386,6 +415,7 @@ export function AdminPage() {
                   <div className='text-sm text-muted'>id: {a.id} · admin: {String(!!a.is_admin)} · disabled: {String(!!a.is_disabled)}</div>
                 </div>
               <div className='flex gap-1'>
+                <button className='btn btn-ghost btn-sm' onClick={() => setRevokeAccountId(a.id)}>Use for revoke</button>
                 <button
                   className='btn btn-danger btn-sm'
                   disabled={!!a.is_disabled || pendingActionKey === `disable:${a.id}`}
@@ -446,6 +476,7 @@ export function AdminPage() {
     <section id='events' ref={(el) => { sectionRefs.current.events = el; }} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Moderate event</h2>
+      <p className='text-sm text-muted mb-1'>Apply manual moderation by event ID and review recent queue items.</p>
       <form className='stack-sm' onSubmit={async (e: FormEvent) => {
         e.preventDefault();
         if (!eventReason.trim()) {
@@ -605,6 +636,7 @@ export function AdminPage() {
     <section id='security' ref={(el) => { sectionRefs.current.security = el; }} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Security and abuse</h2>
+      <p className='text-sm text-muted mb-1'>Investigate lockouts and revoke tokens when account access is compromised.</p>
       <div className='mb-1'>
         <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshLoginLockouts().catch((err) => setError(String(err))); }}>
           <input placeholder='Search lockouts by username' value={lockoutQuery} onChange={(e) => setLockoutQuery(e.target.value)} />
@@ -647,9 +679,9 @@ export function AdminPage() {
         <h3 className='text-sm mb-1'>Revoke account auth</h3>
         <form className='flex gap-1' onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          const accountId = accountQuery.trim();
+          const accountId = revokeAccountId.trim();
           if (!accountId) {
-            setError('Provide an account id in the Accounts search field first, then revoke.');
+            setError('Provide an account id to revoke authentication.');
             return;
           }
           openReasonModal({
@@ -670,7 +702,7 @@ export function AdminPage() {
             },
           });
         }}>
-          <input placeholder='Use account id from Accounts section' value={accountQuery} onChange={(e) => setAccountQuery(e.target.value)} />
+          <input placeholder='Account ID' value={revokeAccountId} onChange={(e) => setRevokeAccountId(e.target.value)} />
           <button className='btn btn-danger' type='submit'>Revoke auth now</button>
         </form>
       </div>
@@ -680,6 +712,7 @@ export function AdminPage() {
     <section id='federation' ref={(el) => { sectionRefs.current.federation = el; }} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Federation blocklist</h2>
+      <p className='text-sm text-muted mb-1'>Block hostile domains or actors and keep a traceable unblock flow.</p>
       <form className='stack-sm' onSubmit={async (e: FormEvent) => {
         e.preventDefault();
         const payload = blockType === 'domain' ? { blockType, domain: blockValue } : { blockType, actorUri: blockValue };
@@ -752,6 +785,7 @@ export function AdminPage() {
     <section id='scrapers' ref={(el) => { sectionRefs.current.scrapers = el; }} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Trigger scraper run</h2>
+      <p className='text-sm text-muted mb-1'>Queue collection jobs. Keep dry run enabled for verification before live ingestion.</p>
       <form className='stack-sm' onSubmit={async (e: FormEvent) => {
         e.preventDefault();
         const data = await adminFetch('/api/v1/admin/scrapers/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scraper: scraperName || undefined, dryRun: scraperDryRun }) });
@@ -771,6 +805,7 @@ export function AdminPage() {
         <h2 className='settings-section-title'>Job runs</h2>
         <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshJobRuns().catch((e) => setError(String(e)))}>Refresh</button>
       </div>
+      <p className='text-sm text-muted mb-1'>Recent execution history for admin-triggered background work.</p>
       <div className='stack-sm'>
         {jobRuns.map((run) => (
           <div key={run.id} className='card'>
@@ -789,6 +824,7 @@ export function AdminPage() {
         <h2 className='settings-section-title'>Audit trail</h2>
         <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshAudit().catch((e) => setError(String(e)))}>Refresh</button>
       </div>
+      <p className='text-sm text-muted mb-1'>Immutable log for sensitive admin actions and moderation decisions.</p>
       <form className='stack-sm mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAudit().catch((err) => setError(String(err))); }}>
         <input placeholder='Filter action (e.g. account.disable)' value={auditAction} onChange={(e) => setAuditAction(e.target.value)} />
         <input placeholder='Filter actor account ID' value={auditActor} onChange={(e) => setAuditActor(e.target.value)} />
