@@ -64,6 +64,11 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
+  const adminAccessNotice = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("notice") === "admin-required" ? t("adminAccessRequired", { ns: "common" }) : null;
+  }, [t]);
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const committedThemePreferenceRef = useRef<ThemePreference>(themePreference);
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
@@ -1091,6 +1096,11 @@ export function SettingsPage() {
 
       <div className="settings-content">
         <h1 className="settings-page-title">{t("title")}</h1>
+        {adminAccessNotice ? (
+          <p className="text-sm mb-2" role="status" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "0.55rem 0.7rem", background: "var(--bg-raised)" }}>
+            {adminAccessNotice}
+          </p>
+        ) : null}
 
         <section
           id="calendar"

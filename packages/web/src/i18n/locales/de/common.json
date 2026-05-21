@@ -58,6 +58,7 @@
   "imagePrefix": "Bild: ",
   "imageBy": " von ",
   "requestFailed": "Anfrage fehlgeschlagen",
+  "adminAccessRequired": "Admin-Rechte sind erforderlich, um diese Seite zu sehen.",
   "menu": "Menü",
   "closeMenu": "Menü schließen",
   "unfoldTags": "Alle Tags anzeigen",

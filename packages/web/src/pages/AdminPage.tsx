@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toErrorMessage } from '@everycal/core';
+import { useLocation } from 'wouter';
 import { useAuth } from '../hooks/useAuth';
 import { CalendarIcon, CheckCalendarIcon, FlagIcon, GlobeIcon, SettingsIcon, ShieldIcon, TimerIcon, UpdateIcon, UserIcon } from '../components/icons';
 import { ModerationDecisionActions } from '../components/ModerationDecisionActions';
@@ -62,7 +63,8 @@ const AVAILABLE_SCRAPERS: ScraperInfo[] = [
 ];
 
 export function AdminPage() {
-  const { user } = useAuth();
+  const { user, authStatus } = useAuth();
+  const [, navigate] = useLocation();
   const [health, setHealth] = useState<AnyObj | null>(null);
   const [audit, setAudit] = useState<AuditItem[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -106,6 +108,17 @@ export function AdminPage() {
     requireReason: true,
     onConfirm: async () => {},
   });
+
+  useEffect(() => {
+    if (authStatus === 'unknown') return;
+    if (!user) {
+      navigate('/login?next=%2Fadmin&notice=admin-required');
+      return;
+    }
+    if (!user.isAdmin) {
+      navigate('/settings?notice=admin-required');
+    }
+  }, [authStatus, navigate, user]);
 
   const sections = useMemo(() => ([
     { key: 'accounts', label: 'Accounts', icon: <UserIcon /> },
@@ -427,7 +440,7 @@ export function AdminPage() {
     return () => window.clearInterval(interval);
   }, [user?.isAdmin, refreshAllData]);
 
-  if (!user?.isAdmin) return <div className='empty-state mt-3'><h2>Forbidden</h2><p>Admin access is required.</p></div>;
+  if (!user?.isAdmin) return <div className='empty-state mt-3'><h2>Redirecting</h2><p>Admin access is required.</p></div>;
   if (error) return <div className='empty-state mt-3'><h2>Error</h2><p>{error}</p></div>;
 
   return <div className='settings-layout mt-3'>
