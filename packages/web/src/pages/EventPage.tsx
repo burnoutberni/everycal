@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useId } from "react";
+import { FormEvent, useEffect, useState, useMemo, useRef, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { eventsPathWithTags } from "../lib/urls";
@@ -10,13 +10,15 @@ import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls"
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 import { normalizeEmbeddableEverycalPath } from "../lib/everycalEmbed";
-import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
+import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon, FlagIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { ActAsActionModal } from "../components/ActAsActionModal";
 import { EmbedCodeModal } from "../components/EmbedCodeModal";
+import { ReasonModal } from "../components/ReasonModal";
+import { ModerationDecisionActions } from "../components/ModerationDecisionActions";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
@@ -73,6 +75,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [repostAsOpen, setRepostAsOpen] = useState(false);
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [repostAsError, setRepostAsError] = useState<string | null>(null);
+  const [flagSubmitting, setFlagSubmitting] = useState(false);
+  const [flagModalOpen, setFlagModalOpen] = useState(false);
+  const [flagReason, setFlagReason] = useState("");
+  const [flagReasonError, setFlagReasonError] = useState<string | null>(null);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
   const [suggestedEvents, setSuggestedEvents] = useState<CalEvent[]>([]);
   const [followedLocalIds, setFollowedLocalIds] = useState<Set<string>>(new Set());
@@ -114,7 +120,11 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   );
 
   useEffect(() => {
-    if (event && (event.id === effectiveId || (event.slug === effectiveSlug && event.account?.username === effectiveUsername))) return; // Already SSR'd or fetched
+    if (!effectiveId && (!effectiveUsername || !effectiveSlug)) {
+      setLoading(false);
+      setError(t("noEventIdentifier"));
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -144,6 +154,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         setEvent(null);
         const msg = e.message;
         if (msg === "No event identifier") setError(t("noEventIdentifier"));
+        else if (/\(404\)/.test(msg)) setError("");
         else if (msg === "Event request timed out") setError(t("common:requestFailed"));
         else setError(msg);
       })
@@ -412,7 +423,35 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const canEmbedEvent = (event.visibility === "public" || event.visibility === "unlisted") && !!embeddableEventPath;
   const canRepostEvent = !!user && !isCanceled && event.source !== "remote" && event.accountId !== user.id;
   const canRepostAs = canRepostEvent && !identitiesLoading && hasAdditionalIdentities;
-  const showEventMenu = canEmbedEvent || canRepostAs;
+  const canFlagForModeration = !!user && !isCanceled && event.source !== "remote";
+  const showEventMenu = canEmbedEvent || canRepostAs || canFlagForModeration;
+
+  const handleFlagForModeration = async () => {
+    setFlagReason("");
+    setFlagReasonError(null);
+    setEventActionMenuOpen(false);
+    setFlagModalOpen(true);
+  };
+
+  const submitFlagForModeration = async (e: FormEvent) => {
+    e.preventDefault();
+    const reason = flagReason.trim();
+    if (!reason) {
+      setFlagReasonError(t("flagReasonRequired"));
+      return;
+    }
+    try {
+      setFlagSubmitting(true);
+      setFlagReasonError(null);
+      await eventsApi.flag(event.id, reason);
+      setFlagModalOpen(false);
+      setFlagReason("");
+    } catch (err) {
+      setFlagReasonError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFlagSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
@@ -428,6 +467,33 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             }}
           >
             {t("canceledByOrganizer")}
+          </div>
+        )}
+        {user?.isAdmin && event.moderationState === "flagged" && event.moderationReason && (
+          <div
+            className="mb-2"
+            style={{
+              border: "1px solid color-mix(in srgb, var(--danger) 32%, var(--border))",
+              background: "color-mix(in srgb, var(--danger) 10%, var(--bg-raised))",
+              borderRadius: "var(--radius)",
+              padding: "0.75rem 0.85rem",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: "0.25rem", color: "var(--danger)" }}>{t("moderationRequestNoteTitle")}</div>
+            <p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{event.moderationReason}</p>
+            <div style={{ marginTop: "0.65rem" }}>
+              <p className="text-sm text-muted" style={{ marginBottom: "0.5rem" }}>
+                This action moderates the event itself (keep visible or remove), not the note text.
+              </p>
+              <ModerationDecisionActions
+                eventId={event.id}
+                eventTitle={event.title}
+                size="md"
+                onResolved={async () => {
+                  window.location.reload();
+                }}
+              />
+            </div>
           </div>
         )}
         {event.image && (
@@ -610,6 +676,18 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                         {t("common:copyEmbedCode")}
                       </button>
                     )}
+                    {canFlagForModeration && (
+                      <button
+                        type="button"
+                        className="header-dropdown-item"
+                        role="menuitem"
+                        onClick={handleFlagForModeration}
+                        disabled={flagSubmitting}
+                      >
+                        <FlagIcon />
+                        {flagSubmitting ? t("common:saving") : t("flagForModeration")}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -788,6 +866,27 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           path={embeddableEventPath}
         />
       )}
+
+      <ReasonModal
+        open={flagModalOpen}
+        title={t("flagForModeration")}
+        description={t("flagReasonPrompt")}
+        reasonLabel={t("common:reason")}
+        reasonValue={flagReason}
+        reasonPlaceholder={t("flagReasonPlaceholder")}
+        submitLabel={flagSubmitting ? t("common:saving") : t("submitModerationRequest")}
+        cancelLabel={t("common:cancel")}
+        closeLabel={t("common:close")}
+        error={flagReasonError}
+        submitting={flagSubmitting}
+        onReasonChange={setFlagReason}
+        onClose={() => {
+          if (flagSubmitting) return;
+          setFlagModalOpen(false);
+          setFlagReasonError(null);
+        }}
+        onSubmit={submitFlagForModeration}
+      />
     </div>
   );
 }

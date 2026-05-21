@@ -38,5 +38,11 @@
   "eventNotFound": "Event not found.",
   "noEventIdentifier": "No event identifier provided.",
   "mapsLabel": "Maps:",
-  "deleteEventConfirm": "Delete this event?"
+  "deleteEventConfirm": "Delete this event?",
+  "flagForModeration": "Flag for moderation",
+  "flagReasonPrompt": "Why should this event be reviewed by moderators?",
+  "flagReasonPlaceholder": "Give moderators enough context to review this event fairly...",
+  "flagReasonRequired": "A reason is required to flag an event.",
+  "submitModerationRequest": "Submit moderation request",
+  "moderationRequestNoteTitle": "Moderation request note"
 }

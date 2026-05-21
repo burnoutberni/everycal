@@ -79,6 +79,12 @@ export function createApiRequestContext(input?: {
  * Web UI users authenticate via HttpOnly cookies (no JS token access).
  */
 let apiKey: string | null = null;
+const unauthorizedListeners = new Set<() => void>();
+
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
 
 export function setApiKey(key: string | null) {
   apiKey = key;
@@ -120,6 +126,11 @@ async function request<T>(
   });
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      unauthorizedListeners.forEach((listener) => {
+        listener();
+      });
+    }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error || i18n.t("common:requestFailed"));
   }
@@ -372,6 +383,8 @@ type CalEventBase = {
   visibility: string;
   /** True for remote events that were canceled (ActivityPub Delete). */
   canceled?: boolean;
+  moderationState?: "flagged" | "visible" | "hidden";
+  moderationReason?: string | null;
   rsvpStatus?: "going" | "maybe" | null;
   reposted?: boolean;
   repostedBy?: { username: string; displayName: string | null };
@@ -530,6 +543,13 @@ export const events = {
 
   unrepost(id: string) {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "DELETE" });
+  },
+
+  flag(id: string, reason: string) {
+    return request<{ ok: boolean }>(`/events/${id}/flag`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
   },
 
   rsvp(eventUri: string, status: "going" | "maybe" | null) {

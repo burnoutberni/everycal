@@ -564,3 +564,99 @@ export function PenIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function FlagIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ width: "1em", height: "1em", flexShrink: 0 }}
+    >
+      <path d="M6 22V4" />
+      <path d="M6 5h10l-2 4 2 4H6" />
+    </svg>
+  );
+}
+
+export function ShieldIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ width: "1em", height: "1em", flexShrink: 0 }}
+    >
+      <path d="M12 3l7 3v6c0 4.5-2.8 7.8-7 9-4.2-1.2-7-4.5-7-9V6l7-3z" />
+    </svg>
+  );
+}
+
+export function CheckCalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ width: "1em", height: "1em", flexShrink: 0 }}
+    >
+      <rect x="4" y="4.5" width="16" height="15" rx="2.5" />
+      <path d="M8 2.8v3.4M16 2.8v3.4M4 9.2h16M9 13.1l1.8 1.8 4.2-4.2" />
+    </svg>
+  );
+}
+
+export function UpdateIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ width: "1em", height: "1em", flexShrink: 0 }}
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <polyline points="21 3 21 9 15 9" />
+    </svg>
+  );
+}
+
+export function TimerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ width: "1em", height: "1em", flexShrink: 0 }}
+    >
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 13V9" />
+      <path d="M12 13l3 2" />
+      <path d="M9 2h6" />
+    </svg>
+  );
+}
