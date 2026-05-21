@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 import type { DB } from '../db.js';
+import { requireAdminCsrf } from '../middleware/admin-csrf.js';
 import { requireAdmin } from '../middleware/auth.js';
 import {
   getEffectiveSetting,
@@ -28,6 +29,7 @@ function audit(db: DB, adminId: string, action: string, targetType: string, targ
 export function adminRoutes(db: DB) {
   const app = new Hono();
   app.use('*', requireAdmin());
+  app.use('*', requireAdminCsrf());
 
   app.get('/health', (c) => {
     const accounts = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as {count:number};

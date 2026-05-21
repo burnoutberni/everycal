@@ -277,7 +277,13 @@ export function AdminPage() {
   };
 
   async function adminFetch(path: string, init?: RequestInit) {
-    const res = await fetch(path, { credentials: 'include', ...init });
+    const method = (init?.method || 'GET').toUpperCase();
+    const headers = new Headers(init?.headers || {});
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const csrfMatch = document.cookie.match(/(?:^|;\s*)everycal_csrf=([^;]+)/);
+      if (csrfMatch?.[1]) headers.set('X-CSRF-Token', csrfMatch[1]);
+    }
+    const res = await fetch(path, { credentials: 'include', ...init, headers });
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     return res.json();
   }

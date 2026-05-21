@@ -39,10 +39,13 @@ export function ModerationDecisionActions({
     try {
       setSubmitting(true);
       setError(null);
+      const headers = new Headers({ "Content-Type": "application/json" });
+      const csrfMatch = document.cookie.match(/(?:^|;\s*)everycal_csrf=([^;]+)/);
+      if (csrfMatch?.[1]) headers.set("X-CSRF-Token", csrfMatch[1]);
       const res = await fetch(`/api/v1/admin/events/${encodeURIComponent(eventId)}/moderate`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ state: decision, reason: trimmed }),
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);

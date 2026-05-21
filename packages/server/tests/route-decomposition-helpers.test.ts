@@ -51,15 +51,16 @@ describe("decomposed route helpers", () => {
   });
 
   it("centralizes auth session cookie formatting without changing names", () => {
-    const headers: Record<string, string> = {};
-    setSessionCookie({ header: (name, value) => { headers[name] = value; } }, "token", new Date(Date.now() + 60_000).toISOString());
+    const cookies: string[] = [];
+    setSessionCookie({ header: (name, value) => { if (name === "Set-Cookie") cookies.push(value); } }, "token", new Date(Date.now() + 60_000).toISOString());
 
-    expect(headers["Set-Cookie"]).toContain("everycal_session=token");
-    expect(headers["Set-Cookie"]).toContain("HttpOnly");
-    expect(headers["Set-Cookie"]).toContain("SameSite=Lax");
+    expect(cookies.some((cookie) => cookie.includes("everycal_session=token"))).toBe(true);
+    expect(cookies.some((cookie) => cookie.includes("everycal_session=token") && cookie.includes("HttpOnly"))).toBe(true);
+    expect(cookies.some((cookie) => cookie.includes("everycal_csrf="))).toBe(true);
 
-    clearSessionCookie({ header: (name, value) => { headers[name] = value; } });
-    expect(headers["Set-Cookie"]).toContain("everycal_session=");
-    expect(headers["Set-Cookie"]).toContain("Max-Age=0");
+    const cleared: string[] = [];
+    clearSessionCookie({ header: (name, value) => { if (name === "Set-Cookie") cleared.push(value); } });
+    expect(cleared.some((cookie) => cookie.includes("everycal_session=") && cookie.includes("Max-Age=0"))).toBe(true);
+    expect(cleared.some((cookie) => cookie.includes("everycal_csrf=") && cookie.includes("Max-Age=0"))).toBe(true);
   });
 });

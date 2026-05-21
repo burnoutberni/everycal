@@ -29,6 +29,72 @@ describe('admin routes', () => {
     expect(row?.action_type).toBe('event.moderate');
   });
 
+  it('enforces CSRF token checks for cookie-auth admin mutations', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const missingToken = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:3000',
+        cookie: 'everycal_session=s1; everycal_csrf=csrf1',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad.test' }),
+    });
+    expect(missingToken.status).toBe(403);
+    expect(await missingToken.json()).toEqual({ error: 'csrf_token_invalid' });
+
+    const badOrigin = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        origin: 'http://evil.example',
+        cookie: 'everycal_session=s1; everycal_csrf=csrf1',
+        'x-csrf-token': 'csrf1',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad.test' }),
+    });
+    expect(badOrigin.status).toBe(403);
+    expect(await badOrigin.json()).toEqual({ error: 'csrf_origin_mismatch' });
+
+    const ok = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:3000',
+        cookie: 'everycal_session=s1; everycal_csrf=csrf1',
+        'x-csrf-token': 'csrf1',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad.test' }),
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it('allows API key admin mutations without CSRF token', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        authorization: 'ApiKey test-key',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'api-key-only.test' }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
   it('supports admin settings and security mutations with audit', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1),('u1','user',0)").run();
