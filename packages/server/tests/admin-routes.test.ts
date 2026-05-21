@@ -344,6 +344,14 @@ describe('admin routes', () => {
       body: JSON.stringify({ state: 'hidden' }),
     });
     expect(resModerateNoReason.status).toBe(400);
+
+    const resModerateInvalidState = await app.request('/api/v1/admin/events/e1/moderate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'not-a-real-state', reason: 'reviewed' }),
+    });
+    expect(resModerateInvalidState.status).toBe(400);
+    expect(await resModerateInvalidState.json()).toEqual({ error: 'invalid_moderation_state' });
   });
 
   it('POST /federation/block, GET /federation/blocks, and unblocking manages blocks and hides remote events', async () => {
@@ -363,6 +371,22 @@ describe('admin routes', () => {
       body: JSON.stringify({ blockType: 'domain' }),
     });
     expect(resFail.status).toBe(400);
+
+    const resInvalidType = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ blockType: 'invalid-type', domain: 'bad-domain.com' }),
+    });
+    expect(resInvalidType.status).toBe(400);
+    expect(await resInvalidType.json()).toEqual({ error: 'invalid_block_type' });
+
+    const resActorWithoutActorUri = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ blockType: 'actor', domain: 'bad-domain.com' }),
+    });
+    expect(resActorWithoutActorUri.status).toBe(400);
+    expect(await resActorWithoutActorUri.json()).toEqual({ error: 'block_target_required' });
 
     // 2. Block domain
     const resBlockDomain = await app.request('/api/v1/admin/federation/block', {

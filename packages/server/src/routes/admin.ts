@@ -28,6 +28,8 @@ function audit(db: DB, adminId: string, action: string, targetType: string, targ
 
 export function adminRoutes(db: DB) {
   const app = new Hono();
+  const moderationStates = new Set(['flagged', 'visible', 'hidden']);
+  const federationBlockTypes = new Set(['actor', 'domain']);
   app.use('*', requireAdmin());
   app.use('*', requireAdminCsrf());
 
@@ -126,6 +128,7 @@ export function adminRoutes(db: DB) {
     const admin = c.get('user')!;
     const id = c.req.param('id');
     const body = await c.req.json<{state:string; reason?:string}>();
+    if (!moderationStates.has(body.state)) return c.json({ error: 'invalid_moderation_state' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     db.prepare('UPDATE events SET moderation_state = ?, moderation_reason = ?, moderated_at = datetime(\'now\') WHERE id = ?').run(body.state, body.reason || null, id);
     audit(db, admin.id, 'event.moderate', 'event', id, { state: body.state, reason: body.reason.trim() });
@@ -159,17 +162,21 @@ export function adminRoutes(db: DB) {
 
   app.post('/federation/block', async (c) => {
     const admin = c.get('user')!;
-    const body = await c.req.json<{blockType:'actor'|'domain'; actorUri?:string; domain?:string}>();
-    if (!body.domain && !body.actorUri) return c.json({ error: 'block_target_required' }, 400);
+    const body = await c.req.json<{blockType:string; actorUri?:string; domain?:string}>();
+    if (!federationBlockTypes.has(body.blockType)) return c.json({ error: 'invalid_block_type' }, 400);
+    if (body.blockType === 'domain' && !body.domain?.trim()) return c.json({ error: 'block_target_required' }, 400);
+    if (body.blockType === 'actor' && !body.actorUri?.trim()) return c.json({ error: 'block_target_required' }, 400);
+    const actorUri = body.actorUri?.trim() || null;
+    const domain = body.domain?.trim() || null;
     const id = nanoid();
-    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, 1)').run(id, body.blockType, body.actorUri || null, body.domain || null, admin.id);
-    if (body.blockType === 'domain' && body.domain) {
-      db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri IN (SELECT uri FROM remote_actors WHERE domain = ?)").run(body.domain);
+    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, 1)').run(id, body.blockType, actorUri, domain, admin.id);
+    if (body.blockType === 'domain' && domain) {
+      db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri IN (SELECT uri FROM remote_actors WHERE domain = ?)").run(domain);
     }
-    if (body.blockType === 'actor' && body.actorUri) {
-      db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri = ?").run(body.actorUri);
+    if (body.blockType === 'actor' && actorUri) {
+      db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri = ?").run(actorUri);
     }
-    audit(db, admin.id, 'federation.block', body.blockType, body.actorUri || body.domain || '', {});
+    audit(db, admin.id, 'federation.block', body.blockType, actorUri || domain || '', {});
     return c.json({ ok: true, blockId: id });
   });
 
