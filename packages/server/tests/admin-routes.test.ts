@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
-import { adminRoutes } from '../src/routes/admin.js';
+import { adminRoutes, cleanupAdminAuditLogs, getEffectiveSetting } from '../src/routes/admin.js';
 
 describe('admin routes', () => {
   it('enforces requireAdmin and writes audit log', async () => {
@@ -556,6 +556,57 @@ describe('admin routes', () => {
       if (originalSmtpSecure !== undefined) process.env.SMTP_SECURE = originalSmtpSecure; else delete process.env.SMTP_SECURE;
       if (originalPort !== undefined) process.env.PORT = originalPort; else delete process.env.PORT;
       if (originalBaseUrl !== undefined) process.env.BASE_URL = originalBaseUrl; else delete process.env.BASE_URL;
+    }
+  });
+
+  it('correctly prunes old audit logs based on retention settings', () => {
+    const db = initDatabase(':memory:');
+    
+    // Insert some audit logs with different dates
+    db.prepare("INSERT INTO admin_audit_log (id, admin_account_id, action_type, target_type, target_id, payload_json, created_at) VALUES ('id1', 'admin1', 'action1', 'target', 't1', '{}', datetime('now', '-400 days'))").run();
+    db.prepare("INSERT INTO admin_audit_log (id, admin_account_id, action_type, target_type, target_id, payload_json, created_at) VALUES ('id2', 'admin1', 'action2', 'target', 't2', '{}', datetime('now', '-100 days'))").run();
+    db.prepare("INSERT INTO admin_audit_log (id, admin_account_id, action_type, target_type, target_id, payload_json, created_at) VALUES ('id3', 'admin1', 'action3', 'target', 't3', '{}', datetime('now'))").run();
+
+    // 1. If retainDays is 0, no pruning occurs
+    const result0 = cleanupAdminAuditLogs(db, { retainDays: 0 });
+    expect(result0.deletedCount).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) as count FROM admin_audit_log").get() as { count: number }).toEqual({ count: 3 });
+
+    // 2. Prune with 365 days retention (should delete id1)
+    const result365 = cleanupAdminAuditLogs(db, { retainDays: 365 });
+    expect(result365.deletedCount).toBe(1);
+    
+    const remainingAfter365 = db.prepare("SELECT id FROM admin_audit_log ORDER BY created_at DESC").all() as Array<{ id: string }>;
+    expect(remainingAfter365.map(row => row.id)).toEqual(['id3', 'id2']);
+
+    // 3. Prune with 50 days retention (should delete id2)
+    const result50 = cleanupAdminAuditLogs(db, { retainDays: 50 });
+    expect(result50.deletedCount).toBe(1);
+
+    const remainingAfter50 = db.prepare("SELECT id FROM admin_audit_log ORDER BY created_at DESC").all() as Array<{ id: string }>;
+    expect(remainingAfter50.map(row => row.id)).toEqual(['id3']);
+  });
+
+  it('correctly reads audit log retention settings with getEffectiveSetting', () => {
+    const db = initDatabase(':memory:');
+    
+    // Default value check
+    const defaultRetain = getEffectiveSetting<number>(db, 'audit_log_retain_days', 365);
+    expect(defaultRetain).toBe(365);
+
+    // DB value check
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES ('audit_log_retain_days', '180')").run();
+    const dbRetain = getEffectiveSetting<number>(db, 'audit_log_retain_days', 365);
+    expect(dbRetain).toBe(180);
+
+    // Environment override check
+    const originalEnv = process.env.AUDIT_LOG_RETAIN_DAYS;
+    try {
+      process.env.AUDIT_LOG_RETAIN_DAYS = '90';
+      const envRetain = getEffectiveSetting<number>(db, 'audit_log_retain_days', 365);
+      expect(envRetain).toBe(90);
+    } finally {
+      if (originalEnv !== undefined) process.env.AUDIT_LOG_RETAIN_DAYS = originalEnv; else delete process.env.AUDIT_LOG_RETAIN_DAYS;
     }
   });
 });

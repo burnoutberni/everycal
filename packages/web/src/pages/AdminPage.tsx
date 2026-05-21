@@ -210,7 +210,7 @@ export function AdminPage() {
 
     const resolveGroup = (key: string) => {
       if (key === 'open_registrations' || key === 'trusted_proxy' || key === 'skip_email_verification' || key === 'skip_signature_verify') return 'Access and trust';
-      if (key === 'base_url' || key === 'cors_origin' || key === 'port' || key === 'ssr_anon_cache_ttl_ms' || key === 'database_path' || key === 'upload_dir' || key === 'og_dir' || key === 'run_jobs_internally' || key === 'og_job_concurrency') return 'Server and platform';
+      if (key === 'base_url' || key === 'cors_origin' || key === 'port' || key === 'ssr_anon_cache_ttl_ms' || key === 'database_path' || key === 'upload_dir' || key === 'og_dir' || key === 'run_jobs_internally' || key === 'og_job_concurrency' || key.startsWith('audit_log_')) return 'Server and platform';
       if (key === 'federation_queue_health_allowed_accounts' || key.startsWith('outbound_') || key.startsWith('inbox_')) return 'Federation and queues';
       if (key.startsWith('smtp_')) return 'Email delivery';
       if (key === 'calendar_feed_token_secret' || key === 'unsplash_access_key') return 'Secrets and integrations';

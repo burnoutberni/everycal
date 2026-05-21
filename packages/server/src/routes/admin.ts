@@ -212,6 +212,26 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     source: 'db_with_env_override',
   },
   {
+    key: 'audit_log_retain_days',
+    label: 'Audit log retention (days)',
+    description: 'Retention window for admin audit log actions (0 keeps indefinitely).',
+    kind: 'number',
+    envVar: 'AUDIT_LOG_RETAIN_DAYS',
+    defaultValue: 365,
+    editable: true,
+    source: 'db_with_env_override',
+  },
+  {
+    key: 'audit_log_cleanup_interval_ms',
+    label: 'Audit log cleanup interval (ms)',
+    description: 'Cleanup interval for admin audit log database pruning.',
+    kind: 'number',
+    envVar: 'AUDIT_LOG_CLEANUP_INTERVAL_MS',
+    defaultValue: 86400000,
+    editable: true,
+    source: 'db_with_env_override',
+  },
+  {
     key: 'og_job_concurrency',
     label: 'OG job concurrency',
     description: 'Maximum concurrent OG image jobs.',
@@ -695,4 +715,51 @@ export function adminRoutes(db: DB) {
   });
 
   return app;
+}
+
+export function getEffectiveSetting<T>(db: DB, key: string, defaultValue: T): T {
+  const def = runtimeSettingDefs.find((d) => d.key === key);
+  if (!def) return defaultValue;
+  const dbValue = def.source === 'db_with_env_override' ? readDbValue(def, db) : null;
+  const envOverride = readEnvOverride(def);
+  const effectiveValue = def.source === 'db_with_env_override'
+    ? (envOverride !== null ? envOverride : (dbValue ?? def.defaultValue ?? null))
+    : readEnvValue(def);
+  return (effectiveValue !== null ? effectiveValue : defaultValue) as T;
+}
+
+export function cleanupAdminAuditLogs(
+  db: DB,
+  options: { retainDays?: number } = {}
+): { deletedCount: number } {
+  const retainDays = Math.max(0, Math.floor(options.retainDays ?? 365));
+  if (retainDays === 0) {
+    return { deletedCount: 0 };
+  }
+  const cleanup = db.transaction((days: number) => {
+    const result = db
+      .prepare("DELETE FROM admin_audit_log WHERE created_at < datetime('now', '-' || ? || ' days')")
+      .run(days);
+    return { deletedCount: result.changes };
+  });
+  return cleanup(retainDays);
+}
+
+export function startAdminAuditLogCleanupWorker(db: DB): NodeJS.Timeout | null {
+  const intervalMs = Math.max(60000, getEffectiveSetting<number>(db, 'audit_log_cleanup_interval_ms', 86400000));
+
+  const run = () => {
+    try {
+      const actualRetainDays = getEffectiveSetting<number>(db, 'audit_log_retain_days', 365);
+      const result = cleanupAdminAuditLogs(db, { retainDays: actualRetainDays });
+      if (result.deletedCount > 0) {
+        console.log(`[Admin] cleaned admin audit log rows: deleted=${result.deletedCount}`);
+      }
+    } catch (err) {
+      console.error("[Admin] admin audit log cleanup failed", err);
+    }
+  };
+
+  run();
+  return setInterval(run, intervalMs);
 }
