@@ -296,8 +296,9 @@ export function AdminPage() {
               </div>
               <div className='flex gap-1'>
                 {typeof setting.effectiveValue === 'boolean' ? (
-                  <label className='checkbox-label'>
+                  <label className='runtime-toggle'>
                     <input
+                      className='runtime-toggle-input'
                       type='checkbox'
                       checked={setting.effectiveValue}
                       disabled={setting.lockedByEnv || !setting.editable}
@@ -323,7 +324,10 @@ export function AdminPage() {
                         });
                       }}
                     />
-                    Enabled
+                    <span className='runtime-toggle-track' aria-hidden='true'>
+                      <span className='runtime-toggle-thumb' />
+                    </span>
+                    <span className='runtime-toggle-text'>{setting.effectiveValue ? 'Enabled' : 'Disabled'}</span>
                   </label>
                 ) : (
                   <span className='text-sm text-muted'>{setting.effectiveValue == null ? 'Not set' : String(setting.effectiveValue)}</span>

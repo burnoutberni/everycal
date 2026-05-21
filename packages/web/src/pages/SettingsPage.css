@@ -584,6 +584,68 @@
   border-left-color: var(--border-focus);
 }
 
+.runtime-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.runtime-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.runtime-toggle-track {
+  position: relative;
+  width: 2.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-dim) 35%, var(--bg-soft));
+  border: 1px solid var(--border);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.runtime-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  transition: transform 0.2s ease;
+}
+
+.runtime-toggle-input:checked + .runtime-toggle-track {
+  background: color-mix(in srgb, var(--accent) 72%, var(--bg-soft));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.runtime-toggle-input:checked + .runtime-toggle-track .runtime-toggle-thumb {
+  transform: translateX(1rem);
+}
+
+.runtime-toggle-input:focus-visible + .runtime-toggle-track {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.runtime-toggle-input:disabled + .runtime-toggle-track {
+  opacity: 0.45;
+}
+
+.runtime-toggle-input:disabled ~ .runtime-toggle-text {
+  color: var(--text-muted);
+}
+
 /* Mobile: horizontal nav above content */
 @media (max-width: 640px) {
   .settings-layout {
