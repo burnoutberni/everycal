@@ -45,6 +45,7 @@ import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-even
 import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { ensureStableActivityId } from "../lib/activity-ids.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
+import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -501,7 +502,7 @@ export function activityPubRoutes(db: DB): Hono {
 
     // Verify the incoming activity has a valid HTTP Signature
     // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
-    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && process.env.NODE_ENV !== "production";
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {
@@ -581,7 +582,7 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     // Verify HTTP Signature
-    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && process.env.NODE_ENV !== "production";
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {

@@ -8,6 +8,7 @@ import { signRequest } from "./crypto.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
+import { getEffectiveSetting } from "./runtime-settings.js";
 
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
@@ -756,12 +757,15 @@ export function cleanupTerminalOutboundDeliveries(
 }
 
 export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const deliveredRetentionDays = parseRetentionDays(
-    process.env.OUTBOUND_RETAIN_DELIVERED_DAYS,
-    OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT
-  );
-  const failedRetentionDays = parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
-  const intervalMs = parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
+  const deliveredRetentionDays = process.env.OUTBOUND_RETAIN_DELIVERED_DAYS === undefined
+    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_delivered_days", OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT)))
+    : parseRetentionDays(process.env.OUTBOUND_RETAIN_DELIVERED_DAYS, OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT);
+  const failedRetentionDays = process.env.OUTBOUND_RETAIN_FAILED_DAYS === undefined
+    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_failed_days", OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT)))
+    : parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
+  const intervalMs = process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS === undefined
+    ? parseCleanupIntervalMs(String(getEffectiveSetting<number>(db, "outbound_terminal_cleanup_interval_ms", OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT)))
+    : parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
 
   const run = () => {
     try {
@@ -832,18 +836,20 @@ export function cleanupProcessedInboxActivities(
 }
 
 export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const processedRetentionDays = parseRetentionDays(
-    process.env.INBOX_PROCESSED_RETAIN_DAYS,
-    INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT,
-  );
-  const failedRetentionDays = parseRetentionDays(
-    process.env.INBOX_FAILED_RETAIN_DAYS,
-    INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT,
-  );
-  const maxRows = parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
+  const processedRetentionDays = process.env.INBOX_PROCESSED_RETAIN_DAYS === undefined
+    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_retain_days", INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT)))
+    : parseRetentionDays(process.env.INBOX_PROCESSED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT);
+  const failedRetentionDays = process.env.INBOX_FAILED_RETAIN_DAYS === undefined
+    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_failed_retain_days", INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT)))
+    : parseRetentionDays(process.env.INBOX_FAILED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT);
+  const maxRows = process.env.INBOX_PROCESSED_MAX_ROWS === undefined
+    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_max_rows", INBOX_PROCESSED_MAX_ROWS_DEFAULT)))
+    : parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
   const intervalMs = Math.max(
     INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN,
-    parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
+    process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS === undefined
+      ? Math.floor(getEffectiveSetting<number>(db, "inbox_processed_cleanup_interval_ms", INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT))
+      : parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
   );
 
   const run = () => {

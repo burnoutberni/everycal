@@ -38,6 +38,7 @@ import {
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
+import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
@@ -151,7 +152,7 @@ export function federationRoutes(db: DB): Hono {
   const router = new Hono();
 
   function isQueueHealthAllowed(user: { id: string; username: string }): boolean {
-    const raw = process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
+    const raw = getEffectiveSetting<string>(db, "federation_queue_health_allowed_accounts", "");
     if (!raw) return false;
     const allowed = new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
     return allowed.has(user.id) || allowed.has(user.username);

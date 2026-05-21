@@ -50,6 +50,7 @@ import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
 import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
+import { getEffectiveSetting } from "./lib/runtime-settings.js";
 
 validateBaseUrlConfig();
 
@@ -58,7 +59,8 @@ const db = initDatabase(DATABASE_PATH);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "../../web");
 
-const SSR_ANON_CACHE_TTL_MS = Math.max(0, parseInt(process.env.SSR_ANON_CACHE_TTL_MS || "15000", 10));
+const SSR_ANON_CACHE_TTL_MS = Math.max(0, getEffectiveSetting<number>(db, "ssr_anon_cache_ttl_ms", 15000));
+const trustedProxy = getEffectiveSetting<boolean>(db, "trusted_proxy", false);
 const ssrAnonymousCache = new Map<string, CachedSsrResponse>();
 
 // Security headers with Content-Security-Policy
@@ -99,7 +101,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)
-const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http://localhost:5173")
+const allowedOrigins = (getEffectiveSetting<string>(db, "cors_origin", "") || process.env.BASE_URL || "http://localhost:5173")
   .split(",")
   .map((o) => o.trim());
 
@@ -109,30 +111,30 @@ app.use(
 );
 
 // Rate limiting on auth endpoints (prevent brute force)
-app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5 }));
-app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5 }));
+app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));
+app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));
 
 // Rate limiting on federation fetch (prevent SSRF abuse)
-app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/federation/search", rateLimiter({ windowMs: 60_000, max: 20 }));
+app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/federation/search", rateLimiter({ windowMs: 60_000, max: 20, trustedProxy }));
 
 // Rate limiting on event sync (prevent abuse by compromised scraper keys)
-app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Rate limiting on event creation/update (prevent spam)
-app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30 }));
+app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
 
 // Rate limiting on image search (proxy to external APIs)
-app.use("/api/v1/images/search", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/api/v1/images/search", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Rate limiting on uploads (prevent disk fill)
-app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30 }));
+app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
 
 // Rate limiting on ActivityPub inboxes (prevent federation abuse)
-app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
-app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
+app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Auth middleware — runs on all routes, sets c.get("user") or null
 app.use("*", authMiddleware(db));

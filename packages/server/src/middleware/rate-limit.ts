@@ -13,6 +13,7 @@ interface RateLimiterOptions {
   windowMs: number;
   /** Maximum requests per window. */
   max: number;
+  trustedProxy?: boolean;
 }
 
 interface WindowEntry {
@@ -38,7 +39,7 @@ export function rateLimiter(opts: RateLimiterOptions) {
     // When behind a reverse proxy (nginx, cloudflare), set TRUSTED_PROXY=true.
     // Otherwise, use the direct connection address to prevent header spoofing.
     let ip: string;
-    if (process.env.TRUSTED_PROXY === "true") {
+    if (opts.trustedProxy === true) {
       const forwarded = c.req.header("x-forwarded-for");
       ip = forwarded?.split(",")[0]?.trim() || "unknown";
     } else {

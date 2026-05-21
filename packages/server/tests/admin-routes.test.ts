@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
-import { adminRoutes, cleanupAdminAuditLogs, getEffectiveSetting } from '../src/routes/admin.js';
+import { adminRoutes, cleanupAdminAuditLogs } from '../src/routes/admin.js';
+import { getEffectiveSetting } from '../src/lib/runtime-settings.js';
 
 describe('admin routes', () => {
   it('enforces requireAdmin and writes audit log', async () => {
@@ -152,7 +153,7 @@ describe('admin routes', () => {
     expect(await res3.json()).toEqual({ error: 'invalid_value' });
 
     // 4. Invalid number value (e.g. passing a boolean for number)
-    const res4 = await app.request('/api/v1/admin/settings/port', {
+    const res4 = await app.request('/api/v1/admin/settings/audit_log_cleanup_interval_ms', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ value: true, reason: 'invalid val' }),
@@ -161,7 +162,7 @@ describe('admin routes', () => {
     expect(await res4.json()).toEqual({ error: 'invalid_value' });
 
     // 5. Invalid string/secret value (e.g. passing a number for string)
-    const res5 = await app.request('/api/v1/admin/settings/base_url', {
+    const res5 = await app.request('/api/v1/admin/settings/cors_origin', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ value: 123, reason: 'invalid val' }),
@@ -169,17 +170,14 @@ describe('admin routes', () => {
     expect(res5.status).toBe(400);
     expect(await res5.json()).toEqual({ error: 'invalid_value' });
 
-    // 6. Valid secret settings modification (should mask the value in audit logs)
+    // 6. Env-only/read-only setting rejects DB edits
     const res6 = await app.request('/api/v1/admin/settings/smtp_pass', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ value: 'super-secret-password', reason: 'updating credentials' }),
     });
-    expect(res6.status).toBe(200);
-
-    const auditRow = db.prepare("SELECT payload_json FROM admin_audit_log WHERE action_type = 'settings.smtp_pass'").get() as { payload_json: string };
-    const auditPayload = JSON.parse(auditRow.payload_json);
-    expect(auditPayload.value).toBe('(updated)');
+    expect(res6.status).toBe(403);
+    expect(await res6.json()).toEqual({ error: 'setting_read_only' });
   });
 
   it('GET /accounts lists accounts matching query q', async () => {

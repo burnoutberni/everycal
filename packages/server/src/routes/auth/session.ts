@@ -8,29 +8,14 @@ import { normalizeHandle, isValidRegistrationUsername } from "../../lib/handles.
 import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { hashTokenSecret } from "../../lib/token-secrets.js";
+import { getEffectiveSetting } from "../../lib/runtime-settings.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE } from "./constants.js";
 import { setSessionCookie, clearSessionCookie } from "./session-cookies.js";
 
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
   router.post("/register", async (c) => {
-    const openRegistrationsEnv = process.env.OPEN_REGISTRATIONS;
-    const dbSettingRow = db.prepare("SELECT value_json FROM admin_settings WHERE key = 'open_registrations'").get() as { value_json: string } | undefined;
-    let openRegistrationsDb: boolean | null = null;
-    if (dbSettingRow?.value_json) {
-      try {
-        const parsed = JSON.parse(dbSettingRow.value_json);
-        openRegistrationsDb = typeof parsed === "boolean" ? parsed : null;
-      } catch {
-        openRegistrationsDb = null;
-      }
-    }
-    const openRegistrationsEffective =
-      openRegistrationsEnv === "true"
-        ? true
-        : openRegistrationsEnv === "false"
-          ? false
-          : openRegistrationsDb ?? true;
+    const openRegistrationsEffective = getEffectiveSetting<boolean>(db, "open_registrations", true);
 
     // Check if open registration is enabled
     if (!openRegistrationsEffective) {
