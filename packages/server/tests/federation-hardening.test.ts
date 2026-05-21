@@ -634,6 +634,40 @@ describe("federation hardening prep", () => {
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
   });
 
+  it("re-reads outbound cleanup retention settings on each worker run", () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    let intervalRun: (() => void) | null = null;
+    vi.spyOn(global, "setInterval").mockImplementation((fn: TimerHandler) => {
+      intervalRun = fn as () => void;
+      return 1 as unknown as NodeJS.Timeout;
+    });
+
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run("older", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "older" }), "delivered", "-5 days");
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run("recent", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "recent" }), "delivered", "-4 days");
+
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?)").run("outbound_retain_delivered_days", JSON.stringify(4));
+    federation.startOutboundTerminalCleanupWorker(db);
+    expect(intervalRun).toBeTypeOf("function");
+
+    let remainingIds = db.prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id").all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["recent"]);
+
+    db.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))")
+      .run("recent-2", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "recent-2" }), "delivered", "-4 days");
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json")
+      .run("outbound_retain_delivered_days", JSON.stringify(10));
+
+    intervalRun?.();
+
+    remainingIds = db.prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id").all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["recent", "recent-2"]);
+  });
+
   it("cleans up old terminal processed inbox rows with defaults", () => {
     const db = initDatabase(":memory:");
 
@@ -699,6 +733,46 @@ describe("federation hardening prep", () => {
       .all() as Array<{ activity_id: string }>;
     expect(remainingIds.map((row) => row.activity_id)).toEqual(["middle", "newest"]);
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
+  });
+
+  it("re-reads inbox cleanup settings on each worker run", () => {
+    const db = initDatabase(":memory:");
+    let intervalRun: (() => void) | null = null;
+    vi.spyOn(global, "setInterval").mockImplementation((fn: TimerHandler) => {
+      intervalRun = fn as () => void;
+      return 1 as unknown as NodeJS.Timeout;
+    });
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("a", "https://remote.example/users/bob", "user:alice", "processed", "-10 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("b", "https://remote.example/users/bob", "user:alice", "processed", "-5 days");
+
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?)").run("inbox_processed_retain_days", JSON.stringify(1));
+    federation.startProcessedInboxCleanupWorker(db);
+    expect(intervalRun).toBeTypeOf("function");
+
+    let remainingIds = db.prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id").all() as Array<{ activity_id: string }>;
+    expect(remainingIds).toEqual([]);
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("c", "https://remote.example/users/bob", "user:alice", "processed", "-5 days");
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json")
+      .run("inbox_processed_retain_days", JSON.stringify(10));
+
+    intervalRun?.();
+
+    remainingIds = db.prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id").all() as Array<{ activity_id: string }>;
+    expect(remainingIds.map((row) => row.activity_id)).toEqual(["c"]);
   });
 
   it("skips duplicate inbox activities with stable ids", async () => {

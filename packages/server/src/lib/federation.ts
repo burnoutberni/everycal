@@ -757,18 +757,18 @@ export function cleanupTerminalOutboundDeliveries(
 }
 
 export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const deliveredRetentionDays = process.env.OUTBOUND_RETAIN_DELIVERED_DAYS === undefined
-    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_delivered_days", OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT)))
-    : parseRetentionDays(process.env.OUTBOUND_RETAIN_DELIVERED_DAYS, OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT);
-  const failedRetentionDays = process.env.OUTBOUND_RETAIN_FAILED_DAYS === undefined
-    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_failed_days", OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT)))
-    : parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
   const intervalMs = process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS === undefined
     ? parseCleanupIntervalMs(String(getEffectiveSetting<number>(db, "outbound_terminal_cleanup_interval_ms", OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT)))
     : parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
 
   const run = () => {
     try {
+      const deliveredRetentionDays = process.env.OUTBOUND_RETAIN_DELIVERED_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_delivered_days", OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.OUTBOUND_RETAIN_DELIVERED_DAYS, OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT);
+      const failedRetentionDays = process.env.OUTBOUND_RETAIN_FAILED_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_failed_days", OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
       const result = cleanupTerminalOutboundDeliveries(db, { deliveredRetentionDays, failedRetentionDays });
       if (result.deletedDelivered > 0 || result.deletedFailed > 0) {
         console.log(
@@ -836,15 +836,6 @@ export function cleanupProcessedInboxActivities(
 }
 
 export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const processedRetentionDays = process.env.INBOX_PROCESSED_RETAIN_DAYS === undefined
-    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_retain_days", INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT)))
-    : parseRetentionDays(process.env.INBOX_PROCESSED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT);
-  const failedRetentionDays = process.env.INBOX_FAILED_RETAIN_DAYS === undefined
-    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_failed_retain_days", INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT)))
-    : parseRetentionDays(process.env.INBOX_FAILED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT);
-  const maxRows = process.env.INBOX_PROCESSED_MAX_ROWS === undefined
-    ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_max_rows", INBOX_PROCESSED_MAX_ROWS_DEFAULT)))
-    : parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
   const intervalMs = Math.max(
     INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN,
     process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS === undefined
@@ -854,6 +845,15 @@ export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null 
 
   const run = () => {
     try {
+      const processedRetentionDays = process.env.INBOX_PROCESSED_RETAIN_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_retain_days", INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.INBOX_PROCESSED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT);
+      const failedRetentionDays = process.env.INBOX_FAILED_RETAIN_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_failed_retain_days", INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.INBOX_FAILED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT);
+      const maxRows = process.env.INBOX_PROCESSED_MAX_ROWS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_max_rows", INBOX_PROCESSED_MAX_ROWS_DEFAULT)))
+        : parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
       const result = cleanupProcessedInboxActivities(db, {
         processedRetentionDays,
         failedRetentionDays,

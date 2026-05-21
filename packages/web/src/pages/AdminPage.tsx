@@ -35,7 +35,7 @@ type FederationBlock = { id: string; block_type: 'actor' | 'domain'; actor_uri?:
 type FederationActor = { uri: string; preferred_username?: string | null; domain: string; fetch_status?: string | null; last_fetched_at?: string | null; next_retry_at?: string | null; last_error?: string | null };
 type FederationDomain = { domain: string; actor_count: number; error_count: number; gone_count: number; last_fetched_at?: string | null };
 type FederationTombstone = { id: string; object_type: string; object_id: string; reason?: string | null; created_at?: string; expires_at?: string | null };
-type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json' | 'secret'; value: boolean | string | number | null; effectiveValue: boolean | string | number | null; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean };
+type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json' | 'secret'; value: boolean | string | number | null; effectiveValue: boolean | string | number | null; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean; applyScope?: 'immediate' | 'next_worker_tick' | 'restart_required' };
 type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
 type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
@@ -232,6 +232,11 @@ export function AdminPage() {
       .map((group) => ({ title: group, settings: groups.get(group) ?? [] }))
       .filter((group) => group.settings.length > 0);
   }, [settings, runtimeSettingsQuery]);
+  const runtimeScopeLabel = useCallback((scope?: AdminSetting['applyScope']) => {
+    if (scope === 'immediate') return 'Applies immediately';
+    if (scope === 'next_worker_tick') return 'Applies on next worker run';
+    return 'Requires restart';
+  }, []);
 
   useEffect(() => {
     const nextDrafts: Record<string, string> = {};
@@ -1277,6 +1282,7 @@ export function AdminPage() {
                       {typeof setting.effectiveValue === 'boolean'
                         ? `Current policy: ${setting.effectiveValue ? 'Enabled' : 'Disabled'}`
                         : `Current value: ${String(setting.effectiveValue)}`}
+                      {` · ${runtimeScopeLabel(setting.applyScope)}`}
                       {setting.lockedByEnv ? ' · Locked by environment variable' : ''}
                     </div>
                     {setting.description ? <div className='text-sm text-muted'>{setting.description}</div> : null}

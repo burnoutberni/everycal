@@ -182,6 +182,9 @@ describe('admin routes', () => {
     const openRegsSetting = body.items.find((item: any) => item.key === 'open_registrations');
     expect(openRegsSetting).toBeDefined();
     expect(openRegsSetting.effectiveValue).toBe(true);
+    expect(openRegsSetting.applyScope).toBe('immediate');
+    const portSetting = body.items.find((item: any) => item.key === 'port');
+    expect(portSetting.applyScope).toBe('restart_required');
   });
 
   it('POST /settings/:key validates key, reason, values, and logs secrets safely', async () => {
