@@ -14,6 +14,7 @@ type AdminSetting = { key: string; label: string; description?: string; value: b
 type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
 type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
+type AdminSectionKey = 'health' | 'triage' | 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit';
 
 function flattenHealthMetrics(value: unknown, prefix = ''): Array<{ key: string; label: string; value: string; state: 'good' | 'warn' | 'bad' | 'neutral' }> {
   if (value == null) return [];
@@ -83,7 +84,8 @@ export function AdminPage() {
   const [scraperName, setScraperName] = useState('');
   const [scraperDryRun, setScraperDryRun] = useState(true);
   const [revokeAccountId, setRevokeAccountId] = useState('');
-  const [activeSection, setActiveSection] = useState<'health' | 'settings' | 'accounts' | 'events' | 'federation' | 'security' | 'scrapers' | 'jobs' | 'audit'>('health');
+  const [activeSection, setActiveSection] = useState<AdminSectionKey>('health');
+  const [triageMetricQuery, setTriageMetricQuery] = useState('');
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +103,7 @@ export function AdminPage() {
 
   const sections = useMemo(() => ([
     ['health', 'Health'],
+    ['triage', 'Triage'],
     ['settings', 'Settings'],
     ['accounts', 'Accounts'],
     ['events', 'Events'],
@@ -122,6 +125,22 @@ export function AdminPage() {
   const activeLockoutCount = useMemo(() => loginLockouts.filter((item) => !!item.locked_until).length, [loginLockouts]);
   const recentFailedJobs = useMemo(() => jobRuns.filter((run) => run.status !== 'completed').length, [jobRuns]);
 
+  function routeHealthMetric(metric: { key: string; label: string; value: string; state: 'good' | 'warn' | 'bad' | 'neutral' }) {
+    const text = `${metric.key} ${metric.label} ${metric.value}`.toLowerCase();
+    const route = /moderation|event|flag/.test(text)
+      ? { section: 'events' as const, label: 'Review moderation queue' }
+      : /federation|actor|domain|block/.test(text)
+        ? { section: 'federation' as const, label: 'Review federation controls' }
+        : /auth|login|lockout|session|abuse/.test(text)
+          ? { section: 'security' as const, label: 'Review security controls' }
+          : /setting|registration|config|override/.test(text)
+            ? { section: 'settings' as const, label: 'Review runtime settings' }
+            : /job|queue|worker|scraper/.test(text)
+              ? { section: 'jobs' as const, label: 'Review job runs' }
+              : { section: 'triage' as const, label: 'Open triage desk' };
+    return route;
+  }
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -141,7 +160,7 @@ export function AdminPage() {
     return () => observer.disconnect();
   }, [sections]);
 
-  const scrollToSection = (id: typeof activeSection) => {
+  const scrollToSection = (id: AdminSectionKey) => {
     const el = sectionRefs.current[id];
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -286,18 +305,22 @@ export function AdminPage() {
             <article className='admin-overview-item'>
               <p className='admin-overview-label'>Flagged events</p>
               <p className='admin-overview-value'>{queueFlaggedCount}</p>
+              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => { setQueueState('flagged'); scrollToSection('events'); }}>Review queue</button>
             </article>
             <article className='admin-overview-item'>
               <p className='admin-overview-label'>Active federation blocks</p>
               <p className='admin-overview-value'>{blockedFederationCount}</p>
+              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('federation')}>Manage blocks</button>
             </article>
             <article className='admin-overview-item'>
               <p className='admin-overview-label'>Active lockouts</p>
               <p className='admin-overview-value'>{activeLockoutCount}</p>
+              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('security')}>Review lockouts</button>
             </article>
             <article className='admin-overview-item'>
               <p className='admin-overview-label'>Non-complete jobs</p>
               <p className='admin-overview-value'>{recentFailedJobs}</p>
+              <button type='button' className='btn btn-ghost btn-sm admin-overview-link' onClick={() => scrollToSection('jobs')}>Inspect jobs</button>
             </article>
           </div>
         </div>
@@ -317,13 +340,44 @@ export function AdminPage() {
           <div className='admin-health-kpi'><span>Total Signals</span><strong>{healthSummary.total}</strong></div>
         </div>
         <div className='admin-health-grid'>
-          {healthMetrics.map((m) => (
-            <article key={m.key} className={`admin-health-metric is-${m.state}`}>
-              <p className='admin-health-metric-label'>{m.label}</p>
-              <p className='admin-health-metric-value'>{m.value}</p>
-            </article>
-          ))}
+          {healthMetrics.map((m) => {
+            const route = routeHealthMetric(m);
+            return (
+              <article key={m.key} className={`admin-health-metric is-${m.state}`}>
+                <p className='admin-health-metric-label'>{m.label}</p>
+                <p className='admin-health-metric-value'>{m.value}</p>
+                <button
+                  type='button'
+                  className='btn btn-ghost btn-sm admin-health-action'
+                  onClick={() => {
+                    setTriageMetricQuery(m.key);
+                    if (route.section === 'events') setQueueState('flagged');
+                    scrollToSection(route.section);
+                  }}
+                >{route.label}</button>
+              </article>
+            );
+          })}
         </div>
+      </div>
+      </div>
+    </section>
+
+    <section id='triage' ref={(el) => { sectionRefs.current.triage = el; }} className='settings-section'>
+      <div className='settings-card'>
+      <h2 className='settings-section-title mb-1'>Health triage desk</h2>
+      <p className='text-sm text-muted mb-1'>Use this when a health signal does not map to a specific panel yet.</p>
+      <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        refreshAudit(triageMetricQuery, '', '').catch((err) => setError(String(err)));
+        scrollToSection('audit');
+      }}>
+        <input placeholder='Metric key or keyword' value={triageMetricQuery} onChange={(e) => setTriageMetricQuery(e.target.value)} />
+        <button className='btn btn-primary' type='submit'>Search audit trail</button>
+      </form>
+      <div className='flex gap-1'>
+        <button type='button' className='btn btn-ghost btn-sm' onClick={() => refreshHealth().catch((e) => setError(String(e)))}>Refresh health</button>
+        <button type='button' className='btn btn-ghost btn-sm' onClick={() => scrollToSection('settings')}>Review runtime settings</button>
       </div>
       </div>
     </section>

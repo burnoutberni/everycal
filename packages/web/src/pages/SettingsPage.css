@@ -491,6 +491,10 @@
   color: var(--text);
 }
 
+.admin-overview-link {
+  margin-top: 0.55rem;
+}
+
 .admin-health-header {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -558,6 +562,10 @@
   font-size: 0.95rem;
   color: var(--text);
   word-break: break-word;
+}
+
+.admin-health-action {
+  margin-top: 0.55rem;
 }
 
 .admin-health-metric.is-good {
