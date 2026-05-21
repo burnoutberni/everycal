@@ -10,7 +10,7 @@ type FederationActor = { uri: string; preferred_username?: string | null; domain
 type FederationDomain = { domain: string; actor_count: number; error_count: number; gone_count: number; last_fetched_at?: string | null };
 type FederationTombstone = { id: string; object_type: string; object_id: string; reason?: string | null; created_at?: string; expires_at?: string | null };
 type LoginLockout = { username: string; attempts: number; locked_until?: string | null; last_attempt?: string | null };
-type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json'; value: boolean | string | number | null; effectiveValue: boolean | string | number; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean };
+type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json' | 'secret'; value: boolean | string | number | null; effectiveValue: boolean | string | number | null; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean };
 type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
 type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
@@ -326,7 +326,7 @@ export function AdminPage() {
                     Enabled
                   </label>
                 ) : (
-                  <span className='text-sm text-muted'>Read-only</span>
+                  <span className='text-sm text-muted'>{setting.effectiveValue == null ? 'Not set' : String(setting.effectiveValue)}</span>
                 )}
               </div>
             </div>

@@ -9,10 +9,11 @@ type RuntimeSettingDef = {
   key: string;
   label: string;
   description: string;
-  kind: 'boolean';
+  kind: 'boolean' | 'string' | 'number' | 'secret';
   envVar?: string;
-  defaultValue: boolean;
+  defaultValue?: boolean | string | number;
   editable: boolean;
+  source: 'db_with_env_override' | 'env_only';
 };
 
 const runtimeSettingDefs: RuntimeSettingDef[] = [
@@ -24,6 +25,7 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     envVar: 'OPEN_REGISTRATIONS',
     defaultValue: true,
     editable: true,
+    source: 'db_with_env_override',
   },
   {
     key: 'trusted_proxy',
@@ -33,6 +35,7 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     envVar: 'TRUSTED_PROXY',
     defaultValue: false,
     editable: false,
+    source: 'env_only',
   },
   {
     key: 'run_jobs_internally',
@@ -42,6 +45,7 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     envVar: 'RUN_JOBS_INTERNALLY',
     defaultValue: true,
     editable: false,
+    source: 'env_only',
   },
   {
     key: 'skip_email_verification',
@@ -51,6 +55,7 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     envVar: 'SKIP_EMAIL_VERIFICATION',
     defaultValue: false,
     editable: false,
+    source: 'env_only',
   },
   {
     key: 'skip_signature_verify',
@@ -60,6 +65,234 @@ const runtimeSettingDefs: RuntimeSettingDef[] = [
     envVar: 'SKIP_SIGNATURE_VERIFY',
     defaultValue: false,
     editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'base_url',
+    label: 'Base URL',
+    description: 'Public base URL used for federation and canonical links.',
+    kind: 'string',
+    envVar: 'BASE_URL',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'cors_origin',
+    label: 'CORS origin allowlist',
+    description: 'Comma-separated origins allowed for credentialed requests.',
+    kind: 'string',
+    envVar: 'CORS_ORIGIN',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'port',
+    label: 'Server port',
+    description: 'HTTP server port.',
+    kind: 'number',
+    envVar: 'PORT',
+    defaultValue: 3000,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'ssr_anon_cache_ttl_ms',
+    label: 'SSR anonymous cache TTL',
+    description: 'Anonymous SSR cache time in milliseconds.',
+    kind: 'number',
+    envVar: 'SSR_ANON_CACHE_TTL_MS',
+    defaultValue: 15000,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'database_path',
+    label: 'Database path',
+    description: 'SQLite database file path.',
+    kind: 'string',
+    envVar: 'DATABASE_PATH',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'upload_dir',
+    label: 'Upload directory',
+    description: 'Filesystem path for uploaded files.',
+    kind: 'string',
+    envVar: 'UPLOAD_DIR',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'og_dir',
+    label: 'OG image directory',
+    description: 'Filesystem path for generated Open Graph images.',
+    kind: 'string',
+    envVar: 'OG_DIR',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'federation_queue_health_allowed_accounts',
+    label: 'Federation health account allowlist',
+    description: 'Account IDs allowed to access federation queue health endpoint.',
+    kind: 'string',
+    envVar: 'FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'outbound_retain_delivered_days',
+    label: 'Outbound delivered retention (days)',
+    description: 'Retention window for delivered outbound queue rows.',
+    kind: 'number',
+    envVar: 'OUTBOUND_RETAIN_DELIVERED_DAYS',
+    defaultValue: 30,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'outbound_retain_failed_days',
+    label: 'Outbound failed retention (days)',
+    description: 'Retention window for failed outbound queue rows.',
+    kind: 'number',
+    envVar: 'OUTBOUND_RETAIN_FAILED_DAYS',
+    defaultValue: 90,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'outbound_terminal_cleanup_interval_ms',
+    label: 'Outbound cleanup interval (ms)',
+    description: 'Cleanup interval for terminal outbound queue rows.',
+    kind: 'number',
+    envVar: 'OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS',
+    defaultValue: 3600000,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'inbox_processed_retain_days',
+    label: 'Inbox processed retention (days)',
+    description: 'Retention window for processed inbox dedupe rows.',
+    kind: 'number',
+    envVar: 'INBOX_PROCESSED_RETAIN_DAYS',
+    defaultValue: 30,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'inbox_failed_retain_days',
+    label: 'Inbox failed retention (days)',
+    description: 'Retention window for failed inbox dedupe rows.',
+    kind: 'number',
+    envVar: 'INBOX_FAILED_RETAIN_DAYS',
+    defaultValue: 90,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'inbox_processed_max_rows',
+    label: 'Inbox dedupe max rows',
+    description: 'Maximum retained terminal inbox dedupe rows (0 disables cap).',
+    kind: 'number',
+    envVar: 'INBOX_PROCESSED_MAX_ROWS',
+    defaultValue: 0,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'inbox_processed_cleanup_interval_ms',
+    label: 'Inbox cleanup interval (ms)',
+    description: 'Cleanup interval for inbox dedupe retention.',
+    kind: 'number',
+    envVar: 'INBOX_PROCESSED_CLEANUP_INTERVAL_MS',
+    defaultValue: 3600000,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'og_job_concurrency',
+    label: 'OG job concurrency',
+    description: 'Maximum concurrent OG image jobs.',
+    kind: 'number',
+    envVar: 'OG_JOB_CONCURRENCY',
+    defaultValue: 3,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_host',
+    label: 'SMTP host',
+    description: 'Email transport hostname.',
+    kind: 'string',
+    envVar: 'SMTP_HOST',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_port',
+    label: 'SMTP port',
+    description: 'Email transport port.',
+    kind: 'number',
+    envVar: 'SMTP_PORT',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_secure',
+    label: 'SMTP secure mode',
+    description: 'Use secure SMTP transport.',
+    kind: 'boolean',
+    envVar: 'SMTP_SECURE',
+    defaultValue: false,
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_from',
+    label: 'SMTP from address',
+    description: 'Default sender address for transactional email.',
+    kind: 'string',
+    envVar: 'SMTP_FROM',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_user',
+    label: 'SMTP username',
+    description: 'Configured SMTP auth username.',
+    kind: 'secret',
+    envVar: 'SMTP_USER',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'smtp_pass',
+    label: 'SMTP password',
+    description: 'Configured SMTP auth password.',
+    kind: 'secret',
+    envVar: 'SMTP_PASS',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'calendar_feed_token_secret',
+    label: 'Private feed token secret',
+    description: 'Secret used to derive private feed access tokens.',
+    kind: 'secret',
+    envVar: 'CALENDAR_FEED_TOKEN_SECRET',
+    editable: false,
+    source: 'env_only',
+  },
+  {
+    key: 'unsplash_access_key',
+    label: 'Unsplash access key',
+    description: 'API key for Unsplash image search.',
+    kind: 'secret',
+    envVar: 'UNSPLASH_ACCESS_KEY',
+    editable: false,
+    source: 'env_only',
   },
 ];
 
@@ -89,11 +322,26 @@ function parseBooleanEnvOverride(envVar?: string): boolean | null {
   return raw === 'true' ? true : raw === 'false' ? false : null;
 }
 
+function readEnvValue(def: RuntimeSettingDef): boolean | string | number | null {
+  if (!def.envVar) return null;
+  const raw = process.env[def.envVar];
+  if (def.kind === 'secret') return raw && raw.trim().length > 0 ? '(set)' : '(not set)';
+  if (raw == null || raw.trim() === '') return def.defaultValue ?? null;
+  if (def.kind === 'boolean') return raw === 'true' ? true : raw === 'false' ? false : (def.defaultValue ?? null);
+  if (def.kind === 'number') {
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) ? parsed : (def.defaultValue ?? null);
+  }
+  return raw;
+}
+
 function readRuntimeSettings(db: DB) {
   return runtimeSettingDefs.map((def) => {
-    const dbValue = readAdminSetting<boolean>(db, def.key);
-    const envOverride = parseBooleanEnvOverride(def.envVar);
-    const effectiveValue = envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : def.defaultValue);
+    const dbValue = def.source === 'db_with_env_override' ? readAdminSetting<boolean>(db, def.key) : null;
+    const envOverride = def.kind === 'boolean' ? parseBooleanEnvOverride(def.envVar) : null;
+    const effectiveValue = def.source === 'db_with_env_override'
+      ? (envOverride !== null ? envOverride : (typeof dbValue === 'boolean' ? dbValue : def.defaultValue ?? null))
+      : readEnvValue(def);
     return {
       key: def.key,
       label: def.label,
@@ -102,7 +350,7 @@ function readRuntimeSettings(db: DB) {
       value: dbValue,
       effectiveValue,
       envOverride,
-      lockedByEnv: envOverride !== null,
+      lockedByEnv: def.source === 'db_with_env_override' && envOverride !== null,
       editable: def.editable,
     };
   });
