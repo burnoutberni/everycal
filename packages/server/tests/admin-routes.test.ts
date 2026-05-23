@@ -135,6 +135,66 @@ describe('admin routes', () => {
     expect(lockoutLeft.count).toBe(0);
   });
 
+  it('returns 404 for missing targets on admin mutation endpoints', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const disableRes = await app.request('/api/v1/admin/accounts/missing/disable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'incident response' }),
+    });
+    expect(disableRes.status).toBe(404);
+    expect(await disableRes.json()).toEqual({ error: 'account_not_found' });
+
+    const enableRes = await app.request('/api/v1/admin/accounts/missing/enable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'incident response' }),
+    });
+    expect(enableRes.status).toBe(404);
+    expect(await enableRes.json()).toEqual({ error: 'account_not_found' });
+
+    const moderateRes = await app.request('/api/v1/admin/events/missing/moderate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'hidden', reason: 'policy' }),
+    });
+    expect(moderateRes.status).toBe(404);
+    expect(await moderateRes.json()).toEqual({ error: 'event_not_found' });
+
+    const unblockRes = await app.request('/api/v1/admin/federation/blocks/missing/unblock', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'policy updated' }),
+    });
+    expect(unblockRes.status).toBe(404);
+    expect(await unblockRes.json()).toEqual({ error: 'federation_block_not_found' });
+
+    const lockoutResetRes = await app.request('/api/v1/admin/security/login-lockouts/missing/reset', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'verified owner' }),
+    });
+    expect(lockoutResetRes.status).toBe(404);
+    expect(await lockoutResetRes.json()).toEqual({ error: 'login_lockout_not_found' });
+
+    const revokeRes = await app.request('/api/v1/admin/security/accounts/missing/revoke-auth', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'incident response' }),
+    });
+    expect(revokeRes.status).toBe(404);
+    expect(await revokeRes.json()).toEqual({ error: 'account_not_found' });
+
+    const auditRow = db.prepare("SELECT COUNT(*) as count FROM admin_audit_log WHERE target_id = 'missing'").get() as { count: number };
+    expect(auditRow.count).toBe(0);
+  });
+
   it('lists only flagged moderation requests by default', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1),('u1','user',0)").run();

@@ -109,6 +109,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!account) return c.json({ error: 'account_not_found' }, 404);
     db.prepare('UPDATE accounts SET is_disabled = 1 WHERE id = ?').run(id);
     db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);
     db.prepare('DELETE FROM api_keys WHERE account_id = ?').run(id);
@@ -121,6 +123,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!account) return c.json({ error: 'account_not_found' }, 404);
     db.prepare('UPDATE accounts SET is_disabled = 0 WHERE id = ?').run(id);
     audit(db, admin.id, 'account.enable', 'account', id, { reason: body.reason.trim() });
     return c.json({ ok: true });
@@ -132,6 +136,8 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{state:string; reason?:string}>();
     if (!moderationStates.has(body.state)) return c.json({ error: 'invalid_moderation_state' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const event = db.prepare('SELECT id FROM events WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!event) return c.json({ error: 'event_not_found' }, 404);
     db.prepare('UPDATE events SET moderation_state = ?, moderation_reason = ?, moderated_at = datetime(\'now\') WHERE id = ?').run(body.state, body.reason || null, id);
     audit(db, admin.id, 'event.moderate', 'event', id, { state: body.state, reason: body.reason.trim() });
     return c.json({ ok: true });
@@ -229,6 +235,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const block = db.prepare('SELECT id FROM federation_blocks WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!block) return c.json({ error: 'federation_block_not_found' }, 404);
     db.prepare('UPDATE federation_blocks SET is_active = 0 WHERE id = ?').run(id);
     audit(db, admin.id, 'federation.unblock', 'federation_block', id, { reason: body.reason.trim() });
     return c.json({ ok: true });
@@ -297,6 +305,8 @@ export function adminRoutes(db: DB) {
     const username = c.req.param('username');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const lockout = db.prepare('SELECT username FROM login_attempts WHERE username = ?').get(username) as { username: string } | undefined;
+    if (!lockout) return c.json({ error: 'login_lockout_not_found' }, 404);
     db.prepare('DELETE FROM login_attempts WHERE username = ?').run(username);
     audit(db, admin.id, 'security.lockout.reset', 'account_username', username, { reason: body.reason.trim() });
     return c.json({ ok: true });
@@ -307,6 +317,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!account) return c.json({ error: 'account_not_found' }, 404);
     const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE account_id = ?').get(id) as { count: number };
     const keyCount = db.prepare('SELECT COUNT(*) as count FROM api_keys WHERE account_id = ?').get(id) as { count: number };
     db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);
