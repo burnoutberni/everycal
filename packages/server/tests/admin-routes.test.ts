@@ -70,7 +70,7 @@ describe('admin routes', () => {
         'x-csrf-token': 'csrf1',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ blockType: 'domain', domain: 'bad.test' }),
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad.test', reason: 'malicious federation source' }),
     });
     expect(ok.status).toBe(200);
   });
@@ -89,7 +89,7 @@ describe('admin routes', () => {
         authorization: 'ApiKey test-key',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ blockType: 'domain', domain: 'api-key-only.test' }),
+      body: JSON.stringify({ blockType: 'domain', domain: 'api-key-only.test', reason: 'policy enforcement' }),
     });
 
     expect(res.status).toBe(200);
@@ -439,18 +439,26 @@ describe('admin routes', () => {
     app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
     app.route('/api/v1/admin', adminRoutes(db));
 
-    // 1. Try blocking with missing targets
+    // 1. Try blocking with missing targets and reason
+    const resMissingReason = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad-domain.com' }),
+    });
+    expect(resMissingReason.status).toBe(400);
+    expect(await resMissingReason.json()).toEqual({ error: 'reason_required' });
+
     const resFail = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blockType: 'domain' }),
+      body: JSON.stringify({ blockType: 'domain', reason: 'policy' }),
     });
     expect(resFail.status).toBe(400);
 
     const resInvalidType = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blockType: 'invalid-type', domain: 'bad-domain.com' }),
+      body: JSON.stringify({ blockType: 'invalid-type', domain: 'bad-domain.com', reason: 'policy' }),
     });
     expect(resInvalidType.status).toBe(400);
     expect(await resInvalidType.json()).toEqual({ error: 'invalid_block_type' });
@@ -458,7 +466,7 @@ describe('admin routes', () => {
     const resActorWithoutActorUri = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blockType: 'actor', domain: 'bad-domain.com' }),
+      body: JSON.stringify({ blockType: 'actor', domain: 'bad-domain.com', reason: 'policy' }),
     });
     expect(resActorWithoutActorUri.status).toBe(400);
     expect(await resActorWithoutActorUri.json()).toEqual({ error: 'block_target_required' });
@@ -467,7 +475,7 @@ describe('admin routes', () => {
     const resBlockDomain = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blockType: 'domain', domain: 'bad-domain.com' }),
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad-domain.com', reason: 'spam network' }),
     });
     expect(resBlockDomain.status).toBe(200);
     const blockDomainBody = await resBlockDomain.json() as any;
@@ -483,6 +491,11 @@ describe('admin routes', () => {
     const blocksBody = await resBlocks.json() as any;
     expect(blocksBody.items.length).toBe(1);
     expect(blocksBody.items[0].domain).toBe('bad-domain.com');
+    expect(blocksBody.items[0].reason).toBe('spam network');
+
+    const blockAudit = db.prepare("SELECT payload_json FROM admin_audit_log WHERE action_type = 'federation.block' ORDER BY created_at DESC LIMIT 1").get() as { payload_json: string } | undefined;
+    expect(blockAudit).toBeDefined();
+    expect(JSON.parse(blockAudit!.payload_json)).toEqual({ reason: 'spam network' });
 
     // GET with query
     const resBlocksQuery = await app.request('/api/v1/admin/federation/blocks?q=bad-domain');

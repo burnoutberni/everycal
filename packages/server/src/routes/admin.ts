@@ -11,6 +11,7 @@ import {
   readRuntimeSettings,
   runtimeSettingsByKey,
 } from '../lib/runtime-settings.js';
+import { CURRENT_SCHEMA_VERSION } from '../db/migrations.js';
 
 function readOpenRegistrationsState(db: DB) {
   const dbValue = readAdminSetting<boolean>(db, OPEN_REGISTRATIONS_SETTING_KEY);
@@ -39,7 +40,7 @@ export function adminRoutes(db: DB) {
     const openRegistrations = readOpenRegistrationsState(db);
     return c.json({
       uptimeSec: Math.floor(process.uptime()),
-      schemaVersion: 12,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       accounts: accounts.count,
       events: events.count,
       openRegistrations: openRegistrations.effective,
@@ -163,32 +164,34 @@ export function adminRoutes(db: DB) {
 
   app.post('/federation/block', async (c) => {
     const admin = c.get('user')!;
-    const body = await c.req.json<{blockType:string; actorUri?:string; domain?:string}>();
+    const body = await c.req.json<{blockType:string; actorUri?:string; domain?:string; reason?: string}>();
     if (!federationBlockTypes.has(body.blockType)) return c.json({ error: 'invalid_block_type' }, 400);
     if (body.blockType === 'domain' && !body.domain?.trim()) return c.json({ error: 'block_target_required' }, 400);
     if (body.blockType === 'actor' && !body.actorUri?.trim()) return c.json({ error: 'block_target_required' }, 400);
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     const actorUri = body.actorUri?.trim() || null;
     const domain = body.domain?.trim() || null;
+    const reason = body.reason.trim();
     const id = nanoid();
-    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, 1)').run(id, body.blockType, actorUri, domain, admin.id);
+    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(id, body.blockType, actorUri, domain, reason, admin.id);
     if (body.blockType === 'domain' && domain) {
       db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri IN (SELECT uri FROM remote_actors WHERE domain = ?)").run(domain);
     }
     if (body.blockType === 'actor' && actorUri) {
       db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri = ?").run(actorUri);
     }
-    audit(db, admin.id, 'federation.block', body.blockType, actorUri || domain || '', {});
+    audit(db, admin.id, 'federation.block', body.blockType, actorUri || domain || '', { reason });
     return c.json({ ok: true, blockId: id });
   });
 
   app.get('/federation/blocks', (c) => {
     const q = (c.req.query('q') || '').trim();
     const rows = q
-      ? db.prepare(`SELECT id, block_type, actor_uri, domain, created_by_account_id, is_active, created_at
+      ? db.prepare(`SELECT id, block_type, actor_uri, domain, reason, created_by_account_id, is_active, created_at
           FROM federation_blocks
           WHERE (COALESCE(domain,'') LIKE ? OR COALESCE(actor_uri,'') LIKE ?)
           ORDER BY created_at DESC LIMIT 200`).all(`%${q}%`, `%${q}%`)
-      : db.prepare(`SELECT id, block_type, actor_uri, domain, created_by_account_id, is_active, created_at
+      : db.prepare(`SELECT id, block_type, actor_uri, domain, reason, created_by_account_id, is_active, created_at
           FROM federation_blocks
           ORDER BY created_at DESC LIMIT 200`).all();
     return c.json({ items: rows });

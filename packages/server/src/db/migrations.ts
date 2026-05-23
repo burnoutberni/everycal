@@ -727,7 +727,15 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_moderation_state ON remote_events(moderation_state)");
     },
   },
+  {
+    version: 13,
+    name: "federation_block_reason",
+    up: (db) => {
+      const blockColumns = db.prepare("PRAGMA table_info(federation_blocks)").all() as Array<{ name: string }>;
+      if (!blockColumns.some((column) => column.name === "reason")) db.exec("ALTER TABLE federation_blocks ADD COLUMN reason TEXT");
+    },
+  },
 
 ];
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
