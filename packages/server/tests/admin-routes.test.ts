@@ -73,6 +73,17 @@ describe('admin routes', () => {
       body: JSON.stringify({ blockType: 'domain', domain: 'bad.test', reason: 'malicious federation source' }),
     });
     expect(ok.status).toBe(200);
+
+    const okWithoutOriginHeaders = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        cookie: 'everycal_session=s1; everycal_csrf=csrf1',
+        'x-csrf-token': 'csrf1',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'headless-client.test', reason: 'non-browser client request' }),
+    });
+    expect(okWithoutOriginHeaders.status).toBe(200);
   });
 
   it('allows API key admin mutations without CSRF token', async () => {

@@ -19,6 +19,10 @@ function sameOrigin(origin: string | null, referer: string | null, expectedOrigi
   }
 }
 
+function hasOriginSignal(origin: string | null, referer: string | null): boolean {
+  return Boolean(origin || referer);
+}
+
 export function requireAdminCsrf() {
   let expectedOrigin = "";
   try {
@@ -52,7 +56,7 @@ export function requireAdminCsrf() {
 
     const origin = c.req.header("origin") || null;
     const referer = c.req.header("referer") || null;
-    if (!sameOrigin(origin, referer, expectedOrigin)) {
+    if (hasOriginSignal(origin, referer) && !sameOrigin(origin, referer, expectedOrigin)) {
       return c.json({ error: "csrf_origin_mismatch" }, 403);
     }
 
