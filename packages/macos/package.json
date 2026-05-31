@@ -1,0 +1,15 @@
+{
+  "name": "@everycal/macos",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Native SwiftUI macOS calendar client for EveryCal.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/check-platform.mjs build",
+    "bundle": "node scripts/check-platform.mjs bundle",
+    "dev": "node scripts/check-platform.mjs dev",
+    "lint": "node scripts/check-platform.mjs lint",
+    "test": "node scripts/check-platform.mjs test"
+  }
+}
