@@ -28,6 +28,20 @@ function seedRemoteEvent(
   );
 }
 
+function seedFederationBlock(
+  db: ReturnType<typeof initDatabase>,
+  values: { blockType: "actor" | "domain"; actorUri?: string; domain?: string },
+) {
+  db.prepare(
+    "INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, 'test block', 'admin-1', 1)"
+  ).run(
+    `${values.blockType}-${values.actorUri || values.domain}`,
+    values.blockType,
+    values.actorUri || null,
+    values.domain || null,
+  );
+}
+
 describe("remote readability across profile and feed surfaces", () => {
   it("hides blocked remote events from remote profile APIs and counts", async () => {
     const db = initDatabase(":memory:");
@@ -116,5 +130,70 @@ describe("remote readability across profile and feed surfaces", () => {
     expect(res.status).toBe(200);
     expect(text).toContain("Visible Feed Event");
     expect(text).not.toContain("Hidden Feed Event");
+  });
+
+  it("hides remote events for actively blocked actors and domains even when moderation is visible", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("tok1"));
+    seedRemoteActor(db);
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/blocked-actor",
+      slug: "blocked-actor",
+      title: "Blocked Actor Event",
+      moderationState: "visible",
+    });
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/blocked-domain",
+      slug: "blocked-domain",
+      title: "Blocked Domain Event",
+      moderationState: "visible",
+    });
+    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, summary) VALUES (?, ?, ?, ?, ?)")
+      .run("https://elsewhere.example/users/eve", "eve", "https://elsewhere.example/inbox", "elsewhere.example", "Elsewhere actor");
+    db.prepare(
+      "INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, 'offset_only', 'public', 'visible')"
+    ).run(
+      "https://elsewhere.example/events/visible",
+      "https://elsewhere.example/users/eve",
+      "visible",
+      "Visible Elsewhere Event",
+      "2099-06-03",
+      "2099-06-03T00:00:00.000Z",
+    );
+    seedFederationBlock(db, { blockType: "actor", actorUri: "https://remote.example/users/mallory" });
+    seedFederationBlock(db, { blockType: "domain", domain: "remote.example" });
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://remote.example/events/blocked-actor");
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://elsewhere.example/events/visible");
+
+    const userApp = new Hono();
+    userApp.route("/api/v1/users", userRoutes(db));
+
+    const profileRes = await userApp.request("http://localhost/api/v1/users/mallory@remote.example");
+    const profileBody = await profileRes.json() as { eventsCount: number };
+    expect(profileBody.eventsCount).toBe(0);
+
+    const eventsRes = await userApp.request("http://localhost/api/v1/users/mallory@remote.example/events");
+    const eventsBody = await eventsRes.json() as { events: Array<{ id: string }> };
+    expect(eventsBody.events).toEqual([]);
+
+    const profileData = getSsrInitialData(db, "/@mallory@remote.example", null);
+    expect(profileData?.kind).toBe("profile");
+    if (!profileData || profileData.kind !== "profile") throw new Error("expected profile payload");
+    expect((profileData.profile as { eventsCount: number }).eventsCount).toBe(0);
+    expect(profileData.events).toEqual([]);
+
+    const eventData = getSsrInitialData(db, "/@mallory@remote.example/blocked-actor", null);
+    expect(eventData?.kind).toBe("event");
+    if (!eventData || eventData.kind !== "event") throw new Error("expected event payload");
+    expect(eventData.event).toBeNull();
+
+    const feedApp = new Hono();
+    feedApp.route("/api/v1/private-feeds", privateFeedRoutes(db));
+    const res = await feedApp.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1");
+    const text = await res.text();
+    expect(text).toContain("Visible Elsewhere Event");
+    expect(text).not.toContain("Blocked Actor Event");
+    expect(text).not.toContain("Blocked Domain Event");
   });
 });

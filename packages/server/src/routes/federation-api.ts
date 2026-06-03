@@ -44,6 +44,7 @@ import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from 
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
+import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -432,6 +433,7 @@ export function federationRoutes(db: DB): Hono {
         const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
           ? attributedTo.actor
           : actor.uri;
+        if (hasActiveFederationBlock(db, { actorUri: ownerActorUri })) continue;
         const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
         if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
           boundedConsoleLog(

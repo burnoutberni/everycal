@@ -35,6 +35,7 @@ import {
 } from "../lib/activitypub-rsvp.js";
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
@@ -854,6 +855,10 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const effectiveActor = attributedTo.status === "parsed" ? attributedTo.actor : actorUri;
+  if (hasActiveFederationBlock(db, { actorUri: effectiveActor })) {
+    console.log(`  ⚠️  Rejecting ${activityType}: blocked actor ${effectiveActor}`);
+    return;
+  }
   const actorFollowersUrl = (db
     .prepare("SELECT followers_url FROM remote_actors WHERE uri = ?")
     .get(effectiveActor) as { followers_url: string | null } | undefined)?.followers_url ?? null;

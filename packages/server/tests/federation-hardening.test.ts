@@ -1520,6 +1520,40 @@ describe("federation hardening prep", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("rejects user inbox Create for blocked actors", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', ?, 'blocked', 'admin-1', 1)`
+    ).run(actorUri);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-blocked-inbox",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: "https://remote.example/events/blocked-inbox",
+          type: "Event",
+          name: "Blocked Inbox Event",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: actorUri,
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/blocked-inbox") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("uses activity addressing when Event object has no to/cc", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
@@ -1647,6 +1681,61 @@ describe("federation hardening prep", () => {
 
     const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?").get("https://remote.example/events/explicit-private") as { visibility: string };
     expect(row.visibility).toBe("private");
+  });
+
+  it("skips pulled imports for blocked actors", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', ?, 'blocked', 'admin-1', 1)`
+    ).run(actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-blocked-pull",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/blocked-pull", "Blocked Pull Event", { to: [federation.AP_PUBLIC] }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { imported: number };
+    expect(body.imported).toBe(0);
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/blocked-pull") as { cnt: number };
+    expect(count.cnt).toBe(0);
   });
 
   it("treats explicit empty activity to/cc as private during user inbox Update", async () => {

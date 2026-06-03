@@ -7,6 +7,7 @@ import { toErrorMessage, type EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
+import { hasActiveFederationBlock } from "./federation-blocks.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
 import { getEffectiveSetting } from "./runtime-settings.js";
 
@@ -386,10 +387,13 @@ export async function resolveRemoteActor(
 ): Promise<RemoteActor | null> {
   const nowIso = new Date().toISOString();
 
+  if (hasActiveFederationBlock(db, { actorUri })) return null;
+
   if (!forceRefresh) {
     const cached = db
       .prepare("SELECT * FROM remote_actors WHERE uri = ?")
       .get(actorUri) as RemoteActor | undefined;
+    if (cached && hasActiveFederationBlock(db, { actorUri: cached.uri, domain: cached.domain })) return null;
     if (cached?.fetch_status === "gone") return null;
     if (cached?.fetch_status === "error") {
       const hasUsableCachedActor =
@@ -448,6 +452,8 @@ export async function resolveRemoteActor(
       next_retry_at: null,
       gone_at: null,
     };
+
+    if (hasActiveFederationBlock(db, { actorUri: actor.uri, domain: actor.domain })) return null;
 
     db.prepare(
       `INSERT INTO remote_actors (uri, type, preferred_username, display_name, summary,
@@ -1001,6 +1007,7 @@ export async function discoverDomainActors(
   domain: string,
   options?: { maxAccounts?: number; minAgeHours?: number }
 ): Promise<{ discovered: number; software: string | null }> {
+  if (hasActiveFederationBlock(db, { domain })) return { discovered: 0, software: null };
   if (isPrivateIP(domain)) return { discovered: 0, software: null };
 
   const minAgeHours = options?.minAgeHours ?? 24;

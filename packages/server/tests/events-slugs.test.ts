@@ -2103,6 +2103,28 @@ describe("event slug canonical behavior", () => {
     expect(res.headers.get("location")).toBe("/@alice@remote.example/resolver-redirect-event");
   });
 
+  it("resolver does not upsert events from blocked actors", async () => {
+    vi.mocked(fetchAP).mockResolvedValue({
+      id: "https://remote.example/events/101",
+      type: "Event",
+      name: "Blocked Resolver Event",
+      startTime: "2026-01-01T10:00:00Z",
+      attributedTo: "https://remote.example/users/alice",
+    });
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', 'https://remote.example/users/alice', 'blocked', 'admin-1', 1)`
+    ).run();
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F101");
+
+    expect(res.status).toBe(404);
+    expect(vi.mocked(resolveRemoteActor)).not.toHaveBeenCalled();
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/101") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("resolver returns controlled 502 on remote fetch failures", async () => {
     vi.mocked(fetchAP).mockRejectedValue(new Error("upstream timeout"));
     const app = makeApp(db);

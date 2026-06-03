@@ -11,6 +11,7 @@ import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
 import { getBaseUrl } from "../../lib/base-url.js";
+import { hasActiveFederationBlock } from "../../lib/federation-blocks.js";
 import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteReadabilityFilter, buildRemoteTagFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
@@ -521,6 +522,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           ? attributedTo.find((v): v is string => typeof v === "string")
           : undefined;
       if (!actorUri) return c.json({ error: t(locale, "events.resolve_missing_actor") }, 400);
+      if (hasActiveFederationBlock(db, { actorUri })) return c.json({ error: t(locale, "common.not_found") }, 404);
 
       const actor = await resolveRemoteActor(db, actorUri, true);
       if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
