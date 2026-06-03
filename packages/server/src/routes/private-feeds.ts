@@ -14,6 +14,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { getLocale, t } from "../lib/i18n.js";
 import { buildUrl, getBaseUrlFromRequest } from "../lib/base-url.js";
 import { rowToEvent } from "../lib/feed-event.js";
+import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { findByTokenHash } from "../lib/token-secrets.js";
 
 const CALENDAR_FEED_TOKEN_PREFIX = "ecal_cal_";
@@ -192,6 +193,7 @@ export function privateFeedRoutes(db: DB): Hono {
       .all(accountId, accountId) as Record<string, unknown>[];
 
     // Remote events: Going/Maybe (include rsvp_status for tentative; include canceled)
+    const remoteReadability = buildRemoteReadabilityFilter(accountId);
     const remoteRows = db
       .prepare(
          `SELECT re.uri AS id, re.title, re.description, re.start_date, re.end_date,
@@ -204,9 +206,10 @@ export function privateFeedRoutes(db: DB): Hono {
          FROM remote_events re
          JOIN event_rsvps er ON er.event_uri = re.uri AND er.account_id = ?
          WHERE er.status IN ('going','maybe')
+           AND ${remoteReadability.sql}
          ORDER BY re.start_at_utc ASC`
       )
-      .all(accountId) as Record<string, unknown>[];
+      .all(accountId, ...remoteReadability.params) as Record<string, unknown>[];
 
     const allRows = [...localRows, ...remoteRows].sort((a, b) => {
       const aDate = (a.start_at_utc as string) || "";

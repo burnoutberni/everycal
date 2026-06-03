@@ -32,6 +32,7 @@ import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
 import { parseRemoteHandle } from "../lib/remote-handle.js";
+import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -90,16 +91,20 @@ export function userRoutes(db: DB): Hono {
     const remoteHandle = parseRemoteHandle(username);
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
+        const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
         const remoteRow = db
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
-                    ra.followers_count, ra.following_count, ra.fetch_status,
-                    (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
+                    ra.followers_count, ra.following_count, ra.fetch_status
              FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
           )
           .get(localPart, domain) as Record<string, unknown> | undefined;
 
         if (!remoteRow) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+
+        const remoteEventsCount = (db
+          .prepare(`SELECT COUNT(*) AS count FROM remote_events re WHERE re.actor_uri = ? AND ${remoteReadability.sql}`)
+          .get(remoteRow.uri, ...remoteReadability.params) as { count: number }).count;
 
         const following = currentUser
           ? db
@@ -133,7 +138,7 @@ export function userRoutes(db: DB): Hono {
           discoverable: true,
           followersCount: remoteRow.followers_count ?? 0,
           followingCount: remoteRow.following_count ?? 0,
-          eventsCount: remoteRow.events_count ?? 0,
+          eventsCount: remoteEventsCount,
           following: !!following,
           autoReposting: false,
           source: "remote",
@@ -201,6 +206,7 @@ export function userRoutes(db: DB): Hono {
     const remoteHandle = parseRemoteHandle(username);
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
+        const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
         const remoteActor = db
           .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
           .get(localPart, domain) as { uri: string } | undefined;
@@ -209,11 +215,12 @@ export function userRoutes(db: DB): Hono {
         let sql = `
           SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
                  ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
-          FROM remote_events re
+         FROM remote_events re
           LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
           WHERE re.actor_uri = ?
+            AND ${remoteReadability.sql}
         `;
-        const params: unknown[] = [remoteActor.uri];
+        const params: unknown[] = [remoteActor.uri, ...remoteReadability.params];
         const range = buildDateRangeFilter(
           { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
           from,

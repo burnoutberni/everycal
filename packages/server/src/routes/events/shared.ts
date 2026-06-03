@@ -1,5 +1,6 @@
 import type { DB } from "../../db.js";
 import { buildDateRangeFilter } from "../../lib/date-query.js";
+import { buildRemoteReadabilityFilter } from "../../lib/remote-readability.js";
 import { PaginationParamError } from "../../lib/pagination.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "../../lib/event-serializers.js";
 
@@ -94,19 +95,7 @@ export function buildRemoteTagFilter(tagList: string[]): { sql: string; params: 
   return { sql: ` AND (${conditions})`, params };
 }
 
-export function buildRemoteVisibilityFilter(currentUserId?: string): { sql: string; params: unknown[] } {
-  if (!currentUserId) return { sql: "(re.visibility IN ('public','unlisted'))", params: [] };
-  return {
-    sql: `(
-      re.visibility IN ('public','unlisted')
-      OR (
-        re.visibility = 'followers_only'
-        AND re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
-      )
-    )`,
-    params: [currentUserId],
-  };
-}
+export { buildRemoteReadabilityFilter };
 
 type MergedCursor = { startAtUtc: string; id: string };
 
