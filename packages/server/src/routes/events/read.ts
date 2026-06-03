@@ -177,6 +177,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       }
 
       const col = isMineScope ? "combined" : "e";
+      if (hasEventModerationStateColumn) {
+        sql += ` AND ${col}.moderation_state != 'hidden'`;
+      }
       if (account) {
         sql += isMineScope ? " AND combined.account_username = ?" : " AND a.username = ?";
         params.push(account);
@@ -255,9 +258,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
         params.push(fetchLimit);
         const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
-        return rows
-          .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
-          .map((r) => ({ ...formatEvent(r), source: "local" }));
+        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const paged = paginateMergedFromFetchers({
@@ -303,9 +304,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
         pagedSql += ` GROUP BY ${col}.id ORDER BY ${col}.start_at_utc ASC, ${col}.id ASC LIMIT ?`;
         params.push(fetchLimit);
         const rows = db.prepare(pagedSql).all(...params) as Record<string, unknown>[];
-        return rows
-          .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
-          .map((r) => ({ ...formatEvent(r), source: "local" }));
+        return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
@@ -368,6 +367,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       sql += df.sql;
       params.push(...df.params);
 
+      if (hasEventModerationStateColumn) {
+        sql += " AND combined.moderation_state != 'hidden'";
+      }
+
       if (after) {
         sql += " AND (combined.start_at_utc > ? OR (combined.start_at_utc = ? AND combined.id > ?))";
         params.push(after.startAtUtc, after.startAtUtc, after.id);
@@ -376,9 +379,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(fetchLimit);
 
       const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-      return rows
-        .filter((row) => !hasEventModerationStateColumn || (row.moderation_state as string | undefined) !== "hidden")
-        .map((r) => ({ ...formatEvent(r), source: "local" }));
+      return rows.map((r) => ({ ...formatEvent(r), source: "local" }));
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
