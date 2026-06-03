@@ -800,6 +800,12 @@ describe('admin routes', () => {
       const healthBody = await resHealth.json() as any;
       expect(healthBody.openRegistrations).toBe(false);
       expect(healthBody.openRegistrationsEnvOverride).toBe(false);
+    const auditRow = db.prepare("SELECT action_type, target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'scraper.trigger' ORDER BY created_at DESC LIMIT 1").get() as any;
+    expect(auditRow.action_type).toBe('scraper.trigger');
+    expect(auditRow.target_type).toBe('scraper');
+    expect(auditRow.target_id).toBe('all');
+    expect(JSON.parse(auditRow.payload_json)).toEqual({ dryRun: true });
+
 
       // 2. Check settings reflects environmental overrides
       const resSettings = await app.request('/api/v1/admin/settings');

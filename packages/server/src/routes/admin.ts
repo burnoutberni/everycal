@@ -172,21 +172,28 @@ export function adminRoutes(db: DB) {
     const admin = c.get('user')!;
     const body = await c.req.json<{blockType:string; actorUri?:string; domain?:string; reason?: string}>();
     if (!federationBlockTypes.has(body.blockType)) return c.json({ error: 'invalid_block_type' }, 400);
-    if (body.blockType === 'domain' && !body.domain?.trim()) return c.json({ error: 'block_target_required' }, 400);
-    if (body.blockType === 'actor' && !body.actorUri?.trim()) return c.json({ error: 'block_target_required' }, 400);
-    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     const actorUri = body.actorUri?.trim() || null;
     const domain = body.domain?.trim() || null;
+    const targetId = body.blockType === 'actor' ? actorUri : domain;
+    if (!targetId) return c.json({ error: 'block_target_required' }, 400);
+    if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     const reason = body.reason.trim();
     const id = nanoid();
-    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(id, body.blockType, actorUri, domain, reason, admin.id);
+    db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(
+      id,
+      body.blockType,
+      body.blockType === 'actor' ? targetId : null,
+      body.blockType === 'domain' ? targetId : null,
+      reason,
+      admin.id,
+    );
     if (body.blockType === 'domain' && domain) {
       db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri IN (SELECT uri FROM remote_actors WHERE domain = ?)").run(domain);
     }
     if (body.blockType === 'actor' && actorUri) {
       db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE actor_uri = ?").run(actorUri);
     }
-    audit(db, admin.id, 'federation.block', body.blockType, actorUri || domain || '', { reason });
+    audit(db, admin.id, 'federation.block', body.blockType, targetId, { reason });
     return c.json({ ok: true, blockId: id });
   });
 
