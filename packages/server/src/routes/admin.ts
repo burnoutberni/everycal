@@ -111,9 +111,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
-    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
-    if (!account) return c.json({ error: 'account_not_found' }, 404);
-    db.prepare('UPDATE accounts SET is_disabled = 1 WHERE id = ?').run(id);
+    const result = db.prepare('UPDATE accounts SET is_disabled = 1 WHERE id = ?').run(id);
+    if (result.changes === 0) return c.json({ error: 'account_not_found' }, 404);
     db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);
     db.prepare('DELETE FROM api_keys WHERE account_id = ?').run(id);
     audit(db, admin.id, 'account.disable', 'account', id, { level: 2, reason: body.reason.trim() });
@@ -125,9 +124,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
-    const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
-    if (!account) return c.json({ error: 'account_not_found' }, 404);
-    db.prepare('UPDATE accounts SET is_disabled = 0 WHERE id = ?').run(id);
+    const result = db.prepare('UPDATE accounts SET is_disabled = 0 WHERE id = ?').run(id);
+    if (result.changes === 0) return c.json({ error: 'account_not_found' }, 404);
     audit(db, admin.id, 'account.enable', 'account', id, { reason: body.reason.trim() });
     return c.json({ ok: true });
   });

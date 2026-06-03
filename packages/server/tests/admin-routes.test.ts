@@ -451,6 +451,14 @@ describe('admin routes', () => {
     const sessions = db.prepare("SELECT COUNT(*) as count FROM sessions WHERE account_id = 'u1'").get() as any;
     expect(sessions.count).toBe(0);
 
+    const keys = db.prepare("SELECT COUNT(*) as count FROM api_keys WHERE account_id = 'u1'").get() as any;
+    expect(keys.count).toBe(0);
+
+    const disableAudit = db.prepare("SELECT action_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'account.disable'").get() as any;
+    expect(disableAudit.action_type).toBe('account.disable');
+    expect(disableAudit.target_id).toBe('u1');
+    expect(JSON.parse(disableAudit.payload_json)).toMatchObject({ level: 2, reason: 'abuse' });
+
     // Enable requires reason
     const resEnableNoReason = await app.request('/api/v1/admin/accounts/u1/enable', {
       method: 'POST',
@@ -469,6 +477,11 @@ describe('admin routes', () => {
 
     const u1Enabled = db.prepare("SELECT is_disabled FROM accounts WHERE id = 'u1'").get() as any;
     expect(u1Enabled.is_disabled).toBe(0);
+
+    const enableAudit = db.prepare("SELECT action_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'account.enable'").get() as any;
+    expect(enableAudit.action_type).toBe('account.enable');
+    expect(enableAudit.target_id).toBe('u1');
+    expect(JSON.parse(enableAudit.payload_json)).toMatchObject({ reason: 'appealed' });
   });
 
   it('GET /events/moderation-queue filters by state and POST /events/:id/moderate handles reason validation', async () => {
