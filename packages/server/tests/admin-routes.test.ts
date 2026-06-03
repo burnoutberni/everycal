@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
 import { adminRoutes, cleanupAdminAuditLogs } from '../src/routes/admin.js';
 import { getEffectiveSetting, runtimeSettingsByKey, runtimeSettingDefs } from '../src/lib/runtime-settings.js';
+import { t } from '../src/lib/i18n.js';
 
 describe('admin routes', () => {
   it('enforces requireAdmin and writes audit log', async () => {
@@ -17,8 +18,11 @@ describe('admin routes', () => {
       return app;
     };
 
-    const forbidden = await mount({ id:'u1', username:'user', displayName:null, isAdmin:false }).request('/api/v1/admin/accounts');
+    const forbidden = await mount({ id:'u1', username:'user', displayName:null, isAdmin:false }).request('/api/v1/admin/accounts', {
+      headers: { 'accept-language': 'de' },
+    });
     expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: t('de', 'common.forbidden') });
 
     const ok = await mount({ id:'a1', username:'admin', displayName:null, isAdmin:true }).request('/api/v1/admin/events/e1/moderate', {
       method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify({ state: 'hidden', reason: 'spam' })

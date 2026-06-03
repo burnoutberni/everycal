@@ -80,7 +80,7 @@ export function requireAdmin() {
   return createMiddleware(async (c, next) => {
     const user = c.get("user");
     if (!user) return c.json({ error: t(getLocale(c), "common.authentication_required") }, 401);
-    if (!user.isAdmin) return c.json({ error: "forbidden" }, 403);
+    if (!user.isAdmin) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     await next();
     return undefined;
   });
