@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
+import { CURRENT_SCHEMA_VERSION } from '../src/db/migrations.js';
 import { adminRoutes, cleanupAdminAuditLogs } from '../src/routes/admin.js';
 import { getEffectiveSetting, runtimeSettingsByKey, runtimeSettingDefs } from '../src/lib/runtime-settings.js';
 import { t } from '../src/lib/i18n.js';
@@ -227,10 +228,11 @@ describe('admin routes', () => {
     expect(body.items.map((item) => item.id)).toEqual(['e1']);
   });
 
-  it('GET /health returns statistics and open registration state', async () => {
+  it('GET /health returns statistics, actual schema version, and expected schema version', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
     db.prepare("INSERT INTO events (id, account_id, title, start_date, start_at_utc, event_timezone) VALUES ('e1','a1','T','2026-01-01','2026-01-01 10:00:00','UTC')").run();
+    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION - 1}`);
 
     const app = new Hono();
     app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
@@ -239,6 +241,8 @@ describe('admin routes', () => {
     const res = await app.request('/api/v1/admin/health');
     expect(res.status).toBe(200);
     const body = await res.json() as any;
+    expect(body.schemaVersion).toBe(CURRENT_SCHEMA_VERSION - 1);
+    expect(body.expectedSchemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(body.accounts).toBe(1);
     expect(body.events).toBe(1);
     expect(body.openRegistrations).toBe(true);

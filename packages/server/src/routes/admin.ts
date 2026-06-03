@@ -37,10 +37,12 @@ export function adminRoutes(db: DB) {
   app.get('/health', (c) => {
     const accounts = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as {count:number};
     const events = db.prepare('SELECT COUNT(*) as count FROM events').get() as {count:number};
+    const schemaVersion = db.pragma('user_version', { simple: true }) as number;
     const openRegistrations = readOpenRegistrationsState(db);
     return c.json({
       uptimeSec: Math.floor(process.uptime()),
-      schemaVersion: CURRENT_SCHEMA_VERSION,
+      schemaVersion,
+      expectedSchemaVersion: CURRENT_SCHEMA_VERSION,
       accounts: accounts.count,
       events: events.count,
       openRegistrations: openRegistrations.effective,
