@@ -11,7 +11,7 @@ import { nanoid } from "nanoid";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, extname, resolve, relative, isAbsolute, sep } from "node:path";
 import { buildUploadUrl, getBaseUrl } from "../lib/base-url.js";
-import { UPLOAD_DIR } from "../lib/paths.js";
+import { getUploadDir } from "../lib/paths.js";
 import { UPLOAD_MAX_SIZE_BYTES, UPLOAD_MAX_SIZE_MB } from "../lib/upload-limits.js";
 
 /** Allowed image extensions and their MIME types. */
@@ -24,7 +24,7 @@ const ALLOWED_EXTENSIONS: Record<string, string> = {
   ".avif": "image/avif",
 };
 
-export function uploadRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
+export function uploadRoutes({ uploadDir = getUploadDir() }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
 
   router.post("/", requireAuth(), async (c) => {

@@ -39,7 +39,7 @@ import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { serveOgImagesRoutes } from "./routes/serve-og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
-import { DATABASE_PATH } from "./lib/paths.js";
+import { getDatabasePath } from "./lib/paths.js";
 import { handleHtmlRequest } from "./ssr/handleHtmlRequest.js";
 import type { CachedSsrResponse } from "./ssr/cache.js";
 import { resolveBootstrap } from "./lib/bootstrap.js";
@@ -55,7 +55,7 @@ import { getEffectiveSetting } from "./lib/runtime-settings.js";
 validateBaseUrlConfig();
 
 const app = new Hono();
-const db = initDatabase(DATABASE_PATH);
+const db = initDatabase(getDatabasePath());
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "../../web");
 
