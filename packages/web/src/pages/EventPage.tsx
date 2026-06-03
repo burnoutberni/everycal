@@ -24,6 +24,14 @@ import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
 
+type EventRouteIdentifiers = { id?: string; username?: string; slug?: string };
+
+function eventMatchesRoute(event: CalEvent | null | undefined, identifiers: EventRouteIdentifiers): boolean {
+  if (!event) return false;
+  if (identifiers.id) return event.id === identifiers.id;
+  return event.account?.username === identifiers.username && event.slug === identifiers.slug;
+}
+
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
   const { user } = useAuth();
@@ -56,14 +64,15 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
   // SSR initial state detection
   const pageContext = useOptionalPageContext();
+  const routeIdentifiers = useMemo(
+    () => ({ id: effectiveId, username: effectiveUsername, slug: effectiveSlug }),
+    [effectiveId, effectiveUsername, effectiveSlug]
+  );
+
   const initialEvent = useMemo(() => {
     const ev = (pageContext?.data as any)?.event;
-    if (!ev) return null;
-    if (effectiveId === undefined && effectiveUsername === ev.account?.username && effectiveSlug === ev.slug) {
-      return ev as CalEvent;
-    }
-    return null;
-  }, [pageContext, effectiveId, effectiveUsername, effectiveSlug]);
+    return eventMatchesRoute(ev as CalEvent | null | undefined, routeIdentifiers) ? (ev as CalEvent) : null;
+  }, [pageContext, routeIdentifiers]);
 
   const [event, setEvent] = useState<CalEvent | null>(initialEvent);
   const [loading, setLoading] = useState(initialEvent === null);
@@ -88,6 +97,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [canManageEvent, setCanManageEvent] = useState(false);
   const eventMenuRef = useRef<HTMLDivElement>(null);
   const eventMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const skipInitialFetchRef = useRef(initialEvent !== null);
   const eventMenuId = useId();
   const viewerTimezoneTooltipId = useId();
   const viewerTimeZone = resolveUserTimezone(user);
@@ -126,6 +136,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       setError(t("noEventIdentifier"));
       return;
     }
+
+    if (skipInitialFetchRef.current && eventMatchesRoute(event, routeIdentifiers)) {
+      skipInitialFetchRef.current = false;
+      setLoading(false);
+      setError("");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -160,7 +178,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [effectiveId, effectiveUsername, effectiveSlug, user?.id, t]);
+  }, [event, routeIdentifiers, effectiveId, effectiveUsername, effectiveSlug, user?.id, t]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
