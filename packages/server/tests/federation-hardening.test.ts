@@ -2183,7 +2183,7 @@ describe("federation hardening prep", () => {
 
   it("rate-limits pulled actor mismatch logs during fetch-actor", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+    vi.setSystemTime(new Date("2099-05-01T00:00:00.000Z"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const db = initDatabase(":memory:");

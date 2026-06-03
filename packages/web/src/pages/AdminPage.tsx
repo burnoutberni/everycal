@@ -63,7 +63,7 @@ const AVAILABLE_SCRAPERS: ScraperInfo[] = [
 ];
 
 export function AdminPage() {
-  const { user, authStatus } = useAuth();
+  const { user, authStatus, loading } = useAuth();
   const [, navigate] = useLocation();
   const [health, setHealth] = useState<AnyObj | null>(null);
   const [audit, setAudit] = useState<AuditItem[]>([]);
@@ -303,7 +303,14 @@ export function AdminPage() {
       if (csrfMatch?.[1]) headers.set('X-CSRF-Token', csrfMatch[1]);
     }
     const res = await fetch(path, { credentials: 'include', ...init, headers });
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) {
+      let serverError: string | null = null;
+      try {
+        const data = await res.json() as { error?: unknown };
+        if (typeof data?.error === 'string' && data.error.trim()) serverError = data.error.trim();
+      } catch {}
+      throw new Error(serverError ? `${serverError} (${res.status})` : `Request failed (${res.status})`);
+    }
     return res.json();
   }
 
@@ -440,6 +447,7 @@ export function AdminPage() {
     return () => window.clearInterval(interval);
   }, [user?.isAdmin, refreshAllData]);
 
+  if (loading) return <div className='empty-state mt-3'><h2>Loading</h2><p>Checking admin access...</p></div>;
   if (!user?.isAdmin) return <div className='empty-state mt-3'><h2>Redirecting</h2><p>Admin access is required.</p></div>;
   if (error) return <div className='empty-state mt-3'><h2>Error</h2><p>{error}</p></div>;
 
