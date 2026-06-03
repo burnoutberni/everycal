@@ -32,7 +32,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
   const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
   const appendVisibleLocalEventFilter = (sql: string, col: string): string => {
     if (!hasEventModerationStateColumn) return sql;
-    return `${sql} AND ${col}.moderation_state != 'hidden'`;
+    return `${sql} AND COALESCE(${col}.moderation_state, 'visible') != 'hidden'`;
   };
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
