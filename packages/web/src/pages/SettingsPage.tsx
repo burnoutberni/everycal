@@ -20,7 +20,7 @@ import {
   type IdentityMember,
   type IdentityRole,
 } from "../lib/api";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { TimezonePicker } from "../components/TimezonePicker";
@@ -52,6 +52,7 @@ type IdentityFormErrors = {
 export function SettingsPage() {
   const { t, i18n } = useTranslation(["settings", "common", "auth", "profile", "timezones"]);
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const allowLocalhostUrls = typeof window !== "undefined"
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
@@ -65,10 +66,9 @@ export function SettingsPage() {
   ];
   const { user, refreshUser } = useAuth();
   const adminAccessNotice = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     return params.get("notice") === "admin-required" ? t("adminAccessRequired", { ns: "common" }) : null;
-  }, [t]);
+  }, [search, t]);
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const committedThemePreferenceRef = useRef<ThemePreference>(themePreference);
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
