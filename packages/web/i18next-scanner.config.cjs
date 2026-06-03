@@ -1,7 +1,7 @@
 /** @type {import('i18next-scanner').UserConfig} */
 module.exports = {
   input: ["src/**/*.{ts,tsx}", "!src/i18n/**"],
-  output: "src/i18n",
+  output: ".",
   options: {
     debug: false,
     func: {
@@ -27,7 +27,7 @@ module.exports = {
     defaultValue: (lng, ns, key) => key,
     resource: {
       loadPath: "src/i18n/locales/{{lng}}/{{ns}}.json",
-      savePath: "locales/{{lng}}/{{ns}}.json",
+      savePath: "src/i18n/locales/{{lng}}/{{ns}}.json",
       jsonIndent: 2,
       lineEnding: "\n",
     },
