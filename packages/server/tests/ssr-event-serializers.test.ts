@@ -98,4 +98,25 @@ describe("SSR event payload canonical temporal fields", () => {
     const ssrRemoteEvent = ssrRemote && ssrRemote.kind === "event" ? ssrRemote.event as Record<string, unknown> : null;
     expect(canonicalFields(ssrRemoteEvent)).toEqual(canonicalFields(apiRemote));
   });
+
+  it("omits hidden local events from SSR slug payloads", () => {
+    const db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', 'hidden')"
+    ).run(
+      "e-hidden-ssr",
+      "u1",
+      "hidden-ssr",
+      "Hidden SSR",
+      "2026-04-03T09:00:00",
+      0,
+      "2026-04-03T07:00:00.000Z",
+      "Europe/Vienna"
+    );
+
+    const data = getSsrInitialData(db, "/@alice/hidden-ssr", null);
+    expect(data?.kind).toBe("event");
+    expect(data && data.kind === "event" ? data.event : null).toBeNull();
+  });
 });

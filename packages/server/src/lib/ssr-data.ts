@@ -351,6 +351,7 @@ function getEventByProfileSlug(db: DB, username: string, slug: string, currentUs
     )
     .get(username, slug) as Record<string, unknown> | undefined;
   if (!row) return null;
+  if ((row.moderation_state as string | undefined) === "hidden") return null;
   if (!canViewEvent(db, row.visibility as string, row.account_id as string, currentUser)) return null;
 
   const event = formatLocalEvent(row);
