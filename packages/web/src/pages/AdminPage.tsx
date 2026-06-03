@@ -50,6 +50,15 @@ type ScraperInfo = {
   description: string;
 };
 
+function formatAuditPayload(payload?: string | null) {
+  if (!payload?.trim()) return 'n/a';
+  try {
+    return JSON.stringify(JSON.parse(payload), null, 2);
+  } catch {
+    return payload;
+  }
+}
+
 const AVAILABLE_SCRAPERS: ScraperInfo[] = [
   { id: 'all', name: 'All Scrapers', url: 'N/A', description: 'Run all configured scrapers in sequence' },
   { id: 'flex-at', name: 'Flex Vienna', url: 'https://flex.at', description: 'Scrapes electronic, indie, and rock music concert listings' },
@@ -1259,7 +1268,7 @@ export function AdminPage() {
               <details className='mt-1' style={{ fontSize: '0.8rem', background: 'var(--bg-raised)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                 <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted)', fontWeight: 600 }}>View full audit payload</summary>
                 <pre style={{ margin: '0.4rem 0 0', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                  {JSON.stringify(JSON.parse(item.payload_json || '{}'), null, 2)}
+                  {formatAuditPayload(item.payload_json)}
                 </pre>
               </details>
             </div>

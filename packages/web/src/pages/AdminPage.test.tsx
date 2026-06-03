@@ -146,3 +146,75 @@ describe("AdminPage admin fetch errors", () => {
     expect(screen.getByText("Request failed (401)")).not.toBeNull();
   });
 });
+
+describe("AdminPage audit payload rendering", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authStatus = "authenticated";
+    mocks.loading = false;
+    mocks.user = { isAdmin: true };
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      if (url.includes("/api/v1/admin/audit-log")) {
+        return Promise.resolve(jsonResponse({
+          items: [
+            {
+              id: "audit-valid",
+              admin_account_id: "admin-1",
+              action_type: "account.disable",
+              target_type: "account",
+              target_id: "user-1",
+              payload_json: '{"reason":"spam","count":2}',
+              created_at: "2026-06-03T12:00:00.000Z",
+            },
+            {
+              id: "audit-invalid",
+              admin_account_id: "admin-1",
+              action_type: "account.enable",
+              target_type: "account",
+              target_id: "user-2",
+              payload_json: "{invalid json",
+              created_at: "2026-06-03T12:00:01.000Z",
+            },
+            {
+              id: "audit-empty",
+              admin_account_id: "admin-1",
+              action_type: "security.auth.revoke",
+              target_type: "account",
+              target_id: "user-3",
+              payload_json: "",
+              created_at: "2026-06-03T12:00:02.000Z",
+            },
+          ],
+        }, { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ items: [] }, { status: 200 }));
+    }));
+    ({ AdminPage } = await import("./AdminPage"));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("pretty-prints valid JSON payloads and falls back for malformed or empty payloads", async () => {
+    render(<AdminPage />);
+
+    expect(await screen.findByText("audit-valid")).not.toBeNull();
+
+    expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === '{\n  "reason": "spam",\n  "count": 2\n}')).not.toBeNull();
+    expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === "{invalid json")).not.toBeNull();
+    expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === "n/a")).not.toBeNull();
+  });
+});
