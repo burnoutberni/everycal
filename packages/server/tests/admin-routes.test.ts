@@ -578,6 +578,19 @@ describe('admin routes', () => {
     const remoteEvent = db.prepare("SELECT moderation_state FROM remote_events WHERE uri = 're1'").get() as any;
     expect(remoteEvent.moderation_state).toBe('hidden');
 
+    const storedDomainBlock = db.prepare('SELECT block_type, actor_uri, domain, reason FROM federation_blocks WHERE id = ?').get(blockDomainBody.blockId) as {
+      block_type: string;
+      actor_uri: string | null;
+      domain: string | null;
+      reason: string;
+    } | undefined;
+    expect(storedDomainBlock).toEqual({
+      block_type: 'domain',
+      actor_uri: null,
+      domain: 'bad-domain.com',
+      reason: 'spam network',
+    });
+
     // 3. GET /federation/blocks
     const resBlocks = await app.request('/api/v1/admin/federation/blocks');
     const blocksBody = await resBlocks.json() as any;
@@ -585,14 +598,53 @@ describe('admin routes', () => {
     expect(blocksBody.items[0].domain).toBe('bad-domain.com');
     expect(blocksBody.items[0].reason).toBe('spam network');
 
-    const blockAudit = db.prepare("SELECT payload_json FROM admin_audit_log WHERE action_type = 'federation.block' ORDER BY created_at DESC LIMIT 1").get() as { payload_json: string } | undefined;
+    const blockAudit = db.prepare("SELECT target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'federation.block' AND target_type = 'domain' AND target_id = ? LIMIT 1").get('bad-domain.com') as {
+      target_type: string;
+      target_id: string;
+      payload_json: string;
+    } | undefined;
     expect(blockAudit).toBeDefined();
+    expect(blockAudit!.target_type).toBe('domain');
+    expect(blockAudit!.target_id).toBe('bad-domain.com');
     expect(JSON.parse(blockAudit!.payload_json)).toEqual({ reason: 'spam network' });
+
+    const resBlockActor = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ blockType: 'actor', actorUri: ' actor1 ', domain: 'bad-domain.com', reason: 'target actor only' }),
+    });
+    expect(resBlockActor.status).toBe(200);
+    const blockActorBody = await resBlockActor.json() as any;
+    expect(blockActorBody.ok).toBe(true);
+
+    const storedActorBlock = db.prepare('SELECT block_type, actor_uri, domain, reason FROM federation_blocks WHERE id = ?').get(blockActorBody.blockId) as {
+      block_type: string;
+      actor_uri: string | null;
+      domain: string | null;
+      reason: string;
+    } | undefined;
+    expect(storedActorBlock).toEqual({
+      block_type: 'actor',
+      actor_uri: 'actor1',
+      domain: null,
+      reason: 'target actor only',
+    });
+
+    const actorBlockAudit = db.prepare("SELECT target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'federation.block' AND target_type = 'actor' AND target_id = ? LIMIT 1").get('actor1') as {
+      target_type: string;
+      target_id: string;
+      payload_json: string;
+    } | undefined;
+    expect(actorBlockAudit).toBeDefined();
+    expect(actorBlockAudit!.target_type).toBe('actor');
+    expect(actorBlockAudit!.target_id).toBe('actor1');
+    expect(JSON.parse(actorBlockAudit!.payload_json)).toEqual({ reason: 'target actor only' });
 
     // GET with query
     const resBlocksQuery = await app.request('/api/v1/admin/federation/blocks?q=bad-domain');
     const queryBody = await resBlocksQuery.json() as any;
     expect(queryBody.items.length).toBe(1);
+    expect(queryBody.items[0].domain).toBe('bad-domain.com');
 
     // 4. Unblock requires reason
     const blockId = blockDomainBody.blockId;
@@ -750,6 +802,12 @@ describe('admin routes', () => {
     expect(runRow.job_type).toBe('scraper');
     expect(runRow.status).toBe('queued');
     expect(JSON.parse(runRow.payload_json)).toEqual({ scraper: 'all', dryRun: true });
+
+    const auditRow = db.prepare("SELECT action_type, target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'scraper.trigger' ORDER BY created_at DESC LIMIT 1").get() as any;
+    expect(auditRow.action_type).toBe('scraper.trigger');
+    expect(auditRow.target_type).toBe('scraper');
+    expect(auditRow.target_id).toBe('all');
+    expect(JSON.parse(auditRow.payload_json)).toEqual({ dryRun: true });
   });
 
   it('GET /audit-log and GET /jobs/runs lists logged details', async () => {
