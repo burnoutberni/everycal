@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { getBaseUrl } from "../lib/base-url.js";
+import { getAllowedAdminOrigins } from "./admin-origins.js";
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -9,11 +9,11 @@ function readCookie(headerValue: string, name: string): string | null {
   return match?.[1] ?? null;
 }
 
-function sameOrigin(origin: string | null, referer: string | null, expectedOrigin: string): boolean {
-  if (origin) return origin === expectedOrigin;
+function sameOrigin(origin: string | null, referer: string | null, allowedOrigins: Set<string>): boolean {
+  if (origin) return allowedOrigins.has(origin);
   if (!referer) return false;
   try {
-    return new URL(referer).origin === expectedOrigin;
+    return allowedOrigins.has(new URL(referer).origin);
   } catch {
     return false;
   }
@@ -24,12 +24,7 @@ function hasOriginSignal(origin: string | null, referer: string | null): boolean
 }
 
 export function requireAdminCsrf() {
-  let expectedOrigin = "";
-  try {
-    expectedOrigin = new URL(getBaseUrl()).origin;
-  } catch {
-    expectedOrigin = "";
-  }
+  const allowedOrigins = getAllowedAdminOrigins();
 
   return createMiddleware(async (c, next) => {
     if (!UNSAFE_METHODS.has(c.req.method)) {
@@ -50,13 +45,13 @@ export function requireAdminCsrf() {
       return undefined;
     }
 
-    if (!expectedOrigin) {
+    if (allowedOrigins.size === 0) {
       return c.json({ error: "csrf_origin_unconfigured" }, 403);
     }
 
     const origin = c.req.header("origin") || null;
     const referer = c.req.header("referer") || null;
-    if (hasOriginSignal(origin, referer) && !sameOrigin(origin, referer, expectedOrigin)) {
+    if (hasOriginSignal(origin, referer) && !sameOrigin(origin, referer, allowedOrigins)) {
       return c.json({ error: "csrf_origin_mismatch" }, 403);
     }
 

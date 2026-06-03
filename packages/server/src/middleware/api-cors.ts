@@ -1,5 +1,5 @@
 import { cors } from "hono/cors";
-import { getBaseUrl } from "../lib/base-url.js";
+import { isAllowedAdminOrigin } from "./admin-origins.js";
 
 const PUBLIC_FEED_PATH_RE = /^\/api\/v1\/feeds\/([^/]+)\.(json|ics)$/;
 
@@ -21,13 +21,6 @@ export function createApiCorsMiddleware(allowedOrigins: string[]) {
     allowMethods: ["GET", "OPTIONS"],
   });
 
-  let canonicalOrigin: string | null = null;
-  try {
-    canonicalOrigin = new URL(getBaseUrl()).origin;
-  } catch {
-    // Ignore
-  }
-
   return async (c: Parameters<typeof strictCors>[0], next: Parameters<typeof strictCors>[1]) => {
     if (isPublicEmbeddableFeedRequest(c.req.path, c.req.method)) {
       return publicFeedCors(c, next);
@@ -36,22 +29,7 @@ export function createApiCorsMiddleware(allowedOrigins: string[]) {
     const origin = c.req.header("origin");
     if (origin) {
       if (c.req.path.startsWith("/api/v1/admin")) {
-        let isAllowed = false;
-        if (canonicalOrigin && origin === canonicalOrigin) {
-          isAllowed = true;
-        } else if (process.env.NODE_ENV !== "production") {
-          if (origin === "http://localhost:5173") {
-            isAllowed = true;
-          } else if (process.env.BASE_URL) {
-            try {
-              if (origin === new URL(process.env.BASE_URL).origin) {
-                isAllowed = true;
-              }
-            } catch {}
-          }
-        }
-
-        if (isAllowed) {
+        if (isAllowedAdminOrigin(origin)) {
           return strictCors(c, next);
         }
       } else if (allowedOriginSet.has(origin)) {

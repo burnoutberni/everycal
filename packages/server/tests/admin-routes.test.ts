@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
 import { CURRENT_SCHEMA_VERSION } from '../src/db/migrations.js';
@@ -7,6 +7,19 @@ import { getEffectiveSetting, runtimeSettingsByKey, runtimeSettingDefs } from '.
 import { t } from '../src/lib/i18n.js';
 
 describe('admin routes', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalBaseUrl = process.env.BASE_URL;
+
+  beforeEach(() => {
+    process.env.NODE_ENV = 'production';
+    process.env.BASE_URL = 'http://localhost:3000';
+  });
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+    process.env.BASE_URL = originalBaseUrl;
+  });
+
   it('enforces requireAdmin and writes audit log', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1),('u1','user',0)").run();
@@ -89,6 +102,30 @@ describe('admin routes', () => {
       body: JSON.stringify({ blockType: 'domain', domain: 'headless-client.test', reason: 'non-browser client request' }),
     });
     expect(okWithoutOriginHeaders.status).toBe(200);
+  });
+
+  it('allows CSRF-protected admin mutations from the Vite dev origin in development', async () => {
+    process.env.NODE_ENV = 'development';
+
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        cookie: 'everycal_session=s1; everycal_csrf=csrf1',
+        'x-csrf-token': 'csrf1',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ blockType: 'domain', domain: 'vite-dev-ui.test', reason: 'dev verification' }),
+    });
+
+    expect(res.status).toBe(200);
   });
 
   it('allows API key admin mutations without CSRF token', async () => {
