@@ -749,6 +749,17 @@ describe('admin routes', () => {
     });
     expect(resDeleteNoReason.status).toBe(400);
 
+    const missingDeleteAuditCountBefore = (db.prepare("SELECT COUNT(*) as count FROM admin_audit_log WHERE action_type = 'federation.tombstone.delete'").get() as { count: number }).count;
+    const resDeleteMissing = await app.request('/api/v1/admin/federation/tombstones/missing-id/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'cleanup missing row' }),
+    });
+    expect(resDeleteMissing.status).toBe(404);
+    expect(await resDeleteMissing.json()).toEqual({ error: 'federation_tombstone_not_found' });
+    const missingDeleteAuditCountAfter = (db.prepare("SELECT COUNT(*) as count FROM admin_audit_log WHERE action_type = 'federation.tombstone.delete'").get() as { count: number }).count;
+    expect(missingDeleteAuditCountAfter).toBe(missingDeleteAuditCountBefore);
+
     // Delete tombstone successfully
     const resDelete = await app.request(`/api/v1/admin/federation/tombstones/${tombstoneId}/delete`, {
       method: 'POST',
@@ -759,6 +770,17 @@ describe('admin routes', () => {
 
     const count = db.prepare("SELECT COUNT(*) as count FROM federation_tombstones WHERE id = ?").get(tombstoneId) as any;
     expect(count.count).toBe(0);
+
+    const deleteAudit = db.prepare("SELECT target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'federation.tombstone.delete' ORDER BY created_at DESC LIMIT 1").get() as {
+      target_type: string;
+      target_id: string;
+      payload_json: string;
+    } | undefined;
+    expect(deleteAudit).toEqual({
+      target_type: 'event',
+      target_id: 'evt1',
+      payload_json: JSON.stringify({ reason: 'undo deletion' }),
+    });
   });
 
   it('GET /security/login-lockouts retrieves lockouts list', async () => {

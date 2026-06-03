@@ -287,8 +287,9 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
     const row = db.prepare('SELECT object_type, object_id FROM federation_tombstones WHERE id = ?').get(id) as { object_type: string; object_id: string } | undefined;
+    if (!row) return c.json({ error: 'federation_tombstone_not_found' }, 404);
     db.prepare('DELETE FROM federation_tombstones WHERE id = ?').run(id);
-    audit(db, admin.id, 'federation.tombstone.delete', row?.object_type || 'federation_tombstone', row?.object_id || id, { reason: body.reason.trim() });
+    audit(db, admin.id, 'federation.tombstone.delete', row.object_type, row.object_id, { reason: body.reason.trim() });
     return c.json({ ok: true });
   });
 
