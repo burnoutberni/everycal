@@ -30,6 +30,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
   const { attachUserContext, attachSingleEventContext, fetchLocalEvent, getUserRsvps } = context;
   const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
   const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
+  const appendVisibleLocalEventFilter = (sql: string, col: string): string => {
+    if (!hasEventModerationStateColumn) return sql;
+    return `${sql} AND ${col}.moderation_state != 'hidden'`;
+  };
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
   router.get("/tags", (c) => {
@@ -177,9 +181,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       }
 
       const col = isMineScope ? "combined" : "e";
-      if (hasEventModerationStateColumn) {
-        sql += ` AND ${col}.moderation_state != 'hidden'`;
-      }
+      sql = appendVisibleLocalEventFilter(sql, col);
       if (account) {
         sql += isMineScope ? " AND combined.account_username = ?" : " AND a.username = ?";
         params.push(account);
@@ -367,9 +369,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       sql += df.sql;
       params.push(...df.params);
 
-      if (hasEventModerationStateColumn) {
-        sql += " AND combined.moderation_state != 'hidden'";
-      }
+      sql = appendVisibleLocalEventFilter(sql, "combined");
 
       if (after) {
         sql += " AND (combined.start_at_utc > ? OR (combined.start_at_utc = ? AND combined.id > ?))";
