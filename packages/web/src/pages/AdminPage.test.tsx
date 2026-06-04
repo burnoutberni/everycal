@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -216,5 +216,75 @@ describe("AdminPage audit payload rendering", () => {
     expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === '{\n  "reason": "spam",\n  "count": 2\n}')).not.toBeNull();
     expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === "{invalid json")).not.toBeNull();
     expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.trim() === "n/a")).not.toBeNull();
+  });
+});
+
+describe("AdminPage proactive federation suppression", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authStatus = "authenticated";
+    mocks.loading = false;
+    mocks.user = { isAdmin: true };
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    vi.stubGlobal("fetch", vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      if (url.includes("/api/v1/admin/federation/block") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ ok: true, blockId: "block-1" }, { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ items: [] }, { status: 200 }));
+    }));
+    ({ AdminPage } = await import("./AdminPage"));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("requires a reason for proactive domain blocks", async () => {
+    render(<AdminPage />);
+
+    await screen.findByText("Admin Console");
+
+    const reasonInput = screen.getByLabelText("Reason for block") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("Suppression target"), { target: { value: "example.org" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Suppression" }));
+
+    expect(reasonInput.required).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      return url.includes("/api/v1/admin/federation/block") && init?.method === "POST";
+    })).toBe(false);
+  });
+
+  it("submits proactive domain blocks with a reason", async () => {
+    render(<AdminPage />);
+
+    await screen.findByText("Admin Console");
+
+    fireEvent.change(screen.getByLabelText("Suppression target"), { target: { value: "example.org" } });
+    fireEvent.change(screen.getByLabelText("Reason for block"), { target: { value: "spam network" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Suppression" }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/v1/admin/federation/block",
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+          body: JSON.stringify({ blockType: "domain", domain: "example.org", reason: "spam network" }),
+          headers: expect.any(Headers),
+        })
+      );
+    });
   });
 });

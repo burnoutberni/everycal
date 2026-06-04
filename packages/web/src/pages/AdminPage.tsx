@@ -790,19 +790,26 @@ export function AdminPage() {
           if (!proactiveTarget.trim()) return;
           const target = proactiveTarget.trim();
 
+          const reason = proactiveReason.trim();
+
+          if (!reason) {
+            setError(proactiveType === 'domain' || proactiveType === 'actor'
+              ? 'A reason is required to create a federation block'
+              : 'A reason is required to tombstone an object');
+            return;
+          }
+
           if (proactiveType === 'domain' || proactiveType === 'actor') {
-            const payload = proactiveType === 'domain' ? { blockType: 'domain', domain: target } : { blockType: 'actor', actorUri: target };
+            const payload = proactiveType === 'domain'
+              ? { blockType: 'domain', domain: target, reason }
+              : { blockType: 'actor', actorUri: target, reason };
             await adminFetch('/api/v1/admin/federation/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             setStatus(`Blocked ${proactiveType}: ${target}`);
           } else {
-            if (!proactiveReason.trim()) {
-              setError('A reason is required to tombstone an object');
-              return;
-            }
             await adminFetch('/api/v1/admin/federation/tombstones', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ objectType: proactiveType, objectId: target, reason: proactiveReason.trim() }),
+              body: JSON.stringify({ objectType: proactiveType, objectId: target, reason }),
             });
             setStatus(`Created tombstone for ${proactiveType}:${target}`);
           }
@@ -829,9 +836,13 @@ export function AdminPage() {
               proactiveType === 'remote_event' ? 'https://remote.example/events/123' :
               'ID or URI'
             } value={proactiveTarget} onChange={(e) => setProactiveTarget(e.target.value)} />
-            {(proactiveType !== 'domain' && proactiveType !== 'actor') ? (
-              <input required aria-label='Reason for tombstone' placeholder='Required reason for audit trail' value={proactiveReason} onChange={(e) => setProactiveReason(e.target.value)} />
-            ) : null}
+            <input
+              required
+              aria-label={proactiveType === 'domain' || proactiveType === 'actor' ? 'Reason for block' : 'Reason for tombstone'}
+              placeholder='Required reason for audit trail'
+              value={proactiveReason}
+              onChange={(e) => setProactiveReason(e.target.value)}
+            />
             <button className='btn btn-danger' type='submit'>Apply Suppression</button>
           </div>
         </form>
