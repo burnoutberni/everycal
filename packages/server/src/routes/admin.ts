@@ -111,6 +111,7 @@ export function adminRoutes(db: DB) {
 
   app.get('/accounts', (c) => {
     const q = (c.req.query('q') || '').trim();
+    const enabledAdminCount = (db.prepare('SELECT COUNT(*) as count FROM accounts WHERE is_admin = 1 AND is_disabled = 0').get() as { count: number }).count;
     const rows = db.prepare(`SELECT a.id, a.username, a.account_type, a.discoverable, a.email_verified, a.created_at, a.is_bot, a.is_disabled, a.is_admin,
         CASE
           WHEN la.locked_until IS NOT NULL AND la.locked_until > datetime('now') THEN 1
@@ -121,7 +122,7 @@ export function adminRoutes(db: DB) {
       WHERE a.username LIKE ?
       ORDER BY a.created_at DESC
       LIMIT 100`).all(`%${q}%`);
-    return c.json({ items: rows });
+    return c.json({ items: rows, enabledAdminCount });
   });
 
   app.post('/accounts/:id/disable', async (c) => {
@@ -129,6 +130,13 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const target = db.prepare('SELECT id, is_admin, is_disabled FROM accounts WHERE id = ?').get(id) as { id: string; is_admin: number; is_disabled: number } | undefined;
+    if (!target) return c.json({ error: 'account_not_found' }, 404);
+    if (target.id === admin.id) return c.json({ error: 'cannot_disable_current_admin' }, 409);
+    if (target.is_admin && !target.is_disabled) {
+      const enabledAdminCount = (db.prepare('SELECT COUNT(*) as count FROM accounts WHERE is_admin = 1 AND is_disabled = 0').get() as { count: number }).count;
+      if (enabledAdminCount <= 1) return c.json({ error: 'cannot_disable_last_enabled_admin' }, 409);
+    }
     const result = db.prepare('UPDATE accounts SET is_disabled = 1 WHERE id = ?').run(id);
     if (result.changes === 0) return c.json({ error: 'account_not_found' }, 404);
     db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);

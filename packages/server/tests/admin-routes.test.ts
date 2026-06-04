@@ -526,6 +526,76 @@ describe('admin routes', () => {
     expect(JSON.parse(enableAudit.payload_json)).toMatchObject({ reason: 'appealed' });
   });
 
+  it('GET /accounts includes enabled admin count for UI guards', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin, is_disabled) VALUES ('a1','admin-1',1,0),('a2','admin-2',1,0),('u1','user',0,0)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin-1', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/accounts');
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as any;
+    expect(body.enabledAdminCount).toBe(2);
+    expect(body.items).toHaveLength(3);
+  });
+
+  it('POST /accounts/:id/disable rejects disabling the current admin', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin, is_disabled) VALUES ('a1','admin',1,0),('u1','user',0,0)").run();
+    db.prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES ('tok1','a1','2099-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO api_keys (id, account_id, key_hash, label) VALUES ('k1','a1','hash','label')").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/accounts/a1/disable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'self lockout test' }),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'cannot_disable_current_admin' });
+
+    const adminRow = db.prepare("SELECT is_disabled FROM accounts WHERE id = 'a1'").get() as any;
+    expect(adminRow.is_disabled).toBe(0);
+
+    const sessions = db.prepare("SELECT COUNT(*) as count FROM sessions WHERE account_id = 'a1'").get() as any;
+    expect(sessions.count).toBe(1);
+
+    const keys = db.prepare("SELECT COUNT(*) as count FROM api_keys WHERE account_id = 'a1'").get() as any;
+    expect(keys.count).toBe(1);
+
+    const auditRow = db.prepare("SELECT COUNT(*) as count FROM admin_audit_log WHERE action_type = 'account.disable'").get() as any;
+    expect(auditRow.count).toBe(0);
+  });
+
+  it('POST /accounts/:id/disable rejects disabling the last enabled admin account', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin, is_disabled) VALUES ('a1','admin-disabled',1,1),('a2','admin-only',1,0)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'service-admin', username:'service-admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/accounts/a2/disable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'preserve access' }),
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'cannot_disable_last_enabled_admin' });
+
+    const targetRow = db.prepare("SELECT is_disabled FROM accounts WHERE id = 'a2'").get() as any;
+    expect(targetRow.is_disabled).toBe(0);
+
+    const auditRow = db.prepare("SELECT COUNT(*) as count FROM admin_audit_log WHERE action_type = 'account.disable'").get() as any;
+    expect(auditRow.count).toBe(0);
+  });
+
   it('GET /events/moderation-queue filters by state and POST /events/:id/moderate handles reason validation', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();

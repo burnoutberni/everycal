@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   authStatus: "anonymous" as "unknown" | "authenticated" | "anonymous",
   loading: false,
-  user: null as { isAdmin?: boolean } | null,
+  user: null as { id?: string; isAdmin?: boolean } | null,
 }));
 
 vi.mock("wouter", () => ({
@@ -286,5 +287,94 @@ describe("AdminPage proactive federation suppression", () => {
         })
       );
     });
+  });
+});
+
+describe("AdminPage account disable guards", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authStatus = "authenticated";
+    mocks.loading = false;
+    mocks.user = { id: "a1", isAdmin: true };
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      if (url.includes("/api/v1/admin/accounts?")) {
+        return Promise.resolve(jsonResponse({
+          items: [
+            { id: "a1", username: "admin", is_admin: 1, is_disabled: 0 },
+            { id: "u1", username: "user", is_admin: 0, is_disabled: 0 },
+          ],
+          enabledAdminCount: 1,
+        }, { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ items: [] }, { status: 200 }));
+    }));
+    ({ AdminPage } = await import("./AdminPage"));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("disables the current admin disable action and shows the reason", async () => {
+    render(<AdminPage />);
+
+    const ownGuard = await screen.findByText("You cannot disable your own admin account.");
+    const ownRow = ownGuard.closest("li");
+    expect(ownRow).not.toBeNull();
+    expect((within(ownRow!).getByRole("button", { name: "Disable" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const otherUser = screen.getByText("@user");
+    const otherRow = otherUser.closest("li");
+    expect(otherRow).not.toBeNull();
+    expect((within(otherRow!).getByRole("button", { name: "Disable" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("disables the last enabled admin action without blocking non-admin disables", async () => {
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      if (url.includes("/api/v1/admin/accounts?")) {
+        return Promise.resolve(jsonResponse({
+          items: [
+            { id: "u2", username: "solo-admin", is_admin: 1, is_disabled: 0 },
+            { id: "u1", username: "user", is_admin: 0, is_disabled: 0 },
+          ],
+          enabledAdminCount: 1,
+        }, { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ items: [] }, { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    ({ AdminPage } = await import("./AdminPage"));
+
+    render(<AdminPage />);
+
+    const lastAdminGuard = await screen.findByText("You cannot disable the last enabled admin account.");
+    const adminRow = lastAdminGuard.closest("li");
+    expect(adminRow).not.toBeNull();
+    expect((within(adminRow!).getByRole("button", { name: "Disable" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const userRow = screen.getByText("@user").closest("li");
+    expect(userRow).not.toBeNull();
+    const userDisableButton = within(userRow!).getByRole("button", { name: "Disable" });
+    expect((userDisableButton as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(userDisableButton);
+    expect(screen.getByRole("heading", { name: "Disable @user" })).not.toBeNull();
   });
 });
