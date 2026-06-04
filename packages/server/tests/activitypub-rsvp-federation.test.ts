@@ -261,6 +261,70 @@ describe("ActivityPub RSVP federation", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("rejects blocked actor RSVP activities in the user inbox", async () => {
+    seedLocalEvent(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-rsvp-user-actor', 'actor', ?, 'blocked', 'admin-1', 1)`,
+    ).run(remoteActorUri);
+
+    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/blocked-user-rsvp"));
+    expect(res.status).toBe(202);
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("rejects blocked actor RSVP activities in the shared inbox", async () => {
+    seedLocalEvent(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-rsvp-shared-actor', 'actor', ?, 'blocked', 'admin-1', 1)`,
+    ).run(remoteActorUri);
+
+    const res = await postInbox(
+      db,
+      rsvpActivity("Accept", "https://remote.example/activities/blocked-shared-rsvp"),
+      "/inbox",
+    );
+    expect(res.status).toBe(202);
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("rejects domain-blocked RSVP activities in the user inbox", async () => {
+    seedLocalEvent(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
+       VALUES ('block-rsvp-user-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`,
+    ).run();
+
+    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/blocked-user-domain-rsvp"));
+    expect(res.status).toBe(202);
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("rejects domain-blocked RSVP activities in the shared inbox", async () => {
+    seedLocalEvent(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
+       VALUES ('block-rsvp-shared-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`,
+    ).run();
+
+    const res = await postInbox(
+      db,
+      rsvpActivity("Accept", "https://remote.example/activities/blocked-shared-domain-rsvp"),
+      "/inbox",
+    );
+    expect(res.status).toBe(202);
+
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("rate-limits logs for unknown RSVP verbs in inbox requests", async () => {
     seedLocalEvent(db);
     vi.useFakeTimers();

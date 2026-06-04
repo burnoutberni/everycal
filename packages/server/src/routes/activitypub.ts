@@ -539,6 +539,10 @@ export function activityPubRoutes(db: DB): Hono {
     if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
       return c.json({ ok: true }, 202);
     }
+    if (hasActiveFederationBlock(db, { actorUri })) {
+      console.log(`  ⚠️  Rejecting ${type}: blocked actor ${actorUri}`);
+      return c.json({ ok: true }, 202);
+    }
 
     // Verify the incoming activity has a valid HTTP Signature
     // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
@@ -622,6 +626,10 @@ export function sharedInboxRoute(db: DB): Hono {
     }
     const activityId = parseActivityId(activity.id);
     if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
+      return c.json({ ok: true }, 202);
+    }
+    if (hasActiveFederationBlock(db, { actorUri })) {
+      console.log(`  ⚠️  Rejecting ${type}: blocked actor ${actorUri}`);
       return c.json({ ok: true }, 202);
     }
 
