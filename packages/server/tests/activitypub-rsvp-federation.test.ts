@@ -38,8 +38,38 @@ function seedLocalEvent(db: DB, visibility = "public"): void {
   db.prepare(
     `INSERT INTO events (
       id, account_id, title, start_date, start_at_utc, event_timezone, visibility
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run("event-1", "local1", "Local Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", visibility);
+}
+
+function seedOutboxModerationFixture(db: DB): void {
+  db.prepare("INSERT INTO accounts (id, username, account_type, private_key, public_key) VALUES (?, ?, 'person', ?, ?)")
+    .run("local1", "alice", "PRIVATE", "PUBLIC");
+  db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')")
+    .run("local2", "bob");
+
+  const insertEvent = db.prepare(
+    `INSERT INTO events (
+      id, account_id, title, start_date, start_at_utc, event_timezone, visibility
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  insertEvent.run("owned-visible", "local1", "Owned Visible", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", "public");
+  insertEvent.run("owned-hidden", "local1", "Owned Hidden", "2026-06-02T10:00:00", "2026-06-02T10:00:00.000Z", "UTC", "public");
+  insertEvent.run("repost-visible", "local2", "Repost Visible", "2026-06-03T10:00:00", "2026-06-03T10:00:00.000Z", "UTC", "public");
+  insertEvent.run("repost-hidden", "local2", "Repost Hidden", "2026-06-04T10:00:00", "2026-06-04T10:00:00.000Z", "UTC", "public");
+  insertEvent.run("auto-visible", "local2", "Auto Visible", "2026-06-05T10:00:00", "2026-06-05T10:00:00.000Z", "UTC", "public");
+  insertEvent.run("auto-hidden", "local2", "Auto Hidden", "2026-06-06T10:00:00", "2026-06-06T10:00:00.000Z", "UTC", "public");
+
+  db.prepare("UPDATE events SET moderation_state = 'hidden' WHERE id IN ('owned-hidden', 'repost-hidden', 'auto-hidden')").run();
+
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", "repost-visible", "http://localhost/events/repost-visible", "http://localhost/users/bob");
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", "repost-hidden", "http://localhost/events/repost-hidden", "http://localhost/users/bob");
+
+  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
+    .run("local1", "local2", "http://localhost/users/bob");
 }
 
 function seedRemoteEvent(db: DB): void {
@@ -451,6 +481,50 @@ describe("ActivityPub RSVP federation", () => {
     expect(mapping.logical_key).toBe("announce:local1:http://localhost/events/event-1");
     expect(mapping.activity_type).toBe("Announce");
     expect(mapping.object_uri).toBe("http://localhost/events/event-1");
+  });
+
+  it("excludes hidden local events from outbox owned, repost, and auto-repost queries", async () => {
+    seedOutboxModerationFixture(db);
+
+    const app = inboxApp(db);
+    const collectionRes = await app.request("http://localhost/users/alice/outbox", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+    const pageRes = await app.request("http://localhost/users/alice/outbox?page=1", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+
+    expect(collectionRes.status).toBe(200);
+    expect(pageRes.status).toBe(200);
+
+    const collection = await collectionRes.json() as { totalItems?: number };
+    const page = await pageRes.json() as {
+      orderedItems?: Array<{ type?: string; object?: unknown }>;
+    };
+
+    expect(collection.totalItems).toBe(3);
+
+    const objectIds = (page.orderedItems ?? []).map((item) => {
+      if (typeof item.object === "string") return item.object;
+      if (item.object && typeof item.object === "object" && "id" in item.object) {
+        return (item.object as { id?: string }).id;
+      }
+      return undefined;
+    });
+    expect(objectIds).toContain("http://localhost/events/owned-visible");
+    expect(objectIds).toContain("http://localhost/events/repost-visible");
+    expect(objectIds).toContain("http://localhost/events/auto-visible");
+    expect(objectIds).not.toContain("http://localhost/events/owned-hidden");
+    expect(objectIds).not.toContain("http://localhost/events/repost-hidden");
+    expect(objectIds).not.toContain("http://localhost/events/auto-hidden");
+
+    const createObjects = page.orderedItems
+      ?.filter((item) => item.type === "Create")
+      .map((item) => item.object) ?? [];
+    expect(createObjects).toHaveLength(1);
+    expect(createObjects[0]).toMatchObject({ id: "http://localhost/events/owned-visible" });
   });
 
   it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {

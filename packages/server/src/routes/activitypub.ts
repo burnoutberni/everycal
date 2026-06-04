@@ -55,6 +55,13 @@ const AP_CONTENT_TYPES = [
   "application/ld+json",
 ];
 
+const VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE = "COALESCE(e.moderation_state, 'visible') != 'hidden'";
+
+function appendVisibleLocalOutboxEventFilter(sql: string, hasModerationStateColumn: boolean): string {
+  if (!hasModerationStateColumn) return sql;
+  return `${sql} AND ${VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE}`;
+}
+
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
 }
@@ -125,6 +132,8 @@ export function hasMatchingRequestDigest(rawBody: string, digestHeader?: string,
 
 export function activityPubRoutes(db: DB): Hono {
   const router = new Hono();
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
 
   // ---- Actor Profile ----
   router.get("/:username", (c) => {
@@ -213,7 +222,12 @@ export function activityPubRoutes(db: DB): Hono {
     const ownedCount = (
       db
         .prepare(
-          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility IN ('public', 'unlisted')"
+          appendVisibleLocalOutboxEventFilter(
+            `SELECT COUNT(*) AS cnt FROM events e
+             WHERE e.account_id = ?
+               AND visibility IN ('public', 'unlisted')`,
+            hasEventModerationStateColumn,
+          )
         )
         .get(account.id) as { cnt: number }
     ).cnt;
@@ -221,9 +235,13 @@ export function activityPubRoutes(db: DB): Hono {
       db
         .prepare(
           `SELECT (
-             SELECT COUNT(*) FROM reposts r
-             JOIN events e ON e.id = r.event_id
-             WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
+             ${appendVisibleLocalOutboxEventFilter(
+               `SELECT COUNT(*) FROM reposts r
+                JOIN events e ON e.id = r.event_id
+                WHERE r.account_id = ?
+                  AND e.visibility IN ('public', 'unlisted')`,
+               hasEventModerationStateColumn,
+             )}
            ) + (
              SELECT COUNT(*) FROM reposts r
              JOIN remote_events re ON re.uri = r.event_uri
@@ -236,10 +254,14 @@ export function activityPubRoutes(db: DB): Hono {
       db
         .prepare(
           `SELECT (
-             SELECT COUNT(*) FROM auto_reposts ar
-             JOIN events e ON e.account_id = ar.source_account_id
-             WHERE ar.account_id = ? AND e.visibility = 'public'
-               AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
+             ${appendVisibleLocalOutboxEventFilter(
+               `SELECT COUNT(*) FROM auto_reposts ar
+                JOIN events e ON e.account_id = ar.source_account_id
+                WHERE ar.account_id = ?
+                  AND e.visibility = 'public'
+                  AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)`,
+               hasEventModerationStateColumn,
+             )}
            ) + (
              SELECT COUNT(*) FROM auto_reposts ar
              JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
@@ -268,22 +290,30 @@ export function activityPubRoutes(db: DB): Hono {
     // Build activities: Create for owned events, Announce for reposts
     const ownedRows = db
       .prepare(
-        `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM events e
-         LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.account_id = ? AND e.visibility IN ('public', 'unlisted')
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM events e
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE e.account_id = ?
+             AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        )}
          GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
 
     const repostRows = db
       .prepare(
-        `SELECT r.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM reposts r
-         JOIN events e ON e.id = r.event_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-          WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
-          GROUP BY e.id`
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT r.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM reposts r
+           JOIN events e ON e.id = r.event_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE r.account_id = ?
+             AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        )}
+         GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
     const repostRemoteRows = db
@@ -297,13 +327,17 @@ export function activityPubRoutes(db: DB): Hono {
 
     const autoRepostRows = db
       .prepare(
-        `SELECT ar.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM auto_reposts ar
-         JOIN events e ON e.account_id = ar.source_account_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-          WHERE ar.account_id = ? AND e.visibility = 'public'
-            AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
-          GROUP BY e.id`
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT ar.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM auto_reposts ar
+           JOIN events e ON e.account_id = ar.source_account_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE ar.account_id = ?
+             AND e.visibility = 'public'
+             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)`,
+          hasEventModerationStateColumn,
+        )}
+         GROUP BY e.id`
       )
       .all(account.id, account.id) as Record<string, unknown>[];
     const autoRepostRemoteRows = db
