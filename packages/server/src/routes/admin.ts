@@ -351,11 +351,16 @@ export function adminRoutes(db: DB) {
 
   app.post('/scrapers/trigger', async (c) => {
     const admin = c.get('user')!;
+    if (!getEffectiveSetting<boolean>(db, 'run_jobs_internally', true)) {
+      return c.json({ error: 'job_worker_unavailable' }, 503);
+    }
     const body = await c.req.json<{scraper?:string; dryRun?:boolean}>();
+    const requestedScraper = body.scraper?.trim() || null;
+    const scraper = requestedScraper === 'all' ? null : requestedScraper;
     const runId = nanoid();
     db.prepare("INSERT INTO admin_job_runs (id, job_type, status, payload_json, created_by_account_id, created_at) VALUES (?, 'scraper', 'queued', ?, ?, datetime('now'))")
-      .run(runId, JSON.stringify({ scraper: body.scraper || null, dryRun: !!body.dryRun }), admin.id);
-    audit(db, admin.id, 'scraper.trigger', 'scraper', body.scraper || 'all', { dryRun: !!body.dryRun });
+      .run(runId, JSON.stringify({ scraper, dryRun: !!body.dryRun }), admin.id);
+    audit(db, admin.id, 'scraper.trigger', 'scraper', scraper || 'all', { dryRun: !!body.dryRun });
     return c.json({ ok: true, runId, status: 'queued' });
   });
 

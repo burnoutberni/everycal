@@ -51,6 +51,7 @@ import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 import { getEffectiveSetting } from "./lib/runtime-settings.js";
+import { startAdminJobWorker } from "./lib/admin-jobs.js";
 
 validateBaseUrlConfig();
 
@@ -286,3 +287,4 @@ startOutboundDeliveryWorker(db);
 startOutboundTerminalCleanupWorker(db);
 startProcessedInboxCleanupWorker(db);
 startAdminAuditLogCleanupWorker(db);
+startAdminJobWorker(db);

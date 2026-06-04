@@ -10,15 +10,19 @@ import { t } from '../src/lib/i18n.js';
 describe('admin routes', () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalBaseUrl = process.env.BASE_URL;
+  const originalRunJobsInternally = process.env.RUN_JOBS_INTERNALLY;
 
   beforeEach(() => {
     process.env.NODE_ENV = 'production';
     process.env.BASE_URL = 'http://localhost:3000';
+    process.env.RUN_JOBS_INTERNALLY = 'true';
   });
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     process.env.BASE_URL = originalBaseUrl;
+    if (originalRunJobsInternally === undefined) delete process.env.RUN_JOBS_INTERNALLY;
+    else process.env.RUN_JOBS_INTERNALLY = originalRunJobsInternally;
   });
 
   it('enforces requireAdmin and writes audit log', async () => {
@@ -890,13 +894,34 @@ describe('admin routes', () => {
     const runRow = db.prepare("SELECT job_type, status, payload_json FROM admin_job_runs WHERE id = ?").get(body.runId) as any;
     expect(runRow.job_type).toBe('scraper');
     expect(runRow.status).toBe('queued');
-    expect(JSON.parse(runRow.payload_json)).toEqual({ scraper: 'all', dryRun: true });
+    expect(JSON.parse(runRow.payload_json)).toEqual({ scraper: null, dryRun: true });
 
     const auditRow = db.prepare("SELECT action_type, target_type, target_id, payload_json FROM admin_audit_log WHERE action_type = 'scraper.trigger' ORDER BY created_at DESC LIMIT 1").get() as any;
     expect(auditRow.action_type).toBe('scraper.trigger');
     expect(auditRow.target_type).toBe('scraper');
     expect(auditRow.target_id).toBe('all');
     expect(JSON.parse(auditRow.payload_json)).toEqual({ dryRun: true });
+  });
+
+  it('POST /scrapers/trigger returns 503 when internal job worker is disabled', async () => {
+    process.env.RUN_JOBS_INTERNALLY = 'false';
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    const res = await app.request('/api/v1/admin/scrapers/trigger', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scraper: 'all', dryRun: true }),
+    });
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'job_worker_unavailable' });
+    const count = db.prepare("SELECT COUNT(*) AS count FROM admin_job_runs").get() as { count: number };
+    expect(count.count).toBe(0);
   });
 
   it('GET /audit-log and GET /jobs/runs lists logged details', async () => {
