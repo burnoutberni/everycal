@@ -78,6 +78,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
             WHERE e.visibility = 'public'`;
         }
 
+        sql = appendVisibleLocalEventFilter(sql, isMineScope ? "combined" : "e");
+
         const df = appendDateRangeFilters(
           {
             instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",

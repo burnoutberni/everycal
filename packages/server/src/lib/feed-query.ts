@@ -23,6 +23,8 @@ const EVENTS_JOIN = `FROM events e
     JOIN accounts a ON a.id = e.account_id
     LEFT JOIN event_tags t ON t.event_id = e.id`;
 
+const VISIBLE_LOCAL_MODERATION_CLAUSE = `COALESCE(e.moderation_state, 'visible') != 'hidden'`;
+
 export interface FeedQueryOptions {
   userId: string;
   baseUrl: string;
@@ -52,34 +54,36 @@ export function buildFeedQuery(opts: FeedQueryOptions): FeedQueryResult {
   }
 
   // Branch 1: Own events
-  const b1Where = `e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private')`;
+  const b1Where = `e.account_id = ? AND e.visibility IN ('public','unlisted','followers_only','private') AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}`;
   push(userId);
 
   // Branch 2: Managed identities
-  const b2Where = `e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private')`;
+  const b2Where = `e.account_id IN ${MANAGED_IDENTITY_LIST} AND e.visibility IN ('public','unlisted','followers_only','private') AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}`;
   push(userId);
 
   // Branch 3: Direct follows
-  const b3Where = `e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only')`;
+  const b3Where = `e.account_id IN ${FOLLOW_LIST} AND e.visibility IN ('public','unlisted','followers_only') AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}`;
   push(userId);
 
   // Branch 4: Local accounts we follow via remote_following (Federation)
-  const b4Where = `e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only')`;
+  const b4Where = `e.account_id IN ${rfl} AND e.visibility IN ('public','unlisted','followers_only') AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}`;
   push(baseUrl, userId);
 
   // Branch 5: Events we've RSVP'd to
-  const b5Where = `e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted')`;
+  const b5Where = `e.id IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?) AND e.visibility IN ('public','unlisted') AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}`;
   push(userId);
 
   // Branch 6: Explicit reposts (only when creator not followed)
   const b6Where = `(r.account_id IN ${FOLLOW_LIST} OR r.account_id IN ${rfl})
       AND e.visibility IN ('public','unlisted')
+      AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}`;
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);
 
   // Branch 7: Auto-reposts (only when creator not followed)
   const b7Where = `(ar.account_id IN ${FOLLOW_LIST} OR ar.account_id IN ${rfl})
       AND e.visibility = 'public'
+      AND ${VISIBLE_LOCAL_MODERATION_CLAUSE}
       AND e.account_id != ? AND e.account_id NOT IN ${FOLLOW_LIST} AND e.account_id NOT IN ${rfl}
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ar.account_id AND event_id IS NOT NULL)`;
   push(userId, baseUrl, userId, userId, userId, baseUrl, userId);

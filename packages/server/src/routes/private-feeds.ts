@@ -186,10 +186,11 @@ export function privateFeedRoutes(db: DB): Hono {
          JOIN event_rsvps er ON er.event_uri = e.id AND er.account_id = ?
          LEFT JOIN event_tags t ON t.event_id = e.id
          WHERE er.status IN ('going','maybe')
+         AND COALESCE(e.moderation_state, 'visible') != 'hidden'
          AND (e.visibility IN ('public','unlisted') OR e.account_id = ?)
          GROUP BY e.id
          ORDER BY e.start_at_utc ASC`
-      )
+       )
       .all(accountId, accountId) as Record<string, unknown>[];
 
     // Remote events: Going/Maybe (include rsvp_status for tentative; include canceled)
