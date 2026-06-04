@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { initDatabase } from '../src/db.js';
 import { CURRENT_SCHEMA_VERSION } from '../src/db/migrations.js';
+import { getSsrInitialData } from '../src/lib/ssr-data.js';
 import { adminRoutes, cleanupAdminAuditLogs } from '../src/routes/admin.js';
 import { getEffectiveSetting, runtimeSettingsByKey, runtimeSettingDefs } from '../src/lib/runtime-settings.js';
 import { t } from '../src/lib/i18n.js';
@@ -558,11 +559,12 @@ describe('admin routes', () => {
     expect(await resModerateInvalidState.json()).toEqual({ error: 'invalid_moderation_state' });
   });
 
-  it('POST /federation/block, GET /federation/blocks, and unblocking manages blocks and hides remote events', async () => {
+  it('POST /federation/block, GET /federation/blocks, and unblocking manage blocks without persisting remote visibility changes', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES ('actor1', 'preferred1', 'http://inbox1', 'bad-domain.com')").run();
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality, moderation_state) VALUES ('re1', 'actor1', 'Title1', '2026-01-01', '2026-01-01 10:00:00', 'offset_only', 'visible')").run();
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, moderation_state) VALUES ('re1', 'actor1', 'title1', 'Title1', '2026-01-01', '2026-01-01 10:00:00', 'offset_only', 'hidden')").run();
+    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, moderation_state) VALUES ('re2', 'actor1', 'title2', 'Title2', '2026-01-02', '2026-01-02 10:00:00', 'offset_only', 'visible')").run();
 
     const app = new Hono();
     app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
@@ -611,9 +613,19 @@ describe('admin routes', () => {
     expect(blockDomainBody.ok).toBe(true);
     expect(blockDomainBody.blockId).toBeDefined();
 
-    // Verify events from the domain are hidden
-    const remoteEvent = db.prepare("SELECT moderation_state FROM remote_events WHERE uri = 're1'").get() as any;
-    expect(remoteEvent.moderation_state).toBe('hidden');
+    // Existing legacy hidden rows remain hidden while an active block still covers them.
+    const hiddenDuringActiveBlock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title1', null);
+    expect(hiddenDuringActiveBlock?.kind).toBe('event');
+    if (!hiddenDuringActiveBlock || hiddenDuringActiveBlock.kind !== 'event') throw new Error('expected event payload');
+    expect(hiddenDuringActiveBlock.event).toBeNull();
+
+    const visibleBlockedByFilter = getSsrInitialData(db, '/@preferred1@bad-domain.com/title2', null);
+    expect(visibleBlockedByFilter?.kind).toBe('event');
+    if (!visibleBlockedByFilter || visibleBlockedByFilter.kind !== 'event') throw new Error('expected event payload');
+    expect(visibleBlockedByFilter.event).toBeNull();
+
+    const stillVisibleInStorage = db.prepare("SELECT moderation_state FROM remote_events WHERE uri = 're2'").get() as any;
+    expect(stillVisibleInStorage.moderation_state).toBe('visible');
 
     const storedDomainBlock = db.prepare('SELECT block_type, actor_uri, domain, reason FROM federation_blocks WHERE id = ?').get(blockDomainBody.blockId) as {
       block_type: string;
@@ -644,6 +656,44 @@ describe('admin routes', () => {
     expect(blockAudit!.target_type).toBe('domain');
     expect(blockAudit!.target_id).toBe('bad-domain.com');
     expect(JSON.parse(blockAudit!.payload_json)).toEqual({ reason: 'spam network' });
+
+    // GET with query
+    const resBlocksQuery = await app.request('/api/v1/admin/federation/blocks?q=bad-domain');
+    const queryBody = await resBlocksQuery.json() as any;
+    expect(queryBody.items.length).toBe(1);
+    expect(queryBody.items[0].domain).toBe('bad-domain.com');
+
+    // 4. Unblock requires reason
+    const blockId = blockDomainBody.blockId;
+    const resUnblockNoReason = await app.request(`/api/v1/admin/federation/blocks/${blockId}/unblock`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(resUnblockNoReason.status).toBe(400);
+
+    // Unblock successfully
+    const resUnblock = await app.request(`/api/v1/admin/federation/blocks/${blockId}/unblock`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'cleared' }),
+    });
+    expect(resUnblock.status).toBe(200);
+    const blockRow = db.prepare("SELECT is_active FROM federation_blocks WHERE id = ?").get(blockId) as any;
+    expect(blockRow.is_active).toBe(0);
+
+    const remoteEvent = db.prepare("SELECT moderation_state FROM remote_events WHERE uri = 're1'").get() as any;
+    expect(remoteEvent.moderation_state).toBe('visible');
+
+    const restoredAfterUnblock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title1', null);
+    expect(restoredAfterUnblock?.kind).toBe('event');
+    if (!restoredAfterUnblock || restoredAfterUnblock.kind !== 'event') throw new Error('expected event payload');
+    expect(restoredAfterUnblock.event).not.toBeNull();
+
+    const visibleAfterUnblock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title2', null);
+    expect(visibleAfterUnblock?.kind).toBe('event');
+    if (!visibleAfterUnblock || visibleAfterUnblock.kind !== 'event') throw new Error('expected event payload');
+    expect(visibleAfterUnblock.event).not.toBeNull();
 
     const resBlockActor = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
@@ -677,30 +727,10 @@ describe('admin routes', () => {
     expect(actorBlockAudit!.target_id).toBe('actor1');
     expect(JSON.parse(actorBlockAudit!.payload_json)).toEqual({ reason: 'target actor only' });
 
-    // GET with query
-    const resBlocksQuery = await app.request('/api/v1/admin/federation/blocks?q=bad-domain');
-    const queryBody = await resBlocksQuery.json() as any;
-    expect(queryBody.items.length).toBe(1);
-    expect(queryBody.items[0].domain).toBe('bad-domain.com');
-
-    // 4. Unblock requires reason
-    const blockId = blockDomainBody.blockId;
-    const resUnblockNoReason = await app.request(`/api/v1/admin/federation/blocks/${blockId}/unblock`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    expect(resUnblockNoReason.status).toBe(400);
-
-    // Unblock successfully
-    const resUnblock = await app.request(`/api/v1/admin/federation/blocks/${blockId}/unblock`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reason: 'cleared' }),
-    });
-    expect(resUnblock.status).toBe(200);
-    const blockRow = db.prepare("SELECT is_active FROM federation_blocks WHERE id = ?").get(blockId) as any;
-    expect(blockRow.is_active).toBe(0);
+    const actorBlockedAgain = getSsrInitialData(db, '/@preferred1@bad-domain.com/title2', null);
+    expect(actorBlockedAgain?.kind).toBe('event');
+    if (!actorBlockedAgain || actorBlockedAgain.kind !== 'event') throw new Error('expected event payload');
+    expect(actorBlockedAgain.event).toBeNull();
   });
 
   it('GET /federation/actors and /federation/domains lists details', async () => {
