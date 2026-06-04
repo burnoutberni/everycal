@@ -153,6 +153,17 @@ describe("resolveRemoteActor fetch status tracking", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns null for tombstoned actors without refetching cached data", async () => {
+    db.prepare(
+      `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
+       VALUES ('tombstone-actor', 'remote_actor', ?, 'tombstoned')`
+    ).run(actorUri);
+
+    const actor = await resolveRemoteActor(db, actorUri);
+    expect(actor).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("short-circuits blocked domain discovery", async () => {
     db.prepare(
       `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)

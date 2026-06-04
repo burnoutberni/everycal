@@ -2125,6 +2125,22 @@ describe("event slug canonical behavior", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("resolver does not fetch or upsert tombstoned remote events", async () => {
+    db.prepare(
+      `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
+       VALUES ('tombstone-event', 'remote_event', 'https://remote.example/events/102', 'tombstoned')`
+    ).run();
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F102");
+
+    expect(res.status).toBe(404);
+    expect(vi.mocked(fetchAP)).not.toHaveBeenCalled();
+    expect(vi.mocked(resolveRemoteActor)).not.toHaveBeenCalled();
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/102") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("resolver returns controlled 502 on remote fetch failures", async () => {
     vi.mocked(fetchAP).mockRejectedValue(new Error("upstream timeout"));
     const app = makeApp(db);

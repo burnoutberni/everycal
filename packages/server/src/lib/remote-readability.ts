@@ -1,4 +1,5 @@
 import { buildActiveFederationBlockFilter } from "./federation-blocks.js";
+import { buildActiveFederationTombstoneFilter } from "./federation-tombstones.js";
 
 export function buildRemoteReadabilityFilter(
   currentUserId?: string,
@@ -7,9 +8,10 @@ export function buildRemoteReadabilityFilter(
   const eventAlias = options.eventAlias || "re";
   const moderationSql = `COALESCE(${eventAlias}.moderation_state, 'visible') != 'hidden'`;
   const blockSql = buildActiveFederationBlockFilter({ eventAlias, actorDomainSql: options.actorDomainSql });
+  const tombstoneSql = buildActiveFederationTombstoneFilter({ eventAlias, actorUriSql: `${eventAlias}.actor_uri` });
   if (!currentUserId) {
     return {
-      sql: `(${moderationSql} AND ${blockSql} AND ${eventAlias}.visibility IN ('public','unlisted'))`,
+      sql: `(${moderationSql} AND ${blockSql} AND ${tombstoneSql} AND ${eventAlias}.visibility IN ('public','unlisted'))`,
       params: [],
     };
   }
@@ -17,6 +19,7 @@ export function buildRemoteReadabilityFilter(
     sql: `(
       ${moderationSql}
       AND ${blockSql}
+      AND ${tombstoneSql}
       AND (
         ${eventAlias}.visibility IN ('public','unlisted')
         OR (

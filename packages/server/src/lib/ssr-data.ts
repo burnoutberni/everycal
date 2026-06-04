@@ -5,6 +5,7 @@ import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federatio
 import { buildRemoteReadabilityFilter } from "./remote-readability.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "./event-serializers.js";
 import { parseRemoteHandle } from "./remote-handle.js";
+import { buildActiveFederationActorTombstoneFilter } from "./federation-tombstones.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -109,7 +110,7 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
       .prepare(
         `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
                 ra.followers_count, ra.following_count, ra.fetch_status
-         FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
+         FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ? AND ${buildActiveFederationActorTombstoneFilter("ra")}`
       )
       .get(localPart, domain) as Record<string, unknown> | undefined;
     if (!remoteRow) return null;
@@ -210,7 +211,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     const { localPart, domain } = remoteHandle;
     const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
     const remoteActor = db
-      .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+      .prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
       .get(localPart, domain) as { uri: string } | undefined;
     if (!remoteActor) return [];
     const rows = db

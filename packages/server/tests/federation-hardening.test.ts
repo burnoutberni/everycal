@@ -23,6 +23,12 @@ function insertRemoteActor(db: DB, uri = "https://remote.example/users/bob") {
   return uri;
 }
 
+function insertTombstone(db: DB, objectType: string, objectId: string, expiresAt: string | null = null) {
+  db.prepare(
+    "INSERT INTO federation_tombstones (id, object_type, object_id, reason, expires_at) VALUES (?, ?, ?, 'test tombstone', ?)"
+  ).run(`${objectType}:${objectId}`, objectType, objectId, expiresAt);
+}
+
 function eventObject(id: string, name: string, extra: Record<string, unknown> = {}) {
   return {
     id,
@@ -1738,6 +1744,64 @@ describe("federation hardening prep", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("skips pulled imports for tombstoned activities and events", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    insertTombstone(db, "activity", "https://remote.example/activities/create-tombstoned-activity");
+    insertTombstone(db, "remote_event", "https://remote.example/events/tombstoned-pull-event");
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-tombstoned-activity",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/allowed-pull-event", "Should Be Skipped By Activity", { to: [federation.AP_PUBLIC] }),
+      },
+      {
+        id: "https://remote.example/activities/create-tombstoned-event",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/tombstoned-pull-event", "Should Be Skipped By Event", { to: [federation.AP_PUBLIC] }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 2 });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE actor_uri = ?").get(actorUri) as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("treats explicit empty activity to/cc as private during user inbox Update", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
@@ -1768,6 +1832,54 @@ describe("federation hardening prep", () => {
     expect(response.status).toBe(202);
     const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?").get(eventUri) as { visibility: string };
     expect(row.visibility).toBe("private");
+  });
+
+  it("ignores tombstoned inbox activities and events going forward", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const activityId = "https://remote.example/activities/update-tombstoned-activity";
+    const eventUri = "https://remote.example/events/tombstoned-inbox-event";
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    upsertRemoteEvent(
+      db,
+      eventObject(eventUri, "Original Inbox Title", { to: [federation.AP_PUBLIC] }),
+      actorUri,
+    );
+    insertTombstone(db, "activity", activityId);
+    insertTombstone(db, "remote_event", eventUri);
+
+    const activityRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: activityId,
+        type: "Update",
+        actor: actorUri,
+        object: eventObject(eventUri, "Ignored By Tombstones"),
+      }),
+    });
+
+    expect(activityRes.status).toBe(202);
+    let row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get(eventUri) as { title: string };
+    expect(row.title).toBe("Original Inbox Title");
+
+    db.prepare("DELETE FROM federation_tombstones WHERE object_type = 'activity' AND object_id = ?").run(activityId);
+    const eventRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/update-tombstoned-event",
+        type: "Update",
+        actor: actorUri,
+        object: eventObject(eventUri, "Still Ignored By Event Tombstone"),
+      }),
+    });
+
+    expect(eventRes.status).toBe(202);
+    row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get(eventUri) as { title: string };
+    expect(row.title).toBe("Original Inbox Title");
   });
 
   it("accepts pulled Update when attributedTo is an object with id", async () => {

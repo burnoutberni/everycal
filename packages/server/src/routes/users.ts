@@ -33,6 +33,7 @@ import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
 import { parseRemoteHandle } from "../lib/remote-handle.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
+import { buildActiveFederationActorTombstoneFilter } from "../lib/federation-tombstones.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -96,7 +97,7 @@ export function userRoutes(db: DB): Hono {
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
                     ra.followers_count, ra.following_count, ra.fetch_status
-             FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
+             FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ? AND ${buildActiveFederationActorTombstoneFilter("ra")}`
           )
           .get(localPart, domain) as Record<string, unknown> | undefined;
 
@@ -208,7 +209,7 @@ export function userRoutes(db: DB): Hono {
       const { localPart, domain } = remoteHandle;
         const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
         const remoteActor = db
-          .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string } | undefined;
         if (!remoteActor) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
@@ -476,7 +477,7 @@ export function userRoutes(db: DB): Hono {
       sourceActorUri = buildActorUrl(localTarget.username);
     } else if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
-      let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
+      let remote = db.prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`).get(localPart, domain) as { uri: string } | undefined;
       if (!remote) {
         const actorUri = buildUrl(`https://${domain}`, "users", localPart);
         const resolved = await resolveRemoteActor(db, actorUri);
@@ -615,7 +616,7 @@ export function userRoutes(db: DB): Hono {
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
         let actor = db
-          .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
         if (!actor) {
           const actorUri = buildUrl(`https://${domain}`, "users", localPart);
@@ -676,7 +677,7 @@ export function userRoutes(db: DB): Hono {
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
         let actor = db
-          .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
         if (!actor) {
           const actorUri = buildUrl(`https://${domain}`, "users", localPart);

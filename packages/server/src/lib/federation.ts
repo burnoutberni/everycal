@@ -8,6 +8,7 @@ import { signRequest } from "./crypto.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
 import { hasActiveFederationBlock } from "./federation-blocks.js";
+import { isRemoteActorTombstoned } from "./federation-tombstones.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
 import { getEffectiveSetting } from "./runtime-settings.js";
 
@@ -388,12 +389,14 @@ export async function resolveRemoteActor(
   const nowIso = new Date().toISOString();
 
   if (hasActiveFederationBlock(db, { actorUri })) return null;
+  if (isRemoteActorTombstoned(db, actorUri)) return null;
 
   if (!forceRefresh) {
     const cached = db
       .prepare("SELECT * FROM remote_actors WHERE uri = ?")
       .get(actorUri) as RemoteActor | undefined;
     if (cached && hasActiveFederationBlock(db, { actorUri: cached.uri, domain: cached.domain })) return null;
+    if (cached && isRemoteActorTombstoned(db, cached.uri)) return null;
     if (cached?.fetch_status === "gone") return null;
     if (cached?.fetch_status === "error") {
       const hasUsableCachedActor =
@@ -454,6 +457,7 @@ export async function resolveRemoteActor(
     };
 
     if (hasActiveFederationBlock(db, { actorUri: actor.uri, domain: actor.domain })) return null;
+    if (isRemoteActorTombstoned(db, actor.uri)) return null;
 
     db.prepare(
       `INSERT INTO remote_actors (uri, type, preferred_username, display_name, summary,

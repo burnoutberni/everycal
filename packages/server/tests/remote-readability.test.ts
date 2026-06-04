@@ -42,6 +42,20 @@ function seedFederationBlock(
   );
 }
 
+function seedFederationTombstone(
+  db: ReturnType<typeof initDatabase>,
+  values: { objectType: string; objectId: string; expiresAt?: string | null },
+) {
+  db.prepare(
+    "INSERT INTO federation_tombstones (id, object_type, object_id, reason, expires_at) VALUES (?, ?, ?, 'test tombstone', ?)"
+  ).run(
+    `${values.objectType}:${values.objectId}`,
+    values.objectType,
+    values.objectId,
+    values.expiresAt ?? null,
+  );
+}
+
 describe("remote readability across profile and feed surfaces", () => {
   it("hides blocked remote events from remote profile APIs and counts", async () => {
     const db = initDatabase(":memory:");
@@ -195,5 +209,102 @@ describe("remote readability across profile and feed surfaces", () => {
     expect(text).toContain("Visible Elsewhere Event");
     expect(text).not.toContain("Blocked Actor Event");
     expect(text).not.toContain("Blocked Domain Event");
+  });
+
+  it("hides tombstoned remote events while ignoring expired tombstones", async () => {
+    const db = initDatabase(":memory:");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u1", "alice");
+    db.prepare("INSERT INTO calendar_feed_tokens (account_id, token) VALUES (?, ?)").run("u1", hashTokenSecret("tok1"));
+    seedRemoteActor(db);
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/visible-tombstone",
+      slug: "visible-tombstone",
+      title: "Visible Tombstone Event",
+      moderationState: "visible",
+    });
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/hidden-by-tombstone",
+      slug: "hidden-by-tombstone",
+      title: "Hidden By Tombstone",
+      moderationState: "visible",
+    });
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/expired-tombstone",
+      slug: "expired-tombstone",
+      title: "Expired Tombstone Event",
+      moderationState: "visible",
+    });
+    seedFederationTombstone(db, {
+      objectType: "remote_event",
+      objectId: "https://remote.example/events/hidden-by-tombstone",
+    });
+    seedFederationTombstone(db, {
+      objectType: "remote_event",
+      objectId: "https://remote.example/events/expired-tombstone",
+      expiresAt: "2000-01-01T00:00:00Z",
+    });
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://remote.example/events/visible-tombstone");
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://remote.example/events/hidden-by-tombstone");
+    db.prepare("INSERT INTO event_rsvps (account_id, event_uri, status) VALUES (?, ?, 'going')").run("u1", "https://remote.example/events/expired-tombstone");
+
+    const userApp = new Hono();
+    userApp.route("/api/v1/users", userRoutes(db));
+
+    const profileRes = await userApp.request("http://localhost/api/v1/users/mallory@remote.example");
+    const profileBody = await profileRes.json() as { eventsCount: number };
+    expect(profileBody.eventsCount).toBe(2);
+
+    const eventsRes = await userApp.request("http://localhost/api/v1/users/mallory@remote.example/events");
+    const eventsBody = await eventsRes.json() as { events: Array<{ id: string }> };
+    expect(eventsBody.events.map((event) => event.id)).toEqual([
+      "https://remote.example/events/visible-tombstone",
+      "https://remote.example/events/expired-tombstone",
+    ]);
+
+    const profileData = getSsrInitialData(db, "/@mallory@remote.example", null);
+    expect(profileData?.kind).toBe("profile");
+    if (!profileData || profileData.kind !== "profile") throw new Error("expected profile payload");
+    expect((profileData.events as Array<{ id: string }>).map((event) => event.id)).toEqual([
+      "https://remote.example/events/visible-tombstone",
+      "https://remote.example/events/expired-tombstone",
+    ]);
+
+    const feedApp = new Hono();
+    feedApp.route("/api/v1/private-feeds", privateFeedRoutes(db));
+    const feedRes = await feedApp.request("http://localhost/api/v1/private-feeds/calendar.ics?token=tok1");
+    const feedText = await feedRes.text();
+    expect(feedText).toContain("Visible Tombstone Event");
+    expect(feedText).toContain("Expired Tombstone Event");
+    expect(feedText).not.toContain("Hidden By Tombstone");
+  });
+
+  it("hides tombstoned remote actors from profile APIs and SSR", async () => {
+    const db = initDatabase(":memory:");
+    seedRemoteActor(db);
+    seedRemoteEvent(db, {
+      uri: "https://remote.example/events/actor-tombstone",
+      slug: "actor-tombstone",
+      title: "Actor Tombstone Event",
+      moderationState: "visible",
+    });
+    seedFederationTombstone(db, {
+      objectType: "remote_actor",
+      objectId: "https://remote.example/users/mallory",
+    });
+
+    const app = new Hono();
+    app.route("/api/v1/users", userRoutes(db));
+
+    const profileRes = await app.request("http://localhost/api/v1/users/mallory@remote.example");
+    expect(profileRes.status).toBe(404);
+
+    const eventsRes = await app.request("http://localhost/api/v1/users/mallory@remote.example/events");
+    expect(eventsRes.status).toBe(404);
+
+    const profileData = getSsrInitialData(db, "/@mallory@remote.example", null);
+    expect(profileData?.kind).toBe("profile");
+    if (!profileData || profileData.kind !== "profile") throw new Error("expected profile payload");
+    expect(profileData.profile).toBeNull();
+    expect(profileData.events).toEqual([]);
   });
 });

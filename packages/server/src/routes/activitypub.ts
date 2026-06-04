@@ -36,6 +36,7 @@ import {
 import { stripHtml } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
+import { isActivityTombstoned, isRemoteActorTombstoned, isRemoteEventTombstoned } from "../lib/federation-tombstones.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
@@ -500,6 +501,10 @@ export function activityPubRoutes(db: DB): Hono {
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
+    const activityId = parseActivityId(activity.id);
+    if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
+      return c.json({ ok: true }, 202);
+    }
 
     // Verify the incoming activity has a valid HTTP Signature
     // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
@@ -580,6 +585,10 @@ export function sharedInboxRoute(db: DB): Hono {
     const actorUri = parseInboxActorUri(activity);
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
+    }
+    const activityId = parseActivityId(activity.id);
+    if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
+      return c.json({ ok: true }, 202);
     }
 
     // Verify HTTP Signature
@@ -859,6 +868,10 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
     console.log(`  ⚠️  Rejecting ${activityType}: blocked actor ${effectiveActor}`);
     return;
   }
+  if (isRemoteActorTombstoned(db, effectiveActor)) {
+    console.log(`  ⚠️  Rejecting ${activityType}: tombstoned actor ${effectiveActor}`);
+    return;
+  }
   const actorFollowersUrl = (db
     .prepare("SELECT followers_url FROM remote_actors WHERE uri = ?")
     .get(effectiveActor) as { followers_url: string | null } | undefined)?.followers_url ?? null;
@@ -881,6 +894,10 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   const uri = normalizeRemoteEventUri(object.id);
   if (!uri) {
     console.log(`  ⚠️  Skipping ${activityType}: Event object.id is missing or not a non-empty string`);
+    return;
+  }
+  if (isRemoteEventTombstoned(db, uri)) {
+    console.log(`  ⚠️  Rejecting ${activityType}: tombstoned event ${uri}`);
     return;
   }
   const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
@@ -1030,6 +1047,10 @@ function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: strin
       : (rawObject as Record<string, unknown> | null)?.id as string | undefined;
 
   if (objectUri && actorUri) {
+    if (isRemoteEventTombstoned(db, objectUri)) {
+      console.log(`  ⚠️  Rejecting Delete: tombstoned event ${objectUri}`);
+      return;
+    }
     // Only mark canceled if the event belongs to the actor sending the Delete
     const existing = db.prepare(
       "SELECT actor_uri, slug, title, start_date, end_date, all_day, location_name, url FROM remote_events WHERE uri = ?"

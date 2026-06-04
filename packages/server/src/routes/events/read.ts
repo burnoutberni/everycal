@@ -12,6 +12,7 @@ import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
 import { getBaseUrl } from "../../lib/base-url.js";
 import { hasActiveFederationBlock } from "../../lib/federation-blocks.js";
+import { isRemoteEventTombstoned } from "../../lib/federation-tombstones.js";
 import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteReadabilityFilter, buildRemoteTagFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
@@ -476,6 +477,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     }
 
     const currentUser = c.get("user") as { id: string } | undefined;
+    if (isRemoteEventTombstoned(db, normalizedUri)) {
+      return c.json({ error: t(locale, "common.not_found") }, 404);
+    }
     const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
 
     const existing = db
@@ -515,6 +519,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const startDate = object.startTime ?? object.startDate;
       if (!title || !startDate || !object.id) {
         return c.json({ error: t(locale, "events.resolve_missing_required_fields") }, 400);
+      }
+      if (isRemoteEventTombstoned(db, typeof object.id === "string" ? object.id : null)) {
+        return c.json({ error: t(locale, "common.not_found") }, 404);
       }
 
       const attributedTo = object.attributedTo;
