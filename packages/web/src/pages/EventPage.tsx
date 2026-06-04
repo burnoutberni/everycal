@@ -131,7 +131,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   );
 
   useEffect(() => {
-    if (!effectiveId && (!effectiveUsername || !effectiveSlug)) {
+    if (!routeIdentifiers.id && (!routeIdentifiers.username || !routeIdentifiers.slug)) {
       setLoading(false);
       setError(t("noEventIdentifier"));
       return;
@@ -148,10 +148,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
     setError("");
 
     let promise: Promise<CalEvent>;
-    if (effectiveUsername && effectiveSlug) {
-      promise = eventsApi.getBySlug(effectiveUsername, effectiveSlug);
-    } else if (effectiveId) {
-      promise = eventsApi.get(effectiveId);
+    if (routeIdentifiers.username && routeIdentifiers.slug) {
+      promise = eventsApi.getBySlug(routeIdentifiers.username, routeIdentifiers.slug);
+    } else if (routeIdentifiers.id) {
+      promise = eventsApi.get(routeIdentifiers.id);
     } else {
       promise = Promise.reject(new Error("No event identifier"));
     }
@@ -178,7 +178,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [event, routeIdentifiers, effectiveId, effectiveUsername, effectiveSlug, user?.id, t]);
+  }, [i18n.language, routeIdentifiers]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {

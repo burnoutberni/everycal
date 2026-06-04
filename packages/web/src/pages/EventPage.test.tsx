@@ -176,4 +176,18 @@ describe("EventPage SSR event reuse", () => {
     });
     expect(await screen.findByRole("heading", { name: "Autumn Fest" })).toBeTruthy();
   });
+
+  it("fetches a slug route only once after updating event state", async () => {
+    const fetchedEvent = makeEvent({ id: "e2", slug: "autumn-fest", title: "Autumn Fest" });
+    mocks.location = "/@alice/autumn-fest";
+    vi.mocked(eventsApi.getBySlug).mockResolvedValue(fetchedEvent);
+
+    render(<EventPage />);
+
+    expect(await screen.findByRole("heading", { name: "Autumn Fest" })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(eventsApi.getBySlug).toHaveBeenCalledTimes(1);
+    });
+  });
 });
