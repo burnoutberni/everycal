@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ModerationDecisionActions } from "./ModerationDecisionActions";
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -64,5 +64,28 @@ describe("ModerationDecisionActions", () => {
     const headers = init.headers as Headers;
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.get("X-CSRF-Token")).toBe("test-csrf-token");
+  });
+
+  it("closes and resets the modal after a successful moderation request", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }, { status: 200 }));
+
+    render(<ModerationDecisionActions eventId="event-1" eventTitle="Flagged Event" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Moderate event" }));
+    fireEvent.change(screen.getByLabelText("Removal reason"), { target: { value: "spam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep event" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Keep event" })[1]);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Moderate event" }));
+
+    const decisionGroup = screen.getByRole("group", { name: "Moderation decision" });
+
+    expect((screen.getByLabelText("Removal reason") as HTMLTextAreaElement).value).toBe("");
+    expect(within(decisionGroup).getByRole("button", { name: "Remove event" }).className).toContain("btn-danger");
+    expect(within(decisionGroup).getByRole("button", { name: "Keep event" }).className).toContain("btn-ghost");
   });
 });

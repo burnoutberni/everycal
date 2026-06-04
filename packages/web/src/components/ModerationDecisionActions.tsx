@@ -23,12 +23,16 @@ export function ModerationDecisionActions({
   const [error, setError] = useState<string | null>(null);
   const buttonSizeClass = size === "md" ? "" : " btn-sm";
 
-  const closeModal = () => {
-    if (submitting) return;
+  const resetAndCloseModal = () => {
     setOpen(false);
     setReason("");
     setError(null);
     setDecision("hidden");
+  };
+
+  const closeModal = () => {
+    if (submitting) return;
+    resetAndCloseModal();
   };
 
   const submit = async (e: FormEvent) => {
@@ -47,7 +51,7 @@ export function ModerationDecisionActions({
         body: JSON.stringify({ state: decision, reason: trimmed }),
       });
       await onResolved?.(decision);
-      closeModal();
+      resetAndCloseModal();
     } catch (err) {
       setError(toErrorMessage(err, "Failed to moderate event"));
     } finally {
