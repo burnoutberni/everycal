@@ -124,8 +124,10 @@ describe("AdminPage admin fetch errors", () => {
   it("shows the server error with HTTP status when admin data refresh fails", async () => {
     render(<AdminPage />);
 
-    expect(await screen.findByRole("heading", { name: "Error" })).not.toBeNull();
-    expect(screen.getByText("common.forbidden (403)")).not.toBeNull();
+    const banner = await screen.findByRole("alert");
+    expect(banner).not.toBeNull();
+    expect(banner.textContent).toContain("common.forbidden (403)");
+    expect(screen.getByRole("heading", { name: "Admin Console" })).not.toBeNull();
   });
 
   it("falls back to a generic status error when no server error is provided", async () => {
@@ -143,8 +145,25 @@ describe("AdminPage admin fetch errors", () => {
 
     render(<AdminPage />);
 
-    expect(await screen.findByRole("heading", { name: "Error" })).not.toBeNull();
-    expect(screen.getByText("Request failed (401)")).not.toBeNull();
+    const banner = await screen.findByRole("alert");
+    expect(banner).not.toBeNull();
+    expect(banner.textContent).toContain("Request failed (401)");
+    expect(screen.getByRole("heading", { name: "Admin Console" })).not.toBeNull();
+  });
+
+  it("dismisses the error banner while keeping the admin console visible", async () => {
+    render(<AdminPage />);
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Admin Console" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+    expect(screen.getByRole("heading", { name: "Admin Console" })).not.toBeNull();
   });
 });
 

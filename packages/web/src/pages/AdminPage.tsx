@@ -443,7 +443,6 @@ export function AdminPage() {
 
   if (loading) return <div className='empty-state mt-3'><h2>Loading</h2><p>Checking admin access...</p></div>;
   if (!user?.isAdmin) return <div className='empty-state mt-3'><h2>Redirecting</h2><p>Admin access is required.</p></div>;
-  if (error) return <div className='empty-state mt-3'><h2>Error</h2><p>{error}</p></div>;
 
   return <div className='settings-layout mt-3'>
     <aside className='settings-sidebar'>
@@ -516,6 +515,12 @@ export function AdminPage() {
           </div>
         </div>
       </div>
+      {error ? (
+        <div className='admin-error-banner' role='alert'>
+          <p>{error}</p>
+          <button type='button' className='btn btn-ghost btn-sm' onClick={() => setError(null)} aria-label='Dismiss error'>Dismiss</button>
+        </div>
+      ) : null}
       {status ? <p className='text-sm' role='status'>{status}</p> : null}
       <section className='settings-section'>
         <div className='settings-card admin-overview-card'>
