@@ -5,93 +5,10 @@ import { useAuth } from '../hooks/useAuth';
 import { CalendarIcon, CheckCalendarIcon, FlagIcon, GlobeIcon, SettingsIcon, ShieldIcon, TimerIcon, UpdateIcon, UserIcon } from '../components/icons';
 import { ModerationDecisionActions } from '../components/ModerationDecisionActions';
 import { adminFetch } from '../lib/adminFetch';
+import type { AdminHealthResponse, Account, AccountsResponse, ModerationItem, FederationBlock, FederationActor, FederationDomain, FederationTombstone, AdminSetting, JobRun, AuditItem, ConfirmState, AdminSectionKey, AdminAuditResponse, AdminModerationResponse, AdminFederationBlocksResponse, AdminFederationActorsResponse, AdminFederationDomainsResponse, AdminFederationTombstonesResponse, AdminSettingsResponse, AdminJobRunsResponse, AdminScraperTriggerResponse } from './admin-types';
+import { AVAILABLE_SCRAPERS, formatAuditPayload } from './admin-types';
+import { AdminAccountsSection } from './AdminAccountsSection';
 import './SettingsPage.css';
-
-type AdminHealthResponse = {
-  uptimeSec: number;
-  schemaVersion: number;
-  expectedSchemaVersion: number;
-  accounts: number;
-  events: number;
-  openRegistrations: boolean;
-  openRegistrationsDb: boolean;
-  openRegistrationsEnvOverride: boolean;
-};
-type Account = { id: string; username: string; is_admin?: number; is_disabled?: number; is_locked_out?: number; account_type?: string; discoverable?: number; email_verified?: number; created_at?: string; is_bot?: number };
-type AccountsResponse = { items: Account[]; enabledAdminCount?: number };
-type ModerationItem = {
-  id: string;
-  slug?: string | null;
-  title: string;
-  description?: string | null;
-  start_at_utc?: string;
-  end_at_utc?: string;
-  event_timezone?: string | null;
-  all_day?: number;
-  location_name?: string | null;
-  location_address?: string | null;
-  url?: string | null;
-  visibility?: string;
-  canceled?: number;
-  moderation_state: string;
-  moderation_reason?: string | null;
-  moderated_at?: string | null;
-  account_id?: string;
-  created_by_account_id?: string | null;
-  owner_username?: string | null;
-  created_by_username?: string | null;
-  tags?: string | null;
-  created_at?: string;
-  updated_at?: string;
-};
-type FederationBlock = { id: string; block_type: 'actor' | 'domain'; actor_uri?: string | null; domain?: string | null; is_active?: number; created_at?: string };
-type FederationActor = { uri: string; preferred_username?: string | null; domain: string; fetch_status?: string | null; last_fetched_at?: string | null; next_retry_at?: string | null; last_error?: string | null };
-type FederationDomain = { domain: string; actor_count: number; error_count: number; gone_count: number; last_fetched_at?: string | null };
-type FederationTombstone = { id: string; object_type: string; object_id: string; reason?: string | null; created_at?: string; expires_at?: string | null };
-type AdminSetting = { key: string; label: string; description?: string; kind?: 'boolean' | 'string' | 'number' | 'json' | 'secret'; value: boolean | string | number | null; effectiveValue: boolean | string | number | null; envOverride: boolean | string | number | null; lockedByEnv: boolean; editable?: boolean; applyScope?: 'immediate' | 'next_worker_tick' | 'restart_required' };
-type JobRun = { id: string; job_type: string; status: string; payload_json?: string | null; result_json?: string | null; created_at?: string; started_at?: string | null; finished_at?: string | null };
-type AuditItem = { id: string; admin_account_id: string; action_type: string; target_type: string; target_id: string; payload_json: string; created_at: string };
-type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
-type AdminSectionKey = 'settings' | 'accounts' | 'events' | 'federation' | 'scrapers' | 'jobs' | 'audit';
-
-type AdminAuditResponse = { items: AuditItem[] };
-type AdminModerationResponse = { items: ModerationItem[] };
-type AdminFederationBlocksResponse = { items: FederationBlock[] };
-type AdminFederationActorsResponse = { items: FederationActor[] };
-type AdminFederationDomainsResponse = { items: FederationDomain[] };
-type AdminFederationTombstonesResponse = { items: FederationTombstone[] };
-type AdminSettingsResponse = { items: AdminSetting[] };
-type AdminJobRunsResponse = { items: JobRun[] };
-type AdminScraperTriggerResponse = { runId: string; status: string };
-type AdminRevokeAuthResponse = { revokedSessions: number; revokedApiKeys: number };
-
-type ScraperInfo = {
-  id: string;
-  name: string;
-  url: string;
-  description: string;
-};
-
-function formatAuditPayload(payload?: string | null) {
-  if (!payload?.trim()) return 'n/a';
-  try {
-    return JSON.stringify(JSON.parse(payload), null, 2);
-  } catch {
-    return payload;
-  }
-}
-
-const AVAILABLE_SCRAPERS: ScraperInfo[] = [
-  { id: 'all', name: 'All Scrapers', url: 'N/A', description: 'Run all configured scrapers in sequence' },
-  { id: 'flex-at', name: 'Flex Vienna', url: 'https://flex.at', description: 'Scrapes electronic, indie, and rock music concert listings' },
-  { id: 'critical-mass-vienna', name: 'Critical Mass Vienna', url: 'https://criticalmass.at', description: 'Scrapes monthly critical mass cycling event details' },
-  { id: 'radlobby-wien', name: 'Radlobby Wien', url: 'https://www.radlobby.at/wien', description: 'Scrapes community cycling events, workshops, and gatherings' },
-  { id: 'matznerviertel', name: 'Matznerviertel', url: 'https://matznerviertel.at', description: 'Scrapes neighbourhood initiatives, meetings, and cultural events' },
-  { id: 'space-and-place', name: 'space and place', url: 'https://www.spaceandplace.at', description: 'Scrapes urban art, walks, and collaborative public projects' },
-  { id: 'kirchberggasse', name: 'Kirchberggasse', url: 'https://kirchberggasse.at', description: 'Scrapes local gallery exhibition listings and street parties' },
-  { id: 'westbahnpark', name: 'Westbahnpark', url: 'https://westbahnpark.at', description: 'Scrapes green initiative meetings and park events' },
-  { id: 'geht-doch', name: 'Geht doch', url: 'https://geht-doch.wien', description: 'Scrapes local active mobility actions and meetings' },
-];
 
 export function AdminPage() {
   const { user, authStatus, loading } = useAuth();
@@ -584,155 +501,20 @@ export function AdminPage() {
         </div>
       </section>
 
-    <section id='accounts' ref={(el) => { sectionRefs.current.accounts = el; }} className='settings-section'>
-      <div className='settings-card'>
-      <h2 className='settings-section-title mb-1'>Accounts</h2>
-      <p className='text-sm text-muted mb-1'>Search users, disable compromised accounts, and restore access when resolved.</p>
-      <form className='flex gap-1 mb-1' onSubmit={(e: FormEvent) => { e.preventDefault(); refreshAccounts().catch((err) => setError(toErrorMessage(err, 'Failed to refresh accounts'))); }}>
-        <input aria-label='Search accounts by username' placeholder='Search username' value={accountQuery} onChange={(e) => setAccountQuery(e.target.value)} />
-        <button className='btn btn-primary' type='submit'>Search</button>
-      </form>
-      <ul className='admin-record-list admin-record-list--accounts' role='list' aria-label='Accounts'>
-        {accounts.map((a) => {
-          const disableBlockedReason = a.id === user?.id
-            ? 'You cannot disable your own admin account.'
-            : (a.is_admin && !a.is_disabled && enabledAdminCount <= 1)
-                ? 'You cannot disable the last enabled admin account.'
-                : null;
-          return (
-            <li key={a.id} className='admin-record-row'>
-              <div className='admin-record-main'>
-                <p className='admin-record-title'>
-                  @{a.username}
-                  {a.is_admin ? <span className='admin-record-pill is-accent'>Admin</span> : null}
-                </p>
-                <p className='admin-record-subtitle'>{a.id}</p>
-                {disableBlockedReason ? <p className='text-sm text-muted'>{disableBlockedReason}</p> : null}
-              </div>
-              <div className='admin-record-meta' aria-label='Account attributes'>
-                <span className={`admin-record-pill ${a.is_disabled ? 'is-danger' : 'is-success'}`}>{a.is_disabled ? 'Disabled' : 'Active'}</span>
-                {a.is_locked_out ? <span className='admin-record-pill is-danger'>Locked out</span> : null}
-              </div>
-              <div className='admin-record-actions'>
-                <button
-                  className='btn btn-ghost btn-sm'
-                  disabled={pendingActionKey === `revoke-auth:${a.id}`}
-                  onClick={() => {
-                    openReasonModal({
-                      title: `Revoke auth for @${a.username}`,
-                      description: 'This revokes all sessions and API keys for the account.',
-                      reasonLabel: 'Revocation reason',
-                      actionLabel: 'Revoke auth',
-                      actionClassName: 'btn-danger',
-                      requireReason: true,
-                      onConfirm: async (reason) => {
-                        setPendingActionKey(`revoke-auth:${a.id}`);
-                        try {
-                          const data = await adminFetch<AdminRevokeAuthResponse>(`/api/v1/admin/security/accounts/${encodeURIComponent(a.id)}/revoke-auth`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ reason }),
-                          });
-                          setStatus(`Revoked auth for @${a.username} (sessions: ${data.revokedSessions}, api keys: ${data.revokedApiKeys})`);
-                        } finally {
-                          setPendingActionKey(null);
-                        }
-                        await refreshAudit();
-                      },
-                    });
-                  }}
-                >Revoke auth</button>
-                {a.is_locked_out ? (
-                  <button
-                    className='btn btn-ghost btn-sm'
-                    disabled={pendingActionKey === `reset-lockout:${a.username}`}
-                    onClick={() => {
-                      openReasonModal({
-                        title: `Reset lockout for @${a.username}`,
-                        description: 'This clears failed login attempts and lock timers for this username.',
-                        reasonLabel: 'Reset reason',
-                        actionLabel: 'Reset lockout',
-                        requireReason: true,
-                        onConfirm: async (reason) => {
-                          setPendingActionKey(`reset-lockout:${a.username}`);
-                          try {
-                            await adminFetch(`/api/v1/admin/security/login-lockouts/${encodeURIComponent(a.username)}/reset`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ reason }),
-                            });
-                            setStatus(`Reset lockout state for @${a.username}`);
-                          } finally {
-                            setPendingActionKey(null);
-                          }
-                          await refreshAccounts();
-                          await refreshAudit();
-                        },
-                      });
-                    }}
-                  >Reset lockout</button>
-                ) : null}
-                {a.is_disabled ? (
-                  <button
-                    className='btn btn-ghost btn-sm'
-                    disabled={pendingActionKey === `enable:${a.id}`}
-                    onClick={() => {
-                      openReasonModal({
-                        title: `Enable @${a.username}`,
-                        description: 'This restores account access for new sessions.',
-                        reasonLabel: 'Enable reason',
-                        actionLabel: 'Enable account',
-                        requireReason: true,
-                        onConfirm: async (reason) => {
-                          setPendingActionKey(`enable:${a.id}`);
-                          try {
-                            await adminFetch(`/api/v1/admin/accounts/${a.id}/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
-                          } finally {
-                            setPendingActionKey(null);
-                          }
-                          setStatus(`Enabled @${a.username}`);
-                          await refreshAccounts();
-                          await refreshAudit();
-                        },
-                      });
-                    }}
-                  >Enable</button>
-                ) : (
-                  <button
-                    className='btn btn-danger btn-sm'
-                    disabled={pendingActionKey === `disable:${a.id}` || !!disableBlockedReason}
-                    onClick={() => {
-                      if (disableBlockedReason) return;
-                      openReasonModal({
-                        title: `Disable @${a.username}`,
-                        description: 'This revokes active sessions and API keys, and blocks new authentication.',
-                        reasonLabel: 'Disable reason',
-                        actionLabel: 'Disable account',
-                        actionClassName: 'btn-danger',
-                        requireReason: true,
-                        onConfirm: async (reason) => {
-                          setPendingActionKey(`disable:${a.id}`);
-                          try {
-                            await adminFetch(`/api/v1/admin/accounts/${a.id}/disable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
-                          } finally {
-                            setPendingActionKey(null);
-                          }
-                          setStatus(`Disabled @${a.username}`);
-                          await refreshAccounts();
-                          await refreshAudit();
-                        },
-                      });
-                    }}
-                  >Disable</button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      {!accounts.length ? <p className='text-sm text-muted'>No accounts found for this query.</p> : null}
-      </div>
-    </section>
+    <AdminAccountsSection
+      accounts={accounts}
+      enabledAdminCount={enabledAdminCount}
+      accountQuery={accountQuery}
+      setAccountQuery={setAccountQuery}
+      refreshAccounts={refreshAccounts}
+      refreshAudit={refreshAudit}
+      user={user}
+      openReasonModal={openReasonModal}
+      pendingActionKey={pendingActionKey}
+      setPendingActionKey={setPendingActionKey}
+      setStatus={setStatus}
+      setError={setError}
+    />
 
     <section id='events' ref={(el) => { sectionRefs.current.events = el; }} className='settings-section'>
       <div className='settings-card'>
