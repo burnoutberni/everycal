@@ -168,15 +168,15 @@ app.use("*", authMiddleware(db));
 // CSRF protection — double-submit cookie for all cookie-auth state-changing API routes
 // (admin routes already have requireAdminCsrf; this covers the rest)
 const csrfOrigins = getAllowedAdminOrigins(db);
-app.use("/api/v1/auth", requireCsrf(csrfOrigins));
-app.use("/api/v1/events", requireCsrf(csrfOrigins));
-app.use("/api/v1/private-feeds", requireCsrf(csrfOrigins));
-app.use("/api/v1/identities", requireCsrf(csrfOrigins));
-app.use("/api/v1/users", requireCsrf(csrfOrigins));
-app.use("/api/v1/uploads", requireCsrf(csrfOrigins));
-app.use("/api/v1/locations", requireCsrf(csrfOrigins));
-app.use("/api/v1/images", requireCsrf(csrfOrigins));
-app.use("/api/v1/federation", requireCsrf(csrfOrigins));
+app.use("/api/v1/auth/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/events/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/private-feeds/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/identities/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/users/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/uploads/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/locations/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/images/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/federation/*", requireCsrf(csrfOrigins));
 
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));

@@ -13,7 +13,7 @@ function createApp() {
   const db = initDatabase(":memory:");
   const app = new Hono();
   app.use("*", authMiddleware(db));
-  app.use("/api/v1/auth", requireCsrf(getAllowedAdminOrigins(db)));
+  app.use("/api/v1/auth/*", requireCsrf(getAllowedAdminOrigins(db)));
   app.get("/api/v1/bootstrap", (c) => {
     maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
     return c.json(resolveBootstrap(c, db));
