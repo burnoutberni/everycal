@@ -126,6 +126,7 @@ export function ReasonModal({
             onChange={(e) => onReasonChange(e.target.value)}
             placeholder={reasonPlaceholder}
             rows={5}
+            maxLength={2000}
             required
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : descriptionId}

@@ -868,6 +868,7 @@ export function AdminPage() {
               placeholder='Required reason for audit trail'
               value={proactiveReason}
               onChange={(e) => setProactiveReason(e.target.value)}
+              maxLength={2000}
             />
             <button className='btn btn-danger' type='submit' disabled={pendingActionKey === `proactive:${proactiveType}:${proactiveTarget.trim()}`}>Apply Suppression</button>
           </div>
@@ -1450,6 +1451,7 @@ export function AdminPage() {
               placeholder='Required reason for audit trail'
               value={confirmState.reason}
               onChange={(e) => setConfirmState((prev) => ({ ...prev, reason: e.target.value }))}
+              maxLength={2000}
             />
             <div className='flex justify-end gap-1 mt-2'>
               <button type='button' className='btn btn-ghost' onClick={() => setConfirmState((prev) => ({ ...prev, open: false, loading: false }))}>Cancel</button>

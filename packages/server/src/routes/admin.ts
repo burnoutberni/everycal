@@ -36,6 +36,13 @@ function readOpenRegistrationsState(db: DB) {
   return { effective, envOverride, dbValue };
 }
 
+const REASON_MAX_LENGTH = 2000;
+
+function validateReasonLength(reason: string): string | null {
+  if (reason.length > REASON_MAX_LENGTH) return `reason_exceeds_${REASON_MAX_LENGTH}_characters`;
+  return null;
+}
+
 function audit(db: DB, adminId: string, action: string, targetType: string, targetId: string, payload: Record<string, unknown> = {}) {
   db.prepare("INSERT INTO admin_audit_log (id, admin_account_id, action_type, target_type, target_id, payload_json) VALUES (?, ?, ?, ?, ?, ?)").run(
     nanoid(), adminId, action, targetType, targetId, JSON.stringify(payload)
@@ -81,6 +88,8 @@ export function adminRoutes(db: DB) {
     if (def.kind === 'secret') return c.json({ error: 'secret_setting_persistence_disabled' }, 403);
     const body = await c.req.json<{ value?: unknown; reason?: string }>().catch(() => ({} as { value?: unknown; reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     let nextValue: boolean | string | number;
     if (def.kind === 'boolean') {
       if (typeof body.value !== 'boolean') return c.json({ error: 'invalid_value' }, 400);
@@ -127,6 +136,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const target = db.prepare('SELECT id, is_admin, is_disabled FROM accounts WHERE id = ?').get(id) as { id: string; is_admin: number; is_disabled: number } | undefined;
     if (!target) return c.json({ error: 'account_not_found' }, 404);
     if (target.id === admin.id) return c.json({ error: 'cannot_disable_current_admin' }, 409);
@@ -147,6 +158,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const result = db.prepare('UPDATE accounts SET is_disabled = 0 WHERE id = ?').run(id);
     if (result.changes === 0) return c.json({ error: 'account_not_found' }, 404);
     audit(db, admin.id, 'account.enable', 'account', id, { reason: body.reason.trim() });
@@ -159,6 +172,8 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{state:string; reason?:string}>();
     if (!moderationStates.has(body.state)) return c.json({ error: 'invalid_moderation_state' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const event = db.prepare('SELECT id FROM events WHERE id = ?').get(id) as { id: string } | undefined;
     if (!event) return c.json({ error: 'event_not_found' }, 404);
     db.prepare('UPDATE events SET moderation_state = ?, moderation_reason = ?, moderated_at = datetime(\'now\') WHERE id = ?').run(body.state, body.reason || null, id);
@@ -200,6 +215,8 @@ export function adminRoutes(db: DB) {
     const targetId = body.blockType === 'actor' ? actorUri : domain;
     if (!targetId) return c.json({ error: 'block_target_required' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const reason = body.reason.trim();
     const id = nanoid();
     db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(
@@ -259,6 +276,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const block = db.prepare('SELECT id FROM federation_blocks WHERE id = ?').get(id) as { id: string } | undefined;
     if (!block) return c.json({ error: 'federation_block_not_found' }, 404);
     db.prepare('UPDATE federation_blocks SET is_active = 0 WHERE id = ?').run(id);
@@ -286,6 +305,8 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{ objectType?: string; objectId?: string; reason?: string; expiresAt?: string }>().catch(() => ({} as { objectType?: string; objectId?: string; reason?: string; expiresAt?: string }));
     if (!body.objectType?.trim() || !body.objectId?.trim()) return c.json({ error: 'object_required' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const objectType = body.objectType.trim() as string;
     if (!(TOMBSTONE_OBJECT_TYPES as readonly string[]).includes(objectType)) return c.json({ error: 'invalid_object_type' }, 400);
     const expiresAtRaw = body.expiresAt?.trim() || null;
@@ -307,6 +328,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const row = db.prepare('SELECT object_type, object_id FROM federation_tombstones WHERE id = ?').get(id) as { object_type: string; object_id: string } | undefined;
     if (!row) return c.json({ error: 'federation_tombstone_not_found' }, 404);
     db.prepare('DELETE FROM federation_tombstones WHERE id = ?').run(id);
@@ -334,6 +357,8 @@ export function adminRoutes(db: DB) {
     const username = c.req.param('username');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const lockout = db.prepare('SELECT username FROM login_attempts WHERE username = ?').get(username) as { username: string } | undefined;
     if (!lockout) return c.json({ error: 'login_lockout_not_found' }, 404);
     db.prepare('DELETE FROM login_attempts WHERE username = ?').run(username);
@@ -346,6 +371,8 @@ export function adminRoutes(db: DB) {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const reasonLen = validateReasonLength(body.reason.trim());
+    if (reasonLen) return c.json({ error: reasonLen }, 400);
     const account = db.prepare('SELECT id FROM accounts WHERE id = ?').get(id) as { id: string } | undefined;
     if (!account) return c.json({ error: 'account_not_found' }, 404);
     const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions WHERE account_id = ?').get(id) as { count: number };
