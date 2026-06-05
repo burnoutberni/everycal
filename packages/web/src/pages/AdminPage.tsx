@@ -451,6 +451,7 @@ export function AdminPage() {
   useEffect(() => {
     if (!user?.isAdmin) return;
     const interval = window.setInterval(() => {
+      if (document.hidden) return;
       setRefreshCountdownSec((prev) => {
         if (prev <= 1) {
           refreshAllData().catch(() => {});
