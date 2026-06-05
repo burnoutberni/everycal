@@ -15,6 +15,7 @@ import { getEffectiveSetting } from "./runtime-settings.js";
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 const DELETED_REMOTE_USERNAME = "deleted";
+const AP_MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -323,7 +324,11 @@ export async function fetchAP(url: string): Promise<unknown> {
   if (!res.ok) {
     throw new FederationFetchError(url, res.status, res.statusText);
   }
-  return res.json();
+  const text = await res.text();
+  if (text.length > AP_MAX_BODY_BYTES) {
+    throw new FederationFetchError(url, 413, "Response body too large");
+  }
+  return JSON.parse(text);
 }
 
 /**
