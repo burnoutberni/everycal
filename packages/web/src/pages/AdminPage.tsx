@@ -504,6 +504,7 @@ export function AdminPage() {
       </section>
 
     <AdminAccountsSection
+      sectionRef={(el) => { sectionRefs.current.accounts = el; }}
       accounts={accounts}
       enabledAdminCount={enabledAdminCount}
       accountQuery={accountQuery}

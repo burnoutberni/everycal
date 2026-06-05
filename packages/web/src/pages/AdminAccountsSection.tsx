@@ -4,6 +4,7 @@ import { adminFetch } from '../lib/adminFetch';
 import type { Account, ConfirmState, AdminRevokeAuthResponse } from './admin-types';
 
 type AdminAccountsSectionProps = {
+  sectionRef?: (element: HTMLElement | null) => void;
   accounts: Account[];
   enabledAdminCount: number;
   accountQuery: string;
@@ -19,6 +20,7 @@ type AdminAccountsSectionProps = {
 };
 
 export function AdminAccountsSection({
+  sectionRef,
   accounts,
   enabledAdminCount,
   accountQuery,
@@ -33,7 +35,7 @@ export function AdminAccountsSection({
   setError,
 }: AdminAccountsSectionProps) {
   return (
-    <section id='accounts' className='settings-section'>
+    <section id='accounts' ref={sectionRef} className='settings-section'>
       <div className='settings-card'>
       <h2 className='settings-section-title mb-1'>Accounts</h2>
       <p className='text-sm text-muted mb-1'>Search users, disable compromised accounts, and restore access when resolved.</p>
