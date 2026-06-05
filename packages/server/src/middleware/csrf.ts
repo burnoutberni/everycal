@@ -56,10 +56,13 @@ export function requireCsrf(allowedOrigins: Set<string>) {
       return undefined;
     }
 
-    // No session cookie → not an authenticated browser session
+    // Only enforce CSRF for a valid cookie-auth session. Stale or invalid
+    // session cookies should behave as unauthenticated requests so users can
+    // still reach login and other auth entry points.
     const cookieHeader = c.req.header("cookie") || "";
     const sessionToken = readCookie(cookieHeader, "everycal_session");
-    if (!sessionToken) {
+    const cookieSessionExpiresAt = c.get("cookieSessionExpiresAt");
+    if (!sessionToken || !cookieSessionExpiresAt) {
       await next();
       return undefined;
     }

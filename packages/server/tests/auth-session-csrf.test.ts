@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { initDatabase } from "../src/db.js";
 import { resolveBootstrap } from "../src/lib/bootstrap.js";
-import { authMiddleware, createSession } from "../src/middleware/auth.js";
+import { authMiddleware, createSession, hashPassword } from "../src/middleware/auth.js";
+import { getAllowedAdminOrigins } from "../src/middleware/admin-origins.js";
+import { requireCsrf } from "../src/middleware/csrf.js";
 import { adminRoutes } from "../src/routes/admin.js";
 import { authRoutes } from "../src/routes/auth.js";
 import { maybeSetMissingCsrfCookie } from "../src/routes/auth/session-cookies.js";
@@ -11,6 +13,7 @@ function createApp() {
   const db = initDatabase(":memory:");
   const app = new Hono();
   app.use("*", authMiddleware(db));
+  app.use("/api/v1/auth", requireCsrf(getAllowedAdminOrigins(db)));
   app.get("/api/v1/bootstrap", (c) => {
     maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
     return c.json(resolveBootstrap(c, db));
@@ -81,5 +84,24 @@ describe("legacy session CSRF minting", () => {
 
     expect(res.status).toBe(200);
     expect(extractCsrfCookie(res.headers.get("set-cookie"))).toBeTruthy();
+  });
+
+  it("allows login with a stale session cookie and no CSRF token", async () => {
+    const { app, db } = createApp();
+    db.prepare(
+      "INSERT INTO accounts (id, username, password_hash, email_verified, is_admin) VALUES (?, ?, ?, 1, 0)"
+    ).run("a1", "admin", hashPassword("password123"));
+
+    const res = await app.request("http://localhost:3000/api/v1/auth/login", {
+      method: "POST",
+      headers: {
+        cookie: "everycal_session=stale-session",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ username: "admin", password: "password123" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toContain("everycal_session=");
   });
 });

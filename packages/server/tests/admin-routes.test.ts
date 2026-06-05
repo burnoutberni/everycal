@@ -57,7 +57,11 @@ describe('admin routes', () => {
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
 
     const app = new Hono();
-    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.use('*', async (c, next) => {
+      c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true });
+      c.set('cookieSessionExpiresAt', '2099-01-01 00:00:00');
+      await next();
+    });
     app.route('/api/v1/admin', adminRoutes(db));
 
     const missingToken = await app.request('/api/v1/admin/federation/block', {
@@ -116,7 +120,11 @@ describe('admin routes', () => {
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
 
     const app = new Hono();
-    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.use('*', async (c, next) => {
+      c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true });
+      c.set('cookieSessionExpiresAt', '2099-01-01 00:00:00');
+      await next();
+    });
     app.route('/api/v1/admin', adminRoutes(db));
 
     const res = await app.request('/api/v1/admin/federation/block', {

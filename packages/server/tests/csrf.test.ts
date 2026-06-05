@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import { requireCsrf } from "../src/middleware/csrf.js";
 
 const APP_ORIGIN = "http://localhost:3000";
@@ -8,6 +9,17 @@ const EVIL_ORIGIN = "http://evil.example.com";
 
 function createApp(allowedOrigins: Set<string> = new Set([APP_ORIGIN, DEV_ORIGIN])) {
   const app = new Hono();
+  app.use(
+    "*",
+    createMiddleware(async (c, next) => {
+      const cookieHeader = c.req.header("cookie") || "";
+      c.set(
+        "cookieSessionExpiresAt",
+        cookieHeader.includes("everycal_session=valid-session") ? "2099-01-01 00:00:00" : null
+      );
+      await next();
+    })
+  );
   app.use("*", requireCsrf(allowedOrigins));
   app.post("/mutate", (c) => c.json({ ok: true }));
   app.put("/mutate", (c) => c.json({ ok: true }));
@@ -93,6 +105,17 @@ describe("requireCsrf middleware", () => {
     expect(res.status).toBe(200);
   });
 
+  it("allows POST with a stale session cookie and no CSRF token", async () => {
+    const app = createApp();
+    const res = await app.request("http://localhost:3000/mutate", {
+      method: "POST",
+      headers: {
+        cookie: sessionCookie("stale-session"),
+      },
+    });
+    expect(res.status).toBe(200);
+  });
+
   // --- Origin configuration ---
 
   it("rejects when allowed origins set is empty", async () => {
@@ -100,7 +123,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
@@ -117,7 +140,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: EVIL_ORIGIN,
       },
@@ -132,7 +155,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         referer: `${EVIL_ORIGIN}/path`,
       },
@@ -147,7 +170,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
@@ -160,7 +183,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         referer: `${APP_ORIGIN}/events/123`,
       },
@@ -173,7 +196,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
       },
     });
@@ -187,7 +210,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         origin: APP_ORIGIN,
       },
     });
@@ -201,7 +224,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: sessionCookie("sess"),
+        cookie: sessionCookie("valid-session"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
@@ -216,7 +239,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "token-A"),
+        cookie: fullCookie("valid-session", "token-A"),
         "x-csrf-token": "token-B",
         origin: APP_ORIGIN,
       },
@@ -231,7 +254,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "POST",
       headers: {
-        cookie: fullCookie("sess", "csrf-ok-123"),
+        cookie: fullCookie("valid-session", "csrf-ok-123"),
         "x-csrf-token": "csrf-ok-123",
         origin: APP_ORIGIN,
       },
@@ -246,7 +269,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "PUT",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
@@ -259,7 +282,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "PATCH",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
@@ -272,7 +295,7 @@ describe("requireCsrf middleware", () => {
     const res = await app.request("http://localhost:3000/mutate", {
       method: "DELETE",
       headers: {
-        cookie: fullCookie("sess", "csrf123"),
+        cookie: fullCookie("valid-session", "csrf123"),
         "x-csrf-token": "csrf123",
         origin: APP_ORIGIN,
       },
