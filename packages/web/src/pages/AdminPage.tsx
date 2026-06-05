@@ -996,7 +996,7 @@ export function AdminPage() {
           <input placeholder='Filter known domains' value={domainQuery} onChange={(e) => setDomainQuery(e.target.value)} />
         </form>
         <ul className='admin-record-list' role='list' aria-label='Federation domains'>
-          {filteredDomains.slice(0, 50).map((domain) => {
+          {filteredDomains.map((domain) => {
             const activeBlock = federationBlocks.find((b) => b.block_type === 'domain' && b.domain === domain.domain && b.is_active);
             return (
               <li key={domain.domain} className='admin-record-row'>
@@ -1100,7 +1100,7 @@ export function AdminPage() {
           <button className='btn btn-primary' type='submit'>Filter</button>
         </form>
         <ul className='admin-record-list' role='list' aria-label='Remote actor diagnostics'>
-          {federationActors.slice(0, 50).map((actor) => {
+          {federationActors.map((actor) => {
             const activeBlock = federationBlocks.find((b) => b.block_type === 'actor' && b.actor_uri === actor.uri && b.is_active);
             return (
               <li key={actor.uri} className='admin-record-row'>
