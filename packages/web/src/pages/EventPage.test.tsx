@@ -7,6 +7,11 @@ const mocks = vi.hoisted(() => ({
   location: "/@alice/summer-fest",
   navigate: vi.fn(),
   pageContext: undefined as { data?: { event?: unknown } } | undefined,
+  auth: {
+    user: null as { id: string; username: string; isAdmin?: boolean } | null,
+    authStatus: "anonymous" as "unknown" | "authenticated" | "anonymous",
+    loading: false,
+  },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -24,7 +29,7 @@ vi.mock("wouter", () => ({
 }));
 
 vi.mock("../hooks/useAuth", () => ({
-  useAuth: () => ({ user: null }),
+  useAuth: () => mocks.auth,
 }));
 
 vi.mock("../hooks/useHasAdditionalIdentities", () => ({
@@ -133,6 +138,9 @@ describe("EventPage SSR event reuse", () => {
     vi.clearAllMocks();
     mocks.location = "/@alice/summer-fest";
     mocks.pageContext = undefined;
+    mocks.auth.user = null;
+    mocks.auth.authStatus = "anonymous";
+    mocks.auth.loading = false;
   });
 
   it("reuses an SSR event for a matching slug route without refetching or flashing loading", async () => {
@@ -188,6 +196,31 @@ describe("EventPage SSR event reuse", () => {
 
     await waitFor(() => {
       expect(eventsApi.getBySlug).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("refetches auth-sensitive event data when auth resolves after mount", async () => {
+    const anonymousEvent = makeEvent({ moderationState: "flagged", flaggerNote: null });
+    const adminEvent = makeEvent({ moderationState: "flagged", flaggerNote: "Needs review" });
+    vi.mocked(eventsApi.getBySlug)
+      .mockResolvedValueOnce(anonymousEvent)
+      .mockResolvedValueOnce(adminEvent);
+
+    const { rerender } = render(<EventPage />);
+
+    expect(await screen.findByRole("heading", { name: "Summer Fest" })).toBeTruthy();
+    await waitFor(() => {
+      expect(eventsApi.getBySlug).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByText("Needs review")).toBeNull();
+
+    mocks.auth.authStatus = "authenticated";
+    mocks.auth.user = { id: "admin-1", username: "admin", isAdmin: true };
+    rerender(<EventPage />);
+
+    expect(await screen.findByText("Needs review")).toBeTruthy();
+    await waitFor(() => {
+      expect(eventsApi.getBySlug).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -34,7 +34,7 @@ function eventMatchesRoute(event: CalEvent | null | undefined, identifiers: Even
 
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
-  const { user } = useAuth();
+  const { user, authStatus } = useAuth();
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [location, navigate] = useLocation();
@@ -67,6 +67,10 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const routeIdentifiers = useMemo(
     () => ({ id: effectiveId, username: effectiveUsername, slug: effectiveSlug }),
     [effectiveId, effectiveUsername, effectiveSlug]
+  );
+  const viewerEventContextKey = useMemo(
+    () => `${authStatus}:${user?.id ?? "anonymous"}:${user?.isAdmin ? "admin" : "standard"}`,
+    [authStatus, user?.id, user?.isAdmin]
   );
 
   const initialEvent = useMemo(() => {
@@ -179,7 +183,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [i18n.language, routeIdentifiers]);
+  }, [i18n.language, routeIdentifiers, viewerEventContextKey]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
