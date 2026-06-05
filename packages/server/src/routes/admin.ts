@@ -15,6 +15,18 @@ import {
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations.js';
 import { TOMBSTONE_OBJECT_TYPES } from '../lib/federation-tombstones.js';
 
+const VALID_SCRAPER_IDS = new Set([
+  'all',
+  'flex-at',
+  'critical-mass-vienna',
+  'radlobby-wien',
+  'matznerviertel',
+  'space-and-place',
+  'kirchberggasse',
+  'westbahnpark',
+  'geht-doch',
+]);
+
 function readOpenRegistrationsState(db: DB) {
   const dbValue = readAdminSetting<boolean>(db, OPEN_REGISTRATIONS_SETTING_KEY);
   const envRaw = process.env.OPEN_REGISTRATIONS;
@@ -351,6 +363,9 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{scraper?:string; dryRun?:boolean}>();
     const requestedScraper = body.scraper?.trim() || null;
     const scraper = requestedScraper === 'all' ? null : requestedScraper;
+    if (scraper !== null && !VALID_SCRAPER_IDS.has(scraper)) {
+      return c.json({ error: 'invalid_scraper_id', valid: [...VALID_SCRAPER_IDS] }, 400);
+    }
     const runId = nanoid();
     db.prepare("INSERT INTO admin_job_runs (id, job_type, status, payload_json, created_by_account_id, created_at) VALUES (?, 'scraper', 'queued', ?, ?, datetime('now'))")
       .run(runId, JSON.stringify({ scraper, dryRun: !!body.dryRun }), admin.id);
