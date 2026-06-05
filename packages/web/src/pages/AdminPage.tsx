@@ -8,6 +8,7 @@ import { adminFetch } from '../lib/adminFetch';
 import type { AdminHealthResponse, Account, AccountsResponse, ModerationItem, FederationBlock, FederationActor, FederationDomain, FederationTombstone, AdminSetting, JobRun, AuditItem, ConfirmState, AdminSectionKey, AdminAuditResponse, AdminModerationResponse, AdminFederationBlocksResponse, AdminFederationActorsResponse, AdminFederationDomainsResponse, AdminFederationTombstonesResponse, AdminSettingsResponse, AdminJobRunsResponse, AdminScraperTriggerResponse } from './admin-types';
 import { AVAILABLE_SCRAPERS, formatAuditPayload } from './admin-types';
 import { AdminAccountsSection } from './AdminAccountsSection';
+import { ReasonModal } from '../components/ReasonModal';
 import './SharedLayout.css';
 import './AdminPage.css';
 
@@ -1240,36 +1241,22 @@ export function AdminPage() {
     </section>
     </div>
     {confirmState.open ? (
-      <div className='modal-overlay' role='dialog' aria-modal='true' aria-labelledby='admin-confirm-title' onClick={(e) => {
-        if (e.target === e.currentTarget) setConfirmState((prev) => ({ ...prev, open: false, loading: false }));
-      }}>
-        <div className='modal-card'>
-          <div className='modal-header'>
-            <h2 id='admin-confirm-title' style={{ fontSize: '1rem', fontWeight: 600 }}>{confirmState.title}</h2>
-            <button type='button' className='btn btn-ghost btn-sm' onClick={() => setConfirmState((prev) => ({ ...prev, open: false, loading: false }))}>Close</button>
-          </div>
-          <div className='modal-body'>
-            <p className='text-sm text-muted'>{confirmState.description}</p>
-            <label className='settings-label' htmlFor='admin-action-reason'>{confirmState.reasonLabel}</label>
-            <textarea
-              id='admin-action-reason'
-              placeholder='Required reason for audit trail'
-              value={confirmState.reason}
-              onChange={(e) => setConfirmState((prev) => ({ ...prev, reason: e.target.value }))}
-              maxLength={2000}
-            />
-            <div className='flex justify-end gap-1 mt-2'>
-              <button type='button' className='btn btn-ghost' onClick={() => setConfirmState((prev) => ({ ...prev, open: false, loading: false }))}>Cancel</button>
-              <button
-                type='button'
-                className={`btn ${confirmState.actionClassName || 'btn-primary'}`}
-                disabled={!!confirmState.loading}
-                onClick={() => submitReasonModal().catch((e) => setError(toErrorMessage(e, 'Failed to submit reason')))}
-              >{confirmState.loading ? 'Working…' : confirmState.actionLabel}</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ReasonModal
+        open
+        title={confirmState.title}
+        description={confirmState.description}
+        reasonLabel={confirmState.reasonLabel}
+        reasonValue={confirmState.reason}
+        reasonPlaceholder='Required reason for audit trail'
+        submitLabel={confirmState.loading ? 'Working...' : confirmState.actionLabel}
+        cancelLabel='Cancel'
+        closeLabel='Close'
+        error={null}
+        submitting={!!confirmState.loading}
+        onReasonChange={(value) => setConfirmState((prev) => ({ ...prev, reason: value }))}
+        onClose={() => setConfirmState((prev) => ({ ...prev, open: false, loading: false }))}
+        onSubmit={(e) => { e.preventDefault(); submitReasonModal().catch((err) => setError(toErrorMessage(err, 'Failed to submit reason'))); }}
+      />
     ) : null}
   </div>;
 }
