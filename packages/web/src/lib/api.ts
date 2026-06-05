@@ -6,6 +6,7 @@
  */
 
 import i18n from "i18next";
+import { getCsrfToken, shouldAttachCsrf } from "./csrf";
 
 const API_PATH = "/api/v1";
 
@@ -88,17 +89,6 @@ export function onUnauthorized(listener: () => void): () => void {
 
 export function setApiKey(key: string | null) {
   apiKey = key;
-}
-
-function getCsrfToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|;\s*)everycal_csrf=([^;]+)/);
-  return match?.[1] || null;
-}
-
-function shouldAttachCsrf(method?: string): boolean {
-  const m = (method || "GET").toUpperCase();
-  return m !== "GET" && m !== "HEAD" && m !== "OPTIONS";
 }
 
 async function request<T>(

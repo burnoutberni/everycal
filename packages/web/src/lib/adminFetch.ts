@@ -1,12 +1,4 @@
-function getCsrfToken(): string | null {
-  const csrfMatch = document.cookie.match(/(?:^|;\s*)everycal_csrf=([^;]+)/);
-  return csrfMatch?.[1] || null;
-}
-
-function shouldAttachCsrf(method?: string): boolean {
-  const normalizedMethod = (method || "GET").toUpperCase();
-  return normalizedMethod !== "GET" && normalizedMethod !== "HEAD" && normalizedMethod !== "OPTIONS";
-}
+import { getCsrfToken, shouldAttachCsrf } from './csrf';
 
 async function parseJsonBody<T = any>(res: Response): Promise<T | undefined> {
   if (res.status === 204) return undefined;
