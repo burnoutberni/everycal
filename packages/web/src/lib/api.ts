@@ -392,6 +392,7 @@ type CalEventBase = {
   canceled?: boolean;
   moderationState?: "flagged" | "visible" | "hidden";
   moderationReason?: string | null;
+  flaggerNote?: string | null;
   rsvpStatus?: "going" | "maybe" | null;
   reposted?: boolean;
   repostedBy?: { username: string; displayName: string | null };

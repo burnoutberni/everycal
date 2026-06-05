@@ -82,6 +82,7 @@ export function createEventRouteContext(db: DB) {
       const adminRow = db.prepare("SELECT is_admin FROM accounts WHERE id = ?").get(currentUser.id) as { is_admin?: number } | undefined;
       if (adminRow?.is_admin) {
         event.moderationState = "flagged";
+        event.flaggerNote = (row.flagger_note as string | null) || null;
         event.moderationReason = (row.moderation_reason as string | null) || null;
       }
     }

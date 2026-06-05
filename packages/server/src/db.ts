@@ -101,6 +101,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "updated_at",
     "moderation_state",
     "moderation_reason",
+    "flagger_note",
     "moderated_at",
   ],
   event_tags: ["event_id", "tag"],

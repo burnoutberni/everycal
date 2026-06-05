@@ -543,9 +543,14 @@ export function AdminPage() {
                 <div className='admin-record-subtitle'>
                   id: {item.id}
                 </div>
-                {item.moderation_reason ? (
+                {item.flagger_note ? (
                   <p className='text-sm text-muted mt-1' style={{ borderLeft: '2px solid var(--border)', paddingLeft: '0.6rem', fontStyle: 'italic', margin: '0.5rem 0' }}>
-                    <strong>Flagger note:</strong> “{item.moderation_reason}”
+                    <strong>Flagger note:</strong> “{item.flagger_note}”
+                  </p>
+                ) : null}
+                {item.moderated_at && item.moderation_reason ? (
+                  <p className='text-sm text-muted mt-1' style={{ borderLeft: '2px solid var(--border)', paddingLeft: '0.6rem', margin: '0.5rem 0' }}>
+                    <strong>Moderator decision:</strong> {item.moderation_reason}
                   </p>
                 ) : null}
                 <div className='text-xs text-muted mt-1' style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>

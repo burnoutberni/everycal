@@ -112,7 +112,7 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
       || (event.visibility === "followers_only" && !!db.prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?").get(user.id, event.account_id));
     if (!canView) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
-    db.prepare("UPDATE events SET moderation_state = 'flagged', moderation_reason = ?, moderated_at = NULL WHERE id = ?").run(reason, event.id);
+    db.prepare("UPDATE events SET moderation_state = 'flagged', flagger_note = ?, moderated_at = NULL WHERE id = ?").run(reason, event.id);
     return c.json({ ok: true });
   });
 

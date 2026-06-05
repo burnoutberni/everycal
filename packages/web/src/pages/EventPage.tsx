@@ -489,7 +489,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             {t("canceledByOrganizer")}
           </div>
         )}
-        {user?.isAdmin && event.moderationState === "flagged" && event.moderationReason && (
+        {user?.isAdmin && event.moderationState === "flagged" && event.flaggerNote && (
           <div
             className="mb-2"
             style={{
@@ -500,7 +500,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             }}
           >
             <div style={{ fontWeight: 700, marginBottom: "0.25rem", color: "var(--danger)" }}>{t("moderationRequestNoteTitle")}</div>
-            <p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{event.moderationReason}</p>
+            <p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{event.flaggerNote}</p>
             <div style={{ marginTop: "0.65rem" }}>
               <p className="text-sm text-muted" style={{ marginBottom: "0.5rem" }}>
                 This action moderates the event itself (keep visible or remove), not the note text.

@@ -161,12 +161,13 @@ describe("event slug canonical behavior", () => {
       body: JSON.stringify({ reason: "spam details" }),
     });
 
-    const row = db.prepare("SELECT moderation_state, moderation_reason, moderated_at FROM events WHERE id = ?").get(created.id) as
-      { moderation_state: string; moderation_reason: string | null; moderated_at: string | null };
+    const row = db.prepare("SELECT moderation_state, moderation_reason, flagger_note, moderated_at FROM events WHERE id = ?").get(created.id) as
+      { moderation_state: string; moderation_reason: string | null; flagger_note: string | null; moderated_at: string | null };
 
     expect(res.status).toBe(200);
     expect(row.moderation_state).toBe("flagged");
-    expect(row.moderation_reason).toBe("spam details");
+    expect(row.moderation_reason).toBeNull();
+    expect(row.flagger_note).toBe("spam details");
     expect(row.moderated_at).toBeNull();
   });
 
@@ -2260,7 +2261,7 @@ describe("event slug canonical behavior", () => {
     });
     const created = await create.json() as { id: string; slug: string };
 
-    db.prepare("UPDATE events SET moderation_state = 'flagged', moderation_reason = 'needs review' WHERE id = ?").run(created.id);
+    db.prepare("UPDATE events SET moderation_state = 'flagged', flagger_note = 'needs review' WHERE id = ?").run(created.id);
 
     const adminApp = makeApp(db, { id: "admin1", username: "admin" });
     const idResWhileFlagged = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
