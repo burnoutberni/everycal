@@ -924,6 +924,67 @@ describe('admin routes', () => {
     });
   });
 
+  it('POST /federation/tombstones rejects invalid objectType and expiresAt', async () => {
+    const db = initDatabase(':memory:');
+    db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
+
+    const app = new Hono();
+    app.use('*', async (c, next) => { c.set('user', { id:'a1', username:'admin', displayName:null, isAdmin:true }); await next(); });
+    app.route('/api/v1/admin', adminRoutes(db));
+
+    // Invalid objectType (typo)
+    const resBadType = await app.request('/api/v1/admin/federation/tombstones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objectType: 'remote_actorr', objectId: 'u1', reason: 'typo' }),
+    });
+    expect(resBadType.status).toBe(400);
+    expect(await resBadType.json()).toEqual({ error: 'invalid_object_type' });
+
+    // Invalid expiresAt (not a date)
+    const resBadExpiry = await app.request('/api/v1/admin/federation/tombstones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objectType: 'event', objectId: 'e1', reason: 'test', expiresAt: 'next week' }),
+    });
+    expect(resBadExpiry.status).toBe(400);
+    expect(await resBadExpiry.json()).toEqual({ error: 'invalid_expires_at' });
+
+    // All valid object types succeed
+    for (const t of ['remote_actor', 'actor', 'remote_event', 'event', 'activity']) {
+      const res = await app.request('/api/v1/admin/federation/tombstones', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ objectType: t, objectId: `${t}-1`, reason: `test ${t}` }),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    // Valid ISO-8601 datetime succeeds
+    const resValidIso = await app.request('/api/v1/admin/federation/tombstones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objectType: 'event', objectId: 'e2', reason: 'iso test', expiresAt: '2027-06-15T12:00:00Z' }),
+    });
+    expect(resValidIso.status).toBe(200);
+
+    // Valid date-only string succeeds
+    const resDateOnly = await app.request('/api/v1/admin/federation/tombstones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objectType: 'actor', objectId: 'a2', reason: 'date only', expiresAt: '2027-01-01' }),
+    });
+    expect(resDateOnly.status).toBe(200);
+
+    // Missing expiresAt is still allowed (optional field)
+    const resNoExpiry = await app.request('/api/v1/admin/federation/tombstones', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objectType: 'activity', objectId: 'act1', reason: 'no expiry' }),
+    });
+    expect(resNoExpiry.status).toBe(200);
+  });
+
   it('GET /security/login-lockouts retrieves lockouts list', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO login_attempts (username, attempts, locked_until, last_attempt) VALUES ('user1', 5, '2026-01-01', '2026-01-01')").run();

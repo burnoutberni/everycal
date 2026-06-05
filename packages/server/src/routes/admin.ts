@@ -13,6 +13,7 @@ import {
   runtimeSettingsByKey,
 } from '../lib/runtime-settings.js';
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations.js';
+import { TOMBSTONE_OBJECT_TYPES } from '../lib/federation-tombstones.js';
 
 function readOpenRegistrationsState(db: DB) {
   const dbValue = readAdminSetting<boolean>(db, OPEN_REGISTRATIONS_SETTING_KEY);
@@ -272,13 +273,17 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{ objectType?: string; objectId?: string; reason?: string; expiresAt?: string }>().catch(() => ({} as { objectType?: string; objectId?: string; reason?: string; expiresAt?: string }));
     if (!body.objectType?.trim() || !body.objectId?.trim()) return c.json({ error: 'object_required' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
+    const objectType = body.objectType.trim() as string;
+    if (!(TOMBSTONE_OBJECT_TYPES as readonly string[]).includes(objectType)) return c.json({ error: 'invalid_object_type' }, 400);
+    const expiresAtRaw = body.expiresAt?.trim() || null;
+    if (expiresAtRaw && Number.isNaN(Date.parse(expiresAtRaw))) return c.json({ error: 'invalid_expires_at' }, 400);
     const id = nanoid();
     db.prepare('INSERT INTO federation_tombstones (id, object_type, object_id, reason, expires_at) VALUES (?, ?, ?, ?, ?)').run(
       id,
       body.objectType.trim(),
       body.objectId.trim(),
       body.reason.trim(),
-      body.expiresAt?.trim() || null,
+      expiresAtRaw,
     );
     audit(db, admin.id, 'federation.tombstone.create', body.objectType.trim(), body.objectId.trim(), { reason: body.reason.trim() });
     return c.json({ ok: true, id });

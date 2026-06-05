@@ -1,5 +1,8 @@
 import type { DB } from "../db.js";
 
+export const TOMBSTONE_OBJECT_TYPES = ['remote_actor', 'actor', 'remote_event', 'event', 'activity'] as const;
+export type TombstoneObjectType = (typeof TOMBSTONE_OBJECT_TYPES)[number];
+
 const ACTIVE_TOMBSTONE_SQL = "(ft.expires_at IS NULL OR ft.expires_at > datetime('now'))";
 const ACTOR_TOMBSTONE_TYPE_SQL = "'remote_actor', 'actor'";
 const EVENT_TOMBSTONE_TYPE_SQL = "'remote_event', 'event'";
