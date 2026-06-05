@@ -725,6 +725,11 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_events_moderation_state ON events(moderation_state)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_moderation_state ON remote_events(moderation_state)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_job_runs_status_created ON admin_job_runs(status, created_at, id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_job_runs_created_at ON admin_job_runs(created_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_active_actor ON federation_blocks(is_active, block_type, actor_uri)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_active_domain ON federation_blocks(is_active, block_type, domain)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_created_at ON federation_blocks(created_at)");
     },
   },
   {
