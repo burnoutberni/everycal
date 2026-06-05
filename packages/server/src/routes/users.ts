@@ -34,6 +34,7 @@ import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } fro
 import { parseRemoteHandle } from "../lib/remote-handle.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { buildActiveFederationActorTombstoneFilter } from "../lib/federation-tombstones.js";
+import { escapeLike } from "../lib/sql-utils.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -62,7 +63,7 @@ export function userRoutes(db: DB): Hono {
              FROM accounts
              WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
              ORDER BY username ASC LIMIT ? OFFSET ?`;
-      params = [`%${q}%`, `%${q}%`, limit, offset];
+      params = [`%${escapeLike(q)}%`, `%${escapeLike(q)}%`, limit, offset];
     } else {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,

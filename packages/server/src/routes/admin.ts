@@ -14,6 +14,7 @@ import {
 } from '../lib/runtime-settings.js';
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations.js';
 import { TOMBSTONE_OBJECT_TYPES } from '../lib/federation-tombstones.js';
+import { escapeLike } from '../lib/sql-utils.js';
 
 const VALID_SCRAPER_IDS = new Set([
   'all',
@@ -117,7 +118,7 @@ export function adminRoutes(db: DB) {
       LEFT JOIN login_attempts la ON la.username = a.username
       WHERE a.username LIKE ?
       ORDER BY a.created_at DESC
-      LIMIT 100`).all(`%${q}%`);
+      LIMIT 100`).all(`%${escapeLike(q)}%`);
     return c.json({ items: rows, enabledAdminCount });
   });
 
@@ -219,7 +220,7 @@ export function adminRoutes(db: DB) {
       ? db.prepare(`SELECT id, block_type, actor_uri, domain, reason, created_by_account_id, is_active, created_at
           FROM federation_blocks
           WHERE (COALESCE(domain,'') LIKE ? OR COALESCE(actor_uri,'') LIKE ?)
-          ORDER BY created_at DESC LIMIT 200`).all(`%${q}%`, `%${q}%`)
+          ORDER BY created_at DESC LIMIT 200`).all(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`)
       : db.prepare(`SELECT id, block_type, actor_uri, domain, reason, created_by_account_id, is_active, created_at
           FROM federation_blocks
           ORDER BY created_at DESC LIMIT 200`).all();
@@ -236,7 +237,7 @@ export function adminRoutes(db: DB) {
         AND (? = '' OR COALESCE(fetch_status, 'active') = ?)
         AND (? = '' OR uri LIKE ? OR preferred_username LIKE ? OR domain LIKE ?)
       ORDER BY COALESCE(next_retry_at, last_fetched_at) DESC
-      LIMIT 200`).all(domain, domain, status, status, q, `%${q}%`, `%${q}%`, `%${q}%`);
+      LIMIT 200`).all(domain, domain, status, status, q, `%${escapeLike(q)}%`, `%${escapeLike(q)}%`, `%${escapeLike(q)}%`);
     return c.json({ items: rows });
   });
 
@@ -272,7 +273,7 @@ export function adminRoutes(db: DB) {
           FROM federation_tombstones
           WHERE object_id LIKE ? OR object_type LIKE ?
           ORDER BY created_at DESC
-          LIMIT 200`).all(`%${q}%`, `%${q}%`)
+          LIMIT 200`).all(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`)
       : db.prepare(`SELECT id, object_type, object_id, reason, created_at, expires_at
           FROM federation_tombstones
           ORDER BY created_at DESC
@@ -320,7 +321,7 @@ export function adminRoutes(db: DB) {
           FROM login_attempts
           WHERE username LIKE ?
           ORDER BY COALESCE(locked_until, last_attempt) DESC
-          LIMIT 200`).all(`%${q}%`)
+          LIMIT 200`).all(`%${escapeLike(q)}%`)
       : db.prepare(`SELECT username, attempts, locked_until, last_attempt
           FROM login_attempts
           ORDER BY COALESCE(locked_until, last_attempt) DESC

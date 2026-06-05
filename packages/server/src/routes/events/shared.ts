@@ -3,6 +3,7 @@ import { buildDateRangeFilter } from "../../lib/date-query.js";
 import { buildRemoteReadabilityFilter } from "../../lib/remote-readability.js";
 import { PaginationParamError } from "../../lib/pagination.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "../../lib/event-serializers.js";
+import { escapeLike } from "../../lib/sql-utils.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -83,7 +84,6 @@ export function appendDateRangeFilters(
  */
 export function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown[] } {
   if (tagList.length === 0) return { sql: "", params: [] };
-  const escapeLike = (s: string) => s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
   const conditions = tagList
     .map(() => `(re.tags = ? OR re.tags LIKE ? OR re.tags LIKE ? OR re.tags LIKE ?)`)
     .join(" OR ");
