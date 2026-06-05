@@ -7,9 +7,15 @@
  *   - Requests without a session cookie (server-side / unauthenticated)
  */
 
+import crypto from "node:crypto";
 import { createMiddleware } from "hono/factory";
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function tokensEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 function readCookie(headerValue: string, name: string): string | null {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -72,7 +78,7 @@ export function requireCsrf(allowedOrigins: Set<string>) {
     // Double-submit cookie check: everycal_csrf cookie must match x-csrf-token header
     const csrfCookie = readCookie(cookieHeader, "everycal_csrf");
     const csrfHeader = c.req.header("x-csrf-token");
-    if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+    if (!csrfCookie || !csrfHeader || !tokensEqual(csrfCookie, csrfHeader)) {
       return c.json({ error: "csrf_token_invalid" }, 403);
     }
 
