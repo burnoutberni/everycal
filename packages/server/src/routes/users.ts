@@ -31,6 +31,7 @@ import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
+import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { parseRemoteHandle } from "../lib/remote-handle.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { buildActiveFederationActorTombstoneFilter } from "../lib/federation-tombstones.js";
@@ -264,6 +265,7 @@ export function userRoutes(db: DB): Hono {
     if (isFollower) allowedVisibilities.push("followers_only");
     if (isOwner) allowedVisibilities.push("private");
     const visibilityPlaceholders = allowedVisibilities.map(() => "?").join(",");
+    const visibleLocalEventsClause = buildVisibleLocalModerationClause("e");
 
     // Own events
     let sql = `
@@ -272,10 +274,11 @@ export function userRoutes(db: DB): Hono {
              NULL AS repost_username, NULL AS repost_display_name
       FROM events e
       JOIN accounts a ON a.id = e.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE e.account_id = ?
-        AND e.visibility IN (${visibilityPlaceholders})
-    `;
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE e.account_id = ?
+         AND e.visibility IN (${visibilityPlaceholders})
+         AND ${visibleLocalEventsClause}
+     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
     {
@@ -310,10 +313,11 @@ export function userRoutes(db: DB): Hono {
       JOIN events e ON e.id = r.event_id
       JOIN accounts a ON a.id = e.account_id
       JOIN accounts ra ON ra.id = r.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE r.account_id = ?
-        ${repostVisibilityClause}
-    `;
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE r.account_id = ?
+         AND ${visibleLocalEventsClause}
+         ${repostVisibilityClause}
+     `;
     params.push(account.id, ...repostVisibilityParams);
     {
       const range = buildDateRangeFilter(
@@ -345,11 +349,12 @@ export function userRoutes(db: DB): Hono {
       JOIN events e ON e.account_id = ar.source_account_id
       JOIN accounts a ON a.id = e.account_id
       JOIN accounts ra ON ra.id = ar.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE ar.account_id = ?
-        ${autoRepostVisibilityClause}
-        AND e.account_id != ?
-        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE ar.account_id = ?
+         AND ${visibleLocalEventsClause}
+         ${autoRepostVisibilityClause}
+         AND e.account_id != ?
+         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     {

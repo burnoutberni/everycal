@@ -1978,6 +1978,59 @@ describe("event slug canonical behavior", () => {
     expect(event?.timezoneQuality).toBe("exact_tzid");
   });
 
+  it("/users/:username/events excludes hidden local events from own events, reposts, and auto-reposts", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u3", "carol");
+
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-own", "u1", "visible-own", "Visible Own", "2026-02-16T12:00:00", 0, "2026-02-16T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-own", "u1", "hidden-own", "Hidden Own", "2026-02-17T12:00:00", 0, "2026-02-17T12:00:00.000Z", "UTC", "hidden");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-repost", "u2", "visible-repost", "Visible Repost", "2026-02-18T12:00:00", 0, "2026-02-18T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-repost", "u2", "hidden-repost", "Hidden Repost", "2026-02-19T12:00:00", 0, "2026-02-19T12:00:00.000Z", "UTC", "hidden");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-auto", "u3", "visible-auto", "Visible Auto", "2026-02-20T12:00:00", 0, "2026-02-20T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-auto", "u3", "hidden-auto", "Hidden Auto", "2026-02-21T12:00:00", 0, "2026-02-21T12:00:00.000Z", "UTC", "hidden");
+
+    db.prepare(
+      "INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?), (?, ?, ?, ?)"
+    ).run(
+      "u1",
+      "e-visible-repost",
+      "https://localhost/events/e-visible-repost",
+      "https://localhost/users/bob",
+      "u1",
+      "e-hidden-repost",
+      "https://localhost/events/e-hidden-repost",
+      "https://localhost/users/bob"
+    );
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
+      "u1",
+      "u3",
+      "https://localhost/users/carol"
+    );
+
+    const app = makeApp(db, null);
+    const res = await app.request("http://localhost/api/v1/users/alice/events");
+    const body = await res.json() as { events: Array<{ slug?: string }> };
+
+    expect(res.status).toBe(200);
+    expect(body.events.map((event) => event.slug)).toEqual([
+      "visible-own",
+      "visible-repost",
+      "visible-auto",
+    ]);
+  });
+
   it("normalizes local eventTimezone in API responses when legacy row has invalid timezone", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
