@@ -61,7 +61,7 @@ export function userRoutes(db: DB): Hono {
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
-             WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
+             WHERE discoverable = 1 AND is_disabled = 0 AND (username LIKE ? OR display_name LIKE ?)
              ORDER BY username ASC LIMIT ? OFFSET ?`;
       params = [`%${escapeLike(q)}%`, `%${escapeLike(q)}%`, limit, offset];
     } else {
@@ -69,7 +69,7 @@ export function userRoutes(db: DB): Hono {
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
-             WHERE discoverable = 1
+             WHERE discoverable = 1 AND is_disabled = 0
              ORDER BY created_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
@@ -158,7 +158,7 @@ export function userRoutes(db: DB): Hono {
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery}
-         FROM accounts WHERE username = ?`
+         FROM accounts WHERE username = ? AND is_disabled = 0`
       )
       .get(username) as Record<string, unknown> | undefined;
 

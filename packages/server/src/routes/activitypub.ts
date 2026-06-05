@@ -150,7 +150,7 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const account = db
-      .prepare("SELECT * FROM accounts WHERE username = ?")
+      .prepare("SELECT * FROM accounts WHERE username = ? AND is_disabled = 0")
       .get(username) as Record<string, unknown> | undefined;
 
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
@@ -222,7 +222,7 @@ export function activityPubRoutes(db: DB): Hono {
     const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
+      .prepare("SELECT id FROM accounts WHERE username = ? AND is_disabled = 0")
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
