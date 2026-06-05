@@ -48,6 +48,7 @@ import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/bas
 import { ensureStableActivityId } from "../lib/activity-ids.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { getEffectiveSetting } from "../lib/runtime-settings.js";
+import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -218,6 +219,8 @@ export function activityPubRoutes(db: DB): Hono {
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
+    const remoteReadability = buildRemoteReadabilityFilter(undefined, { eventAlias: "re" });
+
     // Count: owned public events + explicit reposts + auto-reposted events
     const ownedCount = (
       db
@@ -242,11 +245,11 @@ export function activityPubRoutes(db: DB): Hono {
                   AND e.visibility IN ('public', 'unlisted')`,
                hasEventModerationStateColumn,
              )}
-           ) + (
-             SELECT COUNT(*) FROM reposts r
-             JOIN remote_events re ON re.uri = r.event_uri
-             WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')
-           ) AS cnt`
+            ) + (
+              SELECT COUNT(*) FROM reposts r
+              JOIN remote_events re ON re.uri = r.event_uri
+              WHERE r.account_id = ? AND ${remoteReadability.sql}
+            ) AS cnt`
         )
         .get(account.id, account.id) as { cnt: number }
     ).cnt;
@@ -262,14 +265,14 @@ export function activityPubRoutes(db: DB): Hono {
                   AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)`,
                hasEventModerationStateColumn,
              )}
-           ) + (
-             SELECT COUNT(*) FROM auto_reposts ar
-             JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
-             WHERE ar.account_id = ? AND re.visibility = 'public'
-               AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
-           ) AS cnt`
+            ) + (
+              SELECT COUNT(*) FROM auto_reposts ar
+              JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+              WHERE ar.account_id = ? AND ${remoteReadability.sql}
+                AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+            ) AS cnt`
         )
-        .get(account.id, account.id, account.id, account.id) as { cnt: number }
+        .get(account.id, account.id, account.id, ...remoteReadability.params, account.id) as { cnt: number }
     ).cnt;
     const totalItems = ownedCount + repostCount + autoRepostCount;
 
@@ -321,9 +324,9 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT r.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
          FROM reposts r
          JOIN remote_events re ON re.uri = r.event_uri
-         WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')`
+         WHERE r.account_id = ? AND ${remoteReadability.sql}`
       )
-      .all(account.id) as Record<string, unknown>[];
+      .all(account.id, ...remoteReadability.params) as Record<string, unknown>[];
 
     const autoRepostRows = db
       .prepare(
@@ -345,10 +348,10 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT ar.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
          FROM auto_reposts ar
          JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
-         WHERE ar.account_id = ? AND re.visibility = 'public'
+         WHERE ar.account_id = ? AND ${remoteReadability.sql}
            AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)`
       )
-      .all(account.id, account.id) as Record<string, unknown>[];
+      .all(account.id, ...remoteReadability.params, account.id) as Record<string, unknown>[];
 
     const eventUrl = (id: string) => buildUrl(baseUrl, "events", id);
     const createItems = ownedRows.map((row) => ({

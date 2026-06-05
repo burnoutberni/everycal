@@ -83,6 +83,56 @@ function seedRemoteEvent(db: DB): void {
   ).run("https://remote.example/events/remote-1", "https://remote.example/users/organizer", "Remote Event", "2026-06-01T10:00:00Z", "2026-06-01T10:00:00.000Z");
 }
 
+function seedRemoteOutboxReadabilityFixture(db: DB): void {
+  db.prepare("INSERT INTO accounts (id, username, account_type, private_key, public_key) VALUES (?, ?, 'person', ?, ?)")
+    .run("local1", "alice", "PRIVATE", "PUBLIC");
+  db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+    .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/users/bob/outbox");
+  db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
+    .run("https://blocked.example/users/mallory", "mallory", "https://blocked.example/inbox", "blocked.example", "https://blocked.example/users/mallory/outbox");
+
+  const insertRemoteEvent = db.prepare(
+    `INSERT INTO remote_events (
+      uri, actor_uri, title, start_date, start_at_utc, timezone_quality, raw_json, visibility
+    ) VALUES (?, ?, ?, ?, ?, 'offset_only', '{}', ?)`
+  );
+
+  insertRemoteEvent.run("https://remote.example/events/repost-visible", remoteActorUri, "Remote Repost Visible", "2026-06-01T10:00:00Z", "2026-06-01T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://remote.example/events/repost-hidden", remoteActorUri, "Remote Repost Hidden", "2026-06-02T10:00:00Z", "2026-06-02T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://remote.example/events/repost-tombstoned", remoteActorUri, "Remote Repost Tombstoned", "2026-06-03T10:00:00Z", "2026-06-03T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://blocked.example/events/repost-blocked", "https://blocked.example/users/mallory", "Remote Repost Blocked", "2026-06-04T10:00:00Z", "2026-06-04T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://remote.example/events/auto-visible", remoteActorUri, "Remote Auto Visible", "2026-06-05T10:00:00Z", "2026-06-05T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://remote.example/events/auto-hidden", remoteActorUri, "Remote Auto Hidden", "2026-06-06T10:00:00Z", "2026-06-06T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://remote.example/events/auto-tombstoned", remoteActorUri, "Remote Auto Tombstoned", "2026-06-07T10:00:00Z", "2026-06-07T10:00:00.000Z", "public");
+  insertRemoteEvent.run("https://blocked.example/events/auto-blocked", "https://blocked.example/users/mallory", "Remote Auto Blocked", "2026-06-08T10:00:00Z", "2026-06-08T10:00:00.000Z", "public");
+
+  db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE uri IN (?, ?)")
+    .run("https://remote.example/events/repost-hidden", "https://remote.example/events/auto-hidden");
+  db.prepare(
+    `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
+     VALUES ('remote-event:repost-tombstoned', 'remote_event', ?, 'test tombstone'),
+            ('remote-event:auto-tombstoned', 'remote_event', ?, 'test tombstone')`
+  ).run("https://remote.example/events/repost-tombstoned", "https://remote.example/events/auto-tombstoned");
+  db.prepare(
+    `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
+     VALUES ('block-domain-blocked-example', 'domain', 'blocked.example', 'blocked', 'admin-1', 1)`
+  ).run();
+
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", null, "https://remote.example/events/repost-visible", remoteActorUri);
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", null, "https://remote.example/events/repost-hidden", remoteActorUri);
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", null, "https://remote.example/events/repost-tombstoned", remoteActorUri);
+  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
+    .run("local1", null, "https://blocked.example/events/repost-blocked", "https://blocked.example/users/mallory");
+
+  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
+    .run("local1", null, remoteActorUri);
+  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
+    .run("local1", null, "https://blocked.example/users/mallory");
+}
+
 function inboxApp(db: DB): Hono {
   const app = new Hono();
   app.route("/users", activityPubRoutes(db));
@@ -589,6 +639,38 @@ describe("ActivityPub RSVP federation", () => {
       .map((item) => item.object) ?? [];
     expect(createObjects).toHaveLength(1);
     expect(createObjects[0]).toMatchObject({ id: "http://localhost/events/owned-visible" });
+  });
+
+  it("excludes unreadable remote reposts from outbox counts and Announce items", async () => {
+    seedRemoteOutboxReadabilityFixture(db);
+
+    const app = inboxApp(db);
+    const collectionRes = await app.request("http://localhost/users/alice/outbox", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+    const pageRes = await app.request("http://localhost/users/alice/outbox?page=1", {
+      method: "GET",
+      headers: { accept: "application/activity+json" },
+    });
+
+    expect(collectionRes.status).toBe(200);
+    expect(pageRes.status).toBe(200);
+
+    const collection = await collectionRes.json() as { totalItems?: number };
+    const page = await pageRes.json() as {
+      orderedItems?: Array<{ type?: string; object?: unknown }>;
+    };
+
+    expect(collection.totalItems).toBe(2);
+
+    const announceObjects = (page.orderedItems ?? [])
+      .filter((item) => item.type === "Announce")
+      .map((item) => item.object);
+    expect(announceObjects).toEqual([
+      "https://remote.example/events/auto-visible",
+      "https://remote.example/events/repost-visible",
+    ]);
   });
 
   it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {
