@@ -39,6 +39,7 @@ import {
   SYSTEM_DATE_TIME_LOCALE,
   SYSTEM_TIMEZONE,
 } from "../lib/dateTimeLocale";
+import "./SharedLayout.css";
 import "./SettingsPage.css";
 import { useTheme } from "../hooks/useTheme";
 import { applyThemeToDocument, getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";

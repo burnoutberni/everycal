@@ -8,7 +8,8 @@ import { adminFetch } from '../lib/adminFetch';
 import type { AdminHealthResponse, Account, AccountsResponse, ModerationItem, FederationBlock, FederationActor, FederationDomain, FederationTombstone, AdminSetting, JobRun, AuditItem, ConfirmState, AdminSectionKey, AdminAuditResponse, AdminModerationResponse, AdminFederationBlocksResponse, AdminFederationActorsResponse, AdminFederationDomainsResponse, AdminFederationTombstonesResponse, AdminSettingsResponse, AdminJobRunsResponse, AdminScraperTriggerResponse } from './admin-types';
 import { AVAILABLE_SCRAPERS, formatAuditPayload } from './admin-types';
 import { AdminAccountsSection } from './AdminAccountsSection';
-import './SettingsPage.css';
+import './SharedLayout.css';
+import './AdminPage.css';
 
 export function AdminPage() {
   const { user, authStatus, loading } = useAuth();
