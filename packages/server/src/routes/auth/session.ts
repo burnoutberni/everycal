@@ -10,7 +10,7 @@ import { parseJsonBody } from "../../lib/request-body.js";
 import { hashTokenSecret } from "../../lib/token-secrets.js";
 import { getEffectiveSetting } from "../../lib/runtime-settings.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE } from "./constants.js";
-import { setSessionCookie, clearSessionCookie } from "./session-cookies.js";
+import { setSessionCookie, clearSessionCookie, maybeSetMissingCsrfCookie } from "./session-cookies.js";
 
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
@@ -272,6 +272,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
   // Current user
   router.get("/me", requireAuth(), (c) => {
+    maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
     const user = c.get("user")!;
     const row = db
       .prepare(

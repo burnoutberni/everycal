@@ -22,10 +22,16 @@ export interface AuthUser {
   preferredLanguage?: string;
 }
 
+type SessionAuthResult = {
+  user: AuthUser;
+  expiresAt: string;
+};
+
 // Extend Hono context variables
 declare module "hono" {
   interface ContextVariableMap {
     user: AuthUser | null;
+    cookieSessionExpiresAt: string | null;
   }
 }
 
@@ -41,6 +47,7 @@ function toSqliteDateTime(isoInstant: string): string {
 export function authMiddleware(db: DB) {
   return createMiddleware(async (c, next) => {
     let user: AuthUser | null = null;
+    let cookieSessionExpiresAt: string | null = null;
 
     // Try cookie first
     const cookieHeader = c.req.header("cookie") || "";
@@ -51,14 +58,17 @@ export function authMiddleware(db: DB) {
     const authHeader = c.req.header("authorization") || "";
 
     if (token) {
-      user = resolveSession(db, token);
+      const session = resolveSession(db, token);
+      user = session?.user ?? null;
+      cookieSessionExpiresAt = session?.expiresAt ?? null;
     } else if (authHeader.startsWith("Bearer ")) {
-      user = resolveSession(db, authHeader.slice(7));
+      user = resolveSession(db, authHeader.slice(7))?.user ?? null;
     } else if (authHeader.startsWith("ApiKey ")) {
       user = resolveApiKey(db, authHeader.slice(7));
     }
 
     c.set("user", user);
+    c.set("cookieSessionExpiresAt", cookieSessionExpiresAt);
     await next();
     return undefined;
   });
@@ -101,11 +111,11 @@ export function createSession(db: DB, accountId: string): { token: string; expir
   return { token, expiresAt };
 }
 
-function resolveSession(db: DB, token: string): AuthUser | null {
+function resolveSession(db: DB, token: string): SessionAuthResult | null {
   const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(
-      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin
+      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin, s.expires_at
        FROM sessions s
        JOIN accounts a ON a.id = s.account_id
        WHERE s.token = ? AND s.expires_at > datetime('now') AND a.is_disabled = 0`
@@ -113,17 +123,21 @@ function resolveSession(db: DB, token: string): AuthUser | null {
     .get(tokenHash) as {
       id: string;
       username: string;
-      display_name: string | null;
-      preferred_language: string | null;
-      is_admin: number;
-    } | undefined;
+        display_name: string | null;
+        preferred_language: string | null;
+        is_admin: number;
+        expires_at: string;
+      } | undefined;
   if (!row) return null;
   return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    isAdmin: !!row.is_admin,
-    preferredLanguage: row.preferred_language || undefined,
+    user: {
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      isAdmin: !!row.is_admin,
+      preferredLanguage: row.preferred_language || undefined,
+    },
+    expiresAt: row.expires_at,
   };
 }
 

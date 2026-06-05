@@ -44,6 +44,7 @@ import { handleHtmlRequest } from "./ssr/handleHtmlRequest.js";
 import type { CachedSsrResponse } from "./ssr/cache.js";
 import { resolveBootstrap } from "./lib/bootstrap.js";
 import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
+import { maybeSetMissingCsrfCookie } from "./routes/auth/session-cookies.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
@@ -145,6 +146,7 @@ app.get("/healthz", (c) => c.json({ status: "ok" }));
 
 app.get("/api/v1/bootstrap", (c) => {
   const bootstrap = resolveBootstrap(c, db);
+  maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
   if (shouldSetLocaleCookie(c.req.header("cookie"), bootstrap.locale)) {
     c.header("Set-Cookie", buildLocaleCookie(bootstrap.locale), { append: true });
   }
