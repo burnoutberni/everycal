@@ -6,6 +6,8 @@ import type { DB } from "../db.js";
 import { getEffectiveSetting } from "./runtime-settings.js";
 
 const ADMIN_JOB_CLAIM_TIMEOUT_MS = 15 * 60 * 1000;
+const SCRAPER_TIMEOUT_MS = 5 * 60 * 1000;
+const SCRAPER_OUTPUT_MAX_BYTES = 1024 * 1024;
 const ADMIN_JOB_INTERVAL_MS_DEFAULT = 5000;
 const adminJobQueueRuns = new WeakMap<DB, Promise<{ processed: number; succeeded: number; failed: number }>>();
 const serverLibDir = dirname(fileURLToPath(import.meta.url));
@@ -82,13 +84,21 @@ export async function executeScraperAdminJob(job: AdminJob): Promise<Record<stri
 
     let stdout = "";
     let stderr = "";
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGTERM");
+    }, SCRAPER_TIMEOUT_MS);
+
     child.stdout?.on("data", (chunk) => {
-      stdout += String(chunk);
+      if (stdout.length < SCRAPER_OUTPUT_MAX_BYTES) stdout += String(chunk);
     });
     child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
+      if (stderr.length < SCRAPER_OUTPUT_MAX_BYTES) stderr += String(chunk);
     });
     child.on("error", (err) => {
+      clearTimeout(timer);
       reject(new AdminJobExecutionError("failed to start scraper job", {
         scraper: job.payload.scraper ?? "all",
         dryRun: job.payload.dryRun,
@@ -98,6 +108,7 @@ export async function executeScraperAdminJob(job: AdminJob): Promise<Record<stri
       }));
     });
     child.on("close", (code, signal) => {
+      clearTimeout(timer);
       const result = {
         scraper: job.payload.scraper ?? "all",
         dryRun: job.payload.dryRun,
@@ -106,6 +117,10 @@ export async function executeScraperAdminJob(job: AdminJob): Promise<Record<stri
         stdout: stdout.trim(),
         stderr: stderr.trim(),
       };
+      if (killed) {
+        reject(new AdminJobExecutionError("scraper job timed out", result));
+        return;
+      }
       if (code === 0) {
         resolvePromise(result);
         return;
