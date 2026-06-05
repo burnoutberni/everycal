@@ -816,28 +816,37 @@ export function AdminPage() {
             return;
           }
 
-          if (proactiveType === 'domain' || proactiveType === 'actor') {
-            const payload = proactiveType === 'domain'
-              ? { blockType: 'domain', domain: target, reason }
-              : { blockType: 'actor', actorUri: target, reason };
-            await adminFetch('/api/v1/admin/federation/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            setStatus(`Blocked ${proactiveType}: ${target}`);
-          } else {
-            await adminFetch('/api/v1/admin/federation/tombstones', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ objectType: proactiveType, objectId: target, reason }),
-            });
-            setStatus(`Created tombstone for ${proactiveType}:${target}`);
-          }
+          const actionKey = `proactive:${proactiveType}:${target}`;
+          setPendingActionKey(actionKey);
+          try {
+            setError(null);
+            if (proactiveType === 'domain' || proactiveType === 'actor') {
+              const payload = proactiveType === 'domain'
+                ? { blockType: 'domain', domain: target, reason }
+                : { blockType: 'actor', actorUri: target, reason };
+              await adminFetch('/api/v1/admin/federation/block', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              setStatus(`Blocked ${proactiveType}: ${target}`);
+            } else {
+              await adminFetch('/api/v1/admin/federation/tombstones', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ objectType: proactiveType, objectId: target, reason }),
+              });
+              setStatus(`Created tombstone for ${proactiveType}:${target}`);
+            }
 
-          setProactiveTarget('');
-          setProactiveReason('');
-          await refreshFederationBlocks();
-          await refreshFederationActors();
-          await refreshFederationDomains();
-          await refreshFederationTombstones();
-          await refreshAudit();
+            setProactiveTarget('');
+            setProactiveReason('');
+            await refreshFederationBlocks();
+            await refreshFederationActors();
+            await refreshFederationDomains();
+            await refreshFederationTombstones();
+            await refreshAudit();
+          } catch (err) {
+            setError(toErrorMessage(err, 'Failed to apply suppression'));
+          } finally {
+            setPendingActionKey(null);
+          }
         }}>
           <div className='flex gap-1' style={{ flexWrap: 'wrap' }}>
             <select aria-label='Suppression type' value={proactiveType} onChange={(e) => setProactiveType(e.target.value)} style={{ maxWidth: '240px' }}>
@@ -860,7 +869,7 @@ export function AdminPage() {
               value={proactiveReason}
               onChange={(e) => setProactiveReason(e.target.value)}
             />
-            <button className='btn btn-danger' type='submit'>Apply Suppression</button>
+            <button className='btn btn-danger' type='submit' disabled={pendingActionKey === `proactive:${proactiveType}:${proactiveTarget.trim()}`}>Apply Suppression</button>
           </div>
         </form>
       </details>
