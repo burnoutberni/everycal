@@ -1,14 +1,17 @@
 import type { DB } from "../db.js";
+import { buildPublicLocalEventReadabilityClause, buildVisibleLocalModerationClause } from "./local-readability.js";
 import { buildRemoteReadabilityFilter } from "./remote-readability.js";
 
 export function buildPublicEventsCountSubquery(): string {
   const remoteReadability = buildRemoteReadabilityFilter(undefined, { eventAlias: "re" });
+  const localReadability = buildPublicLocalEventReadabilityClause("e");
+  const localPublicModeration = buildVisibleLocalModerationClause("e");
   return `(SELECT COUNT(*) FROM (
-      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      SELECT e.id FROM events e WHERE e.account_id = accounts.id AND ${localReadability}
       UNION
-      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+      SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND ${localReadability}
       UNION
-      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+      SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public' AND ${localPublicModeration}
       UNION
       SELECT re.uri FROM reposts r JOIN remote_events re ON re.uri = r.event_uri WHERE r.account_id = accounts.id AND ${remoteReadability.sql}
       UNION
@@ -20,6 +23,8 @@ export function loadPublicEventsCountsByAccountId(db: DB, accountIds: string[]):
   if (accountIds.length === 0) return new Map();
 
   const remoteReadability = buildRemoteReadabilityFilter(undefined, { eventAlias: "re" });
+  const localReadability = buildPublicLocalEventReadabilityClause("e");
+  const localPublicModeration = buildVisibleLocalModerationClause("e");
   const placeholders = accountIds.map(() => "(?)").join(", ");
   const sql = `
     WITH target_accounts(id) AS (VALUES ${placeholders}),
@@ -27,19 +32,19 @@ export function loadPublicEventsCountsByAccountId(db: DB, accountIds: string[]):
       SELECT e.account_id AS account_id, e.id AS item_id
       FROM events e
       JOIN target_accounts ta ON ta.id = e.account_id
-      WHERE e.visibility IN ('public','unlisted')
+      WHERE ${localReadability}
       UNION
       SELECT r.account_id AS account_id, r.event_id AS item_id
       FROM reposts r
       JOIN events e ON e.id = r.event_id
       JOIN target_accounts ta ON ta.id = r.account_id
-      WHERE e.visibility IN ('public','unlisted')
+      WHERE ${localReadability}
       UNION
       SELECT ar.account_id AS account_id, e.id AS item_id
       FROM auto_reposts ar
       JOIN events e ON e.account_id = ar.source_account_id
       JOIN target_accounts ta ON ta.id = ar.account_id
-      WHERE e.visibility = 'public'
+      WHERE e.visibility = 'public' AND ${localPublicModeration}
       UNION
       SELECT r.account_id AS account_id, re.uri AS item_id
       FROM reposts r

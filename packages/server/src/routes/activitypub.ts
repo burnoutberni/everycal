@@ -49,6 +49,7 @@ import { ensureStableActivityId } from "../lib/activity-ids.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
 import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
+import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 
 const AP_CONTENT_TYPES = [
@@ -56,7 +57,7 @@ const AP_CONTENT_TYPES = [
   "application/ld+json",
 ];
 
-const VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE = "COALESCE(e.moderation_state, 'visible') != 'hidden'";
+const VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE = buildVisibleLocalModerationClause("e");
 
 function appendVisibleLocalOutboxEventFilter(sql: string, hasModerationStateColumn: boolean): string {
   if (!hasModerationStateColumn) return sql;

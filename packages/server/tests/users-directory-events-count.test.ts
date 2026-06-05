@@ -4,6 +4,10 @@ import { initDatabase } from "../src/db.js";
 import { userRoutes } from "../src/routes/users.js";
 import { directoryRoutes } from "../src/routes/directory.js";
 
+function seedVisibleAccount(db: ReturnType<typeof initDatabase>, id: string, username: string) {
+  db.prepare("INSERT INTO accounts (id, username, account_type, discoverable) VALUES (?, ?, 'person', 1)").run(id, username);
+}
+
 function createAppWithRemoteRepost() {
   const db = initDatabase(":memory:");
   const app = new Hono();
@@ -201,5 +205,102 @@ describe("users and directory event counts", () => {
     const directoryBody = (await directoryRes.json()) as Array<{ username: string; statuses_count: number }>;
     const aliceDirectory = directoryBody.find((u) => u.username === "alice");
     expect(aliceDirectory?.statuses_count).toBe(1);
+  });
+
+  it("excludes hidden local events from counts for own events, reposts, and auto-reposts", async () => {
+    const db = initDatabase(":memory:");
+    const app = new Hono();
+    app.route("/api/v1/users", userRoutes(db));
+    app.route("/api/v1", directoryRoutes(db));
+
+    seedVisibleAccount(db, "u1", "alice");
+    seedVisibleAccount(db, "u2", "bob");
+    seedVisibleAccount(db, "u3", "carol");
+    seedVisibleAccount(db, "u4", "dave");
+
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-visible", "u1", "alice-visible", "Alice Visible", "2026-06-01", "2026-06-01T10:00:00Z", "UTC", "public", "visible");
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-hidden", "u1", "alice-hidden", "Alice Hidden", "2026-06-02", "2026-06-02T10:00:00Z", "UTC", "public", "hidden");
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("bob-hidden", "u2", "bob-hidden", "Bob Hidden", "2026-06-03", "2026-06-03T10:00:00Z", "UTC", "public", "hidden");
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("carol-hidden", "u3", "carol-hidden", "Carol Hidden", "2026-06-04", "2026-06-04T10:00:00Z", "UTC", "public", "hidden");
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("dave-visible", "u4", "dave-visible", "Dave Visible", "2026-06-05", "2026-06-05T10:00:00Z", "UTC", "public", "visible");
+
+    db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)").run(
+      "u1",
+      "bob-hidden",
+      "http://localhost/events/bob-hidden",
+      "https://localhost/users/bob",
+    );
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
+      "u1",
+      "u3",
+      "https://localhost/users/carol",
+    );
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
+      "u1",
+      "u4",
+      "https://localhost/users/dave",
+    );
+
+    const usersRes = await app.request("http://localhost/api/v1/users");
+    expect(usersRes.status).toBe(200);
+    const usersBody = (await usersRes.json()) as { users: Array<{ username: string; eventsCount: number }> };
+    const aliceUser = usersBody.users.find((u) => u.username === "alice");
+    expect(aliceUser?.eventsCount).toBe(2);
+
+    const profileRes = await app.request("http://localhost/api/v1/users/alice");
+    expect(profileRes.status).toBe(200);
+    const profileBody = (await profileRes.json()) as { eventsCount: number };
+    expect(profileBody.eventsCount).toBe(2);
+
+    const directoryRes = await app.request("http://localhost/api/v1/directory");
+    expect(directoryRes.status).toBe(200);
+    const directoryBody = (await directoryRes.json()) as Array<{ username: string; statuses_count: number }>;
+    const aliceDirectory = directoryBody.find((u) => u.username === "alice");
+    expect(aliceDirectory?.statuses_count).toBe(2);
+  });
+
+  it("ignores hidden local events when computing directory last_status_at and active ordering", async () => {
+    const db = initDatabase(":memory:");
+    const app = new Hono();
+    app.route("/api/v1/users", userRoutes(db));
+    app.route("/api/v1", directoryRoutes(db));
+
+    seedVisibleAccount(db, "u1", "alice");
+    seedVisibleAccount(db, "u2", "bob");
+
+    db.prepare("UPDATE accounts SET created_at = ? WHERE id = ?").run("2026-01-01T00:00:00Z", "u1");
+    db.prepare("UPDATE accounts SET created_at = ? WHERE id = ?").run("2026-02-01T00:00:00Z", "u2");
+
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-visible", "u1", "alice-visible", "Alice Visible", "2026-03-01", "2026-03-01T10:00:00Z", "UTC", "public", "visible", "2026-03-01T10:00:00Z");
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("alice-hidden", "u1", "alice-hidden", "Alice Hidden", "2026-04-01", "2026-04-01T10:00:00Z", "UTC", "public", "hidden", "2026-04-01T10:00:00Z");
+
+    const directoryRes = await app.request("http://localhost/api/v1/directory?order=active");
+    expect(directoryRes.status).toBe(200);
+    const directoryBody = (await directoryRes.json()) as Array<{ username: string; last_status_at: string | null }>;
+
+    expect(directoryBody.map((user) => user.username)).toEqual(["alice", "bob"]);
+    expect(directoryBody[0]?.last_status_at).toBe("2026-03-01");
+    expect(directoryBody[1]?.last_status_at).toBeNull();
   });
 });

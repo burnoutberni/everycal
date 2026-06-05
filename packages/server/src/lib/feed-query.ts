@@ -6,6 +6,8 @@
  * SELECT combined.* to avoid column conflicts when joining accounts.
  */
 
+import { buildVisibleLocalModerationClause } from "./local-readability.js";
+
 const FOLLOW_LIST = `(SELECT following_id FROM follows WHERE follower_id = ?)`;
 const MANAGED_IDENTITY_LIST = `(SELECT identity_account_id FROM identity_memberships WHERE member_account_id = ? AND role IN ('editor','owner'))`;
 
@@ -23,7 +25,7 @@ const EVENTS_JOIN = `FROM events e
     JOIN accounts a ON a.id = e.account_id
     LEFT JOIN event_tags t ON t.event_id = e.id`;
 
-const VISIBLE_LOCAL_MODERATION_CLAUSE = `COALESCE(e.moderation_state, 'visible') != 'hidden'`;
+const VISIBLE_LOCAL_MODERATION_CLAUSE = buildVisibleLocalModerationClause("e");
 
 export interface FeedQueryOptions {
   userId: string;

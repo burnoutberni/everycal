@@ -6,6 +6,8 @@ import { buildRemoteReadabilityFilter } from "./remote-readability.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "./event-serializers.js";
 import { parseRemoteHandle } from "./remote-handle.js";
 import { buildActiveFederationActorTombstoneFilter } from "./federation-tombstones.js";
+import { buildPublicEventsCountSubquery } from "./activity-count.js";
+import { buildVisibleLocalModerationClause } from "./local-readability.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -159,18 +161,13 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
     };
   }
 
+  const eventsCountSubquery = `${buildPublicEventsCountSubquery()} AS events_count`;
   const row = db
     .prepare(
       `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
               (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id) AS followers_count,
               (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-              (SELECT COUNT(*) FROM (
-                SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-                UNION
-                SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
-                UNION
-                SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
-              )) AS events_count
+              ${eventsCountSubquery}
        FROM accounts WHERE username = ?`
     )
     .get(username) as Record<string, unknown> | undefined;
@@ -268,6 +265,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE e.account_id = ?
       AND e.visibility IN (${visibilityPlaceholders})
+      AND ${buildVisibleLocalModerationClause("e")}
     GROUP BY e.id
     UNION ALL
     SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -280,6 +278,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE r.account_id = ?
       ${repostVisibilityClause}
+      AND ${buildVisibleLocalModerationClause("e")}
     GROUP BY e.id
     UNION ALL
     SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -292,6 +291,7 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE ar.account_id = ?
       ${autoRepostVisibilityClause}
+      AND ${buildVisibleLocalModerationClause("e")}
       AND e.account_id != ?
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     GROUP BY e.id
