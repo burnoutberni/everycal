@@ -10,7 +10,7 @@ import { authMiddleware, createSession } from "../src/middleware/auth.js";
 function createApp() {
   const db = initDatabase(":memory:");
   const app = new Hono();
-  app.use("/api/*", createApiCorsMiddleware(["https://app.everycal.test"]));
+  app.use("/api/*", createApiCorsMiddleware(db, ["https://app.everycal.test"]));
   app.use("*", authMiddleware(db));
   app.route("/api/v1/feeds", feedRoutes(db));
   app.route("/api/v1/private-feeds", privateFeedRoutes(db));

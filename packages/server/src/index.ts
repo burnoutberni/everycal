@@ -130,7 +130,7 @@ const allowedOrigins = (getEffectiveSetting<string>(db, "cors_origin", "") || pr
 
 app.use(
   "/api/*",
-  createApiCorsMiddleware(allowedOrigins)
+  createApiCorsMiddleware(db, allowedOrigins)
 );
 
 // Rate limiting on auth endpoints (prevent brute force)
