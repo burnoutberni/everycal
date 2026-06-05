@@ -164,13 +164,13 @@ describe("resolveRemoteActor fetch status tracking", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("short-circuits blocked domain discovery", async () => {
+  it("short-circuits blocked domain discovery for mixed-case caller input", async () => {
     db.prepare(
       `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
        VALUES ('block-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`
     ).run();
 
-    const result = await discoverDomainActors(db, "remote.example");
+    const result = await discoverDomainActors(db, "Remote.Example");
     expect(result).toEqual({ discovered: 0, software: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -680,7 +680,7 @@ describe('admin routes', () => {
     const resBlockDomain = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blockType: 'domain', domain: 'bad-domain.com', reason: 'spam network' }),
+      body: JSON.stringify({ blockType: 'domain', domain: 'Bad-Domain.COM', reason: 'spam network' }),
     });
     expect(resBlockDomain.status).toBe(200);
     const blockDomainBody = await resBlockDomain.json() as any;

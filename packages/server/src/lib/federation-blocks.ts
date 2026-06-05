@@ -9,6 +9,11 @@ function parseDomain(value: string | null | undefined): string | null {
   }
 }
 
+export function normalizeFederationBlockDomain(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+
 export function getFederationBlockDomain(actorUri: string, domain?: string | null): string | null {
   return domain || parseDomain(actorUri);
 }
@@ -18,7 +23,7 @@ export function hasActiveFederationBlock(
   options: { actorUri?: string | null; domain?: string | null },
 ): boolean {
   const actorUri = options.actorUri?.trim() || null;
-  const domain = options.domain?.trim() || (actorUri ? getFederationBlockDomain(actorUri) : null);
+  const domain = normalizeFederationBlockDomain(options.domain) || (actorUri ? getFederationBlockDomain(actorUri) : null);
   if (!actorUri && !domain) return false;
 
   const row = db.prepare(

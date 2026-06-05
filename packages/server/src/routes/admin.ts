@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import type { DB } from '../db.js';
 import { requireAdminCsrf } from '../middleware/admin-csrf.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { normalizeFederationBlockDomain } from '../lib/federation-blocks.js';
 import {
   getEffectiveSetting,
   OPEN_REGISTRATIONS_SETTING_KEY,
@@ -199,7 +200,7 @@ export function adminRoutes(db: DB) {
     const body = await c.req.json<{blockType:string; actorUri?:string; domain?:string; reason?: string}>();
     if (!federationBlockTypes.has(body.blockType)) return c.json({ error: 'invalid_block_type' }, 400);
     const actorUri = body.actorUri?.trim() || null;
-    const domain = body.domain?.trim() || null;
+    const domain = normalizeFederationBlockDomain(body.domain);
     const targetId = body.blockType === 'actor' ? actorUri : domain;
     if (!targetId) return c.json({ error: 'block_target_required' }, 400);
     if (!body.reason || !body.reason.trim()) return c.json({ error: 'reason_required' }, 400);
