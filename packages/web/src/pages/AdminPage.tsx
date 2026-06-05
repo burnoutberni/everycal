@@ -1201,6 +1201,10 @@ export function AdminPage() {
                             const rawValue = (runtimeDraftValues[setting.key] ?? '').trim();
                             let nextValue: string | number;
                             if (setting.kind === 'number') {
+                              if (rawValue === '') {
+                                setError(`Value required for ${setting.label}`);
+                                return;
+                              }
                               const parsed = Number(rawValue);
                               if (!Number.isFinite(parsed)) {
                                 setError(`Invalid numeric value for ${setting.label}`);
