@@ -1281,6 +1281,8 @@ async function verifyInboxSignature(
 /** ActivityPub event object route — GET /events/:id serves Event JSON for federation. */
 export function activityPubEventRoutes(db: DB): Hono {
   const router = new Hono();
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
 
   router.get("/:id", (c) => {
     const id = c.req.param("id");
@@ -1292,12 +1294,14 @@ export function activityPubEventRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT e.*, a.username, GROUP_CONCAT(t.tag) AS tags
-         FROM events e
-         JOIN accounts a ON a.id = e.account_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')
-         GROUP BY e.id`
+        appendVisibleLocalOutboxEventFilter(
+          `SELECT e.*, a.username, GROUP_CONCAT(t.tag) AS tags
+           FROM events e
+           JOIN accounts a ON a.id = e.account_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        ) + ` GROUP BY e.id`
       )
       .get(id) as Record<string, unknown> | undefined;
 
