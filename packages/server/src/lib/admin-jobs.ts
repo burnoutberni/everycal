@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { toErrorMessage } from "@everycal/core";
+import { fileURLToPath } from "node:url";
 import type { DB } from "../db.js";
 import { getEffectiveSetting } from "./runtime-settings.js";
 
 const ADMIN_JOB_CLAIM_TIMEOUT_MS = 15 * 60 * 1000;
 const ADMIN_JOB_INTERVAL_MS_DEFAULT = 5000;
 const adminJobQueueRuns = new WeakMap<DB, Promise<{ processed: number; succeeded: number; failed: number }>>();
+const serverLibDir = dirname(fileURLToPath(import.meta.url));
+const scraperScriptPath = resolve(serverLibDir, "../../../scrapers/dist/run.js");
 
 export type AdminJobPayload = {
   scraper: string | null;
@@ -63,7 +66,6 @@ function parsePayload(payloadJson: string | null): AdminJobPayload {
 }
 
 export async function executeScraperAdminJob(job: AdminJob): Promise<Record<string, unknown>> {
-  const scriptPath = resolve(process.cwd(), "packages/scrapers/dist/run.js");
   const env: Record<string, string | undefined> = {
     ...process.env,
     SCRAPER_DRY_RUN: job.payload.dryRun ? "true" : "false",
@@ -72,7 +74,7 @@ export async function executeScraperAdminJob(job: AdminJob): Promise<Record<stri
   else delete env.SCRAPER_IDS;
 
   return await new Promise((resolvePromise, reject) => {
-    const child = spawn("node", [scriptPath], {
+    const child = spawn("node", [scraperScriptPath], {
       cwd: process.cwd(),
       env,
       stdio: ["ignore", "pipe", "pipe"],
