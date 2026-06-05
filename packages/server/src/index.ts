@@ -48,6 +48,8 @@ import { maybeSetMissingCsrfCookie } from "./routes/auth/session-cookies.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { requireCsrf } from "./middleware/csrf.js";
+import { getAllowedAdminOrigins } from "./middleware/admin-origins.js";
 import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
@@ -140,6 +142,19 @@ app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Auth middleware — runs on all routes, sets c.get("user") or null
 app.use("*", authMiddleware(db));
+
+// CSRF protection — double-submit cookie for all cookie-auth state-changing API routes
+// (admin routes already have requireAdminCsrf; this covers the rest)
+const csrfOrigins = getAllowedAdminOrigins();
+app.use("/api/v1/auth", requireCsrf(csrfOrigins));
+app.use("/api/v1/events", requireCsrf(csrfOrigins));
+app.use("/api/v1/private-feeds", requireCsrf(csrfOrigins));
+app.use("/api/v1/identities", requireCsrf(csrfOrigins));
+app.use("/api/v1/users", requireCsrf(csrfOrigins));
+app.use("/api/v1/uploads", requireCsrf(csrfOrigins));
+app.use("/api/v1/locations", requireCsrf(csrfOrigins));
+app.use("/api/v1/images", requireCsrf(csrfOrigins));
+app.use("/api/v1/federation", requireCsrf(csrfOrigins));
 
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));

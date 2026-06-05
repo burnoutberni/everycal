@@ -90,6 +90,17 @@ export function setApiKey(key: string | null) {
   apiKey = key;
 }
 
+function getCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)everycal_csrf=([^;]+)/);
+  return match?.[1] || null;
+}
+
+function shouldAttachCsrf(method?: string): boolean {
+  const m = (method || "GET").toUpperCase();
+  return m !== "GET" && m !== "HEAD" && m !== "OPTIONS";
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -114,6 +125,12 @@ async function request<T>(
   // Don't set Content-Type for FormData (browser sets multipart boundary)
   if (!(options.body instanceof FormData) && options.body) {
     headers["Content-Type"] = "application/json";
+  }
+
+  // Attach CSRF double-submit token for browser cookie-auth requests
+  if (typeof window !== "undefined" && shouldAttachCsrf(options.method)) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
 
   const res = await fetch(apiUrl(path, context), {
