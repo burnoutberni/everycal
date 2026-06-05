@@ -141,6 +141,9 @@ app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy
 app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
+// Rate limiting on admin endpoints (defense-in-depth — admin auth is already required)
+app.use("/api/v1/admin", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
+
 // Auth middleware — runs on all routes, sets c.get("user") or null
 app.use("*", authMiddleware(db));
 
