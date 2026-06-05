@@ -33,7 +33,7 @@ import {
   resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
-import { stripHtml } from "../lib/security.js";
+import { stripHtml, isValidHttpUrl } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
 import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
 import { isActivityTombstoned, isRemoteActorTombstoned, isRemoteEventTombstoned } from "../lib/federation-tombstones.js";
@@ -162,11 +162,16 @@ export function activityPubRoutes(db: DB): Hono {
 
     const attachment: Record<string, unknown>[] = [];
     if (account.website) {
-      attachment.push({
-        type: "PropertyValue",
-        name: "Website",
-        value: `<a href="${account.website}" rel="me nofollow noopener noreferrer" target="_blank">${account.website}</a>`,
-      });
+      const website = account.website as string;
+      if (isValidHttpUrl(website)) {
+        const escapedHref = website.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        const escapedText = website.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        attachment.push({
+          type: "PropertyValue",
+          name: "Website",
+          value: `<a href="${escapedHref}" rel="me nofollow noopener noreferrer" target="_blank">${escapedText}</a>`,
+        });
+      }
     }
 
     const actor = {
