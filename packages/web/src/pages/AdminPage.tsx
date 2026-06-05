@@ -337,6 +337,7 @@ export function AdminPage() {
     if (action.trim()) params.set('action', action.trim());
     if (actor.trim()) params.set('actor', actor.trim());
     if (target.trim()) params.set('target', target.trim());
+    params.set('limit', '100');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const data = await adminFetch<AdminAuditResponse>(`/api/v1/admin/audit-log${suffix}`);
     setAudit(data.items || []);
@@ -1299,7 +1300,7 @@ export function AdminPage() {
         <button className='btn btn-primary' type='submit'>Apply filters</button>
       </form>
       <ul className='admin-record-list' role='list' aria-label='Audit trail'>
-        {audit.slice(0, 100).map((item) => (
+        {audit.map((item) => (
           <li key={item.id} className='admin-record-row'>
             <div className='admin-record-main'>
               <p className='admin-record-title'>{item.action_type}</p>

@@ -409,12 +409,14 @@ export function adminRoutes(db: DB) {
     const action = (c.req.query('action') || '').trim();
     const actor = (c.req.query('actor') || '').trim();
     const target = (c.req.query('target') || '').trim();
+    const limitParam = Number(c.req.query('limit'));
+    const limit = Number.isFinite(limitParam) ? Math.min(500, Math.max(1, Math.floor(limitParam))) : 100;
     const rows = db.prepare(`SELECT id, admin_account_id, action_type, target_type, target_id, payload_json, created_at
       FROM admin_audit_log
       WHERE (? = '' OR action_type = ?)
         AND (? = '' OR admin_account_id = ?)
         AND (? = '' OR target_id = ?)
-      ORDER BY created_at DESC LIMIT 500`).all(action, action, actor, actor, target, target);
+      ORDER BY created_at DESC LIMIT ?`).all(action, action, actor, actor, target, target, limit);
     return c.json({ items: rows });
   });
 
