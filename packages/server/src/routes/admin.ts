@@ -218,6 +218,10 @@ export function adminRoutes(db: DB) {
     const reasonLen = validateReasonLength(body.reason.trim());
     if (reasonLen) return c.json({ error: reasonLen }, 400);
     const reason = body.reason.trim();
+    const existingBlock = db.prepare(
+      'SELECT id FROM federation_blocks WHERE block_type = ? AND is_active = 1 AND (? IS NOT NULL AND actor_uri = ? OR ? IS NOT NULL AND domain = ?)'
+    ).get(body.blockType, body.blockType === 'actor' ? targetId : null, body.blockType === 'actor' ? targetId : null, body.blockType === 'domain' ? targetId : null, body.blockType === 'domain' ? targetId : null);
+    if (existingBlock) return c.json({ error: 'block_already_exists' }, 409);
     const id = nanoid();
     db.prepare('INSERT INTO federation_blocks (id, block_type, actor_uri, domain, reason, created_by_account_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(
       id,

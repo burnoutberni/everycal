@@ -761,6 +761,15 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 15,
+    name: "federation_blocks_unique_active",
+    up: (db) => {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_federation_blocks_unique_active_actor ON federation_blocks(block_type, actor_uri) WHERE is_active = 1 AND block_type = 'actor'");
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_federation_blocks_unique_active_domain ON federation_blocks(block_type, domain) WHERE is_active = 1 AND block_type = 'domain'");
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
