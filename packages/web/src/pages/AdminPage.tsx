@@ -48,6 +48,7 @@ export function AdminPage() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
   const [runtimeDraftValues, setRuntimeDraftValues] = useState<Record<string, string>>({});
+  const [dirtyRuntimeSettingKeys, setDirtyRuntimeSettingKeys] = useState<Set<string>>(new Set());
   const [runtimeSettingsQuery, setRuntimeSettingsQuery] = useState('');
   const [confirmState, setConfirmState] = useState<ConfirmState>({
     open: false,
@@ -203,14 +204,22 @@ export function AdminPage() {
     return 'Requires restart';
   }, []);
 
+  const getRuntimeSettingSourceValue = useCallback((setting: AdminSetting) => {
+    const sourceValue = setting.value ?? setting.effectiveValue;
+    return sourceValue == null ? '' : String(sourceValue);
+  }, []);
+
   useEffect(() => {
-    const nextDrafts: Record<string, string> = {};
-    settings.forEach((setting) => {
-      const sourceValue = setting.value ?? setting.effectiveValue;
-      nextDrafts[setting.key] = sourceValue == null ? '' : String(sourceValue);
+    setRuntimeDraftValues((prev) => {
+      const nextDrafts: Record<string, string> = {};
+      settings.forEach((setting) => {
+        nextDrafts[setting.key] = dirtyRuntimeSettingKeys.has(setting.key)
+          ? (prev[setting.key] ?? '')
+          : getRuntimeSettingSourceValue(setting);
+      });
+      return nextDrafts;
     });
-    setRuntimeDraftValues(nextDrafts);
-  }, [settings]);
+  }, [dirtyRuntimeSettingKeys, getRuntimeSettingSourceValue, settings]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -1190,7 +1199,17 @@ export function AdminPage() {
                           type={setting.kind === 'secret' ? 'password' : (setting.kind === 'number' ? 'number' : 'text')}
                           value={runtimeDraftValues[setting.key] ?? ''}
                           disabled={!setting.editable || setting.lockedByEnv || pendingActionKey === `setting:${setting.key}`}
-                          onChange={(e) => setRuntimeDraftValues((prev) => ({ ...prev, [setting.key]: e.target.value }))}
+                           onChange={(e) => {
+                             const nextValue = e.target.value;
+                             const sourceValue = getRuntimeSettingSourceValue(setting);
+                             setRuntimeDraftValues((prev) => ({ ...prev, [setting.key]: nextValue }));
+                             setDirtyRuntimeSettingKeys((prev) => {
+                               const next = new Set(prev);
+                               if (nextValue === sourceValue) next.delete(setting.key);
+                               else next.add(setting.key);
+                               return next;
+                             });
+                           }}
                           aria-label={`${setting.label} value`}
                         />
                         <button
@@ -1222,15 +1241,20 @@ export function AdminPage() {
                               requireReason: true,
                               onConfirm: async (reason) => {
                                 setPendingActionKey(`setting:${setting.key}`);
-                                try {
-                                  await adminFetch(`/api/v1/admin/settings/${encodeURIComponent(setting.key)}`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ value: nextValue, reason }),
-                                  });
-                                } finally {
-                                  setPendingActionKey(null);
-                                }
+                                 try {
+                                   await adminFetch(`/api/v1/admin/settings/${encodeURIComponent(setting.key)}`, {
+                                     method: 'POST',
+                                     headers: { 'Content-Type': 'application/json' },
+                                     body: JSON.stringify({ value: nextValue, reason }),
+                                   });
+                                   setDirtyRuntimeSettingKeys((prev) => {
+                                     const next = new Set(prev);
+                                     next.delete(setting.key);
+                                     return next;
+                                   });
+                                 } finally {
+                                   setPendingActionKey(null);
+                                 }
                                 setStatus(`Updated ${setting.label.toLowerCase()}`);
                                 await refreshSettings();
                                 await refreshAudit();
