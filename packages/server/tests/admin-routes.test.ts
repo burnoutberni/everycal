@@ -633,7 +633,7 @@ describe('admin routes', () => {
     expect(await resModerateInvalidState.json()).toEqual({ error: 'invalid_moderation_state' });
   });
 
-  it('POST /federation/block, GET /federation/blocks, and unblocking manage blocks without persisting remote visibility changes', async () => {
+  it('POST /federation/block, GET /federation/blocks, and unblocking manage blocks without altering manual moderation', async () => {
     const db = initDatabase(':memory:');
     db.prepare("INSERT INTO accounts (id, username, is_admin) VALUES ('a1','admin',1)").run();
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES ('actor1', 'preferred1', 'http://inbox1', 'bad-domain.com')").run();
@@ -757,12 +757,12 @@ describe('admin routes', () => {
     expect(blockRow.is_active).toBe(0);
 
     const remoteEvent = db.prepare("SELECT moderation_state FROM remote_events WHERE uri = 're1'").get() as any;
-    expect(remoteEvent.moderation_state).toBe('visible');
+    expect(remoteEvent.moderation_state).toBe('hidden');
 
-    const restoredAfterUnblock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title1', null);
-    expect(restoredAfterUnblock?.kind).toBe('event');
-    if (!restoredAfterUnblock || restoredAfterUnblock.kind !== 'event') throw new Error('expected event payload');
-    expect(restoredAfterUnblock.event).not.toBeNull();
+    const hiddenAfterUnblock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title1', null);
+    expect(hiddenAfterUnblock?.kind).toBe('event');
+    if (!hiddenAfterUnblock || hiddenAfterUnblock.kind !== 'event') throw new Error('expected event payload');
+    expect(hiddenAfterUnblock.event).toBeNull();
 
     const visibleAfterUnblock = getSsrInitialData(db, '/@preferred1@bad-domain.com/title2', null);
     expect(visibleAfterUnblock?.kind).toBe('event');

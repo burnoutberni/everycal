@@ -28,24 +28,6 @@ function audit(db: DB, adminId: string, action: string, targetType: string, targ
   );
 }
 
-function reconcileLegacyBlockedRemoteEvents(db: DB) {
-  db.prepare(`UPDATE remote_events AS re
-    SET moderation_state = 'visible'
-    WHERE re.moderation_state = 'hidden'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM federation_blocks fb
-        WHERE fb.is_active = 1
-          AND (
-            (fb.block_type = 'actor' AND fb.actor_uri = re.actor_uri)
-            OR (
-              fb.block_type = 'domain'
-              AND fb.domain = (SELECT domain FROM remote_actors WHERE uri = re.actor_uri)
-            )
-          )
-      )`).run();
-}
-
 export function adminRoutes(db: DB) {
   const app = new Hono();
   const moderationStates = new Set(['flagged', 'visible', 'hidden']);
@@ -214,7 +196,6 @@ export function adminRoutes(db: DB) {
       reason,
       admin.id,
     );
-    reconcileLegacyBlockedRemoteEvents(db);
     audit(db, admin.id, 'federation.block', body.blockType, targetId, { reason });
     return c.json({ ok: true, blockId: id });
   });
@@ -267,7 +248,6 @@ export function adminRoutes(db: DB) {
     const block = db.prepare('SELECT id FROM federation_blocks WHERE id = ?').get(id) as { id: string } | undefined;
     if (!block) return c.json({ error: 'federation_block_not_found' }, 404);
     db.prepare('UPDATE federation_blocks SET is_active = 0 WHERE id = ?').run(id);
-    reconcileLegacyBlockedRemoteEvents(db);
     audit(db, admin.id, 'federation.unblock', 'federation_block', id, { reason: body.reason.trim() });
     return c.json({ ok: true });
   });
