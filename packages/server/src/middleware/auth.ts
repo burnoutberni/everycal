@@ -35,7 +35,15 @@ declare module "hono" {
   }
 }
 
-const SALT_ROUNDS = 12;
+function resolveSaltRounds(): number {
+  const raw = process.env.BCRYPT_SALT_ROUNDS;
+  if (!raw) return 12;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 4 || parsed > 31) return 12;
+  return parsed;
+}
+
+const SALT_ROUNDS = resolveSaltRounds();
 const SESSION_TTL_HOURS = 24 * 30; // 30 days
 
 function toSqliteDateTime(isoInstant: string): string {
