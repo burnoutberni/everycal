@@ -1,4 +1,4 @@
-import { getCsrfToken, shouldAttachCsrf } from './csrf';
+import { apiRequest } from "./api";
 
 async function parseJsonBody<T = unknown>(res: Response): Promise<T | undefined> {
   if (res.status === 204) return undefined;
@@ -10,24 +10,18 @@ async function parseJsonBody<T = unknown>(res: Response): Promise<T | undefined>
 }
 
 export async function adminFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers || {});
-  if (shouldAttachCsrf(init?.method)) {
-    const csrfToken = getCsrfToken();
-    if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
-  }
-
-  const res = await fetch(path, { credentials: "include", ...init, headers });
-
-  if (!res.ok) {
-    let serverError: string | null = null;
-    try {
-      const data = await parseJsonBody<{ error?: unknown }>(res);
-      if (typeof data?.error === "string" && data.error.trim()) {
-        serverError = data.error.trim();
-      }
-    } catch {}
-    throw new Error(serverError ? `${serverError} (${res.status})` : `Request failed (${res.status})`);
-  }
-
-  return (await parseJsonBody<T>(res)) as T;
+  return apiRequest<T>(path, init, {
+    resolveUrl: (requestPath) => requestPath,
+    parseResponse: async (res) => (await parseJsonBody<T>(res)) as T,
+    parseError: async (res) => {
+      let serverError: string | null = null;
+      try {
+        const data = await parseJsonBody<{ error?: unknown }>(res);
+        if (typeof data?.error === "string" && data.error.trim()) {
+          serverError = data.error.trim();
+        }
+      } catch {}
+      return new Error(serverError ? `${serverError} (${res.status})` : `Request failed (${res.status})`);
+    },
+  });
 }

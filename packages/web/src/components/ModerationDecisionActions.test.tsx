@@ -96,15 +96,14 @@ describe("ModerationDecisionActions", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
+        cache: "no-store",
         body: JSON.stringify({ state: "hidden", reason: "spam" }),
-        headers: expect.any(Headers),
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "X-CSRF-Token": "test-csrf-token",
+        }),
       })
     );
-
-    const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit;
-    const headers = init.headers as Headers;
-    expect(headers.get("Content-Type")).toBe("application/json");
-    expect(headers.get("X-CSRF-Token")).toBe("test-csrf-token");
   });
 
   it("closes and resets the modal after a successful moderation request", async () => {

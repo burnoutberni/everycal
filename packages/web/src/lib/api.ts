@@ -91,11 +91,28 @@ export function setApiKey(key: string | null) {
   apiKey = key;
 }
 
-async function request<T>(
+function notifyUnauthorized() {
+  if (typeof window !== "undefined") {
+    unauthorizedListeners.forEach((listener) => {
+      listener();
+    });
+  }
+}
+
+export interface ApiRequestOptions<T> {
+  context?: ApiRequestContext;
+  resolveUrl?: (path: string, context?: ApiRequestContext) => string;
+  parseResponse?: (response: Response) => Promise<T>;
+  parseError?: (response: Response) => Promise<Error>;
+  cache?: RequestCache;
+}
+
+export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
-  context?: ApiRequestContext
+  requestOptions: ApiRequestOptions<T> = {}
 ): Promise<T> {
+  const { context, resolveUrl = apiUrl, parseResponse, parseError, cache = "no-store" } = requestOptions;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -123,26 +140,39 @@ async function request<T>(
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
 
-  const res = await fetch(apiUrl(path, context), {
+  const res = await fetch(resolveUrl(path, context), {
     ...options,
     headers,
     // Include cookies for session-based auth (HttpOnly cookie set by server)
     credentials: "include",
     // Prevent stale cached responses (e.g. profile event count after creating an event)
-    cache: "no-store",
+    cache,
   });
 
   if (!res.ok) {
-    if (res.status === 401 && typeof window !== "undefined") {
-      unauthorizedListeners.forEach((listener) => {
-        listener();
-      });
+    if (res.status === 401) {
+      notifyUnauthorized();
+    }
+    if (parseError) {
+      throw await parseError(res);
     }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error || i18n.t("common:requestFailed"));
   }
 
-  return res.json();
+  if (parseResponse) {
+    return parseResponse(res);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  context?: ApiRequestContext
+): Promise<T> {
+  return apiRequest<T>(path, options, { context });
 }
 
 export class ApiError extends Error {

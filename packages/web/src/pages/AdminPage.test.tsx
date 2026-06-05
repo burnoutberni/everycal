@@ -301,8 +301,11 @@ describe("AdminPage proactive federation suppression", () => {
         expect.objectContaining({
           method: "POST",
           credentials: "include",
+          cache: "no-store",
           body: JSON.stringify({ blockType: "domain", domain: "example.org", reason: "spam network" }),
-          headers: expect.any(Headers),
+          headers: expect.objectContaining({
+            "Content-Type": "application/json",
+          }),
         })
       );
     });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { onUnauthorized } from "./api";
 import { adminFetch } from "./adminFetch";
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -36,15 +37,14 @@ describe("adminFetch", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
+        cache: "no-store",
         body: JSON.stringify({ ok: true }),
-        headers: expect.any(Headers),
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "X-CSRF-Token": "test-csrf-token",
+        }),
       })
     );
-
-    const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit;
-    const headers = init.headers as Headers;
-    expect(headers.get("Content-Type")).toBe("application/json");
-    expect(headers.get("X-CSRF-Token")).toBe("test-csrf-token");
   });
 
   it("does not attach CSRF header for GET requests", async () => {
@@ -53,8 +53,8 @@ describe("adminFetch", () => {
     await adminFetch("/api/v1/admin/example");
 
     const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit;
-    const headers = init.headers as Headers;
-    expect(headers.get("X-CSRF-Token")).toBeNull();
+    const headers = init.headers as Record<string, string>;
+    expect(headers["X-CSRF-Token"]).toBeUndefined();
   });
 
   it("surfaces server JSON errors with status", async () => {
@@ -67,5 +67,16 @@ describe("adminFetch", () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
 
     await expect(adminFetch("/api/v1/admin/example")).rejects.toThrow("Request failed (401)");
+  });
+
+  it("notifies unauthorized listeners on 401", async () => {
+    const listener = vi.fn();
+    const unsubscribe = onUnauthorized(listener);
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
+
+    await expect(adminFetch("/api/v1/admin/example")).rejects.toThrow("Request failed (401)");
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });
