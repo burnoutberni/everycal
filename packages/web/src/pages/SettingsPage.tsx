@@ -212,8 +212,8 @@ export function SettingsPage() {
         setEventUpdatedEnabled(p.eventUpdatedEnabled);
         setEventCancelledEnabled(p.eventCancelledEnabled);
       }
-    });
-    authApi.listApiKeys().then((r) => setKeys(r.keys));
+    }).catch(() => {});
+    authApi.listApiKeys().then((r) => setKeys(r.keys)).catch(() => {});
     identitiesApi.list().then((res) => {
       setIdentities(res.identities);
     }).catch(() => {
