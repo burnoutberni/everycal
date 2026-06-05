@@ -65,8 +65,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "../../web");
 
 const SSR_ANON_CACHE_TTL_MS = Math.max(0, getEffectiveSetting<number>(db, "ssr_anon_cache_ttl_ms", 15000));
+const SSR_ANON_CACHE_MAX_ENTRIES = 500;
 const trustedProxy = getEffectiveSetting<boolean>(db, "trusted_proxy", false);
 const ssrAnonymousCache = new Map<string, CachedSsrResponse>();
+
+// Periodic cleanup of expired SSR anonymous cache entries
+if (SSR_ANON_CACHE_TTL_MS > 0) {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of ssrAnonymousCache) {
+      if (entry.expiresAt <= now) ssrAnonymousCache.delete(key);
+    }
+    // Evict oldest entries if cache exceeds max size
+    if (ssrAnonymousCache.size > SSR_ANON_CACHE_MAX_ENTRIES) {
+      const entries = [...ssrAnonymousCache.entries()]
+        .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+      const toRemove = entries.slice(0, entries.length - SSR_ANON_CACHE_MAX_ENTRIES);
+      for (const [key] of toRemove) ssrAnonymousCache.delete(key);
+    }
+  }, Math.max(SSR_ANON_CACHE_TTL_MS, 30_000));
+}
 
 // Security headers with Content-Security-Policy
 app.use("*", secureHeaders({
