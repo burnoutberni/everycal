@@ -115,6 +115,57 @@ describe("federation hardening prep", () => {
     expect(federation.visibilityToActivityPubAddressing(undefined, actor)).toEqual({ to: [], cc: [] });
   });
 
+  it("rejects private nodeinfo href targets before a second fetch", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        links: [
+          {
+            rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
+            href: "https://169.254.169.254/latest/meta-data",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(federation.fetchNodeInfo("remote.example")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example/.well-known/nodeinfo",
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
+  it("fetches public nodeinfo href targets after validation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          links: [
+            {
+              rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
+              href: "https://remote.example/nodeinfo/2.1",
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ software: { name: "Mastodon" } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(federation.fetchNodeInfo("remote.example")).resolves.toEqual({ software: "mastodon" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://remote.example/nodeinfo/2.1",
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
   it("derives followers_only only when recipient matches actor followers URL", () => {
     expect(
       federation.deriveVisibilityFromActivityPubAddressing({

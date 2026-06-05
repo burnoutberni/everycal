@@ -929,6 +929,7 @@ export async function fetchNodeInfo(domain: string): Promise<{ software: string 
     )?.href;
     if (!href) return null;
 
+    await validateFederationUrl(href);
     const nodeRes = await fetch(href, { headers: { Accept: "application/json" } });
     if (!nodeRes.ok) return null;
     const node = (await nodeRes.json()) as { software?: { name?: string } };
