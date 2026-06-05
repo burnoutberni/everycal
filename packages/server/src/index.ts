@@ -167,7 +167,7 @@ app.use("*", authMiddleware(db));
 
 // CSRF protection — double-submit cookie for all cookie-auth state-changing API routes
 // (admin routes already have requireAdminCsrf; this covers the rest)
-const csrfOrigins = getAllowedAdminOrigins();
+const csrfOrigins = getAllowedAdminOrigins(db);
 app.use("/api/v1/auth", requireCsrf(csrfOrigins));
 app.use("/api/v1/events", requireCsrf(csrfOrigins));
 app.use("/api/v1/private-feeds", requireCsrf(csrfOrigins));

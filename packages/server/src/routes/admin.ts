@@ -54,7 +54,7 @@ export function adminRoutes(db: DB) {
   const moderationStates = new Set(['flagged', 'visible', 'hidden']);
   const federationBlockTypes = new Set(['actor', 'domain']);
   app.use('*', requireAdmin());
-  app.use('*', requireAdminCsrf());
+  app.use('*', requireAdminCsrf(db));
 
   app.get('/health', (c) => {
     const accounts = db.prepare('SELECT COUNT(*) as count FROM accounts').get() as {count:number};
