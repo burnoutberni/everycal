@@ -7,7 +7,16 @@ import { ModerationDecisionActions } from '../components/ModerationDecisionActio
 import { adminFetch } from '../lib/adminFetch';
 import './SettingsPage.css';
 
-type AnyObj = Record<string, any>;
+type AdminHealthResponse = {
+  uptimeSec: number;
+  schemaVersion: number;
+  expectedSchemaVersion: number;
+  accounts: number;
+  events: number;
+  openRegistrations: boolean;
+  openRegistrationsDb: boolean;
+  openRegistrationsEnvOverride: boolean;
+};
 type Account = { id: string; username: string; is_admin?: number; is_disabled?: number; is_locked_out?: number; account_type?: string; discoverable?: number; email_verified?: number; created_at?: string; is_bot?: number };
 type AccountsResponse = { items: Account[]; enabledAdminCount?: number };
 type ModerationItem = {
@@ -45,6 +54,17 @@ type AuditItem = { id: string; admin_account_id: string; action_type: string; ta
 type ConfirmState = { open: boolean; title: string; description: string; reasonLabel: string; actionLabel: string; actionClassName?: string; requireReason?: boolean; loading?: boolean; reason: string; onConfirm: (reason: string) => Promise<void> };
 type AdminSectionKey = 'settings' | 'accounts' | 'events' | 'federation' | 'scrapers' | 'jobs' | 'audit';
 
+type AdminAuditResponse = { items: AuditItem[] };
+type AdminModerationResponse = { items: ModerationItem[] };
+type AdminFederationBlocksResponse = { items: FederationBlock[] };
+type AdminFederationActorsResponse = { items: FederationActor[] };
+type AdminFederationDomainsResponse = { items: FederationDomain[] };
+type AdminFederationTombstonesResponse = { items: FederationTombstone[] };
+type AdminSettingsResponse = { items: AdminSetting[] };
+type AdminJobRunsResponse = { items: JobRun[] };
+type AdminScraperTriggerResponse = { runId: string; status: string };
+type AdminRevokeAuthResponse = { revokedSessions: number; revokedApiKeys: number };
+
 type ScraperInfo = {
   id: string;
   name: string;
@@ -76,7 +96,7 @@ const AVAILABLE_SCRAPERS: ScraperInfo[] = [
 export function AdminPage() {
   const { user, authStatus, loading } = useAuth();
   const [, navigate] = useLocation();
-  const [health, setHealth] = useState<AnyObj | null>(null);
+  const [health, setHealth] = useState<AdminHealthResponse | null>(null);
   const [audit, setAudit] = useState<AuditItem[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [enabledAdminCount, setEnabledAdminCount] = useState(0);
@@ -308,7 +328,7 @@ export function AdminPage() {
   };
 
   async function refreshHealth() {
-    const data = await adminFetch('/api/v1/admin/health');
+    const data = await adminFetch<AdminHealthResponse>('/api/v1/admin/health');
     setHealth(data);
   }
 
@@ -318,34 +338,34 @@ export function AdminPage() {
     if (actor.trim()) params.set('actor', actor.trim());
     if (target.trim()) params.set('target', target.trim());
     const suffix = params.toString() ? `?${params.toString()}` : '';
-    const data = await adminFetch(`/api/v1/admin/audit-log${suffix}`);
+    const data = await adminFetch<AdminAuditResponse>(`/api/v1/admin/audit-log${suffix}`);
     setAudit(data.items || []);
   }
 
   async function refreshAccounts(q = accountQuery) {
-    const data = await adminFetch(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`) as AccountsResponse;
+    const data = await adminFetch<AccountsResponse>(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
     setAccounts(data.items || []);
     setEnabledAdminCount(data.enabledAdminCount || 0);
   }
 
   async function refreshModerationQueue(state = queueState) {
-    const data = await adminFetch(`/api/v1/admin/events/moderation-queue?state=${encodeURIComponent(state)}`);
+    const data = await adminFetch<AdminModerationResponse>(`/api/v1/admin/events/moderation-queue?state=${encodeURIComponent(state)}`);
     setModerationQueue(data.items || []);
   }
 
   async function refreshFederationBlocks(q = blockQuery) {
     const suffix = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
-    const data = await adminFetch(`/api/v1/admin/federation/blocks${suffix}`);
+    const data = await adminFetch<AdminFederationBlocksResponse>(`/api/v1/admin/federation/blocks${suffix}`);
     setFederationBlocks(data.items || []);
   }
 
   async function refreshJobRuns() {
-    const data = await adminFetch('/api/v1/admin/jobs/runs');
+    const data = await adminFetch<AdminJobRunsResponse>('/api/v1/admin/jobs/runs');
     setJobRuns(data.items || []);
   }
 
   async function refreshSettings() {
-    const data = await adminFetch('/api/v1/admin/settings');
+    const data = await adminFetch<AdminSettingsResponse>('/api/v1/admin/settings');
     setSettings(data.items || []);
   }
 
@@ -354,17 +374,17 @@ export function AdminPage() {
     if (actorQuery.trim()) params.set('q', actorQuery.trim());
     if (actorStatus.trim()) params.set('status', actorStatus.trim());
     const suffix = params.toString() ? `?${params.toString()}` : '';
-    const data = await adminFetch(`/api/v1/admin/federation/actors${suffix}`);
+    const data = await adminFetch<AdminFederationActorsResponse>(`/api/v1/admin/federation/actors${suffix}`);
     setFederationActors(data.items || []);
   }
 
   async function refreshFederationDomains() {
-    const data = await adminFetch('/api/v1/admin/federation/domains');
+    const data = await adminFetch<AdminFederationDomainsResponse>('/api/v1/admin/federation/domains');
     setFederationDomains(data.items || []);
   }
 
   async function refreshFederationTombstones() {
-    const data = await adminFetch('/api/v1/admin/federation/tombstones');
+    const data = await adminFetch<AdminFederationTombstonesResponse>('/api/v1/admin/federation/tombstones');
     setFederationTombstones(data.items || []);
   }
 
@@ -606,7 +626,7 @@ export function AdminPage() {
                       onConfirm: async (reason) => {
                         setPendingActionKey(`revoke-auth:${a.id}`);
                         try {
-                          const data = await adminFetch(`/api/v1/admin/security/accounts/${encodeURIComponent(a.id)}/revoke-auth`, {
+                          const data = await adminFetch<AdminRevokeAuthResponse>(`/api/v1/admin/security/accounts/${encodeURIComponent(a.id)}/revoke-auth`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ reason }),
@@ -1203,7 +1223,7 @@ export function AdminPage() {
                 onClick={async () => {
                   setPendingActionKey(`scraper:${scraper.id}`);
                   try {
-                    const data = await adminFetch('/api/v1/admin/scrapers/trigger', {
+                    const data = await adminFetch<AdminScraperTriggerResponse>('/api/v1/admin/scrapers/trigger', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({

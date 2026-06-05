@@ -1,6 +1,6 @@
 import { getCsrfToken, shouldAttachCsrf } from './csrf';
 
-async function parseJsonBody<T = any>(res: Response): Promise<T | undefined> {
+async function parseJsonBody<T = unknown>(res: Response): Promise<T | undefined> {
   if (res.status === 204) return undefined;
 
   const contentType = res.headers.get("Content-Type") || "";
@@ -9,7 +9,7 @@ async function parseJsonBody<T = any>(res: Response): Promise<T | undefined> {
   return res.json() as Promise<T>;
 }
 
-export async function adminFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
+export async function adminFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers || {});
   if (shouldAttachCsrf(init?.method)) {
     const csrfToken = getCsrfToken();
