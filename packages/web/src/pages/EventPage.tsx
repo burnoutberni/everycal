@@ -503,7 +503,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             <p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{event.flaggerNote}</p>
             <div style={{ marginTop: "0.65rem" }}>
               <p className="text-sm text-muted" style={{ marginBottom: "0.5rem" }}>
-                This action moderates the event itself (keep visible or remove), not the note text.
+                {t("moderationDecisionHint")}
               </p>
               <ModerationDecisionActions
                 eventId={event.id}

@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toErrorMessage } from "@everycal/core";
 import { adminFetch } from "../lib/adminFetch";
 import { ReasonModal } from "./ReasonModal";
@@ -16,6 +17,7 @@ export function ModerationDecisionActions({
   onResolved?: (state: DecisionState) => Promise<void> | void;
   size?: "sm" | "md";
 }) {
+  const { t } = useTranslation(["events", "common"]);
   const [open, setOpen] = useState(false);
   const [decision, setDecision] = useState<DecisionState>("hidden");
   const [reason, setReason] = useState("");
@@ -39,7 +41,7 @@ export function ModerationDecisionActions({
     e.preventDefault();
     const trimmed = reason.trim();
     if (!trimmed) {
-      setError("Reason is required for moderation actions");
+      setError(t("moderationReasonRequired"));
       return;
     }
     try {
@@ -53,7 +55,7 @@ export function ModerationDecisionActions({
       await onResolved?.(decision);
       resetAndCloseModal();
     } catch (err) {
-      setError(toErrorMessage(err, "Failed to moderate event"));
+      setError(toErrorMessage(err, t("moderationRequestFailed")));
     } finally {
       setSubmitting(false);
     }
@@ -62,32 +64,32 @@ export function ModerationDecisionActions({
   return (
     <>
       <div className="moderation-decision-actions">
-        <button type="button" className={`btn btn-primary${buttonSizeClass}`} onClick={() => setOpen(true)}>Moderate event</button>
+        <button type="button" className={`btn btn-primary${buttonSizeClass}`} onClick={() => setOpen(true)}>{t("moderateEvent")}</button>
       </div>
       <ReasonModal
         open={open}
-        title={`Moderate event: ${eventTitle || eventId}`}
-        description="This decision changes event visibility. It does not edit the moderation note itself."
-        reasonLabel={decision === "hidden" ? "Removal reason" : "Keep reason"}
+        title={t("moderateEventTitle", { title: eventTitle || eventId })}
+        description={t("moderationDecisionDescription")}
+        reasonLabel={decision === "hidden" ? t("moderationRemovalReason") : t("moderationKeepReason")}
         reasonValue={reason}
-        reasonPlaceholder={decision === "hidden" ? "Explain why this event should be removed..." : "Explain why this event should remain visible..."}
-        submitLabel={submitting ? "Saving..." : decision === "hidden" ? "Remove event" : "Keep event"}
-        cancelLabel="Cancel"
-        closeLabel="Close"
+        reasonPlaceholder={decision === "hidden" ? t("moderationRemovalReasonPlaceholder") : t("moderationKeepReasonPlaceholder")}
+        submitLabel={submitting ? t("common:saving") : decision === "hidden" ? t("moderationRemoveEvent") : t("moderationKeepEvent")}
+        cancelLabel={t("common:cancel")}
+        closeLabel={t("common:close")}
         error={error}
         submitting={submitting}
         onReasonChange={setReason}
         onClose={closeModal}
         onSubmit={submit}
       >
-        <div className="moderation-decision-state-toggle" role="group" aria-label="Moderation decision">
+        <div className="moderation-decision-state-toggle" role="group" aria-label={t("moderationDecisionAriaLabel")}>
           <button
             type="button"
             className={`btn btn-sm ${decision === "hidden" ? "btn-danger" : "btn-ghost"}`}
             onClick={() => setDecision("hidden")}
             disabled={submitting}
           >
-            Remove event
+            {t("moderationRemoveEvent")}
           </button>
           <button
             type="button"
@@ -95,7 +97,7 @@ export function ModerationDecisionActions({
             onClick={() => setDecision("visible")}
             disabled={submitting}
           >
-            Keep event
+            {t("moderationKeepEvent")}
           </button>
         </div>
       </ReasonModal>

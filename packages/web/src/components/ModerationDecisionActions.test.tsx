@@ -4,6 +4,47 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ModerationDecisionActions } from "./ModerationDecisionActions";
 
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, string>) => {
+      switch (key) {
+        case "moderateEvent":
+          return "Moderate event";
+        case "moderateEventTitle":
+          return `Moderate event: ${options?.title ?? ""}`;
+        case "moderationDecisionDescription":
+          return "This decision changes event visibility. It does not edit the moderation note itself.";
+        case "moderationRemovalReason":
+          return "Removal reason";
+        case "moderationKeepReason":
+          return "Keep reason";
+        case "moderationRemovalReasonPlaceholder":
+          return "Explain why this event should be removed...";
+        case "moderationKeepReasonPlaceholder":
+          return "Explain why this event should remain visible...";
+        case "moderationRemoveEvent":
+          return "Remove event";
+        case "moderationKeepEvent":
+          return "Keep event";
+        case "moderationDecisionAriaLabel":
+          return "Moderation decision";
+        case "moderationReasonRequired":
+          return "Reason is required for moderation actions";
+        case "moderationRequestFailed":
+          return "Failed to moderate event";
+        case "common:saving":
+          return "Saving...";
+        case "common:cancel":
+          return "Cancel";
+        case "common:close":
+          return "Close";
+        default:
+          return key;
+      }
+    },
+  }),
+}));
+
 function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json" },
