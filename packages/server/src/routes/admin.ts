@@ -185,7 +185,7 @@ export function adminRoutes(db: DB) {
     const state = (c.req.query('state') || 'flagged').trim();
     const selectSql = `SELECT e.id, e.slug, e.title, e.description, e.start_at_utc, e.end_at_utc, e.event_timezone, e.all_day,
         e.location_name, e.location_address, e.url, e.visibility, e.canceled,
-        e.moderation_state, e.moderation_reason, e.flagger_note, e.moderated_at, e.account_id, e.created_by_account_id, e.created_at, e.updated_at,
+        e.moderation_state, e.moderation_reason, e.flagger_note, e.flagged_at, e.moderated_at, e.account_id, e.created_by_account_id, e.created_at, e.updated_at,
         owner.username AS owner_username,
         creator.username AS created_by_username,
         GROUP_CONCAT(et.tag, ', ') AS tags
@@ -197,11 +197,11 @@ export function adminRoutes(db: DB) {
       ? db.prepare(`${selectSql}
         WHERE e.moderation_state = ?
         GROUP BY e.id
-        ORDER BY e.created_at DESC
+        ORDER BY COALESCE(e.flagged_at, e.created_at) DESC
         LIMIT 200`).all(state)
       : db.prepare(`${selectSql}
         GROUP BY e.id
-        ORDER BY e.created_at DESC
+        ORDER BY COALESCE(e.flagged_at, e.created_at) DESC
         LIMIT 200`).all();
     return c.json({ items: rows });
   });

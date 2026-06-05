@@ -554,7 +554,7 @@ export function AdminPage() {
                   </p>
                 ) : null}
                 <div className='text-xs text-muted mt-1' style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                  <div>Requested: {formatDateTime(item.created_at)}</div>
+                  <div>Requested: {formatDateTime(item.flagged_at || item.created_at)}</div>
                   {item.moderated_at ? <div>Moderated: {formatDateTime(item.moderated_at)}</div> : null}
                 </div>
                 <a
@@ -579,9 +579,9 @@ export function AdminPage() {
                    item.moderation_state === 'hidden' ? 'Hidden' : 'Visible'}
                 </span>
                 {item.canceled ? <span className='admin-record-pill is-danger'>Canceled</span> : null}
-                {item.created_at && (
+                {(item.flagged_at || item.created_at) && (
                   <span className={`admin-record-pill ${item.moderated_at ? '' : 'is-accent'}`}>
-                    {item.moderated_at ? `Resolved in ${formatModerationLatency(item.created_at, item.moderated_at)}` : `Open: ${formatModerationLatency(item.created_at, item.moderated_at)}`}
+                    {item.moderated_at ? `Resolved in ${formatModerationLatency(item.flagged_at || item.created_at, item.moderated_at)}` : `Open: ${formatModerationLatency(item.flagged_at || item.created_at, item.moderated_at)}`}
                   </span>
                 )}
               </div>

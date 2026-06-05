@@ -27,6 +27,7 @@ export type ModerationItem = {
   moderation_state: string;
   moderation_reason?: string | null;
   flagger_note?: string | null;
+  flagged_at?: string | null;
   moderated_at?: string | null;
   account_id?: string;
   created_by_account_id?: string | null;

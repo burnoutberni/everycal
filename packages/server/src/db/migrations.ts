@@ -779,6 +779,15 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 17,
+    name: "event_flagged_at",
+    up: (db) => {
+      const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+      if (!eventColumns.some((column) => column.name === "flagged_at")) db.exec("ALTER TABLE events ADD COLUMN flagged_at TEXT");
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
