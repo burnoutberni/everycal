@@ -11,7 +11,7 @@ import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
 import { buildActorUrl, buildUrl, getBaseUrl } from "../../lib/base-url.js";
-import { resolveEventUri } from "./shared.js";
+import { buildRemoteReadabilityFilter, resolveEventUri } from "./shared.js";
 
 function buildLocalEventUri(eventId: string): string {
   return buildUrl(getBaseUrl(), "events", eventId);
@@ -24,6 +24,13 @@ function resolveLocalEventId(input: string): string | null {
 
 function deleteRepostsForEvent(db: DB, accountId: string, eventUri: string): number {
   return db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, eventUri).changes;
+}
+
+function getReadableRemoteEvent(db: DB, currentUserId: string, eventUri: string): { uri: string; actor_uri: string; visibility: string } | undefined {
+  const remoteReadability = buildRemoteReadabilityFilter(currentUserId);
+  return db
+    .prepare(`SELECT uri, actor_uri, visibility FROM remote_events re WHERE re.uri = ? AND ${remoteReadability.sql}`)
+    .get(eventUri, ...remoteReadability.params) as { uri: string; actor_uri: string; visibility: string } | undefined;
 }
 
 async function enqueueOutboundRsvpIfNeeded(
@@ -82,17 +89,15 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     if (!reason) return c.json({ error: "reason_required" }, 400);
 
     const event = localEventId
-      ? db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(localEventId) as
-        | { id: string; account_id: string; visibility: string }
+      ? db.prepare("SELECT id, account_id, visibility, moderation_state FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string; moderation_state: string }
         | undefined
       : undefined;
-    const remoteEvent = !event
-      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
-        | { uri: string; actor_uri: string; visibility: string }
-        | undefined
-      : undefined;
+    const remoteEvent = !event ? getReadableRemoteEvent(db, user.id, eventUri) : undefined;
     if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
     if (!event) return c.json({ error: "local_events_only" }, 400);
+
+    if (event.moderation_state === 'hidden') return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
 
     const canView = event.visibility === "public"
       || event.visibility === "unlisted"
@@ -121,13 +126,13 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     }
     const nextStatus = rawNextStatus as LocalRsvpState;
 
-    const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(body.eventUri);
-    const remoteEvent = !localEvent
-      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(body.eventUri) as
-        | { uri: string; actor_uri: string; visibility: string }
-        | undefined
-      : null;
+    const localEvent = db.prepare("SELECT id, moderation_state FROM events WHERE id = ?").get(body.eventUri) as { id: string; moderation_state: string } | undefined;
+    const remoteEvent = !localEvent ? getReadableRemoteEvent(db, user.id, body.eventUri) : null;
     if (!localEvent && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+
+    if (localEvent && localEvent.moderation_state === 'hidden') {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
 
     if (remoteEvent) {
       if (remoteEvent.visibility === "private") {
@@ -179,17 +184,16 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const localEventId = resolveLocalEventId(id);
 
     const event = localEventId
-      ? db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(localEventId) as
-        | { id: string; account_id: string; visibility: string }
+      ? db.prepare("SELECT id, account_id, visibility, moderation_state FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string; moderation_state: string }
         | undefined
       : undefined;
-    const remoteEvent = !event
-      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
-        | { uri: string; actor_uri: string; visibility: string }
-        | undefined
-      : undefined;
+    const remoteEvent = !event ? getReadableRemoteEvent(db, user.id, eventUri) : undefined;
     if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
 
+    if (event && event.moderation_state === 'hidden') {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
     const canView = event
       ? event.visibility === "public"
         || event.visibility === "unlisted"
