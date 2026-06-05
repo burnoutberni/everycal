@@ -16,6 +16,8 @@ const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 const DELETED_REMOTE_USERNAME = "deleted";
 const AP_MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+const COLLECTION_MAX_ITEMS = 5000;
+const OUTBOX_MAX_ITEMS = 500;
 export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -1078,7 +1080,8 @@ export async function discoverDomainActors(
  */
 export async function fetchRemoteCollection(
   collectionUrl: string,
-  maxPages = 5
+  maxPages = 5,
+  maxItems = COLLECTION_MAX_ITEMS
 ): Promise<string[]> {
   const coll = (await fetchAP(collectionUrl)) as Record<string, unknown>;
 
@@ -1098,7 +1101,7 @@ export async function fetchRemoteCollection(
   }
 
   let pagesFetched = 1;
-  while (nextUrl && pagesFetched < maxPages) {
+  while (nextUrl && pagesFetched < maxPages && items.length < maxItems) {
     try {
       const page = (await fetchAP(nextUrl)) as Record<string, unknown>;
       const pageItems = (page.orderedItems as unknown[]) || (page.items as unknown[]) || [];
@@ -1111,7 +1114,7 @@ export async function fetchRemoteCollection(
     }
   }
 
-  return items.map((item) => {
+  return items.slice(0, maxItems).map((item) => {
     if (typeof item === "string") return item;
     const obj = item as Record<string, unknown>;
     return (obj.id as string) || "";
@@ -1121,7 +1124,7 @@ export async function fetchRemoteCollection(
 /**
  * Fetch events from a remote actor's outbox, following pagination.
  */
-export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promise<unknown[]> {
+export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10, maxItems = OUTBOX_MAX_ITEMS): Promise<unknown[]> {
   const outbox = (await fetchAP(outboxUrl)) as Record<string, unknown>;
 
   let items: unknown[] = [];
@@ -1146,7 +1149,7 @@ export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promi
 
   // Follow pagination
   let pagesFetched = 1;
-  while (nextUrl && pagesFetched < maxPages) {
+  while (nextUrl && pagesFetched < maxPages && items.length < maxItems) {
     try {
       const page = (await fetchAP(nextUrl)) as Record<string, unknown>;
       const pageItems = (page.orderedItems as unknown[]) || [];
@@ -1159,5 +1162,5 @@ export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promi
     }
   }
 
-  return items;
+  return items.slice(0, maxItems);
 }
