@@ -156,12 +156,13 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
       promise = Promise.reject(new Error("No event identifier"));
     }
 
+    let timeoutId: ReturnType<typeof setTimeout>;
     const withTimeout = Promise.race<CalEvent>([
       promise,
-      new Promise<CalEvent>((_, reject) =>
-        setTimeout(() => reject(new Error("Event request timed out")), 10000)
-      ),
-    ]);
+      new Promise<CalEvent>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Event request timed out")), 10000);
+      }),
+    ]).finally(() => clearTimeout(timeoutId));
 
     withTimeout
       .then((ev) => {
