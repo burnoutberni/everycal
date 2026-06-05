@@ -55,6 +55,7 @@ import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startP
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 import { getEffectiveSetting } from "./lib/runtime-settings.js";
 import { startAdminJobWorker } from "./lib/admin-jobs.js";
+import { isProduction } from "./lib/env.js";
 
 validateBaseUrlConfig();
 
@@ -69,7 +70,7 @@ const ssrAnonymousCache = new Map<string, CachedSsrResponse>();
 
 // Security headers with Content-Security-Policy
 app.use("*", secureHeaders({
-  contentSecurityPolicy: process.env.NODE_ENV === "production" ? {
+  contentSecurityPolicy: isProduction() ? {
     defaultSrc: ["'self'"],
     scriptSrc: ["'self'"],
     styleSrc: ["'self'", "'unsafe-inline'"],

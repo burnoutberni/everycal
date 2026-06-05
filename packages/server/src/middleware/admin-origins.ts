@@ -1,4 +1,5 @@
 import { getBaseUrl } from "../lib/base-url.js";
+import { isProduction } from "../lib/env.js";
 
 const DEV_ADMIN_ORIGIN = "http://localhost:5173";
 
@@ -11,7 +12,7 @@ export function getAllowedAdminOrigins(): Set<string> {
     // Leave the set empty when BASE_URL is invalid or unavailable.
   }
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProduction()) {
     origins.add(DEV_ADMIN_ORIGIN);
   }
 

@@ -1,6 +1,7 @@
 /** Shared auth session cookie helpers. */
 
 import { nanoid } from "nanoid";
+import { isProduction } from "../../lib/env.js";
 
 type HeaderTarget = { header: (name: string, value: string, options?: { append?: boolean }) => void };
 
@@ -22,7 +23,7 @@ function buildCsrfCookie(expiresAt: string): string {
     `Max-Age=${toMaxAgeSeconds(expiresAt)}`,
     "SameSite=Lax",
   ];
-  if (process.env.NODE_ENV === "production") {
+  if (isProduction()) {
     parts.push("Secure");
   }
   return parts.join("; ");
@@ -41,7 +42,7 @@ export function maybeSetMissingCsrfCookie(c: HeaderTarget, cookieHeader: string 
 
 export function setSessionCookie(c: HeaderTarget, token: string, expiresAt: string) {
   const maxAge = toMaxAgeSeconds(expiresAt);
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProd = isProduction();
   const sessionParts = [
     `everycal_session=${token}`,
     "HttpOnly",
@@ -49,7 +50,7 @@ export function setSessionCookie(c: HeaderTarget, token: string, expiresAt: stri
     `Max-Age=${maxAge}`,
     "SameSite=Lax",
   ];
-  if (isProduction) {
+  if (isProd) {
     sessionParts.push("Secure");
   }
   c.header("Set-Cookie", sessionParts.join("; "));
@@ -57,7 +58,7 @@ export function setSessionCookie(c: HeaderTarget, token: string, expiresAt: stri
 }
 
 export function clearSessionCookie(c: HeaderTarget) {
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProd = isProduction();
   const sessionParts = [
     "everycal_session=",
     "HttpOnly",
@@ -71,7 +72,7 @@ export function clearSessionCookie(c: HeaderTarget) {
     "Max-Age=0",
     "SameSite=Lax",
   ];
-  if (isProduction) {
+  if (isProd) {
     sessionParts.push("Secure");
     csrfParts.push("Secure");
   }

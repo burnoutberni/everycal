@@ -51,6 +51,7 @@ import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
+import { isProduction } from "../lib/env.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
@@ -550,7 +551,7 @@ export function activityPubRoutes(db: DB): Hono {
 
     // Verify the incoming activity has a valid HTTP Signature
     // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
-    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && !isProduction();
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {
@@ -638,7 +639,7 @@ export function sharedInboxRoute(db: DB): Hono {
     }
 
     // Verify HTTP Signature
-    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && !isProduction();
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {
