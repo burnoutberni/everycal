@@ -736,6 +736,26 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 14,
+    name: "federation_blocks_normalize_domain",
+    up: (db) => {
+      const rows = db.prepare("SELECT id, domain FROM federation_blocks WHERE block_type = 'domain' AND domain IS NOT NULL").all() as Array<{ id: string; domain: string }>;
+      for (const row of rows) {
+        const trimmed = row.domain.trim().toLowerCase();
+        let hostname: string | null = null;
+        try {
+          hostname = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname || null;
+        } catch {
+          hostname = null;
+        }
+        if (hostname && hostname !== row.domain) {
+          db.prepare("UPDATE federation_blocks SET domain = ? WHERE id = ?").run(hostname, row.id);
+        }
+      }
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;

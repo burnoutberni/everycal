@@ -11,7 +11,13 @@ function parseDomain(value: string | null | undefined): string | null {
 
 export function normalizeFederationBlockDomain(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
-  return trimmed ? trimmed.toLowerCase() : null;
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  try {
+    return new URL(lower.includes("://") ? lower : `https://${lower}`).hostname || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getFederationBlockDomain(actorUri: string, domain?: string | null): string | null {
