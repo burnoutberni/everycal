@@ -769,6 +769,24 @@ describe('admin routes', () => {
     if (!visibleAfterUnblock || visibleAfterUnblock.kind !== 'event') throw new Error('expected event payload');
     expect(visibleAfterUnblock.event).not.toBeNull();
 
+    const resReblock = await app.request('/api/v1/admin/federation/block', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ blockType: 'domain', domain: 'bad-domain.com', reason: 'spam network again' }),
+    });
+    expect(resReblock.status).toBe(200);
+    const reblockBody = await resReblock.json() as any;
+    expect(reblockBody.ok).toBe(true);
+    expect(reblockBody.blockId).not.toBe(blockId);
+
+    const activeRows = db.prepare("SELECT id, is_active FROM federation_blocks WHERE block_type = 'domain' AND domain = 'bad-domain.com'").all() as Array<{
+      id: string;
+      is_active: number;
+    }>;
+    expect(activeRows).toHaveLength(2);
+    expect(activeRows).toContainEqual({ id: blockId, is_active: 0 });
+    expect(activeRows).toContainEqual({ id: reblockBody.blockId, is_active: 1 });
+
     const resBlockActor = await app.request('/api/v1/admin/federation/block', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
