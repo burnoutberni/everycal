@@ -6,7 +6,7 @@ import { CalendarIcon, CheckCalendarIcon, FlagIcon, GlobeIcon, SettingsIcon, Shi
 import { ModerationDecisionActions } from '../components/ModerationDecisionActions';
 import { adminFetch } from '../lib/adminFetch';
 import type { AdminHealthResponse, Account, AccountsResponse, ModerationItem, FederationBlock, FederationActor, FederationDomain, FederationTombstone, AdminSetting, JobRun, AuditItem, ConfirmState, AdminSectionKey, AdminAuditResponse, AdminModerationResponse, AdminFederationBlocksResponse, AdminFederationActorsResponse, AdminFederationDomainsResponse, AdminFederationTombstonesResponse, AdminSettingsResponse, AdminJobRunsResponse, AdminScraperTriggerResponse } from './admin-types';
-import { AVAILABLE_SCRAPERS, formatAuditPayload } from './admin-types';
+import { AVAILABLE_SCRAPERS, formatAuditPayload, formatJobRunResult, parseJobRunResult } from './admin-types';
 import { AdminAccountsSection } from './AdminAccountsSection';
 import { ReasonModal } from '../components/ReasonModal';
 import './SharedLayout.css';
@@ -47,6 +47,7 @@ export function AdminPage() {
   const [refreshCountdownSec, setRefreshCountdownSec] = useState(60);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
+  const [trackedJobRunId, setTrackedJobRunId] = useState<string | null>(null);
   const [runtimeDraftValues, setRuntimeDraftValues] = useState<Record<string, string>>({});
   const [dirtyRuntimeSettingKeys, setDirtyRuntimeSettingKeys] = useState<Set<string>>(new Set());
   const [runtimeSettingsQuery, setRuntimeSettingsQuery] = useState('');
@@ -293,6 +294,14 @@ export function AdminPage() {
     setJobRuns(data.items || []);
   }
 
+  const summarizeJobRunFailure = useCallback((run: JobRun): string => {
+    const parsed = parseJobRunResult(run.result_json);
+    const error = typeof parsed?.error === 'string' && parsed.error.trim() ? parsed.error.trim() : null;
+    const stderr = typeof parsed?.stderr === 'string' && parsed.stderr.trim() ? parsed.stderr.trim() : null;
+    const stdout = typeof parsed?.stdout === 'string' && parsed.stdout.trim() ? parsed.stdout.trim() : null;
+    return error || stderr || stdout || 'No failure details were recorded.';
+  }, []);
+
   async function refreshSettings() {
     const data = await adminFetch<AdminSettingsResponse>('/api/v1/admin/settings');
     setSettings(data.items || []);
@@ -390,6 +399,44 @@ export function AdminPage() {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [user?.isAdmin, refreshAllData]);
+
+  useEffect(() => {
+    if (!trackedJobRunId) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await adminFetch<AdminJobRunsResponse>('/api/v1/admin/jobs/runs');
+        if (cancelled) return;
+        const items = data.items || [];
+        setJobRuns(items);
+        const run = items.find((item) => item.id === trackedJobRunId);
+        if (!run) return;
+        if (run.status === 'succeeded') {
+          setStatus(`Scraper run ${run.id} succeeded`);
+          setTrackedJobRunId(null);
+          return;
+        }
+        if (run.status === 'failed') {
+          setError(`Scraper run ${run.id} failed: ${summarizeJobRunFailure(run)}`);
+          setTrackedJobRunId(null);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError(toErrorMessage(err, 'Failed to refresh job runs'));
+        setTrackedJobRunId(null);
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [summarizeJobRunFailure, trackedJobRunId]);
 
   if (loading) return <div className='empty-state mt-3'><h2>Loading</h2><p>Checking admin access...</p></div>;
   if (!user?.isAdmin) return <div className='empty-state mt-3'><h2>Redirecting</h2><p>Admin access is required.</p></div>;
@@ -1033,6 +1080,7 @@ export function AdminPage() {
                       }),
                     });
                     setStatus(`Queued scraper run ${data.runId} (${scraperDryRun ? 'dry-run' : 'live'})`);
+                    setTrackedJobRunId(data.runId);
                     await refreshJobRuns();
                     await refreshAudit();
                   } catch (err) {
@@ -1064,9 +1112,17 @@ export function AdminPage() {
               <p className='admin-record-title'>{run.job_type}</p>
               <p className='admin-record-subtitle'>{run.id}</p>
               <div className='text-sm text-muted'>created: {run.created_at || 'n/a'}</div>
+              {run.started_at || run.finished_at ? <div className='text-sm text-muted'>started: {run.started_at || 'n/a'} · finished: {run.finished_at || 'n/a'}</div> : null}
+              {run.status === 'failed' ? <div className='text-sm' style={{ color: 'var(--danger)', marginTop: '0.35rem' }}>{summarizeJobRunFailure(run)}</div> : null}
+              <details className='mt-1' style={{ fontSize: '0.8rem', background: 'var(--bg-raised)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted)', fontWeight: 600 }}>View full job result</summary>
+                <pre style={{ margin: '0.4rem 0 0', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  {formatJobRunResult(run.result_json)}
+                </pre>
+              </details>
             </div>
             <div className='admin-record-meta'>
-              <span className='admin-record-pill'>{run.status}</span>
+              <span className={`admin-record-pill ${run.status === 'failed' ? 'is-danger' : run.status === 'succeeded' ? 'is-success' : 'is-accent'}`}>{run.status}</span>
             </div>
             <div className='admin-record-actions' />
           </li>

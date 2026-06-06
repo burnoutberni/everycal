@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc",
     "scrape": "tsx src/cli.ts",
-    "test": "vitest run",
+    "test": "pnpm --filter @everycal/core build && vitest run",
     "lint": "tsc -b --pretty false"
   },
   "dependencies": {
