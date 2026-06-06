@@ -18,6 +18,7 @@ import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { EventResolvePage } from "./pages/EventResolvePage";
+import { AdminPage } from "./pages/AdminPage";
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { isThemePreference } from "./lib/theme";
@@ -97,6 +98,7 @@ export function App() {
       <Route path="/users/:username">{(params) => <ProfilePage username={params.username!} />}</Route>
 
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/admin" component={AdminPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
       <Route path="/check-email" component={CheckEmailPage} />

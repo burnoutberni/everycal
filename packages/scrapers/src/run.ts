@@ -15,12 +15,29 @@
  */
 
 import { readFileSync } from "node:fs";
-import { registry } from "./registry.js";
+import { toErrorMessage } from "@everycal/core";
+import { getScraperById, registry } from "./registry.js";
 import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
 import { buildSyncPayload } from "./lib/build-sync-payload.js";
 
 const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
+const DRY_RUN = process.env.SCRAPER_DRY_RUN === "true";
+
+function readSelectedScrapers(): Scraper[] | null {
+  const raw = process.env.SCRAPER_IDS?.trim();
+  if (!raw) return null;
+  const ids = raw.split(",").map((id) => id.trim()).filter(Boolean);
+  if (ids.length === 0) return null;
+  return ids.map((id) => {
+    const scraper = getScraperById(id);
+    if (!scraper) {
+      console.error(`❌ Unknown scraper: ${id}`);
+      process.exit(1);
+    }
+    return scraper;
+  });
+}
 
 function requireEnv(name: string): string {
   const val = process.env[name];
@@ -113,6 +130,7 @@ async function updateProfile(
 
 async function main() {
   const apiKeys = loadApiKeys();
+  const requestedScrapers = readSelectedScrapers();
 
   if (!apiKeys) {
     console.log("⏭️  Scrapers skipped: no SCRAPER_API_KEYS_FILE or SCRAPER_API_KEYS_JSON configured");
@@ -121,9 +139,10 @@ async function main() {
 
   const server = requireEnv("JOBS_API_SERVER");
 
+  const candidateScrapers = requestedScrapers ?? registry;
   // Only run scrapers that have API keys configured
-  const scrapers = registry.filter((s) => apiKeys[s.id]);
-  const skipped = registry.filter((s) => !apiKeys[s.id]);
+  const scrapers = candidateScrapers.filter((s) => apiKeys[s.id]);
+  const skipped = candidateScrapers.filter((s) => !apiKeys[s.id]);
 
   if (scrapers.length === 0) {
     console.log("⏭️  Scrapers skipped: no matching API keys in config");
@@ -133,6 +152,12 @@ async function main() {
   console.log(`🗓️  EveryCal Scraper Run — ${new Date().toISOString()}`);
   console.log(`   Server: ${server}`);
   console.log(`   Scrapers: ${scrapers.length} active, ${skipped.length} skipped\n`);
+  if (requestedScrapers) {
+    console.log(`   Requested: ${requestedScrapers.map((scraper) => scraper.id).join(", ")}`);
+  }
+  if (DRY_RUN) {
+    console.log("   Mode: dry-run (no profile updates or event syncs)\n");
+  }
 
   // Phase 1: Scrape all sources concurrently
   const start = Date.now();
@@ -143,7 +168,7 @@ async function main() {
       const events = await scraper.scrape();
       return { scraper, events, error: null as string | null };
     } catch (err) {
-      return { scraper, events: [] as Partial<EveryCalEvent>[], error: String(err) };
+      return { scraper, events: [] as Partial<EveryCalEvent>[], error: toErrorMessage(err, "Scrape failed") };
     }
   });
 
@@ -159,10 +184,12 @@ async function main() {
 
     // Update profile from scraper metadata (overwrites setup placeholders).
     // Non-blocking: failures are logged but don't prevent event sync.
-    try {
-      await updateProfile(server, apiKeys[scraper.id], scraper);
-    } catch (err) {
-      console.log(`⚠️ profile: ${err instanceof Error ? err.message : err} (continuing with sync)`);
+    if (!DRY_RUN) {
+      try {
+        await updateProfile(server, apiKeys[scraper.id], scraper);
+      } catch (err) {
+        console.log(`⚠️ profile: ${toErrorMessage(err, "profile update failed")} (continuing with sync)`);
+      }
     }
 
     if (error) {
@@ -174,6 +201,11 @@ async function main() {
     const syncEvents = buildSyncPayload(scraper, events);
     if (syncEvents.length === 0) {
       console.log(`0 events`);
+      continue;
+    }
+
+    if (DRY_RUN) {
+      console.log(`[DRY RUN] Would sync ${syncEvents.length} events`);
       continue;
     }
 
@@ -200,7 +232,7 @@ async function main() {
         console.log(`✅ +${r.created} ~${r.updated} =${r.unchanged} !${r.canceled} ↺${r.rotatedOutPast || 0}`);
       }
     } catch (err) {
-      console.log(`❌ sync: ${err}`);
+      console.log(`❌ sync: ${toErrorMessage(err, "sync failed")}`);
       syncErrors++;
     }
   }

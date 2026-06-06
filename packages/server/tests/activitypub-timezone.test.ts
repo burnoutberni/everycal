@@ -217,6 +217,28 @@ describe("ActivityPub timezone interoperability", () => {
     for (const name of names) expect(name).not.toMatch(/\s/);
   });
 
+  it("returns 404 for hidden events on the federated event JSON endpoint", async () => {
+    db.prepare(
+      `INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, visibility, moderation_state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'public', 'hidden')`
+    ).run(
+      "e-hidden",
+      "u1",
+      "hidden-event",
+      "Hidden Event",
+      "2026-03-05T18:00:00",
+      "2026-03-05T17:00:00.000Z",
+      "Europe/Vienna",
+    );
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/events/e-hidden", {
+      headers: { accept: "application/activity+json" },
+    });
+
+    expect(res.status).toBe(404);
+  });
+
   it("ingests inbound AP timezone quality variants", async () => {
     const app = makeApp(db);
     const actor = "https://remote.example/users/a";

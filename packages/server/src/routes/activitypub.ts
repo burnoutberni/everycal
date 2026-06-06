@@ -12,7 +12,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import crypto from "node:crypto";
-import { normalizeHashtagName } from "@everycal/core";
+import { normalizeHashtagName, toErrorMessage } from "@everycal/core";
 import type { DB } from "../db.js";
 import { verifySignature } from "../lib/crypto.js";
 import { ensureKeyPairForAccount } from "../lib/account-keys.js";
@@ -33,8 +33,10 @@ import {
   resolveLocalRsvpEventTarget,
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
-import { stripHtml } from "../lib/security.js";
+import { stripHtml, isValidHttpUrl } from "../lib/security.js";
 import { notifyEventUpdated, notifyEventCancelled } from "../lib/notifications.js";
+import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
+import { isActivityTombstoned, isRemoteActorTombstoned, isRemoteEventTombstoned } from "../lib/federation-tombstones.js";
 import { fallbackSlugFromUri } from "../lib/event-links.js";
 import { normalizeRemoteEventUri, upsertRemoteEvent } from "../lib/remote-events.js";
 import { getLocale, t } from "../lib/i18n.js";
@@ -45,12 +47,23 @@ import { buildApEventObject, toUtcIsoOrUndefined } from "../lib/activitypub-even
 import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { ensureStableActivityId } from "../lib/activity-ids.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
+import { getEffectiveSetting } from "../lib/runtime-settings.js";
+import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
+import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
+import { isProduction } from "../lib/env.js";
 
 const AP_CONTENT_TYPES = [
   "application/activity+json",
   "application/ld+json",
 ];
+
+const VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE = buildVisibleLocalModerationClause("e");
+
+function appendVisibleLocalOutboxEventFilter(sql: string, hasModerationStateColumn: boolean): string {
+  if (!hasModerationStateColumn) return sql;
+  return `${sql} AND ${VISIBLE_LOCAL_OUTBOX_EVENT_CLAUSE}`;
+}
 
 function isAPRequest(accept: string): boolean {
   return AP_CONTENT_TYPES.some((t) => accept.includes(t));
@@ -122,6 +135,8 @@ export function hasMatchingRequestDigest(rawBody: string, digestHeader?: string,
 
 export function activityPubRoutes(db: DB): Hono {
   const router = new Hono();
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
 
   // ---- Actor Profile ----
   router.get("/:username", (c) => {
@@ -135,7 +150,7 @@ export function activityPubRoutes(db: DB): Hono {
     }
 
     const account = db
-      .prepare("SELECT * FROM accounts WHERE username = ?")
+      .prepare("SELECT * FROM accounts WHERE username = ? AND is_disabled = 0")
       .get(username) as Record<string, unknown> | undefined;
 
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
@@ -147,11 +162,16 @@ export function activityPubRoutes(db: DB): Hono {
 
     const attachment: Record<string, unknown>[] = [];
     if (account.website) {
-      attachment.push({
-        type: "PropertyValue",
-        name: "Website",
-        value: `<a href="${account.website}" rel="me nofollow noopener noreferrer" target="_blank">${account.website}</a>`,
-      });
+      const website = account.website as string;
+      if (isValidHttpUrl(website)) {
+        const escapedHref = website.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        const escapedText = website.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        attachment.push({
+          type: "PropertyValue",
+          name: "Website",
+          value: `<a href="${escapedHref}" rel="me nofollow noopener noreferrer" target="_blank">${escapedText}</a>`,
+        });
+      }
     }
 
     const actor = {
@@ -202,15 +222,22 @@ export function activityPubRoutes(db: DB): Hono {
     const actorUrl = buildActorUrl(username, baseUrl);
 
     const account = db
-      .prepare("SELECT id FROM accounts WHERE username = ?")
+      .prepare("SELECT id FROM accounts WHERE username = ? AND is_disabled = 0")
       .get(username) as { id: string } | undefined;
     if (!account) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
+
+    const remoteReadability = buildRemoteReadabilityFilter(undefined, { eventAlias: "re" });
 
     // Count: owned public events + explicit reposts + auto-reposted events
     const ownedCount = (
       db
         .prepare(
-          "SELECT COUNT(*) AS cnt FROM events WHERE account_id = ? AND visibility IN ('public', 'unlisted')"
+          appendVisibleLocalOutboxEventFilter(
+            `SELECT COUNT(*) AS cnt FROM events e
+             WHERE e.account_id = ?
+               AND visibility IN ('public', 'unlisted')`,
+            hasEventModerationStateColumn,
+          )
         )
         .get(account.id) as { cnt: number }
     ).cnt;
@@ -218,14 +245,18 @@ export function activityPubRoutes(db: DB): Hono {
       db
         .prepare(
           `SELECT (
-             SELECT COUNT(*) FROM reposts r
-             JOIN events e ON e.id = r.event_id
-             WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
-           ) + (
-             SELECT COUNT(*) FROM reposts r
-             JOIN remote_events re ON re.uri = r.event_uri
-             WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')
-           ) AS cnt`
+             ${appendVisibleLocalOutboxEventFilter(
+               `SELECT COUNT(*) FROM reposts r
+                JOIN events e ON e.id = r.event_id
+                WHERE r.account_id = ?
+                  AND e.visibility IN ('public', 'unlisted')`,
+               hasEventModerationStateColumn,
+             )}
+            ) + (
+              SELECT COUNT(*) FROM reposts r
+              JOIN remote_events re ON re.uri = r.event_uri
+              WHERE r.account_id = ? AND ${remoteReadability.sql}
+            ) AS cnt`
         )
         .get(account.id, account.id) as { cnt: number }
     ).cnt;
@@ -233,18 +264,22 @@ export function activityPubRoutes(db: DB): Hono {
       db
         .prepare(
           `SELECT (
-             SELECT COUNT(*) FROM auto_reposts ar
-             JOIN events e ON e.account_id = ar.source_account_id
-             WHERE ar.account_id = ? AND e.visibility = 'public'
-               AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
-           ) + (
-             SELECT COUNT(*) FROM auto_reposts ar
-             JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
-             WHERE ar.account_id = ? AND re.visibility = 'public'
-               AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
-           ) AS cnt`
+             ${appendVisibleLocalOutboxEventFilter(
+               `SELECT COUNT(*) FROM auto_reposts ar
+                JOIN events e ON e.account_id = ar.source_account_id
+                WHERE ar.account_id = ?
+                  AND e.visibility = 'public'
+                  AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)`,
+               hasEventModerationStateColumn,
+             )}
+            ) + (
+              SELECT COUNT(*) FROM auto_reposts ar
+              JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
+              WHERE ar.account_id = ? AND ${remoteReadability.sql}
+                AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)
+            ) AS cnt`
         )
-        .get(account.id, account.id, account.id, account.id) as { cnt: number }
+        .get(account.id, account.id, account.id, ...remoteReadability.params, account.id) as { cnt: number }
     ).cnt;
     const totalItems = ownedCount + repostCount + autoRepostCount;
 
@@ -265,22 +300,30 @@ export function activityPubRoutes(db: DB): Hono {
     // Build activities: Create for owned events, Announce for reposts
     const ownedRows = db
       .prepare(
-        `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM events e
-         LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.account_id = ? AND e.visibility IN ('public', 'unlisted')
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM events e
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE e.account_id = ?
+             AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        )}
          GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
 
     const repostRows = db
       .prepare(
-        `SELECT r.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM reposts r
-         JOIN events e ON e.id = r.event_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-          WHERE r.account_id = ? AND e.visibility IN ('public', 'unlisted')
-          GROUP BY e.id`
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT r.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM reposts r
+           JOIN events e ON e.id = r.event_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE r.account_id = ?
+             AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        )}
+         GROUP BY e.id`
       )
       .all(account.id) as Record<string, unknown>[];
     const repostRemoteRows = db
@@ -288,19 +331,23 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT r.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
          FROM reposts r
          JOIN remote_events re ON re.uri = r.event_uri
-         WHERE r.account_id = ? AND re.visibility IN ('public', 'unlisted')`
+         WHERE r.account_id = ? AND ${remoteReadability.sql}`
       )
-      .all(account.id) as Record<string, unknown>[];
+      .all(account.id, ...remoteReadability.params) as Record<string, unknown>[];
 
     const autoRepostRows = db
       .prepare(
-        `SELECT ar.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
-         FROM auto_reposts ar
-         JOIN events e ON e.account_id = ar.source_account_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-          WHERE ar.account_id = ? AND e.visibility = 'public'
-            AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
-          GROUP BY e.id`
+        `${appendVisibleLocalOutboxEventFilter(
+          `SELECT ar.created_at AS reposted_at, e.*, GROUP_CONCAT(t.tag) AS tags
+           FROM auto_reposts ar
+           JOIN events e ON e.account_id = ar.source_account_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE ar.account_id = ?
+             AND e.visibility = 'public'
+             AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)`,
+          hasEventModerationStateColumn,
+        )}
+         GROUP BY e.id`
       )
       .all(account.id, account.id) as Record<string, unknown>[];
     const autoRepostRemoteRows = db
@@ -308,10 +355,10 @@ export function activityPubRoutes(db: DB): Hono {
         `SELECT ar.created_at AS reposted_at, re.uri, re.visibility, re.start_at_utc
          FROM auto_reposts ar
          JOIN remote_events re ON re.actor_uri = ar.source_actor_uri
-         WHERE ar.account_id = ? AND re.visibility = 'public'
+         WHERE ar.account_id = ? AND ${remoteReadability.sql}
            AND re.uri NOT IN (SELECT event_uri FROM reposts WHERE account_id = ?)`
       )
-      .all(account.id, account.id) as Record<string, unknown>[];
+      .all(account.id, ...remoteReadability.params, account.id) as Record<string, unknown>[];
 
     const eventUrl = (id: string) => buildUrl(baseUrl, "events", id);
     const createItems = ownedRows.map((row) => ({
@@ -498,10 +545,18 @@ export function activityPubRoutes(db: DB): Hono {
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
+    const activityId = parseActivityId(activity.id);
+    if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
+      return c.json({ ok: true }, 202);
+    }
+    if (hasActiveFederationBlock(db, { actorUri })) {
+      console.log(`  ⚠️  Rejecting ${type}: blocked actor ${actorUri}`);
+      return c.json({ ok: true }, 202);
+    }
 
     // Verify the incoming activity has a valid HTTP Signature
     // SKIP_SIGNATURE_VERIFY is only allowed in non-production environments
-    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && !isProduction();
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {
@@ -579,9 +634,17 @@ export function sharedInboxRoute(db: DB): Hono {
     if (!actorUri) {
       return c.json({ error: t(getLocale(c), "common.invalid_request") }, 400);
     }
+    const activityId = parseActivityId(activity.id);
+    if (isRemoteActorTombstoned(db, actorUri) || isActivityTombstoned(db, activityId)) {
+      return c.json({ ok: true }, 202);
+    }
+    if (hasActiveFederationBlock(db, { actorUri })) {
+      console.log(`  ⚠️  Rejecting ${type}: blocked actor ${actorUri}`);
+      return c.json({ ok: true }, 202);
+    }
 
     // Verify HTTP Signature
-    const skipVerify = process.env.SKIP_SIGNATURE_VERIFY === "true" && process.env.NODE_ENV !== "production";
+    const skipVerify = getEffectiveSetting<boolean>(db, "skip_signature_verify", false) && !isProduction();
     if (!skipVerify) {
       const verified = await verifyInboxSignature(db, c, actorUri, rawBody);
       if (!verified) {
@@ -753,7 +816,7 @@ function markInboxActivityFailed(
 ): void {
   const activityId = parseActivityId(activity.id);
   if (!activityId) return;
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = toErrorMessage(error, "Inbox activity processing failed");
   db.prepare(
     `UPDATE processed_inbox_activities
      SET status = 'failed', claimed_at = NULL, last_error = ?
@@ -853,6 +916,14 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   }
 
   const effectiveActor = attributedTo.status === "parsed" ? attributedTo.actor : actorUri;
+  if (hasActiveFederationBlock(db, { actorUri: effectiveActor })) {
+    console.log(`  ⚠️  Rejecting ${activityType}: blocked actor ${effectiveActor}`);
+    return;
+  }
+  if (isRemoteActorTombstoned(db, effectiveActor)) {
+    console.log(`  ⚠️  Rejecting ${activityType}: tombstoned actor ${effectiveActor}`);
+    return;
+  }
   const actorFollowersUrl = (db
     .prepare("SELECT followers_url FROM remote_actors WHERE uri = ?")
     .get(effectiveActor) as { followers_url: string | null } | undefined)?.followers_url ?? null;
@@ -875,6 +946,10 @@ function handleCreateUpdate(db: DB, activity: Record<string, unknown>, activityT
   const uri = normalizeRemoteEventUri(object.id);
   if (!uri) {
     console.log(`  ⚠️  Skipping ${activityType}: Event object.id is missing or not a non-empty string`);
+    return;
+  }
+  if (isRemoteEventTombstoned(db, uri)) {
+    console.log(`  ⚠️  Rejecting ${activityType}: tombstoned event ${uri}`);
     return;
   }
   const owner = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(uri) as { actor_uri: string } | undefined;
@@ -1024,6 +1099,10 @@ function handleDelete(db: DB, activity: Record<string, unknown>, actorUri: strin
       : (rawObject as Record<string, unknown> | null)?.id as string | undefined;
 
   if (objectUri && actorUri) {
+    if (isRemoteEventTombstoned(db, objectUri)) {
+      console.log(`  ⚠️  Rejecting Delete: tombstoned event ${objectUri}`);
+      return;
+    }
     // Only mark canceled if the event belongs to the actor sending the Delete
     const existing = db.prepare(
       "SELECT actor_uri, slug, title, start_date, end_date, all_day, location_name, url FROM remote_events WHERE uri = ?"
@@ -1208,6 +1287,8 @@ async function verifyInboxSignature(
 /** ActivityPub event object route — GET /events/:id serves Event JSON for federation. */
 export function activityPubEventRoutes(db: DB): Hono {
   const router = new Hono();
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
 
   router.get("/:id", (c) => {
     const id = c.req.param("id");
@@ -1219,12 +1300,14 @@ export function activityPubEventRoutes(db: DB): Hono {
 
     const row = db
       .prepare(
-        `SELECT e.*, a.username, GROUP_CONCAT(t.tag) AS tags
-         FROM events e
-         JOIN accounts a ON a.id = e.account_id
-         LEFT JOIN event_tags t ON t.event_id = e.id
-         WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')
-         GROUP BY e.id`
+        appendVisibleLocalOutboxEventFilter(
+          `SELECT e.*, a.username, GROUP_CONCAT(t.tag) AS tags
+           FROM events e
+           JOIN accounts a ON a.id = e.account_id
+           LEFT JOIN event_tags t ON t.event_id = e.id
+           WHERE e.id = ? AND e.visibility IN ('public', 'unlisted')`,
+          hasEventModerationStateColumn,
+        ) + ` GROUP BY e.id`
       )
       .get(id) as Record<string, unknown> | undefined;
 

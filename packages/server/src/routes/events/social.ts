@@ -11,7 +11,7 @@ import { parseJsonBody } from "../../lib/request-body.js";
 import { listActingAccounts } from "../../lib/identities.js";
 import { ActorSelectionPayloadError, applyLocalActorSelection, buildActorSelectionPlan, isDesiredAccountIdsAllowed, readActorSelectionPayload, summarizeActorSelection } from "../../lib/actor-selection.js";
 import { buildActorUrl, buildUrl, getBaseUrl } from "../../lib/base-url.js";
-import { resolveEventUri } from "./shared.js";
+import { buildRemoteReadabilityFilter, resolveEventUri } from "./shared.js";
 
 function buildLocalEventUri(eventId: string): string {
   return buildUrl(getBaseUrl(), "events", eventId);
@@ -24,6 +24,20 @@ function resolveLocalEventId(input: string): string | null {
 
 function deleteRepostsForEvent(db: DB, accountId: string, eventUri: string): number {
   return db.prepare("DELETE FROM reposts WHERE account_id = ? AND event_uri = ?").run(accountId, eventUri).changes;
+}
+
+function getRemoteEvent(db: DB, eventUri: string): { uri: string; actor_uri: string; visibility: string } | undefined {
+  return db
+    .prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?")
+    .get(eventUri) as { uri: string; actor_uri: string; visibility: string } | undefined;
+}
+
+function canReadRemoteEvent(db: DB, currentUserId: string, eventUri: string): boolean {
+  const remoteReadability = buildRemoteReadabilityFilter(currentUserId);
+  const row = db
+    .prepare(`SELECT 1 FROM remote_events re WHERE re.uri = ? AND ${remoteReadability.sql}`)
+    .get(eventUri, ...remoteReadability.params) as { 1: number } | undefined;
+  return !!row;
 }
 
 async function enqueueOutboundRsvpIfNeeded(
@@ -71,6 +85,37 @@ async function enqueueOutboundRsvpIfNeeded(
 
 
 export function registerEventSocialRoutes(router: Hono, db: DB): void {
+  router.post("/:id/flag", requireAuth(), async (c) => {
+    const user = c.get("user")!;
+    const id = c.req.param("id");
+    const eventUri = resolveEventUri(id);
+    const localEventId = resolveLocalEventId(id);
+    const parsed = await parseJsonBody<{ reason?: string }>(c);
+    if (parsed instanceof Response) return parsed;
+    const reason = (parsed.reason || "").trim();
+    if (!reason) return c.json({ error: "reason_required" }, 400);
+
+    const event = localEventId
+      ? db.prepare("SELECT id, account_id, visibility, moderation_state FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string; moderation_state: string }
+        | undefined
+      : undefined;
+    const remoteEvent = !event ? getRemoteEvent(db, eventUri) : undefined;
+    if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
+    if (!event) return c.json({ error: "local_events_only" }, 400);
+
+    if (event.moderation_state === 'hidden') return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+
+    const canView = event.visibility === "public"
+      || event.visibility === "unlisted"
+      || event.account_id === user.id
+      || (event.visibility === "followers_only" && !!db.prepare("SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?").get(user.id, event.account_id));
+    if (!canView) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+
+    db.prepare("UPDATE events SET moderation_state = 'flagged', flagger_note = ?, flagged_at = datetime('now'), moderated_at = NULL WHERE id = ?").run(reason, event.id);
+    return c.json({ ok: true });
+  });
+
   router.post("/rsvp", requireAuth(), async (c) => {
     const user = c.get("user")!;
     const parsed = await parseJsonBody<{ eventUri: string; status: string | null }>(c);
@@ -88,15 +133,18 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     }
     const nextStatus = rawNextStatus as LocalRsvpState;
 
-    const localEvent = db.prepare("SELECT id FROM events WHERE id = ?").get(body.eventUri);
-    const remoteEvent = !localEvent
-      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(body.eventUri) as
-        | { uri: string; actor_uri: string; visibility: string }
-        | undefined
-      : null;
+    const localEvent = db.prepare("SELECT id, moderation_state FROM events WHERE id = ?").get(body.eventUri) as { id: string; moderation_state: string } | undefined;
+    const remoteEvent = !localEvent ? getRemoteEvent(db, body.eventUri) : null;
     if (!localEvent && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
 
+    if (localEvent && localEvent.moderation_state === 'hidden') {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+
     if (remoteEvent) {
+      if (!canReadRemoteEvent(db, user.id, remoteEvent.uri)) {
+        return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+      }
       if (remoteEvent.visibility === "private") {
         return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
       }
@@ -146,17 +194,19 @@ export function registerEventSocialRoutes(router: Hono, db: DB): void {
     const localEventId = resolveLocalEventId(id);
 
     const event = localEventId
-      ? db.prepare("SELECT id, account_id, visibility FROM events WHERE id = ?").get(localEventId) as
-        | { id: string; account_id: string; visibility: string }
+      ? db.prepare("SELECT id, account_id, visibility, moderation_state FROM events WHERE id = ?").get(localEventId) as
+        | { id: string; account_id: string; visibility: string; moderation_state: string }
         | undefined
       : undefined;
-    const remoteEvent = !event
-      ? db.prepare("SELECT uri, actor_uri, visibility FROM remote_events WHERE uri = ?").get(eventUri) as
-        | { uri: string; actor_uri: string; visibility: string }
-        | undefined
-      : undefined;
+    const remoteEvent = !event ? getRemoteEvent(db, eventUri) : undefined;
     if (!event && !remoteEvent) return c.json({ error: t(getLocale(c), "events.event_not_found") }, 404);
 
+    if (event && event.moderation_state === 'hidden') {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
+    if (remoteEvent && !canReadRemoteEvent(db, user.id, remoteEvent.uri)) {
+      return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
+    }
     const canView = event
       ? event.visibility === "public"
         || event.visibility === "unlisted"

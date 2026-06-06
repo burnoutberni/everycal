@@ -31,7 +31,11 @@ import { normalizeEventTimezone } from "../lib/event-timezone.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 import { buildActorUrl, buildUrl } from "../lib/base-url.js";
 import { buildPublicEventsCountSubquery, loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
+import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { parseRemoteHandle } from "../lib/remote-handle.js";
+import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
+import { buildActiveFederationActorTombstoneFilter } from "../lib/federation-tombstones.js";
+import { containsPattern, likeClause } from "../lib/sql-utils.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -58,15 +62,15 @@ export function userRoutes(db: DB): Hono {
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
-             WHERE discoverable = 1 AND (username LIKE ? OR display_name LIKE ?)
+             WHERE discoverable = 1 AND is_disabled = 0 AND (${likeClause("username")} OR ${likeClause("display_name")})
              ORDER BY username ASC LIMIT ? OFFSET ?`;
-      params = [`%${q}%`, `%${q}%`, limit, offset];
+      params = [containsPattern(q), containsPattern(q), limit, offset];
     } else {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
-             WHERE discoverable = 1
+             WHERE discoverable = 1 AND is_disabled = 0
              ORDER BY created_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
@@ -90,16 +94,20 @@ export function userRoutes(db: DB): Hono {
     const remoteHandle = parseRemoteHandle(username);
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
+        const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
         const remoteRow = db
           .prepare(
             `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
-                    ra.followers_count, ra.following_count, ra.fetch_status,
-                    (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
-             FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
+                    ra.followers_count, ra.following_count, ra.fetch_status
+             FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ? AND ${buildActiveFederationActorTombstoneFilter("ra")}`
           )
           .get(localPart, domain) as Record<string, unknown> | undefined;
 
         if (!remoteRow) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
+
+        const remoteEventsCount = (db
+          .prepare(`SELECT COUNT(*) AS count FROM remote_events re WHERE re.actor_uri = ? AND ${remoteReadability.sql}`)
+          .get(remoteRow.uri, ...remoteReadability.params) as { count: number }).count;
 
         const following = currentUser
           ? db
@@ -133,7 +141,7 @@ export function userRoutes(db: DB): Hono {
           discoverable: true,
           followersCount: remoteRow.followers_count ?? 0,
           followingCount: remoteRow.following_count ?? 0,
-          eventsCount: remoteRow.events_count ?? 0,
+          eventsCount: remoteEventsCount,
           following: !!following,
           autoReposting: false,
           source: "remote",
@@ -151,7 +159,7 @@ export function userRoutes(db: DB): Hono {
                 ${followersCountSubquery} AS followers_count,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
                 ${eventsCountSubquery}
-         FROM accounts WHERE username = ?`
+         FROM accounts WHERE username = ? AND is_disabled = 0`
       )
       .get(username) as Record<string, unknown> | undefined;
 
@@ -201,19 +209,21 @@ export function userRoutes(db: DB): Hono {
     const remoteHandle = parseRemoteHandle(username);
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
+        const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
         const remoteActor = db
-          .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string } | undefined;
         if (!remoteActor) return c.json({ error: t(getLocale(c), "users.user_not_found") }, 404);
 
         let sql = `
           SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
                  ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
-          FROM remote_events re
+         FROM remote_events re
           LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
           WHERE re.actor_uri = ?
+            AND ${remoteReadability.sql}
         `;
-        const params: unknown[] = [remoteActor.uri];
+        const params: unknown[] = [remoteActor.uri, ...remoteReadability.params];
         const range = buildDateRangeFilter(
           { instantColumn: "re.start_at_utc", dateColumn: "re.start_on" },
           from,
@@ -255,6 +265,7 @@ export function userRoutes(db: DB): Hono {
     if (isFollower) allowedVisibilities.push("followers_only");
     if (isOwner) allowedVisibilities.push("private");
     const visibilityPlaceholders = allowedVisibilities.map(() => "?").join(",");
+    const visibleLocalEventsClause = buildVisibleLocalModerationClause("e");
 
     // Own events
     let sql = `
@@ -263,10 +274,11 @@ export function userRoutes(db: DB): Hono {
              NULL AS repost_username, NULL AS repost_display_name
       FROM events e
       JOIN accounts a ON a.id = e.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE e.account_id = ?
-        AND e.visibility IN (${visibilityPlaceholders})
-    `;
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE e.account_id = ?
+         AND e.visibility IN (${visibilityPlaceholders})
+         AND ${visibleLocalEventsClause}
+     `;
     const params: unknown[] = [account.id, ...allowedVisibilities];
 
     {
@@ -301,10 +313,11 @@ export function userRoutes(db: DB): Hono {
       JOIN events e ON e.id = r.event_id
       JOIN accounts a ON a.id = e.account_id
       JOIN accounts ra ON ra.id = r.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE r.account_id = ?
-        ${repostVisibilityClause}
-    `;
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE r.account_id = ?
+         AND ${visibleLocalEventsClause}
+         ${repostVisibilityClause}
+     `;
     params.push(account.id, ...repostVisibilityParams);
     {
       const range = buildDateRangeFilter(
@@ -336,11 +349,12 @@ export function userRoutes(db: DB): Hono {
       JOIN events e ON e.account_id = ar.source_account_id
       JOIN accounts a ON a.id = e.account_id
       JOIN accounts ra ON ra.id = ar.account_id
-      LEFT JOIN event_tags t ON t.event_id = e.id
-      WHERE ar.account_id = ?
-        ${autoRepostVisibilityClause}
-        AND e.account_id != ?
-        AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
+       LEFT JOIN event_tags t ON t.event_id = e.id
+       WHERE ar.account_id = ?
+         AND ${visibleLocalEventsClause}
+         ${autoRepostVisibilityClause}
+         AND e.account_id != ?
+         AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ? AND event_id IS NOT NULL)
     `;
     params.push(account.id, ...autoRepostVisibilityParams, account.id, account.id);
     {
@@ -469,7 +483,7 @@ export function userRoutes(db: DB): Hono {
       sourceActorUri = buildActorUrl(localTarget.username);
     } else if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
-      let remote = db.prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?").get(localPart, domain) as { uri: string } | undefined;
+      let remote = db.prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`).get(localPart, domain) as { uri: string } | undefined;
       if (!remote) {
         const actorUri = buildUrl(`https://${domain}`, "users", localPart);
         const resolved = await resolveRemoteActor(db, actorUri);
@@ -608,7 +622,7 @@ export function userRoutes(db: DB): Hono {
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
         let actor = db
-          .prepare("SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri, followers_url FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string; followers_url: string | null } | undefined;
         if (!actor) {
           const actorUri = buildUrl(`https://${domain}`, "users", localPart);
@@ -669,7 +683,7 @@ export function userRoutes(db: DB): Hono {
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
         let actor = db
-          .prepare("SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ?")
+          .prepare(`SELECT uri, following_url FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
           .get(localPart, domain) as { uri: string; following_url: string | null } | undefined;
         if (!actor) {
           const actorUri = buildUrl(`https://${domain}`, "users", localPart);

@@ -144,6 +144,34 @@ describe("event slug canonical behavior", () => {
     expect(tags.map((row) => row.tag)).toEqual(["art", "music"]);
   });
 
+  it("allows authenticated users to flag local events with a reason", async () => {
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Flag target", startDate: "2026-01-01T10:00:00Z", eventTimezone: "UTC" }),
+    });
+    const created = await create.json() as { id: string };
+
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    const viewerApp = makeApp(db, { id: "u2", username: "bob" });
+    const res = await viewerApp.request(`http://localhost/api/v1/events/${created.id}/flag`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "spam details" }),
+    });
+
+    const row = db.prepare("SELECT moderation_state, moderation_reason, flagger_note, flagged_at, moderated_at FROM events WHERE id = ?").get(created.id) as
+      { moderation_state: string; moderation_reason: string | null; flagger_note: string | null; flagged_at: string | null; moderated_at: string | null };
+
+    expect(res.status).toBe(200);
+    expect(row.moderation_state).toBe("flagged");
+    expect(row.moderation_reason).toBeNull();
+    expect(row.flagger_note).toBe("spam details");
+    expect(row.flagged_at).toBeTruthy();
+    expect(row.moderated_at).toBeNull();
+  });
+
   it("skips whitespace-only tags on create", async () => {
     const app = makeApp(db, { id: "u1", username: "alice" });
 
@@ -1950,6 +1978,59 @@ describe("event slug canonical behavior", () => {
     expect(event?.timezoneQuality).toBe("exact_tzid");
   });
 
+  it("/users/:username/events excludes hidden local events from own events, reposts, and auto-reposts", async () => {
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u2", "bob");
+    db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')").run("u3", "carol");
+
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-own", "u1", "visible-own", "Visible Own", "2026-02-16T12:00:00", 0, "2026-02-16T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-own", "u1", "hidden-own", "Hidden Own", "2026-02-17T12:00:00", 0, "2026-02-17T12:00:00.000Z", "UTC", "hidden");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-repost", "u2", "visible-repost", "Visible Repost", "2026-02-18T12:00:00", 0, "2026-02-18T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-repost", "u2", "hidden-repost", "Hidden Repost", "2026-02-19T12:00:00", 0, "2026-02-19T12:00:00.000Z", "UTC", "hidden");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-visible-auto", "u3", "visible-auto", "Visible Auto", "2026-02-20T12:00:00", 0, "2026-02-20T12:00:00.000Z", "UTC", "visible");
+    db.prepare(
+      "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?)"
+    ).run("e-hidden-auto", "u3", "hidden-auto", "Hidden Auto", "2026-02-21T12:00:00", 0, "2026-02-21T12:00:00.000Z", "UTC", "hidden");
+
+    db.prepare(
+      "INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?), (?, ?, ?, ?)"
+    ).run(
+      "u1",
+      "e-visible-repost",
+      "https://localhost/events/e-visible-repost",
+      "https://localhost/users/bob",
+      "u1",
+      "e-hidden-repost",
+      "https://localhost/events/e-hidden-repost",
+      "https://localhost/users/bob"
+    );
+    db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)").run(
+      "u1",
+      "u3",
+      "https://localhost/users/carol"
+    );
+
+    const app = makeApp(db, null);
+    const res = await app.request("http://localhost/api/v1/users/alice/events");
+    const body = await res.json() as { events: Array<{ slug?: string }> };
+
+    expect(res.status).toBe(200);
+    expect(body.events.map((event) => event.slug)).toEqual([
+      "visible-own",
+      "visible-repost",
+      "visible-auto",
+    ]);
+  });
+
   it("normalizes local eventTimezone in API responses when legacy row has invalid timezone", async () => {
     db.prepare(
       "INSERT INTO events (id, account_id, slug, title, start_date, all_day, start_at_utc, event_timezone, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public')"
@@ -2077,6 +2158,44 @@ describe("event slug canonical behavior", () => {
     expect(res.headers.get("location")).toBe("/@alice@remote.example/resolver-redirect-event");
   });
 
+  it("resolver does not upsert events from blocked actors", async () => {
+    vi.mocked(fetchAP).mockResolvedValue({
+      id: "https://remote.example/events/101",
+      type: "Event",
+      name: "Blocked Resolver Event",
+      startTime: "2026-01-01T10:00:00Z",
+      attributedTo: "https://remote.example/users/alice",
+    });
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', 'https://remote.example/users/alice', 'blocked', 'admin-1', 1)`
+    ).run();
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F101");
+
+    expect(res.status).toBe(404);
+    expect(vi.mocked(resolveRemoteActor)).not.toHaveBeenCalled();
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/101") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("resolver does not fetch or upsert tombstoned remote events", async () => {
+    db.prepare(
+      `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
+       VALUES ('tombstone-event', 'remote_event', 'https://remote.example/events/102', 'tombstoned')`
+    ).run();
+
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/events/resolve?uri=https%3A%2F%2Fremote.example%2Fevents%2F102");
+
+    expect(res.status).toBe(404);
+    expect(vi.mocked(fetchAP)).not.toHaveBeenCalled();
+    expect(vi.mocked(resolveRemoteActor)).not.toHaveBeenCalled();
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/102") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("resolver returns controlled 502 on remote fetch failures", async () => {
     vi.mocked(fetchAP).mockRejectedValue(new Error("upstream timeout"));
     const app = makeApp(db);
@@ -2153,6 +2272,65 @@ describe("event slug canonical behavior", () => {
     const res = await app.request(`http://localhost/api/v1/events/${encoded}`);
 
     expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id does not expose private local events to admins who are not owners", async () => {
+    db.prepare("INSERT INTO accounts (id, username, is_admin, account_type) VALUES (?, ?, 1, 'person')")
+      .run("admin1", "admin");
+
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Local Event",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string };
+
+    const adminApp = makeApp(db, { id: "admin1", username: "admin" });
+    const res = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+
+    expect(create.status).toBe(201);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id allows admin access for flagged private local events only while moderation is open", async () => {
+    db.prepare("INSERT INTO accounts (id, username, is_admin, account_type) VALUES (?, ?, 1, 'person')")
+      .run("admin1", "admin");
+
+    const ownerApp = makeApp(db, { id: "u1", username: "alice" });
+    const create = await ownerApp.request("http://localhost/api/v1/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Private Flagged Event",
+        startDate: "2026-01-01T10:00:00Z",
+        eventTimezone: "UTC",
+        visibility: "private",
+      }),
+    });
+    const created = await create.json() as { id: string; slug: string };
+
+    db.prepare("UPDATE events SET moderation_state = 'flagged', flagger_note = 'needs review' WHERE id = ?").run(created.id);
+
+    const adminApp = makeApp(db, { id: "admin1", username: "admin" });
+    const idResWhileFlagged = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+    const slugResWhileFlagged = await adminApp.request(`http://localhost/api/v1/events/by-slug/alice/${created.slug}`);
+
+    db.prepare("UPDATE events SET moderation_state = 'hidden', moderated_at = datetime('now') WHERE id = ?").run(created.id);
+
+    const idResAfterDecision = await adminApp.request(`http://localhost/api/v1/events/${created.id}`);
+    const slugResAfterDecision = await adminApp.request(`http://localhost/api/v1/events/by-slug/alice/${created.slug}`);
+
+    expect(create.status).toBe(201);
+    expect(idResWhileFlagged.status).toBe(200);
+    expect(slugResWhileFlagged.status).toBe(200);
+    expect(idResAfterDecision.status).toBe(404);
+    expect(slugResAfterDecision.status).toBe(404);
   });
 
   it("GET /events/:id allows followers-only remote events for authenticated followers", async () => {

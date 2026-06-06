@@ -31,6 +31,7 @@ import { uploadRoutes } from "./routes/uploads.js";
 import { wellKnownRoutes, nodeInfoRoutes } from "./routes/well-known.js";
 import { activityPubRoutes, activityPubEventRoutes, sharedInboxRoute } from "./routes/activitypub.js";
 import { federationRoutes } from "./routes/federation-api.js";
+import { adminRoutes, startAdminAuditLogCleanupWorker } from "./routes/admin.js";
 import { directoryRoutes } from "./routes/directory.js";
 import { locationRoutes } from "./routes/locations.js";
 import { imageRoutes } from "./routes/images.js";
@@ -38,31 +39,56 @@ import { serveUploadsRoutes } from "./routes/serve-uploads.js";
 import { serveOgImagesRoutes } from "./routes/serve-og-images.js";
 import { cleanupExpiredSessions } from "./middleware/auth.js";
 import { getLocale, t } from "./lib/i18n.js";
-import { DATABASE_PATH } from "./lib/paths.js";
+import { getDatabasePath } from "./lib/paths.js";
 import { handleHtmlRequest } from "./ssr/handleHtmlRequest.js";
 import type { CachedSsrResponse } from "./ssr/cache.js";
 import { resolveBootstrap } from "./lib/bootstrap.js";
 import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
+import { maybeSetMissingCsrfCookie } from "./routes/auth/session-cookies.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
+import { requireCsrf } from "./middleware/csrf.js";
+import { getAllowedAdminOrigins } from "./middleware/admin-origins.js";
 import { UPLOAD_MAX_SIZE_BYTES } from "./lib/upload-limits.js";
 import { startOutboundDeliveryWorker, startOutboundTerminalCleanupWorker, startProcessedInboxCleanupWorker } from "./lib/federation.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
+import { getEffectiveSetting } from "./lib/runtime-settings.js";
+import { startAdminJobWorker } from "./lib/admin-jobs.js";
+import { isProduction } from "./lib/env.js";
 
 validateBaseUrlConfig();
 
 const app = new Hono();
-const db = initDatabase(DATABASE_PATH);
+const db = initDatabase(getDatabasePath());
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "../../web");
 
-const SSR_ANON_CACHE_TTL_MS = Math.max(0, parseInt(process.env.SSR_ANON_CACHE_TTL_MS || "15000", 10));
+const SSR_ANON_CACHE_TTL_MS = Math.max(0, getEffectiveSetting<number>(db, "ssr_anon_cache_ttl_ms", 15000));
+const SSR_ANON_CACHE_MAX_ENTRIES = 500;
+const trustedProxy = getEffectiveSetting<boolean>(db, "trusted_proxy", false);
 const ssrAnonymousCache = new Map<string, CachedSsrResponse>();
+
+// Periodic cleanup of expired SSR anonymous cache entries
+if (SSR_ANON_CACHE_TTL_MS > 0) {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of ssrAnonymousCache) {
+      if (entry.expiresAt <= now) ssrAnonymousCache.delete(key);
+    }
+    // Evict oldest entries if cache exceeds max size
+    if (ssrAnonymousCache.size > SSR_ANON_CACHE_MAX_ENTRIES) {
+      const entries = [...ssrAnonymousCache.entries()]
+        .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+      const toRemove = entries.slice(0, entries.length - SSR_ANON_CACHE_MAX_ENTRIES);
+      for (const [key] of toRemove) ssrAnonymousCache.delete(key);
+    }
+  }, Math.max(SSR_ANON_CACHE_TTL_MS, 30_000));
+}
 
 // Security headers with Content-Security-Policy
 app.use("*", secureHeaders({
-  contentSecurityPolicy: process.env.NODE_ENV === "production" ? {
+  contentSecurityPolicy: isProduction() ? {
     defaultSrc: ["'self'"],
     scriptSrc: ["'self'"],
     styleSrc: ["'self'", "'unsafe-inline'"],
@@ -98,49 +124,66 @@ app.use("/api/*", async (c, next) => {
 });
 
 // CORS — CORS_ORIGIN if set, else BASE_URL (same-origin in Docker/prod), else localhost:5173 (Vite dev)
-const allowedOrigins = (process.env.CORS_ORIGIN || process.env.BASE_URL || "http://localhost:5173")
+const allowedOrigins = (getEffectiveSetting<string>(db, "cors_origin", "") || process.env.BASE_URL || "http://localhost:5173")
   .split(",")
   .map((o) => o.trim());
 
 app.use(
   "/api/*",
-  createApiCorsMiddleware(allowedOrigins)
+  createApiCorsMiddleware(db, allowedOrigins)
 );
 
 // Rate limiting on auth endpoints (prevent brute force)
-app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5 }));
-app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5 }));
+app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));
+app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));
 
 // Rate limiting on federation fetch (prevent SSRF abuse)
-app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10 }));
-app.use("/api/v1/federation/search", rateLimiter({ windowMs: 60_000, max: 20 }));
+app.use("/api/v1/federation/fetch-actor", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/federation/search", rateLimiter({ windowMs: 60_000, max: 20, trustedProxy }));
 
 // Rate limiting on event sync (prevent abuse by compromised scraper keys)
-app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/api/v1/events/sync", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Rate limiting on event creation/update (prevent spam)
-app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30 }));
+app.use("/api/v1/events", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
 
 // Rate limiting on image search (proxy to external APIs)
-app.use("/api/v1/images/search", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/api/v1/images/search", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
 
 // Rate limiting on uploads (prevent disk fill)
-app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30 }));
+app.use("/api/v1/uploads", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
 
 // Rate limiting on ActivityPub inboxes (prevent federation abuse)
-app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
-app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/users/*/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
+app.use("/inbox", rateLimiter({ windowMs: 60_000, max: 60, trustedProxy }));
+
+// Rate limiting on admin endpoints (defense-in-depth — admin auth is already required)
+app.use("/api/v1/admin", rateLimiter({ windowMs: 60_000, max: 30, trustedProxy }));
 
 // Auth middleware — runs on all routes, sets c.get("user") or null
 app.use("*", authMiddleware(db));
+
+// CSRF protection — double-submit cookie for all cookie-auth state-changing API routes
+// (admin routes already have requireAdminCsrf; this covers the rest)
+const csrfOrigins = getAllowedAdminOrigins(db);
+app.use("/api/v1/auth/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/events/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/private-feeds/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/identities/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/users/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/uploads/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/locations/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/images/*", requireCsrf(csrfOrigins));
+app.use("/api/v1/federation/*", requireCsrf(csrfOrigins));
 
 // Health check
 app.get("/healthz", (c) => c.json({ status: "ok" }));
 
 app.get("/api/v1/bootstrap", (c) => {
   const bootstrap = resolveBootstrap(c, db);
+  maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
   if (shouldSetLocaleCookie(c.req.header("cookie"), bootstrap.locale)) {
     c.header("Set-Cookie", buildLocaleCookie(bootstrap.locale), { append: true });
   }
@@ -169,6 +212,7 @@ app.route("/api/v1/uploads", uploadRoutes());
 app.route("/api/v1/locations", locationRoutes(db));
 app.route("/api/v1/images", imageRoutes());
 app.route("/api/v1/federation", federationRoutes(db));
+app.route("/api/v1/admin", adminRoutes(db));
 
 // ActivityPub / WebFinger / NodeInfo
 app.route("/.well-known", wellKnownRoutes(db));
@@ -281,3 +325,5 @@ setInterval(() => cleanupExpiredSessions(db), 3600_000);
 startOutboundDeliveryWorker(db);
 startOutboundTerminalCleanupWorker(db);
 startProcessedInboxCleanupWorker(db);
+startAdminAuditLogCleanupWorker(db);
+startAdminJobWorker(db);

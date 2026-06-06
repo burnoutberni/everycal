@@ -703,6 +703,91 @@ export const MIGRATIONS: Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_federation_activity_ids_actor_type_object ON federation_activity_ids(actor_uri, activity_type, object_uri)");
     },
   },
+  {
+    version: 12,
+    name: "admin_surface_v1",
+    up: (db) => {
+            const accountColumns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>;
+      if (!accountColumns.some((column) => column.name === "is_admin")) db.exec("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+      if (!accountColumns.some((column) => column.name === "is_disabled")) db.exec("ALTER TABLE accounts ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0");
+      const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+      if (!eventColumns.some((column) => column.name === "moderation_state")) db.exec("ALTER TABLE events ADD COLUMN moderation_state TEXT NOT NULL DEFAULT 'visible'");
+      if (!eventColumns.some((column) => column.name === "moderation_reason")) db.exec("ALTER TABLE events ADD COLUMN moderation_reason TEXT");
+      if (!eventColumns.some((column) => column.name === "moderated_at")) db.exec("ALTER TABLE events ADD COLUMN moderated_at TEXT");
+      const remoteEventColumns = db.prepare("PRAGMA table_info(remote_events)").all() as Array<{ name: string }>;
+      if (!remoteEventColumns.some((column) => column.name === "moderation_state")) db.exec("ALTER TABLE remote_events ADD COLUMN moderation_state TEXT NOT NULL DEFAULT 'visible'");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_audit_log (id TEXT PRIMARY KEY, admin_account_id TEXT NOT NULL, action_type TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS federation_blocks (id TEXT PRIMARY KEY, block_type TEXT NOT NULL CHECK(block_type IN ('actor','domain')), actor_uri TEXT, domain TEXT, created_by_account_id TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS federation_tombstones (id TEXT PRIMARY KEY, object_type TEXT NOT NULL, object_id TEXT NOT NULL, reason TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), expires_at TEXT)");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_by_account_id TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))) ");
+      db.exec("CREATE TABLE IF NOT EXISTS admin_job_runs (id TEXT PRIMARY KEY, job_type TEXT NOT NULL, status TEXT NOT NULL, payload_json TEXT, result_json TEXT, created_by_account_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), started_at TEXT, finished_at TEXT)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_events_moderation_state ON events(moderation_state)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_remote_events_moderation_state ON remote_events(moderation_state)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_job_runs_status_created ON admin_job_runs(status, created_at, id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_admin_job_runs_created_at ON admin_job_runs(created_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_active_actor ON federation_blocks(is_active, block_type, actor_uri)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_active_domain ON federation_blocks(is_active, block_type, domain)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_federation_blocks_created_at ON federation_blocks(created_at)");
+    },
+  },
+  {
+    version: 13,
+    name: "federation_block_reason",
+    up: (db) => {
+      const blockColumns = db.prepare("PRAGMA table_info(federation_blocks)").all() as Array<{ name: string }>;
+      if (!blockColumns.some((column) => column.name === "reason")) db.exec("ALTER TABLE federation_blocks ADD COLUMN reason TEXT");
+    },
+  },
+
+  {
+    version: 14,
+    name: "federation_blocks_normalize_domain",
+    up: (db) => {
+      const rows = db.prepare("SELECT id, domain FROM federation_blocks WHERE block_type = 'domain' AND domain IS NOT NULL").all() as Array<{ id: string; domain: string }>;
+      for (const row of rows) {
+        const trimmed = row.domain.trim().toLowerCase();
+        let hostname: string | null = null;
+        try {
+          hostname = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname || null;
+        } catch {
+          hostname = null;
+        }
+        if (hostname && hostname !== row.domain) {
+          db.prepare("UPDATE federation_blocks SET domain = ? WHERE id = ?").run(hostname, row.id);
+        }
+      }
+    },
+  },
+
+  {
+    version: 15,
+    name: "federation_blocks_unique_active",
+    up: (db) => {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_federation_blocks_unique_active_actor ON federation_blocks(block_type, actor_uri) WHERE is_active = 1 AND block_type = 'actor'");
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_federation_blocks_unique_active_domain ON federation_blocks(block_type, domain) WHERE is_active = 1 AND block_type = 'domain'");
+    },
+  },
+
+  {
+    version: 16,
+    name: "event_flagger_note",
+    up: (db) => {
+      const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+      if (!eventColumns.some((column) => column.name === "flagger_note")) db.exec("ALTER TABLE events ADD COLUMN flagger_note TEXT");
+    },
+  },
+
+  {
+    version: 17,
+    name: "event_flagged_at",
+    up: (db) => {
+      const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+      if (!eventColumns.some((column) => column.name === "flagged_at")) db.exec("ALTER TABLE events ADD COLUMN flagged_at TEXT");
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 17;

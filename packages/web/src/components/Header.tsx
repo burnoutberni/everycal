@@ -160,6 +160,11 @@ export function Header() {
                     >
                       <SettingsIcon /> {t("settings")}
                     </Link>
+                    {user.isAdmin ? (
+                      <Link href="/admin" className="header-dropdown-item" onClick={() => setMenuOpen(false)}>
+                        <ListIcon /> Admin
+                      </Link>
+                    ) : null}
                     <button
                       type="button"
                       className="header-dropdown-item header-dropdown-item-muted"

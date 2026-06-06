@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AppBootstrap } from "@everycal/core";
 import { bootstrapViewerToUser } from "@everycal/core";
-import { auth as authApi, type User, type AuthResponse } from "../lib/api";
+import { auth as authApi, onUnauthorized, type User, type AuthResponse } from "../lib/api";
 import { syncLanguageFromUser } from "../i18n";
 import { invalidateAdditionalIdentitiesCache } from "./additionalIdentitiesCache";
 
@@ -104,6 +104,12 @@ export function AuthProvider({
     refreshUser().catch(() => {});
     return undefined;
   }, [hasBootstrap, refreshUser]);
+
+  useEffect(() => {
+    return onUnauthorized(() => {
+      setAuthState({ status: "anonymous", user: null });
+    });
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await authApi.login(username, password);

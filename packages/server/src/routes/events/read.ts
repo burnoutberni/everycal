@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { toErrorMessage } from "@everycal/core";
 import type { DB } from "../../db.js";
 import { buildFeedQuery } from "../../lib/feed-query.js";
 import { DateQueryParamError } from "../../lib/date-query.js";
@@ -10,9 +11,12 @@ import { uniqueRemoteEventSlug } from "../../lib/slugs.js";
 import { upsertRemoteEvent } from "../../lib/remote-events.js";
 import { normalizeApTemporal } from "../../lib/timezone.js";
 import { getBaseUrl } from "../../lib/base-url.js";
+import { hasActiveFederationBlock } from "../../lib/federation-blocks.js";
+import { isRemoteEventTombstoned } from "../../lib/federation-tombstones.js";
 import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
-import { appendDateRangeFilters, buildRemoteTagFilter, buildRemoteVisibilityFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
+import { appendDateRangeFilters, buildRemoteReadabilityFilter, buildRemoteTagFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
+import { containsPattern, likeClause } from "../../lib/sql-utils.js";
 
 function canViewRemoteByVisibility(db: DB, visibility: string, actorUri: string, currentUserId?: string): boolean {
   if (visibility === "public" || visibility === "unlisted") return true;
@@ -27,6 +31,12 @@ function canViewRemoteByVisibility(db: DB, visibility: string, actorUri: string,
 
 export function registerEventReadRoutes(router: Hono, db: DB, context: EventRouteContext): void {
   const { attachUserContext, attachSingleEventContext, fetchLocalEvent, getUserRsvps } = context;
+  const eventColumns = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  const hasEventModerationStateColumn = eventColumns.some((column) => column.name === "moderation_state");
+  const appendVisibleLocalEventFilter = (sql: string, col: string): string => {
+    if (!hasEventModerationStateColumn) return sql;
+    return `${sql} AND COALESCE(${col}.moderation_state, 'visible') != 'hidden'`;
+  };
   // ─── GET /tags ──────────────────────────────────────────────────────────
 
   router.get("/tags", (c) => {
@@ -70,6 +80,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
             WHERE e.visibility = 'public'`;
         }
 
+        sql = appendVisibleLocalEventFilter(sql, isMineScope ? "combined" : "e");
+
         const df = appendDateRangeFilters(
           {
             instantColumn: isMineScope ? "combined.start_at_utc" : "e.start_at_utc",
@@ -91,10 +103,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       {
         let sql = `SELECT re.tags FROM remote_events re WHERE re.tags IS NOT NULL AND re.tags != ''`;
         const params: unknown[] = [];
-        const remoteVisibility = buildRemoteVisibilityFilter(user?.id);
+        const remoteReadability = buildRemoteReadabilityFilter(user?.id);
 
-        sql += ` AND ${remoteVisibility.sql}`;
-        params.push(...remoteVisibility.params);
+        sql += ` AND ${remoteReadability.sql}`;
+        params.push(...remoteReadability.params);
 
         if (isCalendarScope) {
           sql += ` AND re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ? AND status IN ('going','maybe'))`;
@@ -174,6 +186,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       }
 
       const col = isMineScope ? "combined" : "e";
+      sql = appendVisibleLocalEventFilter(sql, col);
       if (account) {
         sql += isMineScope ? " AND combined.account_username = ?" : " AND a.username = ?";
         params.push(account);
@@ -188,8 +201,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(...df.params);
 
       if (q) {
-        sql += ` AND (${col}.title LIKE ? OR ${col}.description LIKE ?)`;
-        params.push(`%${q}%`, `%${q}%`);
+        sql += ` AND (${likeClause(`${col}.title`)} OR ${likeClause(`${col}.description`)})`;
+        params.push(containsPattern(q), containsPattern(q));
       }
       if (tagList.length > 0) {
         const placeholders = tagList.map(() => "?").join(",");
@@ -203,10 +216,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const buildRemoteQueryBase = (): { sql: string; params: unknown[] } => {
       let sql = `${REMOTE_EVENT_SELECT} WHERE 1=1`;
       const params: unknown[] = [];
-      const remoteVisibility = buildRemoteVisibilityFilter(user?.id);
+      const remoteReadability = buildRemoteReadabilityFilter(user?.id);
 
-      sql += ` AND ${remoteVisibility.sql}`;
-      params.push(...remoteVisibility.params);
+      sql += ` AND ${remoteReadability.sql}`;
+      params.push(...remoteReadability.params);
 
       if (isCalendarScope) {
         sql += ` AND re.uri IN (
@@ -228,8 +241,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(...df.params);
 
       if (q) {
-        sql += " AND (re.title LIKE ? OR re.description LIKE ?)";
-        params.push(`%${q}%`, `%${q}%`);
+      sql += ` AND (${likeClause('re.title')} OR ${likeClause('re.description')})`;
+      params.push(containsPattern(q), containsPattern(q));
       }
 
       const tagFilter = buildRemoteTagFilter(tagList);
@@ -361,6 +374,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       sql += df.sql;
       params.push(...df.params);
 
+      sql = appendVisibleLocalEventFilter(sql, "combined");
+
       if (after) {
         sql += " AND (combined.start_at_utc > ? OR (combined.start_at_utc = ? AND combined.id > ?))";
         params.push(after.startAtUtc, after.startAtUtc, after.id);
@@ -373,14 +388,14 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       };
 
       const fetchRemote: MergedFetcher = (after, fetchLimit) => {
-      const remoteVisibility = buildRemoteVisibilityFilter(user.id);
+      const remoteReadability = buildRemoteReadabilityFilter(user.id);
       let sql = `${REMOTE_EVENT_SELECT}
         WHERE (
             re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
             OR re.uri IN (SELECT event_uri FROM event_rsvps WHERE account_id = ?)
           )
-          AND ${remoteVisibility.sql}`;
-      const params: unknown[] = [user.id, user.id, ...remoteVisibility.params];
+          AND ${remoteReadability.sql}`;
+      const params: unknown[] = [user.id, user.id, ...remoteReadability.params];
 
       const df = appendDateRangeFilters({ instantColumn: "re.start_at_utc", dateColumn: "re.start_on" }, from, to);
       sql += df.sql;
@@ -426,21 +441,21 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const username = c.req.param("username");
     const slug = c.req.param("slug");
     const currentUser = c.get("user");
-    const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
+    const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
 
     const remoteHandle = parseRemoteHandle(username);
     if (remoteHandle) {
       const { localPart, domain } = remoteHandle;
       const remoteRow = db
-        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteVisibility.sql}`)
-        .get(localPart, domain, slug, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteReadability.sql}`)
+        .get(localPart, domain, slug, ...remoteReadability.params) as Record<string, unknown> | undefined;
       if (!remoteRow) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
       const event = formatRemoteEvent(remoteRow);
       if (currentUser) attachSingleEventContext(event, remoteRow.uri as string, currentUser.id);
       return c.json(event);
     }
 
-    const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser);
+    const event = fetchLocalEvent("a.username = ? AND e.slug = ?", [username, slug], currentUser, { allowAdminFlaggedModerationAccess: true });
     if (!event) return c.json({ error: t(getLocale(c), "common.not_found") }, 404);
 
     return c.json(event);
@@ -463,7 +478,10 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     }
 
     const currentUser = c.get("user") as { id: string } | undefined;
-    const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
+    if (isRemoteEventTombstoned(db, normalizedUri)) {
+      return c.json({ error: t(locale, "common.not_found") }, 404);
+    }
+    const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
 
     const existing = db
       .prepare(
@@ -471,9 +489,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
          FROM remote_events re
          JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE re.uri = ?
-           AND ${remoteVisibility.sql}`
+            AND ${remoteReadability.sql}`
       )
-      .get(normalizedUri, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+      .get(normalizedUri, ...remoteReadability.params) as Record<string, unknown> | undefined;
     if (existing?.preferred_username && existing.domain) {
       const resolvedSlug = (existing.slug as string | null) || uniqueRemoteEventSlug(
         db,
@@ -503,6 +521,9 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       if (!title || !startDate || !object.id) {
         return c.json({ error: t(locale, "events.resolve_missing_required_fields") }, 400);
       }
+      if (isRemoteEventTombstoned(db, typeof object.id === "string" ? object.id : null)) {
+        return c.json({ error: t(locale, "common.not_found") }, 404);
+      }
 
       const attributedTo = object.attributedTo;
       const actorUri = typeof attributedTo === "string"
@@ -511,6 +532,7 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
           ? attributedTo.find((v): v is string => typeof v === "string")
           : undefined;
       if (!actorUri) return c.json({ error: t(locale, "events.resolve_missing_actor") }, 400);
+      if (hasActiveFederationBlock(db, { actorUri })) return c.json({ error: t(locale, "common.not_found") }, 404);
 
       const actor = await resolveRemoteActor(db, actorUri, true);
       if (!actor) return c.json({ error: t(locale, "federation.could_not_resolve_actor") }, 404);
@@ -529,13 +551,13 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       const stored = upsertRemoteEvent(db, object, actor.uri, { temporal });
       const path = `/@${actor.preferred_username}@${actor.domain}/${stored.slug}`;
       const row = db
-        .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ? AND ${remoteVisibility.sql}`)
-        .get(stored.uri, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ? AND ${remoteReadability.sql}`)
+        .get(stored.uri, ...remoteReadability.params) as Record<string, unknown> | undefined;
 
       if (wantsHtml) return c.redirect(path, 302);
       return c.json({ path, event: row ? formatRemoteEvent(row) : null });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = toErrorMessage(err, "Failed to fetch remote event");
       return c.json({ error: t(locale, "events.resolve_fetch_failed", { error: msg }) }, 502);
     }
   });
@@ -548,15 +570,15 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
     const eventUri = resolveEventUri(id);
 
     // Try local first
-    const localEvent = fetchLocalEvent("e.id = ?", [id], currentUser);
+    const localEvent = fetchLocalEvent("e.id = ?", [id], currentUser, { allowAdminFlaggedModerationAccess: true });
     if (localEvent) return c.json(localEvent);
 
     // Fall back to remote events if URI looks like a URL
     if (eventUri.startsWith("http://") || eventUri.startsWith("https://")) {
-      const remoteVisibility = buildRemoteVisibilityFilter(currentUser?.id);
+      const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
       const remoteRow = db
-        .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ? AND ${remoteVisibility.sql}`)
-        .get(eventUri, ...remoteVisibility.params) as Record<string, unknown> | undefined;
+        .prepare(`${REMOTE_EVENT_SELECT} WHERE re.uri = ? AND ${remoteReadability.sql}`)
+        .get(eventUri, ...remoteReadability.params) as Record<string, unknown> | undefined;
 
       if (remoteRow) {
         const event = formatRemoteEvent(remoteRow);

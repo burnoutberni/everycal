@@ -10,7 +10,8 @@
     "dev": "cross-env NODE_ENV=development node --watch-path=src --import tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "tsc -b --pretty false"
+    "lint": "tsc -b --pretty false",
+    "admin:grant": "tsx src/cli-admin.ts"
   },
   "dependencies": {
     "@everycal/core": "workspace:*",

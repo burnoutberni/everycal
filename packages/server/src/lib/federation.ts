@@ -3,15 +3,21 @@
  */
 
 import crypto from "node:crypto";
-import type { EventVisibility } from "@everycal/core";
+import { toErrorMessage, type EventVisibility } from "@everycal/core";
 import { signRequest } from "./crypto.js";
 import { buildActorUrl, getBaseUrl } from "./base-url.js";
 import type { DB } from "../db.js";
+import { hasActiveFederationBlock } from "./federation-blocks.js";
+import { isRemoteActorTombstoned } from "./federation-tombstones.js";
 import { isPrivateIP, sanitizeHtml, assertPublicResolvedIP } from "./security.js";
+import { getEffectiveSetting } from "./runtime-settings.js";
 
 const AP_CONTENT_TYPE = "application/activity+json";
 const USER_AGENT = "EveryCal/0.1 (+https://github.com/everycal)";
 const DELETED_REMOTE_USERNAME = "deleted";
+const AP_MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+const COLLECTION_MAX_ITEMS = 5000;
+const OUTBOX_MAX_ITEMS = 500;
 export const DELETED_REMOTE_DISPLAY_NAME = "Deleted account";
 
 const FEDERATION_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -320,7 +326,11 @@ export async function fetchAP(url: string): Promise<unknown> {
   if (!res.ok) {
     throw new FederationFetchError(url, res.status, res.statusText);
   }
-  return res.json();
+  const text = await res.text();
+  if (text.length > AP_MAX_BODY_BYTES) {
+    throw new FederationFetchError(url, 413, "Response body too large");
+  }
+  return JSON.parse(text);
 }
 
 /**
@@ -385,10 +395,15 @@ export async function resolveRemoteActor(
 ): Promise<RemoteActor | null> {
   const nowIso = new Date().toISOString();
 
+  if (hasActiveFederationBlock(db, { actorUri })) return null;
+  if (isRemoteActorTombstoned(db, actorUri)) return null;
+
   if (!forceRefresh) {
     const cached = db
       .prepare("SELECT * FROM remote_actors WHERE uri = ?")
       .get(actorUri) as RemoteActor | undefined;
+    if (cached && hasActiveFederationBlock(db, { actorUri: cached.uri, domain: cached.domain })) return null;
+    if (cached && isRemoteActorTombstoned(db, cached.uri)) return null;
     if (cached?.fetch_status === "gone") return null;
     if (cached?.fetch_status === "error") {
       const hasUsableCachedActor =
@@ -448,6 +463,9 @@ export async function resolveRemoteActor(
       gone_at: null,
     };
 
+    if (hasActiveFederationBlock(db, { actorUri: actor.uri, domain: actor.domain })) return null;
+    if (isRemoteActorTombstoned(db, actor.uri)) return null;
+
     db.prepare(
       `INSERT INTO remote_actors (uri, type, preferred_username, display_name, summary,
         inbox, outbox, shared_inbox, followers_url, following_url, followers_count, following_count,
@@ -491,7 +509,7 @@ export async function resolveRemoteActor(
     }
 
     const retryAtIso = new Date(Date.now() + FEDERATION_RETRY_DELAY_MS).toISOString();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err, "Failed to resolve remote actor");
     upsertRemoteActorFetchState(db, actorUri, {
       fetchStatus: "error",
       lastError: message,
@@ -565,7 +583,7 @@ async function deliverActivityWithResult(
     if (controller.signal.aborted) {
       return { ok: false, error: `Delivery to ${inbox} timed out after ${OUTBOUND_DELIVERY_TIMEOUT_MS}ms` };
     }
-    const message = err instanceof Error ? err.message : String(err);
+    const message = toErrorMessage(err, "Outbound delivery failed");
     return { ok: false, error: `Delivery to ${inbox} failed: ${message}` };
   } finally {
     clearTimeout(timeoutHandle);
@@ -697,7 +715,7 @@ export async function processOutboundDeliveryQueue(db: DB, limit = OUTBOUND_PROC
           console.error(`[Federation] outbound delivery ${job.id} failed: ${deliveryError}`);
         }
       } catch (err) {
-        deliveryError = err instanceof Error ? err.message : String(err);
+        deliveryError = toErrorMessage(err, "Outbound delivery failed");
         console.error(`[Federation] outbound delivery ${job.id} threw`, err);
       }
       const attempts = job.attempt_count + 1;
@@ -756,15 +774,18 @@ export function cleanupTerminalOutboundDeliveries(
 }
 
 export function startOutboundTerminalCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const deliveredRetentionDays = parseRetentionDays(
-    process.env.OUTBOUND_RETAIN_DELIVERED_DAYS,
-    OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT
-  );
-  const failedRetentionDays = parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
-  const intervalMs = parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
+  const intervalMs = process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS === undefined
+    ? parseCleanupIntervalMs(String(getEffectiveSetting<number>(db, "outbound_terminal_cleanup_interval_ms", OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS_DEFAULT)))
+    : parseCleanupIntervalMs(process.env.OUTBOUND_TERMINAL_CLEANUP_INTERVAL_MS);
 
   const run = () => {
     try {
+      const deliveredRetentionDays = process.env.OUTBOUND_RETAIN_DELIVERED_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_delivered_days", OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.OUTBOUND_RETAIN_DELIVERED_DAYS, OUTBOUND_RETAIN_DELIVERED_DAYS_DEFAULT);
+      const failedRetentionDays = process.env.OUTBOUND_RETAIN_FAILED_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "outbound_retain_failed_days", OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.OUTBOUND_RETAIN_FAILED_DAYS, OUTBOUND_RETAIN_FAILED_DAYS_DEFAULT);
       const result = cleanupTerminalOutboundDeliveries(db, { deliveredRetentionDays, failedRetentionDays });
       if (result.deletedDelivered > 0 || result.deletedFailed > 0) {
         console.log(
@@ -832,22 +853,24 @@ export function cleanupProcessedInboxActivities(
 }
 
 export function startProcessedInboxCleanupWorker(db: DB): NodeJS.Timeout | null {
-  const processedRetentionDays = parseRetentionDays(
-    process.env.INBOX_PROCESSED_RETAIN_DAYS,
-    INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT,
-  );
-  const failedRetentionDays = parseRetentionDays(
-    process.env.INBOX_FAILED_RETAIN_DAYS,
-    INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT,
-  );
-  const maxRows = parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
   const intervalMs = Math.max(
     INBOX_PROCESSED_CLEANUP_INTERVAL_MS_MIN,
-    parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
+    process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS === undefined
+      ? Math.floor(getEffectiveSetting<number>(db, "inbox_processed_cleanup_interval_ms", INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT))
+      : parseEnvNumber(process.env.INBOX_PROCESSED_CLEANUP_INTERVAL_MS, INBOX_PROCESSED_CLEANUP_INTERVAL_MS_DEFAULT),
   );
 
   const run = () => {
     try {
+      const processedRetentionDays = process.env.INBOX_PROCESSED_RETAIN_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_retain_days", INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.INBOX_PROCESSED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_PROCESSED_DAYS_DEFAULT);
+      const failedRetentionDays = process.env.INBOX_FAILED_RETAIN_DAYS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_failed_retain_days", INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT)))
+        : parseRetentionDays(process.env.INBOX_FAILED_RETAIN_DAYS, INBOX_PROCESSED_RETAIN_FAILED_DAYS_DEFAULT);
+      const maxRows = process.env.INBOX_PROCESSED_MAX_ROWS === undefined
+        ? Math.max(0, Math.floor(getEffectiveSetting<number>(db, "inbox_processed_max_rows", INBOX_PROCESSED_MAX_ROWS_DEFAULT)))
+        : parseMaxRows(process.env.INBOX_PROCESSED_MAX_ROWS, INBOX_PROCESSED_MAX_ROWS_DEFAULT);
       const result = cleanupProcessedInboxActivities(db, {
         processedRetentionDays,
         failedRetentionDays,
@@ -913,6 +936,7 @@ export async function fetchNodeInfo(domain: string): Promise<{ software: string 
     )?.href;
     if (!href) return null;
 
+    await validateFederationUrl(href);
     const nodeRes = await fetch(href, { headers: { Accept: "application/json" } });
     if (!nodeRes.ok) return null;
     const node = (await nodeRes.json()) as { software?: { name?: string } };
@@ -995,6 +1019,7 @@ export async function discoverDomainActors(
   domain: string,
   options?: { maxAccounts?: number; minAgeHours?: number }
 ): Promise<{ discovered: number; software: string | null }> {
+  if (hasActiveFederationBlock(db, { domain })) return { discovered: 0, software: null };
   if (isPrivateIP(domain)) return { discovered: 0, software: null };
 
   const minAgeHours = options?.minAgeHours ?? 24;
@@ -1055,7 +1080,8 @@ export async function discoverDomainActors(
  */
 export async function fetchRemoteCollection(
   collectionUrl: string,
-  maxPages = 5
+  maxPages = 5,
+  maxItems = COLLECTION_MAX_ITEMS
 ): Promise<string[]> {
   const coll = (await fetchAP(collectionUrl)) as Record<string, unknown>;
 
@@ -1075,7 +1101,7 @@ export async function fetchRemoteCollection(
   }
 
   let pagesFetched = 1;
-  while (nextUrl && pagesFetched < maxPages) {
+  while (nextUrl && pagesFetched < maxPages && items.length < maxItems) {
     try {
       const page = (await fetchAP(nextUrl)) as Record<string, unknown>;
       const pageItems = (page.orderedItems as unknown[]) || (page.items as unknown[]) || [];
@@ -1088,7 +1114,7 @@ export async function fetchRemoteCollection(
     }
   }
 
-  return items.map((item) => {
+  return items.slice(0, maxItems).map((item) => {
     if (typeof item === "string") return item;
     const obj = item as Record<string, unknown>;
     return (obj.id as string) || "";
@@ -1098,7 +1124,7 @@ export async function fetchRemoteCollection(
 /**
  * Fetch events from a remote actor's outbox, following pagination.
  */
-export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promise<unknown[]> {
+export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10, maxItems = OUTBOX_MAX_ITEMS): Promise<unknown[]> {
   const outbox = (await fetchAP(outboxUrl)) as Record<string, unknown>;
 
   let items: unknown[] = [];
@@ -1123,7 +1149,7 @@ export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promi
 
   // Follow pagination
   let pagesFetched = 1;
-  while (nextUrl && pagesFetched < maxPages) {
+  while (nextUrl && pagesFetched < maxPages && items.length < maxItems) {
     try {
       const page = (await fetchAP(nextUrl)) as Record<string, unknown>;
       const pageItems = (page.orderedItems as unknown[]) || [];
@@ -1136,5 +1162,5 @@ export async function fetchRemoteOutbox(outboxUrl: string, maxPages = 10): Promi
     }
   }
 
-  return items;
+  return items.slice(0, maxItems);
 }

@@ -1,7 +1,7 @@
 /** @type {import('i18next-scanner').UserConfig} */
 module.exports = {
   input: ["src/**/*.{ts,tsx}", "!src/i18n/**"],
-  output: "src/i18n",
+  output: ".",
   options: {
     debug: false,
     func: {

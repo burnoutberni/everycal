@@ -23,6 +23,12 @@ function insertRemoteActor(db: DB, uri = "https://remote.example/users/bob") {
   return uri;
 }
 
+function insertTombstone(db: DB, objectType: string, objectId: string, expiresAt: string | null = null) {
+  db.prepare(
+    "INSERT INTO federation_tombstones (id, object_type, object_id, reason, expires_at) VALUES (?, ?, ?, 'test tombstone', ?)"
+  ).run(`${objectType}:${objectId}`, objectType, objectId, expiresAt);
+}
+
 function eventObject(id: string, name: string, extra: Record<string, unknown> = {}) {
   return {
     id,
@@ -107,6 +113,57 @@ describe("federation hardening prep", () => {
     expect(federation.visibilityToActivityPubAddressing("friends_only", actor)).toEqual({ to: [], cc: [] });
     expect(federation.visibilityToActivityPubAddressing(null, actor)).toEqual({ to: [], cc: [] });
     expect(federation.visibilityToActivityPubAddressing(undefined, actor)).toEqual({ to: [], cc: [] });
+  });
+
+  it("rejects private nodeinfo href targets before a second fetch", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        links: [
+          {
+            rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
+            href: "https://169.254.169.254/latest/meta-data",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(federation.fetchNodeInfo("remote.example")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example/.well-known/nodeinfo",
+      { headers: { Accept: "application/json" } },
+    );
+  });
+
+  it("fetches public nodeinfo href targets after validation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          links: [
+            {
+              rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
+              href: "https://remote.example/nodeinfo/2.1",
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ software: { name: "Mastodon" } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(federation.fetchNodeInfo("remote.example")).resolves.toEqual({ software: "mastodon" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://remote.example/nodeinfo/2.1",
+      { headers: { Accept: "application/json" } },
+    );
   });
 
   it("derives followers_only only when recipient matches actor followers URL", () => {
@@ -634,6 +691,40 @@ describe("federation hardening prep", () => {
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
   });
 
+  it("re-reads outbound cleanup retention settings on each worker run", () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db);
+    let intervalRun: (() => void) | null = null;
+    vi.spyOn(global, "setInterval").mockImplementation((fn: TimerHandler) => {
+      intervalRun = fn as () => void;
+      return 1 as unknown as NodeJS.Timeout;
+    });
+
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run("older", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "older" }), "delivered", "-5 days");
+    db.prepare(
+      "INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))"
+    ).run("recent", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "recent" }), "delivered", "-4 days");
+
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?)").run("outbound_retain_delivered_days", JSON.stringify(4));
+    federation.startOutboundTerminalCleanupWorker(db);
+    expect(intervalRun).toBeTypeOf("function");
+
+    let remainingIds = db.prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id").all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["recent"]);
+
+    db.prepare("INSERT INTO outbound_activity_deliveries (id, destination_inbox, sender_account_id, sender_actor_uri, sender_key_id, activity_json, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', ?))")
+      .run("recent-2", "https://remote.example/inbox", account.id, "http://localhost:3000/users/alice", "http://localhost:3000/users/alice#main-key", JSON.stringify({ id: "recent-2" }), "delivered", "-4 days");
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json")
+      .run("outbound_retain_delivered_days", JSON.stringify(10));
+
+    intervalRun?.();
+
+    remainingIds = db.prepare("SELECT id FROM outbound_activity_deliveries ORDER BY id").all() as Array<{ id: string }>;
+    expect(remainingIds.map((row) => row.id)).toEqual(["recent", "recent-2"]);
+  });
+
   it("cleans up old terminal processed inbox rows with defaults", () => {
     const db = initDatabase(":memory:");
 
@@ -699,6 +790,46 @@ describe("federation hardening prep", () => {
       .all() as Array<{ activity_id: string }>;
     expect(remainingIds.map((row) => row.activity_id)).toEqual(["middle", "newest"]);
     expect(setIntervalSpy).toHaveBeenLastCalledWith(expect.any(Function), 3600000);
+  });
+
+  it("re-reads inbox cleanup settings on each worker run", () => {
+    const db = initDatabase(":memory:");
+    let intervalRun: (() => void) | null = null;
+    vi.spyOn(global, "setInterval").mockImplementation((fn: TimerHandler) => {
+      intervalRun = fn as () => void;
+      return 1 as unknown as NodeJS.Timeout;
+    });
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("a", "https://remote.example/users/bob", "user:alice", "processed", "-10 days");
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("b", "https://remote.example/users/bob", "user:alice", "processed", "-5 days");
+
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?)").run("inbox_processed_retain_days", JSON.stringify(1));
+    federation.startProcessedInboxCleanupWorker(db);
+    expect(intervalRun).toBeTypeOf("function");
+
+    let remainingIds = db.prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id").all() as Array<{ activity_id: string }>;
+    expect(remainingIds).toEqual([]);
+
+    db.prepare(
+      `INSERT INTO processed_inbox_activities
+       (activity_id, actor_uri, target_context, status, received_at)
+       VALUES (?, ?, ?, ?, datetime('now', ?))`
+    ).run("c", "https://remote.example/users/bob", "user:alice", "processed", "-5 days");
+    db.prepare("INSERT INTO admin_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json")
+      .run("inbox_processed_retain_days", JSON.stringify(10));
+
+    intervalRun?.();
+
+    remainingIds = db.prepare("SELECT activity_id FROM processed_inbox_activities ORDER BY activity_id").all() as Array<{ activity_id: string }>;
+    expect(remainingIds.map((row) => row.activity_id)).toEqual(["c"]);
   });
 
   it("skips duplicate inbox activities with stable ids", async () => {
@@ -1446,6 +1577,40 @@ describe("federation hardening prep", () => {
     expect(count.cnt).toBe(0);
   });
 
+  it("rejects user inbox Create for blocked actors", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', ?, 'blocked', 'admin-1', 1)`
+    ).run(actorUri);
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    const response = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/create-blocked-inbox",
+        type: "Create",
+        actor: actorUri,
+        object: {
+          id: "https://remote.example/events/blocked-inbox",
+          type: "Event",
+          name: "Blocked Inbox Event",
+          startTime: "2026-06-01T10:00:00Z",
+          attributedTo: actorUri,
+          to: [federation.AP_PUBLIC],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/blocked-inbox") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("uses activity addressing when Event object has no to/cc", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
@@ -1575,6 +1740,119 @@ describe("federation hardening prep", () => {
     expect(row.visibility).toBe("private");
   });
 
+  it("skips pulled imports for blocked actors", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    db.prepare(
+      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
+       VALUES ('block-actor', 'actor', ?, 'blocked', 'admin-1', 1)`
+    ).run(actorUri);
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-blocked-pull",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/blocked-pull", "Blocked Pull Event", { to: [federation.AP_PUBLIC] }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { imported: number };
+    expect(body.imported).toBe(0);
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE uri = ?").get("https://remote.example/events/blocked-pull") as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
+  it("skips pulled imports for tombstoned activities and events", async () => {
+    const db = initDatabase(":memory:");
+    const account = insertAccount(db, "local1", "alice");
+    const token = createSession(db, account.id).token;
+    const actorUri = insertRemoteActor(db);
+    insertTombstone(db, "activity", "https://remote.example/activities/create-tombstoned-activity");
+    insertTombstone(db, "remote_event", "https://remote.example/events/tombstoned-pull-event");
+
+    vi.spyOn(federation, "resolveRemoteActor").mockResolvedValue({
+      uri: actorUri,
+      type: "Person",
+      preferred_username: "bob",
+      display_name: null,
+      summary: null,
+      inbox: "https://remote.example/inbox",
+      outbox: "https://remote.example/users/bob/outbox",
+      shared_inbox: null,
+      followers_url: null,
+      following_url: null,
+      followers_count: null,
+      following_count: null,
+      icon_url: null,
+      image_url: null,
+      public_key_id: null,
+      public_key_pem: null,
+      domain: "remote.example",
+      last_fetched_at: new Date().toISOString(),
+    });
+    vi.spyOn(federation, "fetchRemoteOutbox").mockResolvedValue([
+      {
+        id: "https://remote.example/activities/create-tombstoned-activity",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/allowed-pull-event", "Should Be Skipped By Activity", { to: [federation.AP_PUBLIC] }),
+      },
+      {
+        id: "https://remote.example/activities/create-tombstoned-event",
+        type: "Create",
+        actor: actorUri,
+        object: eventObject("https://remote.example/events/tombstoned-pull-event", "Should Be Skipped By Event", { to: [federation.AP_PUBLIC] }),
+      },
+    ]);
+
+    const app = new Hono();
+    app.use("*", authMiddleware(db));
+    app.route("/api/v1/federation", federationRoutes(db));
+    const res = await app.request("http://localhost/api/v1/federation/fetch-actor", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ actorUri }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, imported: 0, total: 2 });
+    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_events WHERE actor_uri = ?").get(actorUri) as { cnt: number };
+    expect(count.cnt).toBe(0);
+  });
+
   it("treats explicit empty activity to/cc as private during user inbox Update", async () => {
     process.env.SKIP_SIGNATURE_VERIFY = "true";
     const db = initDatabase(":memory:");
@@ -1605,6 +1883,54 @@ describe("federation hardening prep", () => {
     expect(response.status).toBe(202);
     const row = db.prepare("SELECT visibility FROM remote_events WHERE uri = ?").get(eventUri) as { visibility: string };
     expect(row.visibility).toBe("private");
+  });
+
+  it("ignores tombstoned inbox activities and events going forward", async () => {
+    process.env.SKIP_SIGNATURE_VERIFY = "true";
+    const db = initDatabase(":memory:");
+    insertAccount(db, "local1", "alice");
+    const actorUri = insertRemoteActor(db);
+    const activityId = "https://remote.example/activities/update-tombstoned-activity";
+    const eventUri = "https://remote.example/events/tombstoned-inbox-event";
+    const app = new Hono();
+    app.route("/users", activityPubRoutes(db));
+
+    upsertRemoteEvent(
+      db,
+      eventObject(eventUri, "Original Inbox Title", { to: [federation.AP_PUBLIC] }),
+      actorUri,
+    );
+    insertTombstone(db, "activity", activityId);
+    insertTombstone(db, "remote_event", eventUri);
+
+    const activityRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: activityId,
+        type: "Update",
+        actor: actorUri,
+        object: eventObject(eventUri, "Ignored By Tombstones"),
+      }),
+    });
+
+    expect(activityRes.status).toBe(202);
+    let row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get(eventUri) as { title: string };
+    expect(row.title).toBe("Original Inbox Title");
+
+    db.prepare("DELETE FROM federation_tombstones WHERE object_type = 'activity' AND object_id = ?").run(activityId);
+    const eventRes = await app.request("http://localhost/users/alice/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "https://remote.example/activities/update-tombstoned-event",
+        type: "Update",
+        actor: actorUri,
+        object: eventObject(eventUri, "Still Ignored By Event Tombstone"),
+      }),
+    });
+
+    expect(eventRes.status).toBe(202);
+    row = db.prepare("SELECT title FROM remote_events WHERE uri = ?").get(eventUri) as { title: string };
+    expect(row.title).toBe("Original Inbox Title");
   });
 
   it("accepts pulled Update when attributedTo is an object with id", async () => {
@@ -2109,7 +2435,7 @@ describe("federation hardening prep", () => {
 
   it("rate-limits pulled actor mismatch logs during fetch-actor", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-01T00:00:00.000Z"));
+    vi.setSystemTime(new Date("2099-05-01T00:00:00.000Z"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const db = initDatabase(":memory:");

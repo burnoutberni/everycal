@@ -18,17 +18,32 @@ export interface AuthUser {
   id: string;
   username: string;
   displayName: string | null;
+  isAdmin?: boolean;
   preferredLanguage?: string;
 }
+
+type SessionAuthResult = {
+  user: AuthUser;
+  expiresAt: string;
+};
 
 // Extend Hono context variables
 declare module "hono" {
   interface ContextVariableMap {
     user: AuthUser | null;
+    cookieSessionExpiresAt: string | null;
   }
 }
 
-const SALT_ROUNDS = 12;
+function resolveSaltRounds(): number {
+  const raw = process.env.BCRYPT_SALT_ROUNDS;
+  if (!raw) return 12;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 4 || parsed > 31) return 12;
+  return parsed;
+}
+
+const SALT_ROUNDS = resolveSaltRounds();
 const SESSION_TTL_HOURS = 24 * 30; // 30 days
 
 function toSqliteDateTime(isoInstant: string): string {
@@ -40,6 +55,7 @@ function toSqliteDateTime(isoInstant: string): string {
 export function authMiddleware(db: DB) {
   return createMiddleware(async (c, next) => {
     let user: AuthUser | null = null;
+    let cookieSessionExpiresAt: string | null = null;
 
     // Try cookie first
     const cookieHeader = c.req.header("cookie") || "";
@@ -50,14 +66,17 @@ export function authMiddleware(db: DB) {
     const authHeader = c.req.header("authorization") || "";
 
     if (token) {
-      user = resolveSession(db, token);
+      const session = resolveSession(db, token);
+      user = session?.user ?? null;
+      cookieSessionExpiresAt = session?.expiresAt ?? null;
     } else if (authHeader.startsWith("Bearer ")) {
-      user = resolveSession(db, authHeader.slice(7));
+      user = resolveSession(db, authHeader.slice(7))?.user ?? null;
     } else if (authHeader.startsWith("ApiKey ")) {
       user = resolveApiKey(db, authHeader.slice(7));
     }
 
     c.set("user", user);
+    c.set("cookieSessionExpiresAt", cookieSessionExpiresAt);
     await next();
     return undefined;
   });
@@ -70,6 +89,16 @@ export function requireAuth() {
     if (!user) {
       return c.json({ error: t(getLocale(c), "common.authentication_required") }, 401);
     }
+    await next();
+    return undefined;
+  });
+}
+
+export function requireAdmin() {
+  return createMiddleware(async (c, next) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: t(getLocale(c), "common.authentication_required") }, 401);
+    if (!user.isAdmin) return c.json({ error: t(getLocale(c), "common.forbidden") }, 403);
     await next();
     return undefined;
   });
@@ -90,27 +119,33 @@ export function createSession(db: DB, accountId: string): { token: string; expir
   return { token, expiresAt };
 }
 
-function resolveSession(db: DB, token: string): AuthUser | null {
+function resolveSession(db: DB, token: string): SessionAuthResult | null {
   const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(
-      `SELECT a.id, a.username, a.display_name, a.preferred_language
+      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin, s.expires_at
        FROM sessions s
        JOIN accounts a ON a.id = s.account_id
-       WHERE s.token = ? AND s.expires_at > datetime('now')`
+       WHERE s.token = ? AND s.expires_at > datetime('now') AND a.is_disabled = 0`
     )
     .get(tokenHash) as {
       id: string;
       username: string;
-      display_name: string | null;
-      preferred_language: string | null;
-    } | undefined;
+        display_name: string | null;
+        preferred_language: string | null;
+        is_admin: number;
+        expires_at: string;
+      } | undefined;
   if (!row) return null;
   return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    preferredLanguage: row.preferred_language || undefined,
+    user: {
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      isAdmin: !!row.is_admin,
+      preferredLanguage: row.preferred_language || undefined,
+    },
+    expiresAt: row.expires_at,
   };
 }
 
@@ -147,26 +182,27 @@ function resolveApiKey(db: DB, key: string): AuthUser | null {
     username: string;
     display_name: string | null;
     preferred_language: string | null;
+    is_admin: number;
   }[];
 
   if (prefix) {
     // Fast path: lookup by prefix (typically 0-1 results)
     rows = db
       .prepare(
-        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language
+        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language, a.is_admin
          FROM api_keys k
          JOIN accounts a ON a.id = k.account_id
-         WHERE k.key_prefix = ?`
+         WHERE k.key_prefix = ? AND a.is_disabled = 0`
       )
       .all(prefix) as typeof rows;
   } else {
     // Fallback for legacy keys without prefix
     rows = db
       .prepare(
-        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language
+        `SELECT k.id AS key_id, k.key_hash, a.id, a.username, a.display_name, a.preferred_language, a.is_admin
          FROM api_keys k
          JOIN accounts a ON a.id = k.account_id
-         WHERE k.key_prefix IS NULL`
+         WHERE k.key_prefix IS NULL AND a.is_disabled = 0`
       )
       .all() as typeof rows;
   }
@@ -179,6 +215,7 @@ function resolveApiKey(db: DB, key: string): AuthUser | null {
         id: row.id,
         username: row.username,
         displayName: row.display_name,
+        isAdmin: !!row.is_admin,
         preferredLanguage: row.preferred_language || undefined,
       };
     }

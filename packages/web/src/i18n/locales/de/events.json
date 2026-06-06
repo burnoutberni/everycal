@@ -38,5 +38,11 @@
   "eventNotFound": "Event nicht gefunden.",
   "noEventIdentifier": "Keine Event-ID angegeben.",
   "mapsLabel": "Karten:",
-  "deleteEventConfirm": "Dieses Event löschen?"
+  "deleteEventConfirm": "Dieses Event löschen?",
+  "flagForModeration": "Zur Moderation melden",
+  "flagReasonPrompt": "Warum sollte dieses Event von Moderator:innen geprüft werden?",
+  "flagReasonPlaceholder": "Gib Moderator:innen genug Kontext, um dieses Event fair zu prüfen...",
+  "flagReasonRequired": "Zum Melden eines Events ist eine Begründung erforderlich.",
+  "submitModerationRequest": "Moderationsanfrage senden",
+  "moderationRequestNoteTitle": "Hinweis zur Moderationsanfrage"
 }
