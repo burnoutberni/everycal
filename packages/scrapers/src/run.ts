@@ -140,14 +140,14 @@ async function main() {
   const server = requireEnv("JOBS_API_SERVER");
 
   const candidateScrapers = requestedScrapers ?? registry;
-  // Only run scrapers that have API keys configured
-  const scrapers = candidateScrapers.filter((s) => apiKeys[s.id]);
-  const skipped = candidateScrapers.filter((s) => !apiKeys[s.id]);
-
-  if (scrapers.length === 0) {
-    console.log("⏭️  Scrapers skipped: no matching API keys in config");
-    return;
+  const missingKeys = candidateScrapers.filter((scraper) => !apiKeys[scraper.id]).map((scraper) => scraper.id);
+  if (missingKeys.length > 0) {
+    console.error(`❌ Missing scraper API key(s) for: ${missingKeys.join(", ")}`);
+    process.exit(1);
   }
+
+  const scrapers = candidateScrapers;
+  const skipped: Scraper[] = [];
 
   console.log(`🗓️  EveryCal Scraper Run — ${new Date().toISOString()}`);
   console.log(`   Server: ${server}`);
