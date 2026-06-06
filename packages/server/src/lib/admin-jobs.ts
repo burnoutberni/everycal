@@ -179,10 +179,12 @@ export async function processAdminJobQueue(
           jobType: row.job_type,
           payload: parsePayload(row.payload_json),
         };
+        console.log(`[Admin] ${row.job_type} job ${row.id} started`);
         const result = await executor(job);
         db.prepare(
           "UPDATE admin_job_runs SET status = 'succeeded', result_json = ?, finished_at = datetime('now') WHERE id = ? AND status = 'running'"
         ).run(JSON.stringify(result), row.id);
+        console.log(`[Admin] ${row.job_type} job ${row.id} succeeded`);
         succeeded++;
       } catch (err) {
         const baseResult = err instanceof AdminJobExecutionError ? err.result : {};
@@ -193,7 +195,7 @@ export async function processAdminJobQueue(
         db.prepare(
           "UPDATE admin_job_runs SET status = 'failed', result_json = ?, finished_at = datetime('now') WHERE id = ? AND status = 'running'"
         ).run(JSON.stringify(result), row.id);
-        console.error(`[Admin] ${row.job_type} job ${row.id} failed`, result);
+        console.error(`[Admin] ${row.job_type} job ${row.id} failed`);
         failed++;
       }
     }

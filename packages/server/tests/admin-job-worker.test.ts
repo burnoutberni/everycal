@@ -21,24 +21,31 @@ describe("admin job worker", () => {
       .run(JSON.stringify({ scraper: 'all', dryRun: true }));
 
     const seen: Array<{ id: string; scraper: string | null; dryRun: boolean }> = [];
-    const result = await processAdminJobQueue(db, 5, async (job) => {
-      seen.push({ id: job.id, scraper: job.payload.scraper, dryRun: job.payload.dryRun });
-      return { ok: true, scraper: job.payload.scraper ?? 'all', dryRun: job.payload.dryRun };
-    });
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const result = await processAdminJobQueue(db, 5, async (job) => {
+        seen.push({ id: job.id, scraper: job.payload.scraper, dryRun: job.payload.dryRun });
+        return { ok: true, scraper: job.payload.scraper ?? 'all', dryRun: job.payload.dryRun };
+      });
 
-    expect(result).toEqual({ processed: 1, succeeded: 1, failed: 0 });
-    expect(seen).toEqual([{ id: 'job1', scraper: null, dryRun: true }]);
+      expect(result).toEqual({ processed: 1, succeeded: 1, failed: 0 });
+      expect(seen).toEqual([{ id: 'job1', scraper: null, dryRun: true }]);
 
-    const row = db.prepare("SELECT status, started_at, finished_at, result_json FROM admin_job_runs WHERE id = 'job1'").get() as {
-      status: string;
-      started_at: string | null;
-      finished_at: string | null;
-      result_json: string | null;
-    };
-    expect(row.status).toBe("succeeded");
-    expect(row.started_at).toBeTruthy();
-    expect(row.finished_at).toBeTruthy();
-    expect(JSON.parse(row.result_json || "null")).toEqual({ ok: true, scraper: 'all', dryRun: true });
+      const row = db.prepare("SELECT status, started_at, finished_at, result_json FROM admin_job_runs WHERE id = 'job1'").get() as {
+        status: string;
+        started_at: string | null;
+        finished_at: string | null;
+        result_json: string | null;
+      };
+      expect(row.status).toBe("succeeded");
+      expect(row.started_at).toBeTruthy();
+      expect(row.finished_at).toBeTruthy();
+      expect(JSON.parse(row.result_json || "null")).toEqual({ ok: true, scraper: 'all', dryRun: true });
+      expect(consoleLog).toHaveBeenCalledWith('[Admin] scraper job job1 started');
+      expect(consoleLog).toHaveBeenCalledWith('[Admin] scraper job job1 succeeded');
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 
   it("coalesces overlapping queue runs in process", async () => {
@@ -92,7 +99,7 @@ describe("admin job worker", () => {
       };
       expect(row.status).toBe('failed');
       expect(JSON.parse(row.result_json || 'null')).toEqual({ error: 'missing scraper api key' });
-      expect(consoleError).toHaveBeenCalledWith('[Admin] scraper job job1 failed', { error: 'missing scraper api key' });
+      expect(consoleError).toHaveBeenCalledWith('[Admin] scraper job job1 failed');
     } finally {
       consoleError.mockRestore();
     }
