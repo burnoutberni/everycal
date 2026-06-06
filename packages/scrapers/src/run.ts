@@ -20,6 +20,7 @@ import { getScraperById, registry } from "./registry.js";
 import type { Scraper } from "./scraper.js";
 import type { EveryCalEvent } from "@everycal/core";
 import { buildSyncPayload } from "./lib/build-sync-payload.js";
+import { selectRunScrapers } from "./lib/select-run-scrapers.js";
 
 const CONCURRENCY = parseInt(process.env.SCRAPE_CONCURRENCY || "6", 10);
 const DRY_RUN = process.env.SCRAPER_DRY_RUN === "true";
@@ -139,7 +140,11 @@ async function main() {
 
   const server = requireEnv("JOBS_API_SERVER");
 
-  const candidateScrapers = requestedScrapers ?? registry;
+  const candidateScrapers = selectRunScrapers({
+    requestedScrapers,
+    registry,
+    apiKeys,
+  });
   const missingKeys = candidateScrapers.filter((scraper) => !apiKeys[scraper.id]).map((scraper) => scraper.id);
   if (missingKeys.length > 0) {
     console.error(`❌ Missing scraper API key(s) for: ${missingKeys.join(", ")}`);

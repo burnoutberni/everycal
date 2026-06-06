@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { registry } from "./registry.js";
+import { selectRunScrapers } from "./lib/select-run-scrapers.js";
 
 const packageDir = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 
@@ -32,6 +34,34 @@ function runScraper(env: NodeJS.ProcessEnv): Promise<{ code: number | null; stdo
 }
 
 describe("scraper runner", () => {
+  it("defaults to configured scrapers when SCRAPER_IDS is unset", () => {
+    const scrapers = selectRunScrapers({
+      requestedScrapers: null,
+      registry,
+      apiKeys: {
+        critical_mass_vienna: "test-key-1",
+        flex_at: "test-key-2",
+        unrelated: "ignored",
+      },
+    });
+
+    expect(scrapers.map((scraper) => scraper.id)).toEqual(["flex_at", "critical_mass_vienna"]);
+  });
+
+  it("keeps explicit scraper requests strict even when other keys exist", () => {
+    const requestedScrapers = [registry.find((scraper) => scraper.id === "radlobby_wien")!];
+
+    const scrapers = selectRunScrapers({
+      requestedScrapers,
+      registry,
+      apiKeys: {
+        flex_at: "test-key",
+      },
+    });
+
+    expect(scrapers.map((scraper) => scraper.id)).toEqual(["radlobby_wien"]);
+  });
+
   it("fails when the configured API key file is missing", async () => {
     const result = await runScraper({
       SCRAPER_API_KEYS_FILE: resolve(packageDir, "missing-scraper-api-keys.json"),
@@ -54,17 +84,5 @@ describe("scraper runner", () => {
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Missing scraper API key(s) for: flex_at");
-  });
-
-  it("fails when running all scrapers and configured API keys do not cover the registry", async () => {
-    const result = await runScraper({
-      SCRAPER_API_KEYS_JSON: JSON.stringify({ flex_at: "test-key" }),
-      JOBS_API_SERVER: "http://localhost:3000",
-    });
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Missing scraper API key(s) for:");
-    expect(result.stderr).toContain("critical_mass_vienna");
   });
 });
