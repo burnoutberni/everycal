@@ -239,6 +239,61 @@ describe("AdminPage audit payload rendering", () => {
   });
 });
 
+describe("AdminPage job run failure rendering", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authStatus = "authenticated";
+    mocks.loading = false;
+    mocks.user = { isAdmin: true };
+    vi.stubGlobal("IntersectionObserver", class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+      if (url.includes("/api/v1/admin/jobs/runs")) {
+        return Promise.resolve(jsonResponse({
+          items: [
+            {
+              id: "job-failed",
+              job_type: "scraper",
+              status: "failed",
+              result_json: JSON.stringify({
+                error: "scraper job exited with code 1",
+                stderr: "Missing scraper API key(s) for: flex_at",
+              }),
+              created_at: "2026-06-06 12:00:00",
+              started_at: "2026-06-06 12:00:01",
+              finished_at: "2026-06-06 12:00:02",
+            },
+          ],
+        }, { status: 200 }));
+      }
+      return Promise.resolve(jsonResponse({ items: [] }, { status: 200 }));
+    }));
+    ({ AdminPage } = await import("./AdminPage"));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows failed job summaries and full stored result payloads", async () => {
+    render(<AdminPage />);
+
+    expect(await screen.findByText("job-failed")).not.toBeNull();
+    expect(screen.getByText("scraper job exited with code 1")).not.toBeNull();
+    expect(screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent?.includes('"stderr": "Missing scraper API key(s) for: flex_at"'))).not.toBeNull();
+  });
+});
+
 describe("AdminPage proactive federation suppression", () => {
   beforeEach(async () => {
     vi.resetModules();

@@ -85,3 +85,22 @@ export function formatAuditPayload(payload?: string | null) {
     return payload;
   }
 }
+
+export function parseJobRunResult(payload?: string | null): Record<string, unknown> | null {
+  if (!payload?.trim()) return null;
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatJobRunResult(payload?: string | null) {
+  if (!payload?.trim()) return 'n/a';
+  try {
+    return JSON.stringify(JSON.parse(payload), null, 2);
+  } catch {
+    return payload;
+  }
+}

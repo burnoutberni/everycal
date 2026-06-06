@@ -193,6 +193,7 @@ export async function processAdminJobQueue(
         db.prepare(
           "UPDATE admin_job_runs SET status = 'failed', result_json = ?, finished_at = datetime('now') WHERE id = ? AND status = 'running'"
         ).run(JSON.stringify(result), row.id);
+        console.error(`[Admin] ${row.job_type} job ${row.id} failed`, result);
         failed++;
       }
     }
