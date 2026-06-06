@@ -20,7 +20,7 @@ import {
   type IdentityMember,
   type IdentityRole,
 } from "../lib/api";
-import { Link, useLocation, useSearch } from "wouter";
+import { Link, useLocation } from "wouter";
 import { ProfileHeader } from "../components/ProfileHeader";
 import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { TimezonePicker } from "../components/TimezonePicker";
@@ -39,7 +39,6 @@ import {
   SYSTEM_DATE_TIME_LOCALE,
   SYSTEM_TIMEZONE,
 } from "../lib/dateTimeLocale";
-import "./SharedLayout.css";
 import "./SettingsPage.css";
 import { useTheme } from "../hooks/useTheme";
 import { applyThemeToDocument, getSystemTheme, type ResolvedTheme, type ThemePreference } from "../lib/theme";
@@ -53,7 +52,6 @@ type IdentityFormErrors = {
 export function SettingsPage() {
   const { t, i18n } = useTranslation(["settings", "common", "auth", "profile", "timezones"]);
   const [, setLocation] = useLocation();
-  const search = useSearch();
   const allowLocalhostUrls = typeof window !== "undefined"
     && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 
@@ -66,10 +64,6 @@ export function SettingsPage() {
     { id: "danger", label: t("dangerZone"), icon: TrashIcon, danger: true },
   ];
   const { user, refreshUser } = useAuth();
-  const adminAccessNotice = useMemo(() => {
-    const params = new URLSearchParams(search);
-    return params.get("notice") === "admin-required" ? t("adminAccessRequired", { ns: "common" }) : null;
-  }, [search, t]);
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const committedThemePreferenceRef = useRef<ThemePreference>(themePreference);
   const [draftThemePreference, setDraftThemePreference] = useState<ThemePreference>(themePreference);
@@ -212,8 +206,8 @@ export function SettingsPage() {
         setEventUpdatedEnabled(p.eventUpdatedEnabled);
         setEventCancelledEnabled(p.eventCancelledEnabled);
       }
-    }).catch(() => {});
-    authApi.listApiKeys().then((r) => setKeys(r.keys)).catch(() => {});
+    });
+    authApi.listApiKeys().then((r) => setKeys(r.keys));
     identitiesApi.list().then((res) => {
       setIdentities(res.identities);
     }).catch(() => {
@@ -1097,11 +1091,6 @@ export function SettingsPage() {
 
       <div className="settings-content">
         <h1 className="settings-page-title">{t("title")}</h1>
-        {adminAccessNotice ? (
-          <p className="text-sm mb-2" role="status" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "0.55rem 0.7rem", background: "var(--bg-raised)" }}>
-            {adminAccessNotice}
-          </p>
-        ) : null}
 
         <section
           id="calendar"

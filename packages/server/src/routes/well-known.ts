@@ -8,7 +8,6 @@
 
 import { Hono } from "hono";
 import type { DB } from "../db.js";
-import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { buildActorUrl, buildProfileUrl, buildUrl, getBaseUrl } from "../lib/base-url.js";
 import { getLocale, t } from "../lib/i18n.js";
 
@@ -121,7 +120,7 @@ export function nodeInfoRoutes(db: DB): Hono {
         },
         localPosts: eventCount,
       },
-      openRegistrations: getEffectiveSetting<boolean>(db, "open_registrations", true),
+      openRegistrations: process.env.OPEN_REGISTRATIONS !== "false",
       metadata: {
         nodeName: "EveryCal",
         nodeDescription: "Federated event calendar built on ActivityPub",

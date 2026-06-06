@@ -1,9 +1,7 @@
 import type { DB } from "../../db.js";
 import { buildDateRangeFilter } from "../../lib/date-query.js";
-import { buildRemoteReadabilityFilter } from "../../lib/remote-readability.js";
 import { PaginationParamError } from "../../lib/pagination.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "../../lib/event-serializers.js";
-import { escapeLike, likeClause } from "../../lib/sql-utils.js";
 
 // ─── Reusable SQL fragments ─────────────────────────────────────────────────
 
@@ -84,8 +82,9 @@ export function appendDateRangeFilters(
  */
 export function buildRemoteTagFilter(tagList: string[]): { sql: string; params: unknown[] } {
   if (tagList.length === 0) return { sql: "", params: [] };
+  const escapeLike = (s: string) => s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
   const conditions = tagList
-    .map(() => `(re.tags = ? OR ${likeClause("re.tags")} OR ${likeClause("re.tags")} OR ${likeClause("re.tags")})`)
+    .map(() => `(re.tags = ? OR re.tags LIKE ? OR re.tags LIKE ? OR re.tags LIKE ?)`)
     .join(" OR ");
   const params: unknown[] = [];
   for (const tag of tagList) {
@@ -95,7 +94,19 @@ export function buildRemoteTagFilter(tagList: string[]): { sql: string; params: 
   return { sql: ` AND (${conditions})`, params };
 }
 
-export { buildRemoteReadabilityFilter };
+export function buildRemoteVisibilityFilter(currentUserId?: string): { sql: string; params: unknown[] } {
+  if (!currentUserId) return { sql: "(re.visibility IN ('public','unlisted'))", params: [] };
+  return {
+    sql: `(
+      re.visibility IN ('public','unlisted')
+      OR (
+        re.visibility = 'followers_only'
+        AND re.actor_uri IN (SELECT actor_uri FROM remote_following WHERE account_id = ?)
+      )
+    )`,
+    params: [currentUserId],
+  };
+}
 
 type MergedCursor = { startAtUtc: string; id: string };
 

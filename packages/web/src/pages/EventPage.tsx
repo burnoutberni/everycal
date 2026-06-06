@@ -1,7 +1,6 @@
-import { FormEvent, useEffect, useState, useMemo, useRef, useId } from "react";
+import { useEffect, useState, useMemo, useRef, useId } from "react";
 import { useLocation, Link } from "wouter";
 import { useTranslation } from "react-i18next";
-import { toErrorMessage } from "@everycal/core";
 import { eventsPathWithTags } from "../lib/urls";
 import { events as eventsApi, users as usersApi, federation, identities as identitiesApi, type CalEvent } from "../lib/api";
 import { sanitizeHtmlWithNewlines } from "../lib/sanitize";
@@ -11,30 +10,20 @@ import { accountProfilePath, profilePath, remoteProfilePath } from "../lib/urls"
 import { formatEventDateTime, hasDifferentTimezoneAtEventTime } from "../lib/formatEventDateTime";
 import { resolveDateTimeLocale, resolveUserTimezone } from "../lib/dateTimeLocale";
 import { normalizeEmbeddableEverycalPath } from "../lib/everycalEmbed";
-import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon, FlagIcon } from "../components/icons";
+import { LocationPinIcon, RepostIcon, ExternalLinkIcon, MenuIcon } from "../components/icons";
 import { ProfileCard, getProfileKey, type ProfileItem } from "../components/ProfileCard";
 import { LocationMap } from "../components/LocationMap";
 import { EventCard } from "../components/EventCard";
 import { ImageAttributionBadge } from "../components/ImageAttributionBadge";
 import { ActAsActionModal } from "../components/ActAsActionModal";
 import { EmbedCodeModal } from "../components/EmbedCodeModal";
-import { ReasonModal } from "../components/ReasonModal";
-import { ModerationDecisionActions } from "../components/ModerationDecisionActions";
 import { useOptionalPageContext } from "../renderer/PageContext";
 
 type RsvpStatus = "going" | "maybe" | null;
 
-type EventRouteIdentifiers = { id?: string; username?: string; slug?: string };
-
-function eventMatchesRoute(event: CalEvent | null | undefined, identifiers: EventRouteIdentifiers): boolean {
-  if (!event) return false;
-  if (identifiers.id) return event.id === identifiers.id;
-  return event.account?.username === identifiers.username && event.slug === identifiers.slug;
-}
-
 export function EventPage({ id, username, slug }: { id?: string; username?: string; slug?: string }) {
   const { t, i18n } = useTranslation(["events", "common"]);
-  const { user, authStatus } = useAuth();
+  const { user } = useAuth();
   const dateTimeLocale = resolveDateTimeLocale(user, i18n.language);
   const { hasAdditionalIdentities, loading: identitiesLoading } = useHasAdditionalIdentities();
   const [location, navigate] = useLocation();
@@ -64,19 +53,14 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
 
   // SSR initial state detection
   const pageContext = useOptionalPageContext();
-  const routeIdentifiers = useMemo(
-    () => ({ id: effectiveId, username: effectiveUsername, slug: effectiveSlug }),
-    [effectiveId, effectiveUsername, effectiveSlug]
-  );
-  const viewerEventContextKey = useMemo(
-    () => `${authStatus}:${user?.id ?? "anonymous"}:${user?.isAdmin ? "admin" : "standard"}`,
-    [authStatus, user?.id, user?.isAdmin]
-  );
-
   const initialEvent = useMemo(() => {
     const ev = (pageContext?.data as any)?.event;
-    return eventMatchesRoute(ev as CalEvent | null | undefined, routeIdentifiers) ? (ev as CalEvent) : null;
-  }, [pageContext, routeIdentifiers]);
+    if (!ev) return null;
+    if (effectiveId === undefined && effectiveUsername === ev.account?.username && effectiveSlug === ev.slug) {
+      return ev as CalEvent;
+    }
+    return null;
+  }, [pageContext, effectiveId, effectiveUsername, effectiveSlug]);
 
   const [event, setEvent] = useState<CalEvent | null>(initialEvent);
   const [loading, setLoading] = useState(initialEvent === null);
@@ -89,10 +73,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [repostAsOpen, setRepostAsOpen] = useState(false);
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [repostAsError, setRepostAsError] = useState<string | null>(null);
-  const [flagSubmitting, setFlagSubmitting] = useState(false);
-  const [flagModalOpen, setFlagModalOpen] = useState(false);
-  const [flagReason, setFlagReason] = useState("");
-  const [flagReasonError, setFlagReasonError] = useState<string | null>(null);
   const [profileItem, setProfileItem] = useState<ProfileItem | null>(null);
   const [suggestedEvents, setSuggestedEvents] = useState<CalEvent[]>([]);
   const [followedLocalIds, setFollowedLocalIds] = useState<Set<string>>(new Set());
@@ -101,7 +81,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const [canManageEvent, setCanManageEvent] = useState(false);
   const eventMenuRef = useRef<HTMLDivElement>(null);
   const eventMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const skipInitialFetchRef = useRef(initialEvent !== null);
   const eventMenuId = useId();
   const viewerTimezoneTooltipId = useId();
   const viewerTimeZone = resolveUserTimezone(user);
@@ -135,38 +114,25 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   );
 
   useEffect(() => {
-    if (!routeIdentifiers.id && (!routeIdentifiers.username || !routeIdentifiers.slug)) {
-      setLoading(false);
-      setError(t("noEventIdentifier"));
-      return;
-    }
-
-    if (skipInitialFetchRef.current && eventMatchesRoute(event, routeIdentifiers)) {
-      skipInitialFetchRef.current = false;
-      setLoading(false);
-      setError("");
-      return;
-    }
-
+    if (event && (event.id === effectiveId || (event.slug === effectiveSlug && event.account?.username === effectiveUsername))) return; // Already SSR'd or fetched
     setLoading(true);
     setError("");
 
     let promise: Promise<CalEvent>;
-    if (routeIdentifiers.username && routeIdentifiers.slug) {
-      promise = eventsApi.getBySlug(routeIdentifiers.username, routeIdentifiers.slug);
-    } else if (routeIdentifiers.id) {
-      promise = eventsApi.get(routeIdentifiers.id);
+    if (effectiveUsername && effectiveSlug) {
+      promise = eventsApi.getBySlug(effectiveUsername, effectiveSlug);
+    } else if (effectiveId) {
+      promise = eventsApi.get(effectiveId);
     } else {
       promise = Promise.reject(new Error("No event identifier"));
     }
 
-    let timeoutId: ReturnType<typeof setTimeout>;
     const withTimeout = Promise.race<CalEvent>([
       promise,
-      new Promise<CalEvent>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("Event request timed out")), 10000);
-      }),
-    ]).finally(() => clearTimeout(timeoutId));
+      new Promise<CalEvent>((_, reject) =>
+        setTimeout(() => reject(new Error("Event request timed out")), 10000)
+      ),
+    ]);
 
     withTimeout
       .then((ev) => {
@@ -178,12 +144,11 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
         setEvent(null);
         const msg = e.message;
         if (msg === "No event identifier") setError(t("noEventIdentifier"));
-        else if (/\(404\)/.test(msg)) setError("");
         else if (msg === "Event request timed out") setError(t("common:requestFailed"));
         else setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [i18n.language, routeIdentifiers, viewerEventContextKey]);
+  }, [effectiveId, effectiveUsername, effectiveSlug, user?.id, t]);
 
   // Fetch host profile and suggested events when event is loaded
   useEffect(() => {
@@ -447,35 +412,7 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
   const canEmbedEvent = (event.visibility === "public" || event.visibility === "unlisted") && !!embeddableEventPath;
   const canRepostEvent = !!user && !isCanceled && event.source !== "remote" && event.accountId !== user.id;
   const canRepostAs = canRepostEvent && !identitiesLoading && hasAdditionalIdentities;
-  const canFlagForModeration = !!user && !isCanceled && event.source !== "remote";
-  const showEventMenu = canEmbedEvent || canRepostAs || canFlagForModeration;
-
-  const handleFlagForModeration = async () => {
-    setFlagReason("");
-    setFlagReasonError(null);
-    setEventActionMenuOpen(false);
-    setFlagModalOpen(true);
-  };
-
-  const submitFlagForModeration = async (e: FormEvent) => {
-    e.preventDefault();
-    const reason = flagReason.trim();
-    if (!reason) {
-      setFlagReasonError(t("flagReasonRequired"));
-      return;
-    }
-    try {
-      setFlagSubmitting(true);
-      setFlagReasonError(null);
-      await eventsApi.flag(event.id, reason);
-      setFlagModalOpen(false);
-      setFlagReason("");
-    } catch (err) {
-      setFlagReasonError(toErrorMessage(err, t("common:unexpectedError")));
-    } finally {
-      setFlagSubmitting(false);
-    }
-  };
+  const showEventMenu = canEmbedEvent || canRepostAs;
 
   return (
     <div className="flex" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: "1.5rem" }}>
@@ -491,33 +428,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
             }}
           >
             {t("canceledByOrganizer")}
-          </div>
-        )}
-        {user?.isAdmin && event.moderationState === "flagged" && event.flaggerNote && (
-          <div
-            className="mb-2"
-            style={{
-              border: "1px solid color-mix(in srgb, var(--danger) 32%, var(--border))",
-              background: "color-mix(in srgb, var(--danger) 10%, var(--bg-raised))",
-              borderRadius: "var(--radius)",
-              padding: "0.75rem 0.85rem",
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: "0.25rem", color: "var(--danger)" }}>{t("moderationRequestNoteTitle")}</div>
-            <p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{event.flaggerNote}</p>
-            <div style={{ marginTop: "0.65rem" }}>
-              <p className="text-sm text-muted" style={{ marginBottom: "0.5rem" }}>
-                {t("moderationDecisionHint")}
-              </p>
-              <ModerationDecisionActions
-                eventId={event.id}
-                eventTitle={event.title}
-                size="md"
-                onResolved={async () => {
-                  window.location.reload();
-                }}
-              />
-            </div>
           </div>
         )}
         {event.image && (
@@ -700,18 +610,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
                         {t("common:copyEmbedCode")}
                       </button>
                     )}
-                    {canFlagForModeration && (
-                      <button
-                        type="button"
-                        className="header-dropdown-item"
-                        role="menuitem"
-                        onClick={handleFlagForModeration}
-                        disabled={flagSubmitting}
-                      >
-                        <FlagIcon />
-                        {flagSubmitting ? t("common:saving") : t("flagForModeration")}
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -890,27 +788,6 @@ export function EventPage({ id, username, slug }: { id?: string; username?: stri
           path={embeddableEventPath}
         />
       )}
-
-      <ReasonModal
-        open={flagModalOpen}
-        title={t("flagForModeration")}
-        description={t("flagReasonPrompt")}
-        reasonLabel={t("common:reason")}
-        reasonValue={flagReason}
-        reasonPlaceholder={t("flagReasonPlaceholder")}
-        submitLabel={flagSubmitting ? t("common:saving") : t("submitModerationRequest")}
-        cancelLabel={t("common:cancel")}
-        closeLabel={t("common:close")}
-        error={flagReasonError}
-        submitting={flagSubmitting}
-        onReasonChange={setFlagReason}
-        onClose={() => {
-          if (flagSubmitting) return;
-          setFlagModalOpen(false);
-          setFlagReasonError(null);
-        }}
-        onSubmit={submitFlagForModeration}
-      />
     </div>
   );
 }

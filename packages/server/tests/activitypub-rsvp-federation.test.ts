@@ -38,38 +38,8 @@ function seedLocalEvent(db: DB, visibility = "public"): void {
   db.prepare(
     `INSERT INTO events (
       id, account_id, title, start_date, start_at_utc, event_timezone, visibility
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run("event-1", "local1", "Local Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", visibility);
-}
-
-function seedOutboxModerationFixture(db: DB): void {
-  db.prepare("INSERT INTO accounts (id, username, account_type, private_key, public_key) VALUES (?, ?, 'person', ?, ?)")
-    .run("local1", "alice", "PRIVATE", "PUBLIC");
-  db.prepare("INSERT INTO accounts (id, username, account_type) VALUES (?, ?, 'person')")
-    .run("local2", "bob");
-
-  const insertEvent = db.prepare(
-    `INSERT INTO events (
-      id, account_id, title, start_date, start_at_utc, event_timezone, visibility
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  insertEvent.run("owned-visible", "local1", "Owned Visible", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", "public");
-  insertEvent.run("owned-hidden", "local1", "Owned Hidden", "2026-06-02T10:00:00", "2026-06-02T10:00:00.000Z", "UTC", "public");
-  insertEvent.run("repost-visible", "local2", "Repost Visible", "2026-06-03T10:00:00", "2026-06-03T10:00:00.000Z", "UTC", "public");
-  insertEvent.run("repost-hidden", "local2", "Repost Hidden", "2026-06-04T10:00:00", "2026-06-04T10:00:00.000Z", "UTC", "public");
-  insertEvent.run("auto-visible", "local2", "Auto Visible", "2026-06-05T10:00:00", "2026-06-05T10:00:00.000Z", "UTC", "public");
-  insertEvent.run("auto-hidden", "local2", "Auto Hidden", "2026-06-06T10:00:00", "2026-06-06T10:00:00.000Z", "UTC", "public");
-
-  db.prepare("UPDATE events SET moderation_state = 'hidden' WHERE id IN ('owned-hidden', 'repost-hidden', 'auto-hidden')").run();
-
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", "repost-visible", "http://localhost/events/repost-visible", "http://localhost/users/bob");
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", "repost-hidden", "http://localhost/events/repost-hidden", "http://localhost/users/bob");
-
-  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
-    .run("local1", "local2", "http://localhost/users/bob");
+  ).run("event-1", "local1", "Local Event", "2026-06-01T10:00:00", "2026-06-01T10:00:00.000Z", "UTC", visibility);
 }
 
 function seedRemoteEvent(db: DB): void {
@@ -81,56 +51,6 @@ function seedRemoteEvent(db: DB): void {
       uri, actor_uri, title, start_date, start_at_utc, timezone_quality, raw_json, visibility
     ) VALUES (?, ?, ?, ?, ?, 'offset_only', '{}', 'public')`,
   ).run("https://remote.example/events/remote-1", "https://remote.example/users/organizer", "Remote Event", "2026-06-01T10:00:00Z", "2026-06-01T10:00:00.000Z");
-}
-
-function seedRemoteOutboxReadabilityFixture(db: DB): void {
-  db.prepare("INSERT INTO accounts (id, username, account_type, private_key, public_key) VALUES (?, ?, 'person', ?, ?)")
-    .run("local1", "alice", "PRIVATE", "PUBLIC");
-  db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
-    .run(remoteActorUri, "bob", "https://remote.example/inbox", "remote.example", "https://remote.example/users/bob/outbox");
-  db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain, outbox) VALUES (?, ?, ?, ?, ?)")
-    .run("https://blocked.example/users/mallory", "mallory", "https://blocked.example/inbox", "blocked.example", "https://blocked.example/users/mallory/outbox");
-
-  const insertRemoteEvent = db.prepare(
-    `INSERT INTO remote_events (
-      uri, actor_uri, title, start_date, start_at_utc, timezone_quality, raw_json, visibility
-    ) VALUES (?, ?, ?, ?, ?, 'offset_only', '{}', ?)`
-  );
-
-  insertRemoteEvent.run("https://remote.example/events/repost-visible", remoteActorUri, "Remote Repost Visible", "2026-06-01T10:00:00Z", "2026-06-01T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://remote.example/events/repost-hidden", remoteActorUri, "Remote Repost Hidden", "2026-06-02T10:00:00Z", "2026-06-02T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://remote.example/events/repost-tombstoned", remoteActorUri, "Remote Repost Tombstoned", "2026-06-03T10:00:00Z", "2026-06-03T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://blocked.example/events/repost-blocked", "https://blocked.example/users/mallory", "Remote Repost Blocked", "2026-06-04T10:00:00Z", "2026-06-04T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://remote.example/events/auto-visible", remoteActorUri, "Remote Auto Visible", "2026-06-05T10:00:00Z", "2026-06-05T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://remote.example/events/auto-hidden", remoteActorUri, "Remote Auto Hidden", "2026-06-06T10:00:00Z", "2026-06-06T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://remote.example/events/auto-tombstoned", remoteActorUri, "Remote Auto Tombstoned", "2026-06-07T10:00:00Z", "2026-06-07T10:00:00.000Z", "public");
-  insertRemoteEvent.run("https://blocked.example/events/auto-blocked", "https://blocked.example/users/mallory", "Remote Auto Blocked", "2026-06-08T10:00:00Z", "2026-06-08T10:00:00.000Z", "public");
-
-  db.prepare("UPDATE remote_events SET moderation_state = 'hidden' WHERE uri IN (?, ?)")
-    .run("https://remote.example/events/repost-hidden", "https://remote.example/events/auto-hidden");
-  db.prepare(
-    `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
-     VALUES ('remote-event:repost-tombstoned', 'remote_event', ?, 'test tombstone'),
-            ('remote-event:auto-tombstoned', 'remote_event', ?, 'test tombstone')`
-  ).run("https://remote.example/events/repost-tombstoned", "https://remote.example/events/auto-tombstoned");
-  db.prepare(
-    `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
-     VALUES ('block-domain-blocked-example', 'domain', 'blocked.example', 'blocked', 'admin-1', 1)`
-  ).run();
-
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", null, "https://remote.example/events/repost-visible", remoteActorUri);
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", null, "https://remote.example/events/repost-hidden", remoteActorUri);
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", null, "https://remote.example/events/repost-tombstoned", remoteActorUri);
-  db.prepare("INSERT INTO reposts (account_id, event_id, event_uri, source_actor_uri) VALUES (?, ?, ?, ?)")
-    .run("local1", null, "https://blocked.example/events/repost-blocked", "https://blocked.example/users/mallory");
-
-  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
-    .run("local1", null, remoteActorUri);
-  db.prepare("INSERT INTO auto_reposts (account_id, source_account_id, source_actor_uri) VALUES (?, ?, ?)")
-    .run("local1", null, "https://blocked.example/users/mallory");
 }
 
 function inboxApp(db: DB): Hono {
@@ -307,70 +227,6 @@ describe("ActivityPub RSVP federation", () => {
     seedLocalEvent(db, "private");
     const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/private-target"));
     expect(res.status).toBe(202);
-    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
-  });
-
-  it("rejects blocked actor RSVP activities in the user inbox", async () => {
-    seedLocalEvent(db);
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
-       VALUES ('block-rsvp-user-actor', 'actor', ?, 'blocked', 'admin-1', 1)`,
-    ).run(remoteActorUri);
-
-    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/blocked-user-rsvp"));
-    expect(res.status).toBe(202);
-
-    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
-  });
-
-  it("rejects blocked actor RSVP activities in the shared inbox", async () => {
-    seedLocalEvent(db);
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
-       VALUES ('block-rsvp-shared-actor', 'actor', ?, 'blocked', 'admin-1', 1)`,
-    ).run(remoteActorUri);
-
-    const res = await postInbox(
-      db,
-      rsvpActivity("Accept", "https://remote.example/activities/blocked-shared-rsvp"),
-      "/inbox",
-    );
-    expect(res.status).toBe(202);
-
-    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
-  });
-
-  it("rejects domain-blocked RSVP activities in the user inbox", async () => {
-    seedLocalEvent(db);
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
-       VALUES ('block-rsvp-user-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`,
-    ).run();
-
-    const res = await postInbox(db, rsvpActivity("Accept", "https://remote.example/activities/blocked-user-domain-rsvp"));
-    expect(res.status).toBe(202);
-
-    const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
-    expect(count.cnt).toBe(0);
-  });
-
-  it("rejects domain-blocked RSVP activities in the shared inbox", async () => {
-    seedLocalEvent(db);
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
-       VALUES ('block-rsvp-shared-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`,
-    ).run();
-
-    const res = await postInbox(
-      db,
-      rsvpActivity("Accept", "https://remote.example/activities/blocked-shared-domain-rsvp"),
-      "/inbox",
-    );
-    expect(res.status).toBe(202);
-
     const count = db.prepare("SELECT COUNT(*) AS cnt FROM remote_event_rsvps").get() as { cnt: number };
     expect(count.cnt).toBe(0);
   });
@@ -595,82 +451,6 @@ describe("ActivityPub RSVP federation", () => {
     expect(mapping.logical_key).toBe("announce:local1:http://localhost/events/event-1");
     expect(mapping.activity_type).toBe("Announce");
     expect(mapping.object_uri).toBe("http://localhost/events/event-1");
-  });
-
-  it("excludes hidden local events from outbox owned, repost, and auto-repost queries", async () => {
-    seedOutboxModerationFixture(db);
-
-    const app = inboxApp(db);
-    const collectionRes = await app.request("http://localhost/users/alice/outbox", {
-      method: "GET",
-      headers: { accept: "application/activity+json" },
-    });
-    const pageRes = await app.request("http://localhost/users/alice/outbox?page=1", {
-      method: "GET",
-      headers: { accept: "application/activity+json" },
-    });
-
-    expect(collectionRes.status).toBe(200);
-    expect(pageRes.status).toBe(200);
-
-    const collection = await collectionRes.json() as { totalItems?: number };
-    const page = await pageRes.json() as {
-      orderedItems?: Array<{ type?: string; object?: unknown }>;
-    };
-
-    expect(collection.totalItems).toBe(3);
-
-    const objectIds = (page.orderedItems ?? []).map((item) => {
-      if (typeof item.object === "string") return item.object;
-      if (item.object && typeof item.object === "object" && "id" in item.object) {
-        return (item.object as { id?: string }).id;
-      }
-      return undefined;
-    });
-    expect(objectIds).toContain("http://localhost/events/owned-visible");
-    expect(objectIds).toContain("http://localhost/events/repost-visible");
-    expect(objectIds).toContain("http://localhost/events/auto-visible");
-    expect(objectIds).not.toContain("http://localhost/events/owned-hidden");
-    expect(objectIds).not.toContain("http://localhost/events/repost-hidden");
-    expect(objectIds).not.toContain("http://localhost/events/auto-hidden");
-
-    const createObjects = page.orderedItems
-      ?.filter((item) => item.type === "Create")
-      .map((item) => item.object) ?? [];
-    expect(createObjects).toHaveLength(1);
-    expect(createObjects[0]).toMatchObject({ id: "http://localhost/events/owned-visible" });
-  });
-
-  it("excludes unreadable remote reposts from outbox counts and Announce items", async () => {
-    seedRemoteOutboxReadabilityFixture(db);
-
-    const app = inboxApp(db);
-    const collectionRes = await app.request("http://localhost/users/alice/outbox", {
-      method: "GET",
-      headers: { accept: "application/activity+json" },
-    });
-    const pageRes = await app.request("http://localhost/users/alice/outbox?page=1", {
-      method: "GET",
-      headers: { accept: "application/activity+json" },
-    });
-
-    expect(collectionRes.status).toBe(200);
-    expect(pageRes.status).toBe(200);
-
-    const collection = await collectionRes.json() as { totalItems?: number };
-    const page = await pageRes.json() as {
-      orderedItems?: Array<{ type?: string; object?: unknown }>;
-    };
-
-    expect(collection.totalItems).toBe(2);
-
-    const announceObjects = (page.orderedItems ?? [])
-      .filter((item) => item.type === "Announce")
-      .map((item) => item.object);
-    expect(announceObjects).toEqual([
-      "https://remote.example/events/auto-visible",
-      "https://remote.example/events/repost-visible",
-    ]);
   });
 
   it("regenerates a full keypair when private_key exists but public_key is missing before enqueue", async () => {

@@ -13,7 +13,7 @@ function loadViewer(db: DB, user: AuthUser | null): {
 
   const row = db
     .prepare(
-      `SELECT a.id, a.username, a.display_name, a.avatar_url, a.preferred_language, a.is_admin,
+      `SELECT a.id, a.username, a.display_name, a.avatar_url, a.preferred_language,
               a.theme_preference,
               p.onboarding_completed
        FROM accounts a
@@ -27,7 +27,6 @@ function loadViewer(db: DB, user: AuthUser | null): {
         display_name: string | null;
         avatar_url: string | null;
         preferred_language: string | null;
-        is_admin: number;
         theme_preference: "system" | "light" | "dark" | null;
         onboarding_completed: number | null;
       }
@@ -50,7 +49,6 @@ function loadViewer(db: DB, user: AuthUser | null): {
       username: row.username,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
-      isAdmin: !!row.is_admin,
       themePreference: row.theme_preference || "system",
       notificationPrefs: {
         onboardingCompleted: row.onboarding_completed != null ? !!row.onboarding_completed : undefined,

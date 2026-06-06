@@ -6,7 +6,6 @@
  */
 
 import i18n from "i18next";
-import { getCsrfToken, shouldAttachCsrf } from "./csrf";
 
 const API_PATH = "/api/v1";
 
@@ -80,39 +79,16 @@ export function createApiRequestContext(input?: {
  * Web UI users authenticate via HttpOnly cookies (no JS token access).
  */
 let apiKey: string | null = null;
-const unauthorizedListeners = new Set<() => void>();
-
-export function onUnauthorized(listener: () => void): () => void {
-  unauthorizedListeners.add(listener);
-  return () => unauthorizedListeners.delete(listener);
-}
 
 export function setApiKey(key: string | null) {
   apiKey = key;
 }
 
-function notifyUnauthorized() {
-  if (typeof window !== "undefined") {
-    unauthorizedListeners.forEach((listener) => {
-      listener();
-    });
-  }
-}
-
-export interface ApiRequestOptions<T> {
-  context?: ApiRequestContext;
-  resolveUrl?: (path: string, context?: ApiRequestContext) => string;
-  parseResponse?: (response: Response) => Promise<T>;
-  parseError?: (response: Response) => Promise<Error>;
-  cache?: RequestCache;
-}
-
-export async function apiRequest<T>(
+async function request<T>(
   path: string,
   options: RequestInit = {},
-  requestOptions: ApiRequestOptions<T> = {}
+  context?: ApiRequestContext
 ): Promise<T> {
-  const { context, resolveUrl = apiUrl, parseResponse, parseError, cache = "no-store" } = requestOptions;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -134,45 +110,21 @@ export async function apiRequest<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  // Attach CSRF double-submit token for browser cookie-auth requests
-  if (typeof window !== "undefined" && shouldAttachCsrf(options.method)) {
-    const csrfToken = getCsrfToken();
-    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-  }
-
-  const res = await fetch(resolveUrl(path, context), {
+  const res = await fetch(apiUrl(path, context), {
     ...options,
     headers,
     // Include cookies for session-based auth (HttpOnly cookie set by server)
     credentials: "include",
     // Prevent stale cached responses (e.g. profile event count after creating an event)
-    cache,
+    cache: "no-store",
   });
 
   if (!res.ok) {
-    if (res.status === 401) {
-      notifyUnauthorized();
-    }
-    if (parseError) {
-      throw await parseError(res);
-    }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error || i18n.t("common:requestFailed"));
   }
 
-  if (parseResponse) {
-    return parseResponse(res);
-  }
-
-  return res.json() as Promise<T>;
-}
-
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-  context?: ApiRequestContext
-): Promise<T> {
-  return apiRequest<T>(path, options, { context });
+  return res.json();
 }
 
 export class ApiError extends Error {
@@ -227,7 +179,6 @@ export interface User {
   avatarUrl?: string | null;
   website?: string | null;
   isBot?: boolean;
-  isAdmin?: boolean;
   discoverable?: boolean;
   city?: string | null;
   cityLat?: number | null;
@@ -420,9 +371,6 @@ type CalEventBase = {
   visibility: string;
   /** True for remote events that were canceled (ActivityPub Delete). */
   canceled?: boolean;
-  moderationState?: "flagged" | "visible" | "hidden";
-  moderationReason?: string | null;
-  flaggerNote?: string | null;
   rsvpStatus?: "going" | "maybe" | null;
   reposted?: boolean;
   repostedBy?: { username: string; displayName: string | null };
@@ -581,13 +529,6 @@ export const events = {
 
   unrepost(id: string) {
     return request<{ ok: boolean; reposted: boolean }>(`/events/${id}/repost`, { method: "DELETE" });
-  },
-
-  flag(id: string, reason: string) {
-    return request<{ ok: boolean }>(`/events/${id}/flag`, {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    });
   },
 
   rsvp(eventUri: string, status: "going" | "maybe" | null) {

@@ -18,7 +18,6 @@
  */
 
 import { registry, getScraperById } from "./registry.js";
-import { toErrorMessage } from "@everycal/core";
 import type { EveryCalEvent } from "@everycal/core";
 import { buildSyncPayload } from "./lib/build-sync-payload.js";
 
@@ -112,7 +111,7 @@ Examples:
       const events = await scraper.scrape();
       return { scraper, events, error: null as string | null };
     } catch (err) {
-      return { scraper, events: [] as Partial<EveryCalEvent>[], error: toErrorMessage(err, "Scrape failed") };
+      return { scraper, events: [] as Partial<EveryCalEvent>[], error: String(err) };
     }
   });
 

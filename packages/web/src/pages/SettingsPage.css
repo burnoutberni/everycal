@@ -1,12 +1,103 @@
-/* Settings page: settings-specific styles */
+/* Settings page: sidebar + content layout */
 
-.settings-section.danger .settings-section-title {
-  color: var(--danger);
+.settings-layout {
+  display: flex;
+  gap: 2.5rem;
+  align-items: flex-start;
 }
 
-.settings-card.danger-card {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+.settings-sidebar {
+  flex-shrink: 0;
+  width: 200px;
+  position: sticky;
+  top: 1.5rem;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  transition: color 0.15s, background 0.15s;
+}
+
+.settings-nav-link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.settings-nav-link.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.settings-nav-link svg {
+  flex-shrink: 0;
+  width: 1.1em;
+  height: 1.1em;
+  opacity: 0.85;
+}
+
+.settings-nav-link.active svg {
+  opacity: 1;
+}
+
+.settings-nav-link.danger {
+  color: var(--text-dim);
+}
+
+.settings-nav-link.danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.settings-nav-link.danger.active {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.settings-nav-link.danger {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-page-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.5rem;
+  color: var(--text);
+}
+
+
+.settings-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
 }
 
 .theme-preference-fieldset {
@@ -133,80 +224,32 @@
   box-sizing: border-box;
 }
 
-.runtime-settings-groups {
-  display: grid;
-  gap: 1.1rem;
+.settings-section {
+  scroll-margin-top: 2rem;
 }
 
-.runtime-settings-toolbar {
-  margin-bottom: 0.85rem;
+.settings-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  letter-spacing: -0.01em;
 }
 
-.runtime-settings-toolbar input {
-  width: 100%;
-  max-width: 560px;
+.settings-section.danger .settings-section-title {
+  color: var(--danger);
 }
 
-.runtime-settings-group {
+.settings-card {
+  background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-raised) 84%, var(--bg) 16%) 0%, var(--bg-raised) 100%);
-  overflow: hidden;
+  padding: 1.25rem 1.35rem;
+  margin-bottom: 1.25rem;
 }
 
-.runtime-settings-group-title {
-  margin: 0;
-  padding: 0.75rem 0.95rem;
-  font-size: 0.95rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-}
-
-.runtime-settings-list {
-  display: grid;
-}
-
-.runtime-setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.9rem 0.95rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.runtime-setting-row:last-child {
-  border-bottom: none;
-}
-
-.runtime-setting-edit {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.runtime-setting-edit input {
-  min-width: 220px;
-}
-
-@media (max-width: 900px) {
-  .runtime-setting-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .runtime-setting-edit {
-    width: 100%;
-  }
-
-  .runtime-setting-edit input {
-    min-width: 0;
-    flex: 1;
-  }
+.settings-card.danger-card {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
 }
 
 .identity-list {
@@ -411,7 +454,31 @@
   cursor: not-allowed;
 }
 
+/* Mobile: horizontal nav above content */
 @media (max-width: 640px) {
+  .settings-layout {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .settings-sidebar {
+    position: static;
+    width: 100%;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .settings-nav-link {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.85rem;
+  }
+
   .settings-wizard-actions {
     justify-content: stretch;
   }

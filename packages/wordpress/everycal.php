@@ -1955,7 +1955,7 @@ function everycal_settings_page() {
 					return;
 				}
 				refreshLogs();
-				timer = setInterval(function () { if (!document.hidden) refreshLogs(); }, 5000);
+				timer = setInterval(refreshLogs, 5000);
 				watchBtn.textContent = i18n.stopAutoRefresh;
 				watchBtn.setAttribute("aria-pressed", "true");
 			});

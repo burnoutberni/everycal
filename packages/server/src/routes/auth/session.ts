@@ -8,17 +8,14 @@ import { normalizeHandle, isValidRegistrationUsername } from "../../lib/handles.
 import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { hashTokenSecret } from "../../lib/token-secrets.js";
-import { getEffectiveSetting } from "../../lib/runtime-settings.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE } from "./constants.js";
-import { setSessionCookie, clearSessionCookie, maybeSetMissingCsrfCookie } from "./session-cookies.js";
+import { setSessionCookie, clearSessionCookie } from "./session-cookies.js";
 
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
   router.post("/register", async (c) => {
-    const openRegistrationsEffective = getEffectiveSetting<boolean>(db, "open_registrations", true);
-
     // Check if open registration is enabled
-    if (!openRegistrationsEffective) {
+    if (process.env.OPEN_REGISTRATIONS === "false") {
       return c.json({ error: t(getLocale(c), "auth.registration_closed") }, 403);
     }
 
@@ -175,7 +172,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
     const row = db
       .prepare(
-        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot, is_admin, is_disabled FROM accounts WHERE username = ?"
+        "SELECT id, username, display_name, password_hash, email_verified, theme_preference, is_bot FROM accounts WHERE username = ?"
       )
       .get(normalizedUsername) as
       | {
@@ -186,12 +183,10 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
           email_verified: number;
           theme_preference: string | null;
           is_bot: number;
-          is_admin: number;
-          is_disabled: number;
         }
       | undefined;
 
-    if (!row || row.is_bot || row.is_disabled || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
+    if (!row || row.is_bot || !row.password_hash || !verifyPassword(body.password, row.password_hash)) {
       recordFailedLogin(db, normalizedUsername);
       return c.json({ error: t(getLocale(c), "auth.invalid_username_password") }, 401);
     }
@@ -243,7 +238,6 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
         id: row.id,
         username: row.username,
         displayName: row.display_name,
-        isAdmin: !!row.is_admin,
         themePreference: row.theme_preference || SYSTEM_THEME_PREFERENCE,
         notificationPrefs,
       },
@@ -272,11 +266,10 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
   // Current user
   router.get("/me", requireAuth(), (c) => {
-    maybeSetMissingCsrfCookie(c, c.req.header("cookie"), c.get("cookieSessionExpiresAt"));
     const user = c.get("user")!;
     const row = db
       .prepare(
-        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at, is_admin,
+        `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at,
                 theme_preference,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
@@ -323,7 +316,6 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
       avatarUrl: row.avatar_url,
       website: row.website || null,
       isBot: !!row.is_bot,
-      isAdmin: !!row.is_admin,
       discoverable: !!row.discoverable,
       city: row.city || null,
       cityLat: row.city_lat != null ? Number(row.city_lat) : null,

@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
   changeLanguage: vi.fn(),
   refreshUser: vi.fn(async () => {}),
-  search: "",
 }));
 
 vi.mock("react-i18next", () => ({
@@ -25,7 +24,6 @@ vi.mock("wouter", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
   useLocation: () => ["/settings", mocks.setLocation],
-  useSearch: () => mocks.search,
 }));
 
 vi.mock("../hooks/useAuth", () => ({
@@ -118,7 +116,6 @@ describe("SettingsPage identity flows", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
-    mocks.search = "";
     (globalThis as any).IntersectionObserver = class {
       observe() {}
       unobserve() {}
@@ -167,32 +164,6 @@ describe("SettingsPage identity flows", () => {
 
     expect(await screen.findByText("invalidWebsiteUrl")).toBeTruthy();
     expect(screen.queryByText("defaultEventVisibility")).toBeNull();
-  });
-
-  it("updates the admin access notice when the query string changes", async () => {
-    const view = renderSettingsPage();
-
-    expect(screen.queryByText("adminAccessRequired")).toBeNull();
-
-    mocks.search = "?notice=admin-required";
-    view.rerender(
-      <ThemeProvider>
-        <SettingsPage />
-      </ThemeProvider>
-    );
-
-    expect(await screen.findByText("adminAccessRequired")).toBeTruthy();
-
-    mocks.search = "";
-    view.rerender(
-      <ThemeProvider>
-        <SettingsPage />
-      </ThemeProvider>
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByText("adminAccessRequired")).toBeNull();
-    });
   });
 
   it("disables wizard next while avatar upload is in progress", async () => {

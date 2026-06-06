@@ -8,7 +8,7 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promis
 import { existsSync } from "node:fs";
 import { join, resolve, extname, basename, relative, isAbsolute, sep } from "node:path";
 import sharp from "sharp";
-import { getUploadDir } from "../lib/paths.js";
+import { UPLOAD_DIR } from "../lib/paths.js";
 
 const MAX_DIMENSION = 2048; // Cap to prevent image bombs
 
@@ -46,7 +46,7 @@ async function cleanupTempFile(path: string): Promise<void> {
   }
 }
 
-export function serveUploadsRoutes({ uploadDir = getUploadDir() }: { uploadDir?: string } = {}): Hono {
+export function serveUploadsRoutes({ uploadDir = UPLOAD_DIR }: { uploadDir?: string } = {}): Hono {
   const router = new Hono();
   const DERIVATIVE_DIR = join(uploadDir, ".derived");
 

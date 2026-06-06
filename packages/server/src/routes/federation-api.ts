@@ -11,7 +11,6 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
-import { toErrorMessage } from "@everycal/core";
 import type { DB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -39,19 +38,10 @@ import {
   upsertRemoteEventRsvp,
 } from "../lib/activitypub-rsvp.js";
 import { normalizeApTemporal } from "../lib/timezone.js";
-import { getEffectiveSetting } from "../lib/runtime-settings.js";
 import { buildDateRangeFilter, DateQueryParamError, parseDateRangeParams } from "../lib/date-query.js";
 import { serializeRemoteEvent } from "../lib/event-serializers.js";
 import { buildActorUrl, getBaseUrl } from "../lib/base-url.js";
 import { boundedConsoleLog } from "../lib/bounded-log.js";
-import { hasActiveFederationBlock } from "../lib/federation-blocks.js";
-import {
-  buildActiveFederationActorTombstoneFilter,
-  isActivityTombstoned,
-  isRemoteActorTombstoned,
-  isRemoteEventTombstoned,
-} from "../lib/federation-tombstones.js";
-import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { enqueueOgJob } from "../lib/og-job-queue.js";
 import { clearRemoteOgImage, generateAndSaveRemoteOgImage, isRemoteActivityOgEligible } from "./og-images.js";
 import { parseJsonBody } from "../lib/request-body.js";
@@ -161,7 +151,7 @@ export function federationRoutes(db: DB): Hono {
   const router = new Hono();
 
   function isQueueHealthAllowed(user: { id: string; username: string }): boolean {
-    const raw = getEffectiveSetting<string>(db, "federation_queue_health_allowed_accounts", "");
+    const raw = process.env.FEDERATION_QUEUE_HEALTH_ALLOWED_ACCOUNTS;
     if (!raw) return false;
     const allowed = new Set(raw.split(",").map((value) => value.trim()).filter(Boolean));
     return allowed.has(user.id) || allowed.has(user.username);
@@ -266,7 +256,7 @@ export function federationRoutes(db: DB): Hono {
         await validateFederationUrl(self.href);
         actorUri = self.href;
       } catch (err) {
-        const msg = toErrorMessage(err, "WebFinger lookup failed");
+        const msg = err instanceof Error ? err.message : String(err);
         const msgLower = msg.toLowerCase();
         if (
           msgLower.includes("private/internal") ||
@@ -323,17 +313,12 @@ export function federationRoutes(db: DB): Hono {
     if (!actor || !actor.outbox) {
       return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor_outbox") }, 404);
     }
-    if (isRemoteActorTombstoned(db, actor.uri)) {
-      return c.json({ error: t(getLocale(c), "federation.could_not_resolve_actor_outbox") }, 404);
-    }
 
     try {
       const items = await fetchRemoteOutbox(actor.outbox);
       let imported = 0;
 
       for (const item of items) {
-        if (typeof item === "string" && isActivityTombstoned(db, item)) continue;
-
         // Outbox items may be full activities or URL references — resolve if needed
         let activity = item as Record<string, unknown>;
         if (typeof item === "string") {
@@ -344,8 +329,6 @@ export function federationRoutes(db: DB): Hono {
             continue;
           }
         }
-
-        if (isActivityTombstoned(db, typeof activity.id === "string" ? activity.id : null)) continue;
 
         const activityType = activity.type as string;
         const rsvpImport = importPulledRsvpActivity(db, activity, actor.uri);
@@ -373,7 +356,6 @@ export function federationRoutes(db: DB): Hono {
         if (activityType === "Delete") {
           const objectUri = normalizeRemoteEventUri(extractApObjectUri(activity.object));
           if (!objectUri) continue;
-          if (isRemoteEventTombstoned(db, objectUri) || isRemoteActorTombstoned(db, actor.uri)) continue;
           const existing = db.prepare("SELECT actor_uri FROM remote_events WHERE uri = ?").get(objectUri) as { actor_uri: string } | undefined;
           if (existing?.actor_uri === actor.uri) {
             db.prepare("UPDATE remote_events SET canceled = 1, updated = COALESCE(?, updated), fetched_at = datetime('now') WHERE uri = ?")
@@ -448,8 +430,6 @@ export function federationRoutes(db: DB): Hono {
         const ownerActorUri = activityType === "Announce" && attributedTo.status === "parsed"
           ? attributedTo.actor
           : actor.uri;
-        if (hasActiveFederationBlock(db, { actorUri: ownerActorUri })) continue;
-        if (isRemoteActorTombstoned(db, ownerActorUri) || isRemoteEventTombstoned(db, objectUri)) continue;
         const allowActorUriCorrection = activityType === "Announce" && attributedTo.status === "parsed" && !existing;
         if (activityType === "Announce" && attributedTo.status === "parsed" && existing && existing.actor_uri !== attributedTo.actor) {
           boundedConsoleLog(
@@ -491,7 +471,7 @@ export function federationRoutes(db: DB): Hono {
 
       return c.json({ ok: true, imported, total: items.length });
     } catch (err) {
-      const msg = toErrorMessage(err, "Failed to fetch actor outbox");
+      const msg = err instanceof Error ? err.message : String(err);
       return c.json({ error: t(getLocale(c), "federation.failed_to_fetch_outbox", { error: msg }) }, 502);
     }
   });
@@ -743,15 +723,14 @@ export function federationRoutes(db: DB): Hono {
       throw error;
     }
 
-    const remoteReadability = buildRemoteReadabilityFilter();
     let sql = `
       SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
              ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
       FROM remote_events re
       LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
-      WHERE ${remoteReadability.sql}
+      WHERE re.visibility IN ('public','unlisted')
     `;
-    const params: unknown[] = [...remoteReadability.params];
+    const params: unknown[] = [];
 
     if (actorUri) {
       sql += " AND re.actor_uri = ?";
@@ -783,7 +762,6 @@ export function federationRoutes(db: DB): Hono {
          FROM remote_following rf
          JOIN remote_actors ra ON ra.uri = rf.actor_uri
          WHERE rf.account_id = ?
-           AND ${buildActiveFederationActorTombstoneFilter("ra")}
          ORDER BY rf.created_at DESC`
       )
       .all(user.id) as Record<string, unknown>[];
@@ -835,7 +813,6 @@ export function federationRoutes(db: DB): Hono {
         `SELECT uri
          FROM remote_actors
          WHERE last_fetched_at < ?
-           AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}
            AND COALESCE(fetch_status, 'active') != 'gone'
            AND (next_retry_at IS NULL OR next_retry_at <= ?)
          ORDER BY last_fetched_at ASC
@@ -886,10 +863,9 @@ export function federationRoutes(db: DB): Hono {
       throw error;
     }
 
-    const remoteReadability = buildRemoteReadabilityFilter();
     let sql =
-      `SELECT ra.*, (SELECT COUNT(*) FROM remote_events re WHERE re.actor_uri = ra.uri AND ${remoteReadability.sql}) AS events_count
-       FROM remote_actors ra WHERE ${buildActiveFederationActorTombstoneFilter("ra")}`;
+      `SELECT ra.*, (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
+       FROM remote_actors ra WHERE 1=1`;
     const params: unknown[] = [];
 
     if (domain) {

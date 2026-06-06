@@ -9,7 +9,6 @@ import { Hono } from "hono";
 import type { DB } from "../db.js";
 import { buildActorUrl, buildProfileUrl, getBaseUrl } from "../lib/base-url.js";
 import { loadPublicEventsCountsByAccountId } from "../lib/activity-count.js";
-import { buildPublicLocalEventReadabilityClause } from "../lib/local-readability.js";
 import { PaginationParamError, parseLimitOffset } from "../lib/pagination.js";
 
 /** Convert bio to HTML if plain text (Mastodon expects HTML in note). */
@@ -38,7 +37,7 @@ export function directoryRoutes(db: DB): Hono {
     const order = c.req.query("order") || "active";
     const baseUrl = getBaseUrl();
 
-    const lastEventSubquery = `(SELECT MAX(e.updated_at) FROM events e WHERE e.account_id = accounts.id AND ${buildPublicLocalEventReadabilityClause("e")})`;
+    const lastEventSubquery = `(SELECT MAX(e.updated_at) FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted'))`;
 
     const orderClause =
       order === "new"

@@ -7,7 +7,7 @@ vi.mock("../src/lib/security.js", () => ({
   assertPublicResolvedIP: vi.fn(async () => undefined),
 }));
 
-import { discoverDomainActors, resolveRemoteActor } from "../src/lib/federation.js";
+import { resolveRemoteActor } from "../src/lib/federation.js";
 
 describe("resolveRemoteActor fetch status tracking", () => {
   let db: DB;
@@ -140,38 +140,5 @@ describe("resolveRemoteActor fetch status tracking", () => {
     expect(row.fetch_status).toBe("gone");
     expect(row.preferred_username).toBe("missing");
     expect(row.display_name).toBe("Deleted account");
-  });
-
-  it("returns null for blocked actors without refetching cached data", async () => {
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, actor_uri, reason, created_by_account_id, is_active)
-       VALUES ('block-actor', 'actor', ?, 'blocked', 'admin-1', 1)`
-    ).run(actorUri);
-
-    const actor = await resolveRemoteActor(db, actorUri);
-    expect(actor).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("returns null for tombstoned actors without refetching cached data", async () => {
-    db.prepare(
-      `INSERT INTO federation_tombstones (id, object_type, object_id, reason)
-       VALUES ('tombstone-actor', 'remote_actor', ?, 'tombstoned')`
-    ).run(actorUri);
-
-    const actor = await resolveRemoteActor(db, actorUri);
-    expect(actor).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("short-circuits blocked domain discovery for mixed-case caller input", async () => {
-    db.prepare(
-      `INSERT INTO federation_blocks (id, block_type, domain, reason, created_by_account_id, is_active)
-       VALUES ('block-domain', 'domain', 'remote.example', 'blocked', 'admin-1', 1)`
-    ).run();
-
-    const result = await discoverDomainActors(db, "Remote.Example");
-    expect(result).toEqual({ discovered: 0, software: null });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

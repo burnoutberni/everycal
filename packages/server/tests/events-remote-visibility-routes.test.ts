@@ -129,30 +129,4 @@ describe("remote visibility on event listing routes", () => {
     expect(ids).toContain("https://remote.example/events/timeline-public");
     expect(ids).not.toContain("https://remote.example/events/timeline-private");
   });
-
-  it("filters out hidden remote events from listings, direct fetches, and by-slug lookups", async () => {
-    const db = initDatabase(":memory:");
-    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer", "viewer");
-    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
-      .run("https://remote.example/users/zoe", "zoe", "https://remote.example/inbox", "remote.example");
-
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, 'offset_only', ?, ?)")
-      .run("https://remote.example/events/visible", "https://remote.example/users/zoe", "visible-event", "Visible", "2099-05-01", "2099-05-01T00:00:00.000Z", "public", "visible");
-    db.prepare("INSERT INTO remote_events (uri, actor_uri, slug, title, start_date, start_at_utc, timezone_quality, visibility, moderation_state) VALUES (?, ?, ?, ?, ?, ?, 'offset_only', ?, ?)")
-      .run("https://remote.example/events/hidden", "https://remote.example/users/zoe", "hidden-event", "Hidden", "2099-05-02", "2099-05-02T00:00:00.000Z", "public", "hidden");
-
-    const app = makeApp(db, { id: "viewer", username: "viewer" });
-
-    const listRes = await app.request("http://localhost/api/v1/events?source=remote");
-    const listBody = await listRes.json() as { events: Array<{ id: string }> };
-    expect(listRes.status).toBe(200);
-    expect(listBody.events.map((event) => event.id)).toContain("https://remote.example/events/visible");
-    expect(listBody.events.map((event) => event.id)).not.toContain("https://remote.example/events/hidden");
-
-    const directRes = await app.request(`http://localhost/api/v1/events/${encodeURIComponent("https://remote.example/events/hidden")}`);
-    expect(directRes.status).toBe(404);
-
-    const slugRes = await app.request("http://localhost/api/v1/events/by-slug/zoe@remote.example/hidden-event");
-    expect(slugRes.status).toBe(404);
-  });
 });

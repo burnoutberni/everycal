@@ -3,7 +3,6 @@
  */
 
 import Database from "better-sqlite3";
-import { toErrorMessage } from "@everycal/core";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 
@@ -61,8 +60,6 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "email_verified_at",
     "preferred_language",
     "calendar_feed_token_version",
-    "is_admin",
-    "is_disabled",
   ],
   sessions: ["token", "account_id", "created_at", "expires_at"],
   api_keys: ["id", "account_id", "key_hash", "label", "last_used_at", "created_at", "key_prefix"],
@@ -99,11 +96,6 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "missing_since",
     "created_at",
     "updated_at",
-    "moderation_state",
-    "moderation_reason",
-    "flagger_note",
-    "flagged_at",
-    "moderated_at",
   ],
   event_tags: ["event_id", "tag"],
   follows: ["follower_id", "following_id", "created_at"],
@@ -166,7 +158,6 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "canceled",
     "visibility",
     "og_image_url",
-    "moderation_state",
   ],
   outbound_activity_deliveries: [
     "id",
@@ -236,30 +227,6 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
   saved_locations: ["id", "account_id", "name", "address", "latitude", "longitude", "used_at"],
   email_verification_tokens: ["account_id", "token", "expires_at"],
   password_reset_tokens: ["account_id", "token", "expires_at"],
-  admin_audit_log: ["id", "admin_account_id", "action_type", "target_type", "target_id", "payload_json", "created_at"],
-  admin_settings: ["key", "value_json", "updated_by_account_id", "updated_at"],
-  admin_job_runs: [
-    "id",
-    "job_type",
-    "status",
-    "payload_json",
-    "result_json",
-    "created_by_account_id",
-    "created_at",
-    "started_at",
-    "finished_at",
-  ],
-  federation_blocks: [
-    "id",
-    "block_type",
-    "actor_uri",
-    "domain",
-    "created_by_account_id",
-    "is_active",
-    "created_at",
-    "reason",
-  ],
-  federation_tombstones: ["id", "object_type", "object_id", "reason", "created_at", "expires_at"],
   account_notification_prefs: [
     "account_id",
     "reminder_enabled",
@@ -423,30 +390,6 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
     name: "idx_saved_locations_account",
     unique: false,
     columns: [{ name: "account_id" }, { name: "used_at", desc: true }],
-  },
-  {
-    table: "admin_audit_log",
-    name: "idx_admin_audit_created_at",
-    unique: false,
-    columns: [{ name: "created_at", desc: true }],
-  },
-  {
-    table: "accounts",
-    name: "idx_accounts_admin_disabled",
-    unique: false,
-    columns: [{ name: "is_admin" }, { name: "is_disabled" }],
-  },
-  {
-    table: "events",
-    name: "idx_events_moderation_state",
-    unique: false,
-    columns: [{ name: "moderation_state" }],
-  },
-  {
-    table: "remote_events",
-    name: "idx_remote_events_moderation_state",
-    unique: false,
-    columns: [{ name: "moderation_state" }],
   },
   {
     table: "event_reminder_sent",
@@ -627,7 +570,7 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
     } catch (error) {
       db.exec("ROLLBACK");
       throw new Error(
-        `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
+        `Failed database migration v${migration.version} (${migration.name}): ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -641,7 +584,7 @@ function validateBaseUrlForPendingMigrations(fromVersion: number): void {
   try {
     validateBaseUrlConfig();
   } catch (error) {
-    const detail = toErrorMessage(error, "validation failed");
+    const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `BASE_URL preflight check failed before database migrations: ${detail}. Set BASE_URL before starting the server so canonical federation URLs are migrated correctly.`
     );

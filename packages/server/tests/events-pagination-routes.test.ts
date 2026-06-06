@@ -176,31 +176,6 @@ describe("events pagination routes", () => {
     expect(thirdBody.nextCursor).toBeNull();
   });
 
-  it("filters hidden local events before local cursor pagination limit", async () => {
-    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u51", "local-hidden");
-
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("a", "u51", "a", "Visible A", "2026-03-10", "2026-03-10T00:00:00.000Z", "visible");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("b", "u51", "b", "Hidden B", "2026-03-11", "2026-03-11T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("c", "u51", "c", "Hidden C", "2026-03-12", "2026-03-12T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("d", "u51", "d", "Visible D", "2026-03-13", "2026-03-13T00:00:00.000Z", "visible");
-
-    const app = makeApp(db);
-    const first = await app.request("http://localhost/api/v1/events?source=local&limit=2");
-    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
-
-    expect(first.status).toBe(200);
-    expect(firstBody.events.map((event) => event.id)).toEqual(["a", "d"]);
-    expect(firstBody.nextCursor).toBeNull();
-  });
-
   it("paginates remote source with cursor using stable tie-break ordering", async () => {
     db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
       .run("https://remote/users/remote-only", "remote-only", "https://remote/inbox", "remote");
@@ -258,84 +233,6 @@ describe("events pagination routes", () => {
     const ids = [...firstBody.events, ...secondBody.events].map((event) => event.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(["t-local-1", "t-local-2", "t-remote-1"]);
-  });
-
-  it("filters hidden local timeline events before applying the local fetch limit", async () => {
-    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("viewer-hidden-timeline", "viewer-hidden-timeline");
-    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("timeline-author", "timeline-author");
-    db.prepare("INSERT INTO follows (follower_id, following_id) VALUES (?, ?)").run("viewer-hidden-timeline", "timeline-author");
-    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
-      .run("https://remote/users/timeline-hidden", "timeline-hidden", "https://remote/inbox", "remote");
-    db.prepare("INSERT INTO remote_following (account_id, actor_uri, actor_inbox) VALUES (?, ?, ?)")
-      .run("viewer-hidden-timeline", "https://remote/users/timeline-hidden", "https://remote/inbox");
-
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("ht-local-1", "timeline-author", "ht-local-1", "Timeline Local 1", "2026-07-10", "2026-07-10T00:00:00.000Z", "visible");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("ht-local-2", "timeline-author", "ht-local-2", "Hidden Timeline Local 2", "2026-07-11", "2026-07-11T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("ht-local-3", "timeline-author", "ht-local-3", "Hidden Timeline Local 3", "2026-07-12", "2026-07-12T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("ht-local-4", "timeline-author", "ht-local-4", "Timeline Local 4", "2026-07-13", "2026-07-13T00:00:00.000Z", "visible");
-    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
-      VALUES (?, ?, ?, ?, ?, 'offset_only')`)
-      .run("ht-remote-1", "https://remote/users/timeline-hidden", "Timeline Remote 1", "2026-07-14", "2026-07-14T00:00:00.000Z");
-
-    const app = makeApp(db, { id: "viewer-hidden-timeline", username: "viewer-hidden-timeline" });
-    const first = await app.request("http://localhost/api/v1/events/timeline?limit=2&from=2026-07-01T00:00:00.000Z");
-    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
-    const second = await app.request(`http://localhost/api/v1/events/timeline?limit=2&from=2026-07-01T00:00:00.000Z&cursor=${encodeURIComponent(firstBody.nextCursor || "")}`);
-    const secondBody = await second.json() as { events: Array<{ id: string }> };
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(firstBody.events.map((event) => event.id)).toEqual(["ht-local-1", "ht-local-4"]);
-    expect(secondBody.events.map((event) => event.id)).toEqual(["ht-remote-1"]);
-
-    const ids = [...firstBody.events, ...secondBody.events].map((event) => event.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["ht-local-1", "ht-local-4", "ht-remote-1"]);
-  });
-
-  it("keeps merged cursor pagination stable when hidden local events fall inside the local fetch window", async () => {
-    db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u60", "merged-hidden");
-    db.prepare("INSERT INTO remote_actors (uri, preferred_username, inbox, domain) VALUES (?, ?, ?, ?)")
-      .run("https://remote/users/merged-hidden", "merged-hidden", "https://remote/inbox", "remote");
-
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("l1", "u60", "l1", "Local 1", "2026-08-01", "2026-08-01T00:00:00.000Z", "visible");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("l2", "u60", "l2", "Hidden Local 2", "2026-08-02", "2026-08-02T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("l3", "u60", "l3", "Hidden Local 3", "2026-08-03", "2026-08-03T00:00:00.000Z", "hidden");
-    db.prepare(`INSERT INTO events (id, account_id, slug, title, start_date, start_at_utc, event_timezone, all_day, visibility, moderation_state)
-      VALUES (?, ?, ?, ?, ?, ?, 'UTC', 1, 'public', ?)`)
-      .run("l4", "u60", "l4", "Local 4", "2026-08-04", "2026-08-04T00:00:00.000Z", "visible");
-    db.prepare(`INSERT INTO remote_events (uri, actor_uri, title, start_date, start_at_utc, timezone_quality)
-      VALUES (?, ?, ?, ?, ?, 'offset_only')`)
-      .run("r1", "https://remote/users/merged-hidden", "Remote 1", "2026-08-05", "2026-08-05T00:00:00.000Z");
-
-    const app = makeApp(db);
-    const first = await app.request("http://localhost/api/v1/events?limit=2");
-    const firstBody = await first.json() as { events: Array<{ id: string }>; nextCursor: string | null };
-    const second = await app.request(`http://localhost/api/v1/events?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor || "")}`);
-    const secondBody = await second.json() as { events: Array<{ id: string }>; nextCursor: string | null };
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(firstBody.events.map((event) => event.id)).toEqual(["l1", "l4"]);
-    expect(secondBody.events.map((event) => event.id)).toEqual(["r1"]);
-
-    const ids = [...firstBody.events, ...secondBody.events].map((event) => event.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["l1", "l4", "r1"]);
   });
 
   it("returns 400 when timeline cursor is invalid", async () => {

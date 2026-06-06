@@ -2,12 +2,8 @@ import type { DB } from "../db.js";
 import type { SsrInitialData } from "@everycal/core";
 import type { AuthUser } from "../middleware/auth.js";
 import { formatRemoteActorAccount, formatRemoteActorIdentity } from "./federation.js";
-import { buildRemoteReadabilityFilter } from "./remote-readability.js";
 import { serializeLocalEvent, serializeRemoteEvent } from "./event-serializers.js";
 import { parseRemoteHandle } from "./remote-handle.js";
-import { buildActiveFederationActorTombstoneFilter } from "./federation-tombstones.js";
-import { buildPublicEventsCountSubquery } from "./activity-count.js";
-import { buildVisibleLocalModerationClause } from "./local-readability.js";
 
 export function getSsrInitialData(db: DB, pathname: string, currentUser: AuthUser | null): SsrInitialData {
   const eventMatch = pathname.match(/^\/@([^/]+)\/([^/]+)$/);
@@ -107,19 +103,15 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
   const remoteHandle = parseRemoteHandle(username);
   if (remoteHandle) {
     const { localPart, domain } = remoteHandle;
-    const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
     const remoteRow = db
       .prepare(
         `SELECT ra.uri, ra.preferred_username, ra.display_name, ra.summary, ra.icon_url, ra.image_url, ra.domain,
-                ra.followers_count, ra.following_count, ra.fetch_status
-         FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ? AND ${buildActiveFederationActorTombstoneFilter("ra")}`
+                ra.followers_count, ra.following_count, ra.fetch_status,
+                (SELECT COUNT(*) FROM remote_events WHERE actor_uri = ra.uri) AS events_count
+         FROM remote_actors ra WHERE ra.preferred_username = ? AND ra.domain = ?`
       )
       .get(localPart, domain) as Record<string, unknown> | undefined;
     if (!remoteRow) return null;
-
-    const remoteEventsCount = (db
-      .prepare(`SELECT COUNT(*) AS count FROM remote_events re WHERE re.actor_uri = ? AND ${remoteReadability.sql}`)
-      .get(remoteRow.uri, ...remoteReadability.params) as { count: number }).count;
 
     const following = currentUser
       ? db
@@ -153,7 +145,7 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
       discoverable: true,
       followersCount: remoteRow.followers_count ?? 0,
       followingCount: remoteRow.following_count ?? 0,
-      eventsCount: remoteEventsCount,
+      eventsCount: remoteRow.events_count ?? 0,
       following: !!following,
       autoReposting: false,
       source: "remote",
@@ -161,13 +153,18 @@ function getProfileByUsername(db: DB, username: string, currentUser: AuthUser | 
     };
   }
 
-  const eventsCountSubquery = `${buildPublicEventsCountSubquery()} AS events_count`;
   const row = db
     .prepare(
       `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
               (SELECT COUNT(*) FROM follows WHERE following_id = accounts.id) + (SELECT COUNT(*) FROM remote_follows WHERE account_id = accounts.id) AS followers_count,
               (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count,
-              ${eventsCountSubquery}
+              (SELECT COUNT(*) FROM (
+                SELECT e.id FROM events e WHERE e.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+                UNION
+                SELECT r.event_id FROM reposts r JOIN events e ON e.id = r.event_id WHERE r.account_id = accounts.id AND e.visibility IN ('public','unlisted')
+                UNION
+                SELECT e.id FROM auto_reposts ar JOIN events e ON e.account_id = ar.source_account_id WHERE ar.account_id = accounts.id AND e.visibility = 'public'
+              )) AS events_count
        FROM accounts WHERE username = ?`
     )
     .get(username) as Record<string, unknown> | undefined;
@@ -206,9 +203,8 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
   const remoteHandle = parseRemoteHandle(username);
   if (remoteHandle) {
     const { localPart, domain } = remoteHandle;
-    const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
     const remoteActor = db
-      .prepare(`SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ? AND ${buildActiveFederationActorTombstoneFilter("remote_actors")}`)
+      .prepare("SELECT uri FROM remote_actors WHERE preferred_username = ? AND domain = ?")
       .get(localPart, domain) as { uri: string } | undefined;
     if (!remoteActor) return [];
     const rows = db
@@ -218,10 +214,9 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
          WHERE re.actor_uri = ?
-           AND ${remoteReadability.sql}
          ORDER BY re.start_at_utc ASC LIMIT ? OFFSET 0`
       )
-      .all(remoteActor.uri, ...remoteReadability.params, limit) as Record<string, unknown>[];
+      .all(remoteActor.uri, limit) as Record<string, unknown>[];
     return rows.map(formatRemoteEvent);
   }
 
@@ -265,7 +260,6 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE e.account_id = ?
       AND e.visibility IN (${visibilityPlaceholders})
-      AND ${buildVisibleLocalModerationClause("e")}
     GROUP BY e.id
     UNION ALL
     SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -278,7 +272,6 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE r.account_id = ?
       ${repostVisibilityClause}
-      AND ${buildVisibleLocalModerationClause("e")}
     GROUP BY e.id
     UNION ALL
     SELECT e.*, a.username AS account_username, a.display_name AS account_display_name,
@@ -291,7 +284,6 @@ function getProfileEvents(db: DB, username: string, currentUser: AuthUser | null
     LEFT JOIN event_tags t ON t.event_id = e.id
     WHERE ar.account_id = ?
       ${autoRepostVisibilityClause}
-      AND ${buildVisibleLocalModerationClause("e")}
       AND e.account_id != ?
       AND e.id NOT IN (SELECT event_id FROM reposts WHERE account_id = ?)
     GROUP BY e.id
@@ -319,16 +311,15 @@ function getEventByProfileSlug(db: DB, username: string, slug: string, currentUs
   const remoteHandle = parseRemoteHandle(username);
   if (remoteHandle) {
     const { localPart, domain } = remoteHandle;
-    const remoteReadability = buildRemoteReadabilityFilter(currentUser?.id);
     const remoteRow = db
       .prepare(
         `SELECT re.*, ra.preferred_username, ra.display_name AS actor_display_name,
                 ra.domain, ra.icon_url AS actor_icon_url, ra.fetch_status AS actor_fetch_status
          FROM remote_events re
          LEFT JOIN remote_actors ra ON ra.uri = re.actor_uri
-         WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ? AND ${remoteReadability.sql}`
+         WHERE ra.preferred_username = ? AND ra.domain = ? AND re.slug = ?`
       )
-      .get(localPart, domain, slug, ...remoteReadability.params) as Record<string, unknown> | undefined;
+      .get(localPart, domain, slug) as Record<string, unknown> | undefined;
     if (!remoteRow) return null;
     const event = formatRemoteEvent(remoteRow);
     if (currentUser) {
@@ -352,7 +343,6 @@ function getEventByProfileSlug(db: DB, username: string, slug: string, currentUs
     )
     .get(username, slug) as Record<string, unknown> | undefined;
   if (!row) return null;
-  if ((row.moderation_state as string | undefined) === "hidden") return null;
   if (!canViewEvent(db, row.visibility as string, row.account_id as string, currentUser)) return null;
 
   const event = formatLocalEvent(row);

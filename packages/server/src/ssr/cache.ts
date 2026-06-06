@@ -33,7 +33,6 @@ export function cacheAnonymousSsrResponse(input: {
   statusCode: number;
   headers: Array<[string, string]>;
   ttlMs: number;
-  maxEntries?: number;
 }): void {
   if (input.ttlMs <= 0) return;
   const cacheableHeaders = input.headers.filter(([name]) => name.toLowerCase() !== "set-cookie");
@@ -43,12 +42,4 @@ export function cacheAnonymousSsrResponse(input: {
     headers: cacheableHeaders,
     expiresAt: Date.now() + input.ttlMs,
   });
-  // Evict oldest entries if cache exceeds max size
-  const maxEntries = input.maxEntries ?? 500;
-  if (input.cache.size > maxEntries) {
-    const entries = [...input.cache.entries()]
-      .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
-    const toRemove = entries.slice(0, entries.length - maxEntries);
-    for (const [key] of toRemove) input.cache.delete(key);
-  }
 }

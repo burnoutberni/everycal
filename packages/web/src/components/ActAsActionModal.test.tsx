@@ -101,10 +101,8 @@ describe("ActAsActionModal accessibility", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    await waitFor(() => {
-      expect(screen.getByText("@collective")).toBeTruthy();
-      expect(screen.getByLabelText("remove @collective")).toBeTruthy();
-    });
+    expect(screen.getByText("@collective")).toBeTruthy();
+    expect(screen.getByLabelText("remove @collective")).toBeTruthy();
 
     fireEvent.keyDown(input, { key: "Backspace" });
     expect(screen.queryByLabelText("remove @collective")).toBeNull();

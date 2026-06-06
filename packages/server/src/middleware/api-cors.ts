@@ -1,6 +1,4 @@
 import { cors } from "hono/cors";
-import type { DB } from "../db.js";
-import { isAllowedAdminOrigin } from "./admin-origins.js";
 
 const PUBLIC_FEED_PATH_RE = /^\/api\/v1\/feeds\/([^/]+)\.(json|ics)$/;
 
@@ -9,7 +7,7 @@ function isPublicEmbeddableFeedRequest(path: string, method: string): boolean {
   return PUBLIC_FEED_PATH_RE.test(path);
 }
 
-export function createApiCorsMiddleware(db: DB, allowedOrigins: string[]) {
+export function createApiCorsMiddleware(allowedOrigins: string[]) {
   const allowedOriginSet = new Set(allowedOrigins.filter(Boolean));
 
   const strictCors = cors({
@@ -28,14 +26,8 @@ export function createApiCorsMiddleware(db: DB, allowedOrigins: string[]) {
     }
 
     const origin = c.req.header("origin");
-    if (origin) {
-      if (c.req.path.startsWith("/api/v1/admin")) {
-        if (isAllowedAdminOrigin(origin, db)) {
-          return strictCors(c, next);
-        }
-      } else if (allowedOriginSet.has(origin)) {
-        return strictCors(c, next);
-      }
+    if (origin && allowedOriginSet.has(origin)) {
+      return strictCors(c, next);
     }
 
     await next();

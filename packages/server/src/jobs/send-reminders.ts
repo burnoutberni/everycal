@@ -14,9 +14,9 @@ config({ quiet: true });
 
 import { initDatabase } from "../db.js";
 import { runSendReminders } from "../lib/notifications.js";
-import { getDatabasePath } from "../lib/paths.js";
+import { DATABASE_PATH } from "../lib/paths.js";
 
-const db = initDatabase(getDatabasePath());
+const db = initDatabase(DATABASE_PATH);
 
 runSendReminders(db)
   .then(() => process.exit(0))
