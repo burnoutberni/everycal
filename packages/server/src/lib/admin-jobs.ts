@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { toErrorMessage } from "@everycal/core";
 import { fileURLToPath } from "node:url";
 import type { DB } from "../db.js";
@@ -11,6 +11,7 @@ const SCRAPER_OUTPUT_MAX_BYTES = 1024 * 1024;
 const ADMIN_JOB_INTERVAL_MS_DEFAULT = 5000;
 const adminJobQueueRuns = new WeakMap<DB, Promise<{ processed: number; succeeded: number; failed: number }>>();
 const serverLibDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(serverLibDir, "../../../..");
 const scraperScriptPath = resolve(serverLibDir, "../../../scrapers/dist/run.js");
 
 export type AdminJobPayload = {
@@ -72,6 +73,9 @@ export async function executeScraperAdminJob(job: AdminJob): Promise<Record<stri
     ...process.env,
     SCRAPER_DRY_RUN: job.payload.dryRun ? "true" : "false",
   };
+  if (env.SCRAPER_API_KEYS_FILE && !isAbsolute(env.SCRAPER_API_KEYS_FILE)) {
+    env.SCRAPER_API_KEYS_FILE = resolve(repoRoot, env.SCRAPER_API_KEYS_FILE);
+  }
   if (job.payload.scraper) env.SCRAPER_IDS = job.payload.scraper;
   else delete env.SCRAPER_IDS;
 
