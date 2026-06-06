@@ -35,7 +35,7 @@ import { buildVisibleLocalModerationClause } from "../lib/local-readability.js";
 import { parseRemoteHandle } from "../lib/remote-handle.js";
 import { buildRemoteReadabilityFilter } from "../lib/remote-readability.js";
 import { buildActiveFederationActorTombstoneFilter } from "../lib/federation-tombstones.js";
-import { escapeLike } from "../lib/sql-utils.js";
+import { containsPattern, likeClause } from "../lib/sql-utils.js";
 
 export function userRoutes(db: DB): Hono {
   const router = new Hono();
@@ -62,9 +62,9 @@ export function userRoutes(db: DB): Hono {
                     ${followersCountSubquery} AS followers_count,
                     (SELECT COUNT(*) FROM follows WHERE follower_id = accounts.id) AS following_count
              FROM accounts
-             WHERE discoverable = 1 AND is_disabled = 0 AND (username LIKE ? OR display_name LIKE ?)
+             WHERE discoverable = 1 AND is_disabled = 0 AND (${likeClause("username")} OR ${likeClause("display_name")})
              ORDER BY username ASC LIMIT ? OFFSET ?`;
-      params = [`%${escapeLike(q)}%`, `%${escapeLike(q)}%`, limit, offset];
+      params = [containsPattern(q), containsPattern(q), limit, offset];
     } else {
       sql = `SELECT id, username, account_type, display_name, bio, avatar_url, website, is_bot, discoverable, created_at,
                     ${followersCountSubquery} AS followers_count,

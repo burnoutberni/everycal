@@ -16,7 +16,7 @@ import { isRemoteEventTombstoned } from "../../lib/federation-tombstones.js";
 import { parseRemoteHandle } from "../../lib/remote-handle.js";
 import type { EventRouteContext } from "./context.js";
 import { appendDateRangeFilters, buildRemoteReadabilityFilter, buildRemoteTagFilter, formatEvent, formatRemoteEvent, LOCAL_EVENT_SELECT, paginateMergedFromFetchers, REMOTE_EVENT_SELECT, resolveEventUri, validateMergedCursorParam, type MergedFetcher } from "./shared.js";
-import { escapeLike } from "../../lib/sql-utils.js";
+import { containsPattern, likeClause } from "../../lib/sql-utils.js";
 
 function canViewRemoteByVisibility(db: DB, visibility: string, actorUri: string, currentUserId?: string): boolean {
   if (visibility === "public" || visibility === "unlisted") return true;
@@ -201,8 +201,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(...df.params);
 
       if (q) {
-        sql += ` AND (${col}.title LIKE ? OR ${col}.description LIKE ?)`;
-        params.push(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`);
+        sql += ` AND (${likeClause(`${col}.title`)} OR ${likeClause(`${col}.description`)})`;
+        params.push(containsPattern(q), containsPattern(q));
       }
       if (tagList.length > 0) {
         const placeholders = tagList.map(() => "?").join(",");
@@ -241,8 +241,8 @@ export function registerEventReadRoutes(router: Hono, db: DB, context: EventRout
       params.push(...df.params);
 
       if (q) {
-        sql += " AND (re.title LIKE ? OR re.description LIKE ?)";
-        params.push(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`);
+      sql += ` AND (${likeClause('re.title')} OR ${likeClause('re.description')})`;
+      params.push(containsPattern(q), containsPattern(q));
       }
 
       const tagFilter = buildRemoteTagFilter(tagList);

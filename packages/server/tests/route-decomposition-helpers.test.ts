@@ -7,7 +7,7 @@ describe("decomposed route helpers", () => {
     const filter = buildRemoteTagFilter(["music", "work_shop"]);
 
     expect(filter.sql).toContain("re.tags = ?");
-    expect(filter.sql).toContain("LIKE ?");
+    expect(filter.sql).toContain("LIKE ? ESCAPE '\\'");
     expect(filter.params).toEqual([
       "music",
       "music,%",
