@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   changeLanguage: vi.fn(),
   refreshUser: vi.fn(async () => {}),
   search: "",
+  authUser: { id: "user-1", username: "alice", email: "alice@example.com", authSource: "local" as "local" | "oidc" | "hybrid" },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -30,7 +31,7 @@ vi.mock("wouter", () => ({
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "user-1", username: "alice", email: "alice@example.com" },
+    user: mocks.authUser,
     refreshUser: mocks.refreshUser,
   }),
 }));
@@ -69,6 +70,7 @@ vi.mock("../components/ProfileHeader", () => ({
 vi.mock("../lib/api", () => ({
   auth: {
     me: vi.fn(),
+    oidcProviders: vi.fn(),
     listApiKeys: vi.fn(),
     updateProfile: vi.fn(),
     updateNotificationPrefs: vi.fn(),
@@ -101,6 +103,13 @@ import { auth as authApi, identities as identitiesApi, uploads } from "../lib/ap
 import { ThemeProvider } from "../hooks/useTheme";
 import { THEME_STORAGE_KEY } from "../lib/theme";
 
+type MockAuthUser = {
+  id: string;
+  username: string;
+  email: string;
+  authSource: "local" | "oidc" | "hybrid";
+};
+
 function renderSettingsPage() {
   return render(
     <ThemeProvider>
@@ -116,6 +125,10 @@ function getNotificationsSection() {
   return section;
 }
 
+function setMockAuthUser(user: MockAuthUser) {
+  mocks.authUser = user;
+}
+
 describe("SettingsPage identity flows", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -126,6 +139,7 @@ describe("SettingsPage identity flows", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     mocks.search = "";
+    setMockAuthUser({ id: "user-1", username: "alice", email: "alice@example.com", authSource: "local" });
     (globalThis as any).IntersectionObserver = class {
       observe() {}
       unobserve() {}
@@ -148,9 +162,53 @@ describe("SettingsPage identity flows", () => {
         eventCancelledEnabled: true,
       },
     } as any);
+    vi.mocked(authApi.oidcProviders).mockResolvedValue({
+      oidcEnabled: true,
+      configError: null,
+      localPasswordAuthEnabled: true,
+      localRegistrationEnabled: true,
+      providers: [{ providerKey: "oidc", label: "Single Sign-On" }],
+    });
     vi.mocked(authApi.listApiKeys).mockResolvedValue({ keys: [] });
     vi.mocked(identitiesApi.list).mockResolvedValue({ identities: [] });
     vi.mocked(uploads.upload).mockResolvedValue({ url: "https://example.com/avatar.png" } as any);
+  });
+
+  it("shows the password form for local users when local auth is enabled", async () => {
+    renderSettingsPage();
+
+    expect(await screen.findByRole("heading", { name: "passwordChange" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "changePassword" })).toBeTruthy();
+  });
+
+  it("hides the password form for OIDC-only users", async () => {
+    setMockAuthUser({ id: "user-1", username: "alice", email: "alice@example.com", authSource: "oidc" });
+
+    renderSettingsPage();
+
+    await screen.findByText("emailChange");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "passwordChange" })).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "changePassword" })).toBeNull();
+  });
+
+  it("hides the password form when local password auth is disabled instance-wide", async () => {
+    vi.mocked(authApi.oidcProviders).mockResolvedValue({
+      oidcEnabled: true,
+      configError: null,
+      localPasswordAuthEnabled: false,
+      localRegistrationEnabled: false,
+      providers: [{ providerKey: "oidc", label: "Single Sign-On" }],
+    });
+
+    renderSettingsPage();
+
+    await screen.findByText("emailChange");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "passwordChange" })).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "changePassword" })).toBeNull();
   });
 
   it("blocks step progress on invalid handle and invalid website", async () => {
