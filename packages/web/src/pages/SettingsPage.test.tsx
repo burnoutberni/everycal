@@ -109,6 +109,13 @@ function renderSettingsPage() {
   );
 }
 
+function getNotificationsSection() {
+  const heading = screen.getByRole("heading", { name: "notifications" });
+  const section = heading.closest("section");
+  if (!section) throw new Error("Expected notifications section");
+  return section;
+}
+
 describe("SettingsPage identity flows", () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -309,6 +316,41 @@ describe("SettingsPage identity flows", () => {
         cityLng: null,
       }));
     });
+  });
+
+  it("shows a city-specific error when notification save is rejected by the server", async () => {
+    vi.mocked(authApi.me).mockResolvedValue({
+      id: "user-1",
+      username: "alice",
+      displayName: "Alice",
+      email: "alice@example.com",
+      discoverable: true,
+      preferredLanguage: "en",
+      city: null,
+      cityLat: null,
+      cityLng: null,
+      notificationPrefs: {
+        reminderEnabled: true,
+        reminderHoursBefore: 24,
+        eventUpdatedEnabled: true,
+        eventCancelledEnabled: true,
+      },
+    } as any);
+    vi.mocked(authApi.updateNotificationPrefs).mockRejectedValue(new Error("auth.city_required"));
+
+    renderSettingsPage();
+
+    fireEvent.click(within(getNotificationsSection()).getByRole("button", { name: "common:save" }));
+
+    expect(await screen.findByText("auth:pleaseSelectCity")).toBeTruthy();
+    expect(authApi.updateNotificationPrefs).toHaveBeenCalledWith({
+      reminderEnabled: true,
+      reminderHoursBefore: 24,
+      eventUpdatedEnabled: true,
+      eventCancelledEnabled: true,
+    });
+    expect(mocks.refreshUser).not.toHaveBeenCalled();
+    expect(screen.queryByText("common:saved")).toBeNull();
   });
 
   it("renders theme preference as native radio inputs", async () => {

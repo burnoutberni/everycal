@@ -84,6 +84,7 @@ export function SettingsPage() {
   const [eventCancelledEnabled, setEventCancelledEnabled] = useState(true);
   const [savingNotif, setSavingNotif] = useState(false);
   const [savedNotif, setSavedNotif] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   const [newEmail, setNewEmail] = useState("");
   const [emailChangeSent, setEmailChangeSent] = useState(false);
@@ -1482,6 +1483,7 @@ export function SettingsPage() {
                 e.preventDefault();
                 setSavingNotif(true);
                 setSavedNotif(false);
+                setNotifError(null);
                 try {
                   await authApi.updateNotificationPrefs({
                     reminderEnabled,
@@ -1492,6 +1494,10 @@ export function SettingsPage() {
                   await refreshUser();
                   setSavedNotif(true);
                   setTimeout(() => setSavedNotif(false), 2000);
+                } catch (err: unknown) {
+                  setNotifError(err instanceof Error && err.message === "auth.city_required"
+                    ? t("auth:pleaseSelectCity")
+                    : (err as Error).message || t("common:requestFailed"));
                 } finally {
                   setSavingNotif(false);
                 }
@@ -1555,6 +1561,7 @@ export function SettingsPage() {
                 </button>
                 {savedNotif && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
+              {notifError && <p className="text-sm mt-1 error-text" role="alert">{notifError}</p>}
             </form>
           </div>
         </section>
