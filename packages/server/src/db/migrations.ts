@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   email TEXT,
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_verified_at TEXT,
-  preferred_language TEXT DEFAULT 'en'
+  preferred_language TEXT DEFAULT 'en',
+  sso_admin_locked INTEGER NOT NULL DEFAULT 0,
+  auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid')),
+  last_oidc_login_at TEXT,
+  oidc_profile_synced_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -52,6 +56,43 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   key_prefix TEXT
+);
+
+CREATE TABLE IF NOT EXISTS account_auth_identities (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  provider_key TEXT NOT NULL,
+  issuer TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  email_at_link_time TEXT,
+  claims_json TEXT,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(provider_key, issuer, subject)
+);
+
+CREATE TABLE IF NOT EXISTS account_role_assignments (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  role_key TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('local','oidc')),
+  managed_by TEXT NOT NULL DEFAULT 'system',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(account_id, role_key, source)
+);
+
+CREATE TABLE IF NOT EXISTS oidc_login_states (
+  id TEXT PRIMARY KEY,
+  provider_key TEXT NOT NULL,
+  state_hash TEXT NOT NULL UNIQUE,
+  nonce_hash TEXT NOT NULL,
+  code_verifier_hash TEXT NOT NULL,
+  redirect_to TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -788,6 +829,60 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 18,
+    name: "oidc_sso_v1",
+    up: (db) => {
+      const accountColumns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>;
+      if (!accountColumns.some((column) => column.name === "sso_admin_locked")) db.exec("ALTER TABLE accounts ADD COLUMN sso_admin_locked INTEGER NOT NULL DEFAULT 0");
+      if (!accountColumns.some((column) => column.name === "auth_source")) db.exec("ALTER TABLE accounts ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid'))");
+      if (!accountColumns.some((column) => column.name === "last_oidc_login_at")) db.exec("ALTER TABLE accounts ADD COLUMN last_oidc_login_at TEXT");
+      if (!accountColumns.some((column) => column.name === "oidc_profile_synced_at")) db.exec("ALTER TABLE accounts ADD COLUMN oidc_profile_synced_at TEXT");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS account_auth_identities (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        provider_key TEXT NOT NULL,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        email_at_link_time TEXT,
+        claims_json TEXT,
+        last_login_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(provider_key, issuer, subject)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_auth_identities_account ON account_auth_identities(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_auth_identities_provider_email ON account_auth_identities(provider_key, email_at_link_time)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS account_role_assignments (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        role_key TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('local','oidc')),
+        managed_by TEXT NOT NULL DEFAULT 'system',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(account_id, role_key, source)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_role_assignments_account ON account_role_assignments(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_role_assignments_role ON account_role_assignments(role_key)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS oidc_login_states (
+        id TEXT PRIMARY KEY,
+        provider_key TEXT NOT NULL,
+        state_hash TEXT NOT NULL UNIQUE,
+        nonce_hash TEXT NOT NULL,
+        code_verifier_hash TEXT NOT NULL,
+        redirect_to TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expires ON oidc_login_states(expires_at)");
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;

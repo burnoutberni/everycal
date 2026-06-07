@@ -247,11 +247,21 @@ export interface User {
   createdAt?: string;
   source?: "local" | "remote";
   domain?: string;
+  authSource?: "local" | "oidc" | "hybrid";
+  ssoLinked?: boolean;
 }
 
 export interface AuthResponse {
   user: User;
   expiresAt: string;
+}
+
+export interface AuthProviderInfo {
+  oidcEnabled: boolean;
+  configError: string | null;
+  localPasswordAuthEnabled: boolean;
+  localRegistrationEnabled: boolean;
+  providers: { providerKey: string; label: string }[];
 }
 
 export interface VerifyEmailRegistrationResponse extends AuthResponse {
@@ -334,8 +344,19 @@ export const auth = {
     });
   },
 
+  oidcProviders() {
+    return request<AuthProviderInfo>("/auth/oidc/providers");
+  },
+
+  startOidc(redirectTo?: string) {
+    return request<{ authorizationUrl: string }>("/auth/oidc/start", {
+      method: "POST",
+      body: JSON.stringify({ redirectTo }),
+    });
+  },
+
   logout() {
-    return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
+    return request<{ ok: boolean; logoutUrl?: string | null }>("/auth/logout", { method: "POST" });
   },
 
   me(context?: ApiRequestContext) {

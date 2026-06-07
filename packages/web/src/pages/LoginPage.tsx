@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { Link } from "wouter";
 import { PasswordInput } from "../components/PasswordInput";
+import { auth as authApi, type AuthProviderInfo } from "../lib/api";
 
 export function LoginPage() {
   const { t } = useTranslation("auth");
@@ -13,6 +14,23 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [providers, setProviders] = useState<AuthProviderInfo | null>(null);
+
+  const redirectTo = useMemo(() => {
+    if (typeof window === "undefined") return "/";
+    const params = new URLSearchParams(window.location.search);
+    return params.get("next") || params.get("redirectTo") || "/";
+  }, []);
+
+  useEffect(() => {
+    authApi.oidcProviders().then(setProviders).catch(() => setProviders(null));
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const oidcError = params.get("oidcError");
+      if (oidcError) setError(oidcError);
+    }
+  }, []);
 
   if (user) {
     navigate("/");
@@ -28,7 +46,7 @@ export function LoginPage() {
       if (u.notificationPrefs && !u.notificationPrefs.onboardingCompleted) {
         navigate("/onboarding");
       } else {
-        navigate("/");
+        navigate(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/");
       }
     } catch (err: any) {
       setError(err.message || t("loginFailed"));
@@ -37,12 +55,37 @@ export function LoginPage() {
     }
   };
 
+  const handleSso = async () => {
+    setError("");
+    setSsoLoading(true);
+    try {
+      const res = await authApi.startOidc(redirectTo);
+      window.location.assign(res.authorizationUrl);
+    } catch (err: any) {
+      setError(err.message || "SSO login failed");
+      setSsoLoading(false);
+    }
+  };
+
+  const showLocal = providers?.localPasswordAuthEnabled !== false;
+  const showRegister = providers?.localRegistrationEnabled !== false;
+
   return (
     <div style={{ maxWidth: 400, margin: "3rem auto" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1.5rem", textAlign: "center" }}>
         {t("logIn")}
       </h1>
-      <form onSubmit={handleSubmit} className="card">
+      <div className="card">
+      {providers?.oidcEnabled && (
+        <>
+          <button type="button" className="btn-primary" style={{ width: "100%" }} disabled={ssoLoading} onClick={handleSso}>
+            {ssoLoading ? "Redirecting…" : (providers.providers[0]?.label ? `Sign in with ${providers.providers[0].label}` : "Sign in with SSO")}
+          </button>
+          {showLocal && <div className="text-sm text-muted text-center mt-2 mb-2">or sign in with a local account</div>}
+        </>
+      )}
+      {showLocal ? (
+      <form onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="username">{t("username")}</label>
           <input
@@ -73,10 +116,14 @@ export function LoginPage() {
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>
           {loading ? t("loggingIn") : t("logIn")}
         </button>
-        <p className="text-sm text-muted text-center mt-2">
+        {showRegister && <p className="text-sm text-muted text-center mt-2">
           {t("dontHaveAccount")} <Link href="/register">{t("signUp", { ns: "common" })}</Link>
-        </p>
+        </p>}
       </form>
+      ) : (
+        <p className="text-sm text-muted text-center mt-2">Local username/password sign-in is disabled for this instance.</p>
+      )}
+      </div>
     </div>
   );
 }

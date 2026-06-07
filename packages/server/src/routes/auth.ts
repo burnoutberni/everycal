@@ -8,11 +8,13 @@ import { registerApiKeyRoutes } from "./auth/api-keys.js";
 import { registerProfileRoutes } from "./auth/profile.js";
 import { registerSessionRoutes } from "./auth/session.js";
 import { registerVerificationPasswordRoutes } from "./auth/verification-password.js";
+import { registerOidcRoutes } from "./auth/oidc.js";
 
 export function authRoutes(db: DB): Hono {
   const router = new Hono();
 
   registerSessionRoutes(router, db);
+  registerOidcRoutes(router, db);
   registerVerificationPasswordRoutes(router, db);
   registerProfileRoutes(router, db);
   registerApiKeyRoutes(router, db);

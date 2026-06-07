@@ -137,7 +137,10 @@ export function AuthProvider({
 
   const logout = useCallback(async () => {
     try {
-      await authApi.logout();
+      const res = await authApi.logout();
+      if (res.logoutUrl && typeof window !== "undefined") {
+        window.location.assign(res.logoutUrl);
+      }
     } catch {
       // ignore
     }

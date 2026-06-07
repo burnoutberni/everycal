@@ -8,6 +8,7 @@ import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { findByTokenHash, hashTokenSecret } from "../../lib/token-secrets.js";
 import { setSessionCookie } from "./session-cookies.js";
+import { getLocalAuthConfig } from "../../lib/oidc.js";
 
 export function registerVerificationPasswordRoutes(router: Hono, db: DB): void {
   router.get("/verify-email", async (c) => {
@@ -111,6 +112,9 @@ export function registerVerificationPasswordRoutes(router: Hono, db: DB): void {
 
   // Change password (logged-in user)
   router.post("/change-password", requireAuth(), async (c) => {
+    if (getLocalAuthConfig().passwordAuthDisabled) {
+      return c.json({ error: "local_auth_disabled" }, 403);
+    }
     const user = c.get("user")!;
     const parsed = await parseJsonBody<{ currentPassword?: unknown; newPassword?: unknown }>(c);
     if (parsed instanceof Response) return parsed;
@@ -155,6 +159,9 @@ export function registerVerificationPasswordRoutes(router: Hono, db: DB): void {
   // Login
 
   router.post("/forgot-password", async (c) => {
+    if (getLocalAuthConfig().passwordAuthDisabled) {
+      return c.json({ error: "local_auth_disabled" }, 403);
+    }
     const parsed = await parseJsonBody<{ email?: string }>(c);
     if (parsed instanceof Response) return parsed;
     const body = parsed;
@@ -181,6 +188,9 @@ export function registerVerificationPasswordRoutes(router: Hono, db: DB): void {
 
   // Reset password
   router.post("/reset-password", async (c) => {
+    if (getLocalAuthConfig().passwordAuthDisabled) {
+      return c.json({ error: "local_auth_disabled" }, 403);
+    }
     const parsed = await parseJsonBody<{ token?: unknown; newPassword?: unknown }>(c);
     if (parsed instanceof Response) return parsed;
     const body = parsed;

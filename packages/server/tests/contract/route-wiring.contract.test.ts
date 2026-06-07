@@ -39,6 +39,9 @@ describe("route wiring contract", () => {
     const probes: Probe[] = [
       { method: "POST", path: "/api/v1/auth/register", wrongMethod: "GET", label: "auth register" },
       { method: "POST", path: "/api/v1/auth/login", wrongMethod: "GET", label: "auth login" },
+      { method: "GET", path: "/api/v1/auth/oidc/providers", wrongMethod: "POST", label: "auth oidc providers" },
+      { method: "POST", path: "/api/v1/auth/oidc/start", wrongMethod: "GET", label: "auth oidc start" },
+      { method: "GET", path: "/api/v1/auth/oidc/callback", wrongMethod: "POST", label: "auth oidc callback" },
       { method: "GET", path: "/api/v1/auth/me", wrongMethod: "POST", label: "auth me read" },
       {
         method: "PATCH",

@@ -1,0 +1,175 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Hono } from "hono";
+import { initDatabase, type DB } from "../src/db.js";
+import { authRoutes } from "../src/routes/auth.js";
+import { authMiddleware, createSession, hashPassword } from "../src/middleware/auth.js";
+import { setOidcAdapterForTests, type OidcAdapter, type OidcCallbackResult, type OidcProviderConfig } from "../src/lib/oidc.js";
+
+const ORIGINAL_ENV = { ...process.env };
+
+function makeApp(db: DB) {
+  const app = new Hono();
+  app.use("*", authMiddleware(db));
+  app.route("/api/v1/auth", authRoutes(db));
+  return app;
+}
+
+function configureOidc(extra: Record<string, string> = {}) {
+  process.env.OIDC_ENABLED = "true";
+  process.env.OIDC_ISSUER_URL = "https://idp.example.test/application/o/everycal/";
+  process.env.OIDC_CLIENT_ID = "everycal";
+  process.env.OIDC_CLIENT_SECRET = "secret";
+  process.env.OIDC_REDIRECT_URI = "http://localhost/api/v1/auth/oidc/callback";
+  process.env.BASE_URL = "http://localhost";
+  Object.assign(process.env, extra);
+}
+
+function mockAdapter(result: OidcCallbackResult, logoutUrl: string | null = null): OidcAdapter {
+  return {
+    async buildAuthorizationUrl(_config: OidcProviderConfig, params) {
+      return `https://idp.example.test/authorize?state=${encodeURIComponent(params.state)}&nonce=${encodeURIComponent(params.nonce)}`;
+    },
+    async exchangeCallback() {
+      return result;
+    },
+    async buildLogoutUrl() {
+      return logoutUrl;
+    },
+  };
+}
+
+function seedUser(db: DB, input: { id?: string; username?: string; email?: string; password?: string; isAdmin?: number; ssoAdminLocked?: number } = {}) {
+  const id = input.id || "u1";
+  const username = input.username || "alice";
+  db.prepare(
+    "INSERT INTO accounts (id, username, password_hash, email, email_verified, is_admin, sso_admin_locked) VALUES (?, ?, ?, ?, 1, ?, ?)"
+  ).run(id, username, hashPassword(input.password || "secure-password"), input.email || `${username}@example.com`, input.isAdmin || 0, input.ssoAdminLocked || 0);
+  db.prepare("INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled) VALUES (?, 1, 24, 1, 1)").run(id);
+  return { id, username };
+}
+
+async function start(app: Hono, redirectTo = "/settings") {
+  const res = await app.request("http://localhost/api/v1/auth/oidc/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ redirectTo }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as { authorizationUrl: string };
+  return new URL(body.authorizationUrl).searchParams.get("state")!;
+}
+
+describe("OIDC auth", () => {
+  let db: DB;
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    configureOidc();
+    db = initDatabase(":memory:");
+  });
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    setOidcAdapterForTests(mockAdapter({ issuer: "https://idp.example.test/application/o/everycal/", subject: "sub", claims: { iss: "https://idp.example.test/application/o/everycal/", sub: "sub" } }));
+  });
+
+  it("start route returns an authorization URL only when enabled and configured", async () => {
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub" } }));
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/auth/oidc/start", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(res.status).toBe(200);
+    expect((await res.json() as { authorizationUrl: string }).authorizationUrl).toContain("/authorize");
+
+    process.env.OIDC_ENABLED = "false";
+    const disabled = await app.request("http://localhost/api/v1/auth/oidc/start", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(disabled.status).toBe(503);
+  });
+
+  it("callback rejects invalid or replayed state", async () => {
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub", email: "a@example.com", email_verified: true } }));
+    const app = makeApp(db);
+    const invalid = await app.request("http://localhost/api/v1/auth/oidc/callback?state=missing&code=x");
+    expect(invalid.status).toBe(302);
+    expect(invalid.headers.get("location")).toContain("oidc_invalid_state");
+
+    process.env.OIDC_JIT_PROVISIONING = "true";
+    const state = await start(app);
+    const first = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(first.status).toBe(302);
+    const replay = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(replay.headers.get("location")).toContain("oidc_invalid_state");
+  });
+
+  it("auto-links an existing local account when verified email matches", async () => {
+    seedUser(db, { id: "u_link", email: "alice@example.com" });
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-link", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-link", email: "alice@example.com", email_verified: true, name: "Alice SSO" } }));
+    const app = makeApp(db);
+    const state = await start(app);
+    const res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("set-cookie")).toContain("everycal_session=");
+    const row = db.prepare("SELECT account_id FROM account_auth_identities WHERE subject = ?").get("sub-link") as { account_id: string };
+    expect(row.account_id).toBe("u_link");
+  });
+
+  it("provisions a new local account only when JIT provisioning is enabled", async () => {
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-new", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-new", email: "new@example.com", email_verified: true, preferred_username: "newuser" } }));
+    const app = makeApp(db);
+    let state = await start(app);
+    let res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.headers.get("location")).toContain("oidc_jit_provisioning_disabled");
+
+    process.env.OIDC_JIT_PROVISIONING = "true";
+    state = await start(app);
+    res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.status).toBe(302);
+    const row = db.prepare("SELECT id, auth_source FROM accounts WHERE email = ?").get("new@example.com") as { id: string; auth_source: string };
+    expect(row.auth_source).toBe("oidc");
+  });
+
+  it("refuses auto-link/provision when verified email is absent or false", async () => {
+    process.env.OIDC_JIT_PROVISIONING = "true";
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-no-verify", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-no-verify", email: "new@example.com", email_verified: false } }));
+    const app = makeApp(db);
+    const state = await start(app);
+    const res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.headers.get("location")).toContain("oidc_verified_email_required");
+  });
+
+  it("disabled local password auth blocks /auth/login", async () => {
+    seedUser(db);
+    process.env.DISABLE_LOCAL_PASSWORD_AUTH = "true";
+    const res = await makeApp(db).request("http://localhost/api/v1/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "alice", password: "secure-password" }) });
+    expect(res.status).toBe(403);
+    expect((await res.json() as { error: string }).error).toBe("local_auth_disabled");
+  });
+
+  it("syncs admin claims only when enabled and preserves locked local admin", async () => {
+    seedUser(db, { id: "admin", email: "admin@example.com", isAdmin: 0 });
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: true } }));
+    const app = makeApp(db);
+    let state = await start(app);
+    await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(0);
+
+    process.env.OIDC_SYNC_ADMIN = "true";
+    state = await start(app);
+    await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);
+
+    db.prepare("UPDATE accounts SET sso_admin_locked = 1 WHERE id = 'admin'").run();
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: false } }));
+    state = await start(app);
+    await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);
+  });
+
+  it("logout clears the local session and returns provider logout URL", async () => {
+    const user = seedUser(db);
+    const session = createSession(db, user.id);
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub" } }, "https://idp.example.test/logout"));
+    const res = await makeApp(db).request("http://localhost/api/v1/auth/logout", { method: "POST", headers: { cookie: `everycal_session=${session.token}` } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { logoutUrl: string };
+    expect(body.logoutUrl).toBe("https://idp.example.test/logout");
+    expect(res.headers.get("set-cookie")).toContain("everycal_session=");
+  });
+});

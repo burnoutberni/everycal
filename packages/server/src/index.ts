@@ -47,6 +47,7 @@ import { buildLocaleCookie, shouldSetLocaleCookie } from "./lib/locale.js";
 import { maybeSetMissingCsrfCookie } from "./routes/auth/session-cookies.js";
 import { createDevMiddleware } from "vike/server";
 import { createApiCorsMiddleware } from "./middleware/api-cors.js";
+import { getOidcProviderConfig, validateOidcConfig } from "./lib/oidc.js";
 import { createEmbedCorpMiddleware } from "./middleware/embed-corp.js";
 import { requireCsrf } from "./middleware/csrf.js";
 import { getAllowedAdminOrigins } from "./middleware/admin-origins.js";
@@ -61,6 +62,10 @@ validateBaseUrlConfig();
 
 const app = new Hono();
 const db = initDatabase(getDatabasePath());
+const oidcStartupError = validateOidcConfig(getOidcProviderConfig());
+if (oidcStartupError) {
+  throw new Error(`Invalid OIDC configuration: ${oidcStartupError}`);
+}
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "../../web");
 
@@ -135,6 +140,7 @@ app.use(
 
 // Rate limiting on auth endpoints (prevent brute force)
 app.use("/api/v1/auth/login", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
+app.use("/api/v1/auth/oidc/start", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
 app.use("/api/v1/auth/register", rateLimiter({ windowMs: 60_000, max: 10, trustedProxy }));
 app.use("/api/v1/auth/request-email-change", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));
 app.use("/api/v1/auth/change-password", rateLimiter({ windowMs: 60_000, max: 5, trustedProxy }));

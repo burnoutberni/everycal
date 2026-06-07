@@ -1371,6 +1371,7 @@ export function SettingsPage() {
               {accountSettingsError && <p className="text-sm mt-1 error-text" role="alert">{accountSettingsError}</p>}
             </form>
             <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
+            <p className="text-sm text-dim mb-2">SSO: {user.ssoLinked ? `linked (${user.authSource || "hybrid"})` : "not linked"}</p>
             <div className="field mb-2">
               <label htmlFor="email">{t("emailChange")}</label>
               <div className="flex gap-1 items-center" style={{ flexWrap: "wrap" }}>

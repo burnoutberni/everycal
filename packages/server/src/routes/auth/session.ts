@@ -9,12 +9,16 @@ import { PASSWORD_MIN_LENGTH, meetsPasswordMinLength } from "@everycal/core";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { hashTokenSecret } from "../../lib/token-secrets.js";
 import { getEffectiveSetting } from "../../lib/runtime-settings.js";
+import { getLocalAuthConfig, getOidcAdapter, getOidcProviderConfig } from "../../lib/oidc.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE } from "./constants.js";
 import { setSessionCookie, clearSessionCookie, maybeSetMissingCsrfCookie } from "./session-cookies.js";
 
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
   router.post("/register", async (c) => {
+    if (getLocalAuthConfig().registrationDisabled) {
+      return c.json({ error: "local_auth_disabled" }, 403);
+    }
     const openRegistrationsEffective = getEffectiveSetting<boolean>(db, "open_registrations", true);
 
     // Check if open registration is enabled
@@ -154,6 +158,9 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
   // Verify email (registration or add/change email)
 
   router.post("/login", async (c) => {
+    if (getLocalAuthConfig().passwordAuthDisabled) {
+      return c.json({ error: "local_auth_disabled" }, 403);
+    }
     const parsed = await parseJsonBody<{ username: string; password: string }>(c);
     if (parsed instanceof Response) return parsed;
     const body = parsed;
@@ -253,7 +260,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
   // Forgot password
 
-  router.post("/logout", requireAuth(), (c) => {
+  router.post("/logout", requireAuth(), async (c) => {
     const cookieHeader = c.req.header("cookie") || "";
     const sessionMatch = cookieHeader.match(/everycal_session=([^\s;]+)/);
     const token = sessionMatch?.[1];
@@ -267,7 +274,9 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
 
     clearSessionCookie(c);
 
-    return c.json({ ok: true });
+    const oidcConfig = getOidcProviderConfig();
+    const logoutUrl = oidcConfig.enabled ? await getOidcAdapter().buildLogoutUrl(oidcConfig).catch(() => null) : null;
+    return c.json({ ok: true, logoutUrl });
   });
 
   // Current user
@@ -277,7 +286,8 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
     const row = db
       .prepare(
         `SELECT id, username, display_name, bio, avatar_url, website, is_bot, discoverable, city, city_lat, city_lng, timezone, date_time_locale, email, email_verified, preferred_language, created_at, is_admin,
-                theme_preference,
+                theme_preference, auth_source,
+                EXISTS(SELECT 1 FROM account_auth_identities i WHERE i.account_id = accounts.id) AS sso_linked,
                 (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
                 (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers_count
          FROM accounts WHERE id = ?`
@@ -331,6 +341,8 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
       timezone: row.timezone || SYSTEM_TIMEZONE,
       dateTimeLocale: row.date_time_locale || SYSTEM_DATE_TIME_LOCALE,
       themePreference: row.theme_preference || SYSTEM_THEME_PREFERENCE,
+      authSource: row.auth_source || "local",
+      ssoLinked: !!row.sso_linked,
       email: row.email || null,
       emailVerified: !!row.email_verified,
       preferredLanguage: row.preferred_language || "en",
