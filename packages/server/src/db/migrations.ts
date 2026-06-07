@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS account_auth_identities (
   UNIQUE(provider_key, issuer, subject)
 );
 
+CREATE INDEX IF NOT EXISTS idx_account_auth_identities_account ON account_auth_identities(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_auth_identities_provider_email ON account_auth_identities(provider_key, email_at_link_time);
+
 CREATE TABLE IF NOT EXISTS account_role_assignments (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -82,6 +85,9 @@ CREATE TABLE IF NOT EXISTS account_role_assignments (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(account_id, role_key, source)
 );
+
+CREATE INDEX IF NOT EXISTS idx_account_role_assignments_account ON account_role_assignments(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_role_assignments_role ON account_role_assignments(role_key);
 
 CREATE TABLE IF NOT EXISTS oidc_login_states (
   id TEXT PRIMARY KEY,
@@ -94,6 +100,8 @@ CREATE TABLE IF NOT EXISTS oidc_login_states (
   expires_at TEXT NOT NULL,
   consumed_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expires ON oidc_login_states(expires_at);
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,

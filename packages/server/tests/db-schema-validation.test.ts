@@ -12,6 +12,11 @@ function createBaseSchema(db: DB): void {
   }
 }
 
+function listIndexes(db: DB, table: string): Set<string> {
+  const rows = db.prepare(`PRAGMA index_list(${table})`).all() as Array<{ name: string }>;
+  return new Set(rows.map((row) => row.name));
+}
+
 describe("schema index definition validation", () => {
   let db: DB | undefined;
 
@@ -25,6 +30,27 @@ describe("schema index definition validation", () => {
     createBaseSchema(db);
 
     expect(() => validateSchema(db!)).not.toThrow();
+  });
+
+  it("creates OIDC lookup indexes in the baseline schema", () => {
+    db = new Database(":memory:");
+    MIGRATIONS[0]!.up(db);
+
+    expect(Array.from(listIndexes(db, "account_auth_identities"))).toEqual(
+      expect.arrayContaining([
+        "idx_account_auth_identities_account",
+        "idx_account_auth_identities_provider_email",
+      ])
+    );
+    expect(Array.from(listIndexes(db, "account_role_assignments"))).toEqual(
+      expect.arrayContaining([
+        "idx_account_role_assignments_account",
+        "idx_account_role_assignments_role",
+      ])
+    );
+    expect(Array.from(listIndexes(db, "oidc_login_states"))).toEqual(
+      expect.arrayContaining(["idx_oidc_login_states_expires"])
+    );
   });
 
   it("rejects required index when unique flag drifts", () => {
