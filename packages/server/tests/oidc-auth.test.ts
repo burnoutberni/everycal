@@ -187,6 +187,33 @@ describe("OIDC auth", () => {
     expect(await complete.json()).toEqual({ ok: true });
   });
 
+  it("keeps JIT-provisioned SSO-only accounts as oidc on repeated login", async () => {
+    process.env.OIDC_JIT_PROVISIONING = "true";
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-repeat", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-repeat", email: "repeat@example.com", email_verified: true, preferred_username: "repeatuser" } }));
+    const app = makeApp(db);
+
+    let state = await start(app);
+    let res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.status).toBe(302);
+
+    state = await start(app);
+    res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.status).toBe(302);
+
+    const row = db.prepare("SELECT auth_source, password_hash FROM accounts WHERE email = ?").get("repeat@example.com") as {
+      auth_source: string;
+      password_hash: string | null;
+    };
+    expect(row.password_hash).toBeNull();
+    expect(row.auth_source).toBe("oidc");
+
+    const me = await app.request("http://localhost/api/v1/auth/me", {
+      headers: { cookie: res.headers.get("set-cookie")! },
+    });
+    expect(me.status).toBe(200);
+    expect((await me.json() as { authSource: string }).authSource).toBe("oidc");
+  });
+
   it("refuses auto-link/provision when verified email is absent or false", async () => {
     process.env.OIDC_JIT_PROVISIONING = "true";
     setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-no-verify", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-no-verify", email: "new@example.com", email_verified: false } }));

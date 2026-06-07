@@ -263,14 +263,14 @@ export function resolveOidcAccount(db: DB, config: OidcProviderConfig, result: O
   const claimsJson = safeClaims(result.claims);
 
   const linked = db.prepare(
-    `SELECT i.id AS identity_id, a.id AS account_id, a.is_disabled
+    `SELECT i.id AS identity_id, a.id AS account_id, a.is_disabled, a.password_hash
      FROM account_auth_identities i JOIN accounts a ON a.id = i.account_id
      WHERE i.provider_key = ? AND i.issuer = ? AND i.subject = ?`
-  ).get(config.providerKey, result.issuer, result.subject) as { identity_id: string; account_id: string; is_disabled: number } | undefined;
+  ).get(config.providerKey, result.issuer, result.subject) as { identity_id: string; account_id: string; is_disabled: number; password_hash: string | null } | undefined;
 
   if (linked) {
     if (linked.is_disabled) throw new Error("account_disabled");
-    syncOidcAccount(db, config, linked.account_id, result.claims, "hybrid");
+    syncOidcAccount(db, config, linked.account_id, result.claims, linked.password_hash ? "hybrid" : "oidc");
     db.prepare("UPDATE account_auth_identities SET claims_json = ?, email_at_link_time = COALESCE(?, email_at_link_time), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
       .run(claimsJson, email, linked.identity_id);
     return { accountId: linked.account_id, isNew: false };
