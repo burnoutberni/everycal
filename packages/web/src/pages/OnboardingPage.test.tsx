@@ -106,4 +106,21 @@ describe("OnboardingPage", () => {
     expect(mocks.refreshUser).toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/");
   });
+
+  it("shows the location-specific error when onboarding completion is rejected for missing city", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { id: "u1", username: "jit", city: null, cityLat: null, cityLng: null },
+      refreshUser: mocks.refreshUser,
+    } as never);
+    vi.mocked(authApi.updateProfile).mockResolvedValue({ ok: true });
+    vi.mocked(authApi.updateNotificationPrefs).mockRejectedValue(new Error("auth.city_required"));
+
+    render(<OnboardingPage />);
+    fireEvent.click(screen.getByRole("button", { name: "set-city" }));
+    fireEvent.click(screen.getByRole("button", { name: "continue" }));
+
+    expect(await screen.findByText("locationRequired")).toBeTruthy();
+    expect(screen.queryByText("saveFailed")).toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
 });

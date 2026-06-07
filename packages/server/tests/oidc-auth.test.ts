@@ -167,7 +167,7 @@ describe("OIDC auth", () => {
       body: JSON.stringify({ onboardingCompleted: true }),
     });
     expect(blocked.status).toBe(400);
-    expect(await blocked.json()).toEqual({ error: "City is required" });
+    expect(await blocked.json()).toEqual({ error: "auth.city_required" });
 
     const saveProfile = await app.request("http://localhost/api/v1/auth/me", {
       method: "PATCH",

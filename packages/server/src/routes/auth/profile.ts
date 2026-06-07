@@ -183,7 +183,7 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
     }
 
     if (body.onboardingCompleted === true && !accountHasLocation(db, user.id)) {
-      return c.json({ error: t(getLocale(c), "auth.city_required") }, 400);
+      return c.json({ error: "auth.city_required" }, 400);
     }
 
     if (existing) {

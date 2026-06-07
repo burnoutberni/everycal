@@ -58,7 +58,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
     const cityLat = body.cityLat ?? 48.2082;
     const cityLng = body.cityLng ?? 16.3738;
     if (!isBot && (body.city == null || body.cityLat == null || body.cityLng == null)) {
-      return c.json({ error: t(getLocale(c), "auth.city_required") }, 400);
+      return c.json({ error: "auth.city_required" }, 400);
     }
 
     // Email required for non-bots
