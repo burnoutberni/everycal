@@ -342,11 +342,15 @@ export function createOidcLoginState(db: DB, config: OidcProviderConfig, redirec
 
 export function consumeOidcLoginState(db: DB, config: OidcProviderConfig, state: string) {
   const row = db.prepare(
-    `SELECT id, nonce_hash, code_verifier_hash, redirect_to, expires_at, consumed_at
-     FROM oidc_login_states WHERE provider_key = ? AND state_hash = ?`
-  ).get(config.providerKey, hashTokenSecret(state)) as { id: string; nonce_hash: string; code_verifier_hash: string; redirect_to: string | null; expires_at: string; consumed_at: string | null } | undefined;
-  if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) throw new Error("oidc_invalid_state");
-  db.prepare("UPDATE oidc_login_states SET consumed_at = datetime('now') WHERE id = ? AND consumed_at IS NULL").run(row.id);
+    `UPDATE oidc_login_states
+     SET consumed_at = datetime('now')
+     WHERE provider_key = ?
+       AND state_hash = ?
+       AND consumed_at IS NULL
+       AND julianday(expires_at) > julianday('now')
+     RETURNING nonce_hash, code_verifier_hash, redirect_to`
+  ).get(config.providerKey, hashTokenSecret(state)) as { nonce_hash: string; code_verifier_hash: string; redirect_to: string | null } | undefined;
+  if (!row) throw new Error("oidc_invalid_state");
   return { nonce: openTransientSecret(config, row.nonce_hash), codeVerifier: openTransientSecret(config, row.code_verifier_hash), redirectTo: row.redirect_to || "/" };
 }
 

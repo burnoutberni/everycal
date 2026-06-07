@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { initDatabase, type DB } from "../src/db.js";
 import { authRoutes } from "../src/routes/auth.js";
@@ -84,18 +84,34 @@ describe("OIDC auth", () => {
   });
 
   it("callback rejects invalid or replayed state", async () => {
-    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub", email: "a@example.com", email_verified: true } }));
+    const exchangeCallback = vi.fn(async () => ({
+      issuer: process.env.OIDC_ISSUER_URL!,
+      subject: "sub",
+      claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub", email: "a@example.com", email_verified: true },
+    }));
+    setOidcAdapterForTests({
+      async buildAuthorizationUrl(_config, params) {
+        return `https://idp.example.test/authorize?state=${encodeURIComponent(params.state)}&nonce=${encodeURIComponent(params.nonce)}`;
+      },
+      exchangeCallback,
+      async buildLogoutUrl() {
+        return null;
+      },
+    });
     const app = makeApp(db);
     const invalid = await app.request("http://localhost/api/v1/auth/oidc/callback?state=missing&code=x");
     expect(invalid.status).toBe(302);
     expect(invalid.headers.get("location")).toContain("oidc_invalid_state");
+    expect(exchangeCallback).not.toHaveBeenCalled();
 
     process.env.OIDC_JIT_PROVISIONING = "true";
     const state = await start(app);
     const first = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect(first.status).toBe(302);
+    expect(exchangeCallback).toHaveBeenCalledTimes(1);
     const replay = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect(replay.headers.get("location")).toContain("oidc_invalid_state");
+    expect(exchangeCallback).toHaveBeenCalledTimes(1);
   });
 
   it("auto-links an existing local account when verified email matches", async () => {
