@@ -268,6 +268,7 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
   // Forgot password
 
   router.post("/logout", requireAuth(), async (c) => {
+    const user = c.get("user")!;
     const cookieHeader = c.req.header("cookie") || "";
     const sessionMatch = cookieHeader.match(/everycal_session=([^\s;]+)/);
     const token = sessionMatch?.[1];
@@ -282,7 +283,9 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
     clearSessionCookie(c);
 
     const oidcConfig = getOidcProviderConfig();
-    const logoutUrl = oidcConfig.enabled ? await getOidcAdapter().buildLogoutUrl(oidcConfig).catch(() => null) : null;
+    const logoutUrl = oidcConfig.enabled && user.sessionAuthMethod === "oidc"
+      ? await getOidcAdapter().buildLogoutUrl(oidcConfig).catch(() => null)
+      : null;
     return c.json({ ok: true, logoutUrl });
   });
 

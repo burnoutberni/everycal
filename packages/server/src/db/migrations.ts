@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL
+  expires_at TEXT NOT NULL,
+  auth_method TEXT NOT NULL DEFAULT 'local' CHECK(auth_method IN ('local','oidc'))
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -955,6 +956,17 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 20,
+    name: "sessions_auth_method",
+    up: (db) => {
+      const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+      if (!sessionColumns.some((column) => column.name === "auth_method")) {
+        db.exec("ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'local' CHECK(auth_method IN ('local','oidc'))");
+      }
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;

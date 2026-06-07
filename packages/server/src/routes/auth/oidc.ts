@@ -54,7 +54,7 @@ export function registerOidcRoutes(router: Hono, db: DB): void {
       const tx = consumeOidcLoginState(db, config, state);
       const result = await getOidcAdapter().exchangeCallback(config, c.req.url, { state, nonce: tx.nonce, codeVerifier: tx.codeVerifier });
       const account = resolveOidcAccount(db, config, result);
-      const session = createSession(db, account.accountId);
+      const session = createSession(db, account.accountId, "oidc");
       setSessionCookie(c, session.token, session.expiresAt);
       const redirectTo = isSafeRedirectTo(tx.redirectTo) || (account.isNew ? "/onboarding" : "/");
       return c.redirect(redirectTo);

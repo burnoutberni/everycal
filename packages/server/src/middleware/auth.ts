@@ -20,12 +20,15 @@ export interface AuthUser {
   displayName: string | null;
   isAdmin?: boolean;
   preferredLanguage?: string;
+  sessionAuthMethod?: "local" | "oidc";
 }
 
 type SessionAuthResult = {
   user: AuthUser;
   expiresAt: string;
 };
+
+export type SessionAuthMethod = "local" | "oidc";
 
 // Extend Hono context variables
 declare module "hono" {
@@ -106,15 +109,16 @@ export function requireAdmin() {
 
 // ---- session helpers ----
 
-export function createSession(db: DB, accountId: string): { token: string; expiresAt: string } {
+export function createSession(db: DB, accountId: string, authMethod: SessionAuthMethod = "local"): { token: string; expiresAt: string } {
   const token = nanoid(48);
   const tokenHash = hashTokenSecret(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600_000).toISOString();
   const sqliteExpiresAt = toSqliteDateTime(expiresAt);
-  db.prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)").run(
+  db.prepare("INSERT INTO sessions (token, account_id, expires_at, auth_method) VALUES (?, ?, ?, ?)").run(
     tokenHash,
     accountId,
-    sqliteExpiresAt
+    sqliteExpiresAt,
+    authMethod
   );
   return { token, expiresAt };
 }
@@ -123,7 +127,7 @@ function resolveSession(db: DB, token: string): SessionAuthResult | null {
   const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(
-      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin, s.expires_at
+      `SELECT a.id, a.username, a.display_name, a.preferred_language, a.is_admin, s.expires_at, s.auth_method
        FROM sessions s
        JOIN accounts a ON a.id = s.account_id
        WHERE s.token = ? AND s.expires_at > datetime('now') AND a.is_disabled = 0`
@@ -131,11 +135,12 @@ function resolveSession(db: DB, token: string): SessionAuthResult | null {
     .get(tokenHash) as {
       id: string;
       username: string;
-        display_name: string | null;
-        preferred_language: string | null;
-        is_admin: number;
-        expires_at: string;
-      } | undefined;
+      display_name: string | null;
+      preferred_language: string | null;
+      is_admin: number;
+      expires_at: string;
+      auth_method: SessionAuthMethod;
+    } | undefined;
   if (!row) return null;
   return {
     user: {
@@ -144,6 +149,7 @@ function resolveSession(db: DB, token: string): SessionAuthResult | null {
       displayName: row.display_name,
       isAdmin: !!row.is_admin,
       preferredLanguage: row.preferred_language || undefined,
+      sessionAuthMethod: row.auth_method,
     },
     expiresAt: row.expires_at,
   };

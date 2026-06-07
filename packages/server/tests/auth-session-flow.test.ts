@@ -52,6 +52,9 @@ describe("auth login / logout / lockout flows", () => {
       expect(body.user.username).toBe(user.username);
       expect(body.expiresAt).toBeDefined();
 
+      const sessionRow = db.prepare("SELECT auth_method FROM sessions WHERE account_id = ?").get(user.id) as { auth_method: string };
+      expect(sessionRow.auth_method).toBe("local");
+
       const setCookie = res.headers.get("set-cookie") || "";
       expect(setCookie).toContain("everycal_session=");
     });
