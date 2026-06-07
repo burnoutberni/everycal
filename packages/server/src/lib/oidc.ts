@@ -125,6 +125,27 @@ export function validateOidcConfig(config = getOidcProviderConfig()): string | n
   return null;
 }
 
+const SAFE_OIDC_ERROR_CODES = new Set([
+  "account_disabled",
+  "oidc_client_id_missing",
+  "oidc_client_secret_missing",
+  "oidc_disabled",
+  "oidc_email_conflict",
+  "oidc_invalid_state",
+  "oidc_jit_provisioning_disabled",
+  "oidc_issuer_url_missing",
+  "oidc_login_failed",
+  "oidc_missing_identity_claims",
+  "oidc_redirect_uri_missing",
+  "oidc_scope_openid_required",
+  "oidc_verified_email_required",
+]);
+
+export function sanitizeOidcErrorCode(error: unknown): string {
+  const code = error instanceof Error ? error.message : null;
+  return code && SAFE_OIDC_ERROR_CODES.has(code) ? code : "oidc_login_failed";
+}
+
 class OpenIdClientAdapter implements OidcAdapter {
   private configs = new Map<string, Promise<client.Configuration>>();
 

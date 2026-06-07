@@ -55,15 +55,24 @@ describe("LoginPage", () => {
     cleanup();
   });
 
-  it("shows oidcError even when local auth is disabled", async () => {
-    window.history.replaceState({}, "", "/login?oidcError=SSO%20failed");
+  it("maps oidcError codes to translated messages even when local auth is disabled", async () => {
+    window.history.replaceState({}, "", "/login?oidcError=oidc_verified_email_required");
 
     render(<LoginPage />);
 
-    expect(await screen.findByText("SSO failed")).toBeTruthy();
+    expect(await screen.findByText("oidcVerifiedEmailRequired")).toBeTruthy();
     expect(await screen.findByText("Local username/password sign-in is disabled for this instance.")).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByLabelText("username")).toBeNull();
     });
+  });
+
+  it("falls back to a generic translated message for unknown oidcError codes", async () => {
+    window.history.replaceState({}, "", "/login?oidcError=connect%20ECONNREFUSED%20https%3A%2F%2Fidp.example.test%2Ftoken");
+
+    render(<LoginPage />);
+
+    expect(await screen.findByText("oidcLoginFailed")).toBeTruthy();
+    expect(screen.queryByText(/ECONNREFUSED/)).toBeNull();
   });
 });

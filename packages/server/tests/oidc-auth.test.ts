@@ -194,6 +194,27 @@ describe("OIDC auth", () => {
     expect(res.headers.get("location")).toContain("oidc_verified_email_required");
   });
 
+  it("sanitizes unexpected callback exceptions before redirecting", async () => {
+    setOidcAdapterForTests({
+      async buildAuthorizationUrl(_config, params) {
+        return `https://idp.example.test/authorize?state=${encodeURIComponent(params.state)}&nonce=${encodeURIComponent(params.nonce)}`;
+      },
+      async exchangeCallback() {
+        throw new Error("connect ECONNREFUSED https://idp.example.test/token");
+      },
+      async buildLogoutUrl() {
+        return null;
+      },
+    });
+    const app = makeApp(db);
+    const state = await start(app);
+    const res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("oidc_login_failed");
+    expect(res.headers.get("location")).not.toContain("ECONNREFUSED");
+    expect(res.headers.get("location")).not.toContain("idp.example.test");
+  });
+
   it("disabled local password auth blocks /auth/login", async () => {
     seedUser(db);
     process.env.DISABLE_LOCAL_PASSWORD_AUTH = "true";

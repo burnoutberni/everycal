@@ -6,6 +6,22 @@ import { Link } from "wouter";
 import { PasswordInput } from "../components/PasswordInput";
 import { auth as authApi, type AuthProviderInfo } from "../lib/api";
 
+const OIDC_ERROR_MESSAGE_KEYS: Record<string, string> = {
+  account_disabled: "oidcAccountDisabled",
+  oidc_client_id_missing: "oidcUnavailable",
+  oidc_client_secret_missing: "oidcUnavailable",
+  oidc_disabled: "oidcUnavailable",
+  oidc_email_conflict: "oidcEmailConflict",
+  oidc_invalid_state: "oidcSessionExpired",
+  oidc_issuer_url_missing: "oidcUnavailable",
+  oidc_jit_provisioning_disabled: "oidcProvisioningDisabled",
+  oidc_login_failed: "oidcLoginFailed",
+  oidc_missing_identity_claims: "oidcLoginFailed",
+  oidc_redirect_uri_missing: "oidcUnavailable",
+  oidc_scope_openid_required: "oidcUnavailable",
+  oidc_verified_email_required: "oidcVerifiedEmailRequired",
+};
+
 export function LoginPage() {
   const { t } = useTranslation("auth");
   const { user, login } = useAuth();
@@ -28,7 +44,7 @@ export function LoginPage() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const oidcError = params.get("oidcError");
-      if (oidcError) setError(oidcError);
+      if (oidcError) setError(t(OIDC_ERROR_MESSAGE_KEYS[oidcError] || "oidcLoginFailed"));
     }
   }, []);
 

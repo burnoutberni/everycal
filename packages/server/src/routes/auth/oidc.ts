@@ -11,6 +11,7 @@ import {
   getOidcProviderConfig,
   isSafeRedirectTo,
   resolveOidcAccount,
+  sanitizeOidcErrorCode,
   validateOidcConfig,
 } from "../../lib/oidc.js";
 
@@ -58,8 +59,7 @@ export function registerOidcRoutes(router: Hono, db: DB): void {
       const redirectTo = isSafeRedirectTo(tx.redirectTo) || (account.isNew ? "/onboarding" : "/");
       return c.redirect(redirectTo);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "oidc_login_failed";
-      return c.redirect(errorRedirect(message));
+      return c.redirect(errorRedirect(sanitizeOidcErrorCode(error)));
     }
   });
 
