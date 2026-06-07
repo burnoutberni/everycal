@@ -13,6 +13,12 @@ import { getLocalAuthConfig, getOidcAdapter, getOidcProviderConfig } from "../..
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE } from "./constants.js";
 import { setSessionCookie, clearSessionCookie, maybeSetMissingCsrfCookie } from "./session-cookies.js";
 
+function normalizeCityInput(city: string | undefined): string | null {
+  if (city == null) return null;
+  const trimmed = city.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function registerSessionRoutes(router: Hono, db: DB): void {
   // Register
   router.post("/register", async (c) => {
@@ -52,12 +58,13 @@ export function registerSessionRoutes(router: Hono, db: DB): void {
       return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
     }
     const isBot = false;
+    const normalizedCity = normalizeCityInput(body.city);
 
     // City required for non-bots; bots can use default
-    const city = body.city || "Wien";
+    const city = normalizedCity ?? "Wien";
     const cityLat = body.cityLat ?? 48.2082;
     const cityLng = body.cityLng ?? 16.3738;
-    if (!isBot && (body.city == null || body.cityLat == null || body.cityLng == null)) {
+    if (!isBot && (normalizedCity == null || body.cityLat == null || body.cityLng == null)) {
       return c.json({ error: "auth.city_required" }, 400);
     }
 

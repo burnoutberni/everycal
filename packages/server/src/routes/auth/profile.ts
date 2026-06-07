@@ -6,13 +6,19 @@ import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE } from "./constants.js";
 
+function normalizeCityInput(city: string | null | undefined): string | null | undefined {
+  if (city == null) return city;
+  const trimmed = city.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function accountHasLocation(db: DB, accountId: string): boolean {
   const row = db.prepare("SELECT city, city_lat, city_lng FROM accounts WHERE id = ?").get(accountId) as {
     city: string | null;
     city_lat: number | null;
     city_lng: number | null;
   } | undefined;
-  return !!(row?.city && row.city_lat != null && row.city_lng != null);
+  return !!(normalizeCityInput(row?.city) && row?.city_lat != null && row?.city_lng != null);
 }
 
 export function registerProfileRoutes(router: Hono, db: DB): void {
@@ -35,6 +41,7 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
     }>(c);
     if (parsed instanceof Response) return parsed;
     const body = parsed;
+    const normalizedCity = normalizeCityInput(body.city);
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -86,8 +93,11 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
       fields.push("city_lng = ?");
       values.push(null);
     } else if (body.city !== undefined && body.cityLat != null && body.cityLng != null) {
+      if (normalizedCity == null) {
+        return c.json({ error: "auth.city_required" }, 400);
+      }
       fields.push("city = ?");
-      values.push(body.city);
+      values.push(normalizedCity);
       fields.push("city_lat = ?");
       values.push(body.cityLat);
       fields.push("city_lng = ?");

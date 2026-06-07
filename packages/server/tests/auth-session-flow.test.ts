@@ -231,6 +231,27 @@ describe("auth login / logout / lockout flows", () => {
     });
   });
 
+  describe("notification prefs", () => {
+    it("rejects onboarding completion when the stored city is blank", async () => {
+      const user = seedUser();
+      db.prepare("UPDATE accounts SET city = ?, city_lat = ?, city_lng = ? WHERE id = ?").run("   ", 48.2, 16.37, user.id);
+      const session = createSession(db, user.id);
+      const app = makeApp(db);
+
+      const res = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: `everycal_session=${session.token}`,
+        },
+        body: JSON.stringify({ onboardingCompleted: true }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
+    });
+  });
+
   describe("registration", () => {
     it("sends verification email for human registration", async () => {
       const app = makeApp(db);
@@ -288,6 +309,25 @@ describe("auth login / logout / lockout flows", () => {
       });
 
       expect(res.status).toBe(403);
+    });
+
+    it("rejects blank city names even when coordinates are present", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "blankcity",
+          email: "blankcity@example.com",
+          password: "secure-password-123",
+          city: "   ",
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
     });
   });
 });
