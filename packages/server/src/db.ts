@@ -5,6 +5,7 @@
 import Database from "better-sqlite3";
 import { toErrorMessage } from "@everycal/core";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
+import type { Migration } from "./db/migrations.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 
 export type DB = Database.Database;
@@ -634,16 +635,28 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
   for (const migration of MIGRATIONS) {
     if (migration.version <= fromVersion) continue;
 
-    db.exec("BEGIN");
-    try {
-      migration.up(db);
-      db.pragma(`user_version = ${migration.version}`);
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw new Error(
-        `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
-      );
+    runMigration(db, migration);
+  }
+}
+
+export function runMigration(db: DB, migration: Migration): void {
+  if (migration.disableForeignKeys) {
+    db.pragma("foreign_keys = OFF");
+  }
+
+  db.exec("BEGIN");
+  try {
+    migration.up(db);
+    db.pragma(`user_version = ${migration.version}`);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw new Error(
+      `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
+    );
+  } finally {
+    if (migration.disableForeignKeys) {
+      db.pragma("foreign_keys = ON");
     }
   }
 }

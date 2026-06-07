@@ -5,6 +5,7 @@ import { hashTokenSecret } from "../lib/token-secrets.js";
 export type Migration = {
   version: number;
   name: string;
+  disableForeignKeys?: boolean;
   up: (db: DB) => void;
 };
 
@@ -894,14 +895,13 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 19,
     name: "accounts_nullable_location",
+    disableForeignKeys: true,
     up: (db) => {
       const accountColumns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string; notnull: number }>;
       const cityColumns = accountColumns.filter((column) => ["city", "city_lat", "city_lng"].includes(column.name));
       if (cityColumns.length !== 3 || cityColumns.every((column) => column.notnull === 0)) return;
 
-      db.exec("PRAGMA foreign_keys = OFF");
-      try {
-        db.exec(`CREATE TABLE accounts_new (
+      db.exec(`CREATE TABLE accounts_new (
           id TEXT PRIMARY KEY,
           username TEXT NOT NULL UNIQUE,
           account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
@@ -951,10 +951,7 @@ export const MIGRATIONS: Migration[] = [
         FROM accounts`);
         db.exec("DROP TABLE accounts");
         db.exec("ALTER TABLE accounts_new RENAME TO accounts");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
-      } finally {
-        db.exec("PRAGMA foreign_keys = ON");
-      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
     },
   },
 
