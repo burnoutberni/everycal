@@ -278,7 +278,7 @@ export function resolveOidcAccount(db: DB, config: OidcProviderConfig, result: O
   const avatarUrl = claimString(result.claims, config.claims.avatar);
   db.prepare(
     `INSERT INTO accounts (id, username, display_name, avatar_url, password_hash, email, email_verified, email_verified_at, city, city_lat, city_lng, timezone, date_time_locale, theme_preference, auth_source, last_oidc_login_at, oidc_profile_synced_at)
-     VALUES (?, ?, ?, ?, NULL, ?, 1, datetime('now'), 'Wien', 48.2082, 16.3738, ?, ?, ?, 'oidc', datetime('now'), datetime('now'))`
+     VALUES (?, ?, ?, ?, NULL, ?, 1, datetime('now'), NULL, NULL, NULL, ?, ?, ?, 'oidc', datetime('now'), datetime('now'))`
   ).run(accountId, username, displayName, avatarUrl, email, SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE);
   db.prepare(`INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled) VALUES (?, 1, 24, 1, 1)`).run(accountId);
   db.prepare(

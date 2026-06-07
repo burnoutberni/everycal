@@ -121,8 +121,52 @@ describe("OIDC auth", () => {
     state = await start(app);
     res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect(res.status).toBe(302);
-    const row = db.prepare("SELECT id, auth_source FROM accounts WHERE email = ?").get("new@example.com") as { id: string; auth_source: string };
+    const row = db.prepare("SELECT id, auth_source, city, city_lat, city_lng FROM accounts WHERE email = ?").get("new@example.com") as {
+      id: string;
+      auth_source: string;
+      city: string | null;
+      city_lat: number | null;
+      city_lng: number | null;
+    };
     expect(row.auth_source).toBe("oidc");
+    expect(row.city).toBeNull();
+    expect(row.city_lat).toBeNull();
+    expect(row.city_lng).toBeNull();
+  });
+
+  it("requires JIT-provisioned accounts to set a location before completing onboarding", async () => {
+    process.env.OIDC_JIT_PROVISIONING = "true";
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-onboarding", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-onboarding", email: "jit@example.com", email_verified: true, preferred_username: "jituser" } }));
+    const app = makeApp(db);
+    const state = await start(app);
+    const callbackRes = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    const sessionCookie = callbackRes.headers.get("set-cookie");
+
+    expect(callbackRes.status).toBe(302);
+    expect(sessionCookie).toContain("everycal_session=");
+
+    const blocked = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie: sessionCookie! },
+      body: JSON.stringify({ onboardingCompleted: true }),
+    });
+    expect(blocked.status).toBe(400);
+    expect(await blocked.json()).toEqual({ error: "City is required" });
+
+    const saveProfile = await app.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie: sessionCookie! },
+      body: JSON.stringify({ city: "Berlin", cityLat: 52.52, cityLng: 13.405 }),
+    });
+    expect(saveProfile.status).toBe(200);
+
+    const complete = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie: sessionCookie! },
+      body: JSON.stringify({ onboardingCompleted: true }),
+    });
+    expect(complete.status).toBe(200);
+    expect(await complete.json()).toEqual({ ok: true });
   });
 
   it("refuses auto-link/provision when verified email is absent or false", async () => {

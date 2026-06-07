@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../hooks/useAuth";
 import { auth as authApi, feeds as feedsApi } from "../lib/api";
 import { CalendarSubscribeButtons } from "../components/CalendarSubscribeButtons";
+import { CitySearch, type CitySelection } from "../components/CitySearch";
 import { CalendarIcon, CheckIcon, LinkIcon, MailIcon } from "../components/icons";
 
 export function OnboardingPage() {
@@ -15,10 +16,16 @@ export function OnboardingPage() {
   const [reminderHoursBefore, setReminderHoursBefore] = useState(24);
   const [eventUpdatedEnabled, setEventUpdatedEnabled] = useState(true);
   const [eventCancelledEnabled, setEventCancelledEnabled] = useState(true);
+  const [city, setCity] = useState<CitySelection | null>(
+    user?.city && user.cityLat != null && user.cityLng != null
+      ? { city: user.city, lat: user.cityLat, lng: user.cityLng }
+      : null
+  );
   const [copyStatus, setCopyStatus] = useState<
     "idle" | "copying" | "copied" | "error"
   >("idle");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     feedsApi.getCalendarUrl().then(({ url }) => setFeedUrl(url)).catch(() => {});
@@ -28,6 +35,9 @@ export function OnboardingPage() {
     navigate("/login");
     return null;
   }
+
+  const requiresLocationStep = !(user.city && user.cityLat != null && user.cityLng != null);
+  const totalSteps = requiresLocationStep ? 3 : 2;
 
   const handleCopyFeedLink = async () => {
     if (!feedUrl) return;
@@ -44,8 +54,21 @@ export function OnboardingPage() {
 
   const handleContinue = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (requiresLocationStep && !city) {
+      setError(t("locationRequired"));
+      return;
+    }
+
     setSaving(true);
+    setError(null);
     try {
+      if (requiresLocationStep && city) {
+        await authApi.updateProfile({
+          city: city.city,
+          cityLat: city.lat,
+          cityLng: city.lng,
+        });
+      }
       await authApi.updateNotificationPrefs({
         reminderEnabled,
         reminderHoursBefore,
@@ -55,17 +78,18 @@ export function OnboardingPage() {
       });
       await refreshUser();
       navigate("/");
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error && err.message === "auth.city_required" ? t("locationRequired") : t("saveFailed"));
       setSaving(false);
     }
   };
 
   return (
     <div className="onboarding-page">
-      <h1>{t("title")}</h1>
-      <p className="onboarding-subtitle">{t("subtitle")}</p>
+      <h1>{requiresLocationStep ? t("titleWithLocation") : t("title")}</h1>
+      <p className="onboarding-subtitle">{requiresLocationStep ? t("subtitleWithLocation") : t("subtitle")}</p>
 
-      <div className="onboarding-steps" role="progressbar" aria-label={t("setupProgressAria")}>
+      <div className="onboarding-steps" role="progressbar" aria-label={requiresLocationStep ? t("setupProgressAriaWithLocation") : t("setupProgressAria")} aria-valuemin={0} aria-valuemax={totalSteps} aria-valuenow={totalSteps}>
         <div
           className="onboarding-step-dot active"
           title={t("addToCalendar")}
@@ -77,6 +101,16 @@ export function OnboardingPage() {
           title={t("notifications")}
           aria-hidden
         />
+        {requiresLocationStep && (
+          <>
+            <div className="onboarding-step-connector" aria-hidden />
+            <div
+              className="onboarding-step-dot active"
+              title={t("location")}
+              aria-hidden
+            />
+          </>
+        )}
       </div>
 
       <div className="onboarding-card">
@@ -109,6 +143,22 @@ export function OnboardingPage() {
       </div>
 
       <form onSubmit={handleContinue} className="onboarding-card">
+        {requiresLocationStep && (
+          <>
+            <h2>{t("chooseHomeCity")}</h2>
+            <p className="onboarding-card-desc">{t("chooseHomeCityDesc")}</p>
+            <CitySearch
+              value={city}
+              onChange={(next) => {
+                setCity(next);
+                if (next) setError(null);
+              }}
+              placeholder={t("searchCity")}
+              required
+            />
+          </>
+        )}
+
         <h2>
           <MailIcon />
           {t("emailNotifications")}
@@ -159,6 +209,8 @@ export function OnboardingPage() {
           />
           <span className="option-label">{t("whenEventCancelled")}</span>
         </label>
+
+        {error && <p className="text-sm" style={{ color: "var(--danger)" }}>{error}</p>}
 
         <button
           type="submit"

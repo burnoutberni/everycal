@@ -6,6 +6,15 @@ import { getLocale, t } from "../../lib/i18n.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE } from "./constants.js";
 
+function accountHasLocation(db: DB, accountId: string): boolean {
+  const row = db.prepare("SELECT city, city_lat, city_lng FROM accounts WHERE id = ?").get(accountId) as {
+    city: string | null;
+    city_lat: number | null;
+    city_lng: number | null;
+  } | undefined;
+  return !!(row?.city && row.city_lat != null && row.city_lng != null);
+}
+
 export function registerProfileRoutes(router: Hono, db: DB): void {
   router.patch("/me", requireAuth(), async (c) => {
     const user = c.get("user")!;
@@ -152,18 +161,29 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
     const body = parsed;
 
     const existing = db
-      .prepare("SELECT account_id FROM account_notification_prefs WHERE account_id = ?")
-      .get(user.id);
+      .prepare("SELECT account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled, onboarding_completed FROM account_notification_prefs WHERE account_id = ?")
+      .get(user.id) as {
+        account_id: string;
+        reminder_enabled: number;
+        reminder_hours_before: number;
+        event_updated_enabled: number;
+        event_cancelled_enabled: number;
+        onboarding_completed: number;
+      } | undefined;
 
-    const reminderEnabled = body.reminderEnabled ?? true;
-    const reminderHoursBefore = body.reminderHoursBefore ?? 24;
-    const eventUpdatedEnabled = body.eventUpdatedEnabled ?? true;
-    const eventCancelledEnabled = body.eventCancelledEnabled ?? true;
-    const onboardingCompleted = body.onboardingCompleted ?? false;
+    const reminderEnabled = body.reminderEnabled ?? (existing ? !!existing.reminder_enabled : true);
+    const reminderHoursBefore = body.reminderHoursBefore ?? existing?.reminder_hours_before ?? 24;
+    const eventUpdatedEnabled = body.eventUpdatedEnabled ?? (existing ? !!existing.event_updated_enabled : true);
+    const eventCancelledEnabled = body.eventCancelledEnabled ?? (existing ? !!existing.event_cancelled_enabled : true);
+    const onboardingCompleted = body.onboardingCompleted ?? (existing ? !!existing.onboarding_completed : false);
 
     const validHours = [1, 6, 12, 24];
     if (!validHours.includes(reminderHoursBefore)) {
       return c.json({ error: t(getLocale(c), "auth.reminder_hours_invalid") }, 400);
+    }
+
+    if (body.onboardingCompleted === true && !accountHasLocation(db, user.id)) {
+      return c.json({ error: t(getLocale(c), "auth.city_required") }, 400);
     }
 
     if (existing) {
