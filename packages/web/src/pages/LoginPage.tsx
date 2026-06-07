@@ -84,6 +84,7 @@ export function LoginPage() {
           {showLocal && <div className="text-sm text-muted text-center mt-2 mb-2">or sign in with a local account</div>}
         </>
       )}
+      {error && <p className="error-text mb-2">{error}</p>}
       {showLocal ? (
       <form onSubmit={handleSubmit}>
         <div className="field">
@@ -112,7 +113,6 @@ export function LoginPage() {
             </Link>
           </p>
         </div>
-        {error && <p className="error-text mb-2">{error}</p>}
         <button type="submit" className="btn-primary" style={{ width: "100%" }} disabled={loading}>
           {loading ? t("loggingIn") : t("logIn")}
         </button>
