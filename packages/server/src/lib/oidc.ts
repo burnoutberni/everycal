@@ -34,6 +34,16 @@ export type OidcProviderConfig = {
 export type OidcClaims = Record<string, unknown> & { iss?: string; sub?: string };
 export type OidcCallbackResult = { claims: OidcClaims; issuer: string; subject: string };
 
+export function mergeOidcClaims(idTokenClaims: OidcClaims, userInfoClaims: OidcClaims | null | undefined): OidcClaims {
+  if (!userInfoClaims) return idTokenClaims;
+  return {
+    ...idTokenClaims,
+    ...userInfoClaims,
+    iss: idTokenClaims.iss,
+    sub: idTokenClaims.sub,
+  };
+}
+
 export interface OidcAdapter {
   buildAuthorizationUrl(config: OidcProviderConfig, params: { state: string; nonce: string; codeVerifier: string }): Promise<string>;
   exchangeCallback(config: OidcProviderConfig, callbackUrl: string, checks: { state: string; nonce: string; codeVerifier: string }): Promise<OidcCallbackResult>;
@@ -120,17 +130,16 @@ class OpenIdClientAdapter implements OidcAdapter {
 
   private getClientConfig(config: OidcProviderConfig): Promise<client.Configuration> {
     const key = `${config.issuerUrl}\n${config.clientId}\n${config.redirectUri}`;
-    let existing = this.configs.get(key);
-    if (!existing) {
-      existing = client.discovery(
-        new URL(config.issuerUrl),
-        config.clientId,
-        { client_secret: config.clientSecret, redirect_uris: [config.redirectUri], response_types: ["code"] },
-        client.ClientSecretPost(config.clientSecret),
-      );
-      this.configs.set(key, existing);
-    }
-    return existing;
+    const existing = this.configs.get(key);
+    if (existing) return existing;
+    const discovered = client.discovery(
+      new URL(config.issuerUrl),
+      config.clientId,
+      { client_secret: config.clientSecret, redirect_uris: [config.redirectUri], response_types: ["code"] },
+      client.ClientSecretPost(config.clientSecret),
+    );
+    this.configs.set(key, discovered);
+    return discovered;
   }
 
   async buildAuthorizationUrl(config: OidcProviderConfig, params: { state: string; nonce: string; codeVerifier: string }): Promise<string> {
@@ -157,7 +166,14 @@ class OpenIdClientAdapter implements OidcAdapter {
     });
     const claims = tokens.claims();
     if (!claims?.iss || !claims.sub) throw new Error("oidc_missing_identity_claims");
-    return { claims: claims as OidcClaims, issuer: claims.iss, subject: claims.sub };
+    const userInfoClaims = tokens.access_token && oidcConfig.serverMetadata().userinfo_endpoint
+      ? await client.fetchUserInfo(oidcConfig, tokens.access_token, claims.sub) as OidcClaims
+      : null;
+    return {
+      claims: mergeOidcClaims(claims as OidcClaims, userInfoClaims),
+      issuer: claims.iss,
+      subject: claims.sub,
+    };
   }
 
   async buildLogoutUrl(config: OidcProviderConfig): Promise<string | null> {
