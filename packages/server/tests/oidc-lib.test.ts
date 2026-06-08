@@ -12,7 +12,7 @@ const openIdMocks = vi.hoisted(() => ({
 
 vi.mock("openid-client", () => openIdMocks);
 
-import { getOidcAdapter, getOidcProviderConfig, mergeOidcClaims } from "../src/lib/oidc.js";
+import { getOidcAdapter, getOidcProviderConfig, mergeOidcClaims, resetOidcAdapterForTests } from "../src/lib/oidc.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -30,6 +30,7 @@ describe("OIDC library", () => {
     process.env = { ...ORIGINAL_ENV };
     configureOidc();
     vi.clearAllMocks();
+    resetOidcAdapterForTests();
   });
 
   afterEach(() => {
@@ -95,6 +96,30 @@ describe("OIDC library", () => {
 
     expect(openIdMocks.fetchUserInfo).not.toHaveBeenCalled();
     expect(result.claims).toEqual({ iss: process.env.OIDC_ISSUER_URL!, sub: "verified-subject" });
+  });
+
+  it("retries discovery after a transient failure", async () => {
+    openIdMocks.discovery
+      .mockRejectedValueOnce(new Error("temporary discovery failure"))
+      .mockResolvedValueOnce({
+        serverMetadata: () => ({}),
+      });
+    openIdMocks.calculatePKCECodeChallenge.mockResolvedValue("challenge");
+    openIdMocks.buildAuthorizationUrl.mockReturnValue(new URL("https://idp.example.test/authorize"));
+
+    await expect(getOidcAdapter().buildAuthorizationUrl(getOidcProviderConfig(), {
+      state: "s1",
+      nonce: "n1",
+      codeVerifier: "v1",
+    })).rejects.toThrow("temporary discovery failure");
+
+    await expect(getOidcAdapter().buildAuthorizationUrl(getOidcProviderConfig(), {
+      state: "s2",
+      nonce: "n2",
+      codeVerifier: "v2",
+    })).resolves.toBe("https://idp.example.test/authorize");
+
+    expect(openIdMocks.discovery).toHaveBeenCalledTimes(2);
   });
 
   it("mergeOidcClaims preserves iss/sub from the ID token", () => {

@@ -158,7 +158,10 @@ class OpenIdClientAdapter implements OidcAdapter {
       config.clientId,
       { client_secret: config.clientSecret, redirect_uris: [config.redirectUri], response_types: ["code"] },
       client.ClientSecretPost(config.clientSecret),
-    );
+    ).catch((error) => {
+      this.configs.delete(key);
+      throw error;
+    });
     this.configs.set(key, discovered);
     return discovered;
   }
@@ -208,6 +211,7 @@ class OpenIdClientAdapter implements OidcAdapter {
 let oidcAdapter: OidcAdapter = new OpenIdClientAdapter();
 export function getOidcAdapter() { return oidcAdapter; }
 export function setOidcAdapterForTests(adapter: OidcAdapter) { oidcAdapter = adapter; }
+export function resetOidcAdapterForTests() { oidcAdapter = new OpenIdClientAdapter(); }
 
 function claimString(claims: OidcClaims, key: string): string | null {
   const value = claims[key];
