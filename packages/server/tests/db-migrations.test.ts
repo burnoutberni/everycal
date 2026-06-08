@@ -97,9 +97,9 @@ describe("runMigration", () => {
   });
 });
 
-describe("v19 accounts rebuild migration", () => {
-  it("upgrades a version 18 database with account foreign key dependents", () => {
-    const dbPath = createDbPath("accounts-v19-upgrade");
+describe("v18 oidc_sso_v1 migration", () => {
+  it("upgrades a version 17 database with account foreign key dependents", () => {
+    const dbPath = createDbPath("accounts-v18-upgrade");
     const db = initDatabase(dbPath);
     db.prepare(
       `INSERT INTO accounts (
@@ -116,7 +116,11 @@ describe("v19 accounts rebuild migration", () => {
     const rawDb = new Database(dbPath);
     rawDb.pragma("foreign_keys = OFF");
     rawDb.exec(`
-      CREATE TABLE accounts_v18 (
+      DROP TABLE account_auth_identities;
+      DROP TABLE account_role_assignments;
+      DROP TABLE oidc_login_states;
+
+      CREATE TABLE accounts_v17 (
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
@@ -144,30 +148,37 @@ describe("v19 accounts rebuild migration", () => {
         preferred_language TEXT DEFAULT 'en',
         calendar_feed_token_version INTEGER NOT NULL DEFAULT 1,
         is_admin INTEGER NOT NULL DEFAULT 0,
-        is_disabled INTEGER NOT NULL DEFAULT 0,
-        sso_admin_locked INTEGER NOT NULL DEFAULT 0,
-        auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid')),
-        last_oidc_login_at TEXT,
-        oidc_profile_synced_at TEXT
+        is_disabled INTEGER NOT NULL DEFAULT 0
       );
-      INSERT INTO accounts_v18 (
+      INSERT INTO accounts_v17 (
         id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
         is_bot, discoverable, timezone, date_time_locale, theme_preference, default_event_visibility,
         created_at, updated_at, website, city, city_lat, city_lng, email, email_verified, email_verified_at,
-        preferred_language, calendar_feed_token_version, is_admin, is_disabled, sso_admin_locked,
-        auth_source, last_oidc_login_at, oidc_profile_synced_at
+        preferred_language, calendar_feed_token_version, is_admin, is_disabled
       )
       SELECT
         id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
         is_bot, discoverable, timezone, date_time_locale, theme_preference, default_event_visibility,
         created_at, updated_at, website, city, city_lat, city_lng, email, email_verified, email_verified_at,
-        preferred_language, calendar_feed_token_version, is_admin, is_disabled, sso_admin_locked,
-        auth_source, last_oidc_login_at, oidc_profile_synced_at
+        preferred_language, calendar_feed_token_version, is_admin, is_disabled
       FROM accounts;
       DROP TABLE accounts;
-      ALTER TABLE accounts_v18 RENAME TO accounts;
+      ALTER TABLE accounts_v17 RENAME TO accounts;
+
+      CREATE TABLE sessions_v17 (
+        token TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL
+      );
+      INSERT INTO sessions_v17 (token, account_id, created_at, expires_at)
+      SELECT token, account_id, created_at, expires_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_v17 RENAME TO sessions;
+      CREATE INDEX idx_sessions_account ON sessions(account_id);
+      CREATE INDEX idx_sessions_expires ON sessions(expires_at);
     `);
-    rawDb.pragma("user_version = 18");
+    rawDb.pragma("user_version = 17");
     rawDb.close();
 
     const migratedDb = initDatabase(dbPath);
@@ -184,14 +195,25 @@ describe("v19 accounts rebuild migration", () => {
       { name: "city_lat", notnull: 0 },
       { name: "city_lng", notnull: 0 },
     ]);
+    const sessionColumns = migratedDb
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as Array<{ name: string; notnull: number; dflt_value: unknown }>;
+    expect(sessionColumns.find((column) => column.name === "auth_method")).toMatchObject({
+      notnull: 1,
+      dflt_value: "'local'",
+    });
     expect(migratedDb.prepare("SELECT account_id FROM sessions WHERE token = ?").get("session-1")).toEqual({
       account_id: "acct-1",
     });
+    expect(migratedDb.prepare("SELECT auth_method FROM sessions WHERE token = ?").get("session-1")).toEqual({
+      auth_method: "local",
+    });
     expect(
-      () => migratedDb.prepare("INSERT INTO sessions (token, account_id, expires_at) VALUES (?, ?, ?)").run(
+      () => migratedDb.prepare("INSERT INTO sessions (token, account_id, expires_at, auth_method) VALUES (?, ?, ?, ?)").run(
         "session-2",
         "missing-account",
-        "2099-01-02T00:00:00Z"
+        "2099-01-02T00:00:00Z",
+        "local"
       )
     ).toThrow();
 

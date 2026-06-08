@@ -130,6 +130,27 @@ describe("schema index definition validation", () => {
     expect(() => validateSchema(db!)).toThrow(/missing required column "remote_events.title"/);
   });
 
+  it("rejects sessions when auth_method drifts out of the schema", () => {
+    db = new Database(":memory:");
+    createBaseSchema(db);
+    db.exec(`
+      CREATE TABLE sessions_old (
+        token TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL
+      );
+      INSERT INTO sessions_old (token, account_id, created_at, expires_at)
+      SELECT token, account_id, created_at, expires_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_old RENAME TO sessions;
+      CREATE INDEX idx_sessions_account ON sessions(account_id);
+      CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+    `);
+
+    expect(() => validateSchema(db!)).toThrow(/missing required column "sessions.auth_method"/);
+  });
+
   it("rejects required index when sort order drifts", () => {
     db = new Database(":memory:");
     createBaseSchema(db);

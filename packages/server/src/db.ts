@@ -69,7 +69,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "last_oidc_login_at",
     "oidc_profile_synced_at",
   ],
-  sessions: ["token", "account_id", "created_at", "expires_at"],
+  sessions: ["token", "account_id", "created_at", "expires_at", "auth_method"],
   api_keys: ["id", "account_id", "key_hash", "label", "last_used_at", "created_at", "key_prefix"],
   account_auth_identities: ["id", "account_id", "provider_key", "issuer", "subject", "email_at_link_time", "claims_json", "last_login_at", "created_at", "updated_at"],
   account_role_assignments: ["id", "account_id", "role_key", "source", "managed_by", "created_at", "updated_at"],
