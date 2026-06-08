@@ -22,6 +22,11 @@ const OIDC_ERROR_MESSAGE_KEYS: Record<string, string> = {
   oidc_verified_email_required: "oidcVerifiedEmailRequired",
 };
 
+function sanitizeRedirectTarget(redirectTarget: string | null) {
+  if (!redirectTarget) return "/";
+  return redirectTarget.startsWith("/") && !redirectTarget.startsWith("//") ? redirectTarget : "/";
+}
+
 export function LoginPage() {
   const { t } = useTranslation("auth");
   const { user, login } = useAuth();
@@ -36,7 +41,7 @@ export function LoginPage() {
   const redirectTo = useMemo(() => {
     if (typeof window === "undefined") return "/";
     const params = new URLSearchParams(window.location.search);
-    return params.get("next") || params.get("redirectTo") || "/";
+    return sanitizeRedirectTarget(params.get("next") || params.get("redirectTo"));
   }, []);
 
   useEffect(() => {
@@ -62,7 +67,7 @@ export function LoginPage() {
       if (u.notificationPrefs && !u.notificationPrefs.onboardingCompleted) {
         navigate("/onboarding");
       } else {
-        navigate(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/");
+        navigate(redirectTo);
       }
     } catch (err: any) {
       setError(err.message || t("loginFailed"));
