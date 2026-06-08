@@ -123,7 +123,7 @@ export function createSession(db: DB, accountId: string, authMethod: SessionAuth
   return { token, expiresAt };
 }
 
-function resolveSession(db: DB, token: string): SessionAuthResult | null {
+export function resolveSession(db: DB, token: string): SessionAuthResult | null {
   const tokenHash = hashTokenSecret(token);
   const row = db
     .prepare(

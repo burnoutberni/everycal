@@ -307,4 +307,34 @@ describe("OIDC auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, logoutUrl: null });
   });
+
+  it("oidc logout returns provider logout URL only for OIDC sessions", async () => {
+    const user = seedUser(db);
+    const session = createSession(db, user.id, "oidc");
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub" } }, "https://idp.example.test/logout"));
+
+    const res = await makeApp(db).request("http://localhost/api/v1/auth/oidc/logout", {
+      method: "POST",
+      headers: { cookie: `everycal_session=${session.token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, logoutUrl: "https://idp.example.test/logout" });
+    expect(res.headers.get("set-cookie")).toContain("everycal_session=");
+  });
+
+  it("oidc logout does not return provider logout URL for local sessions", async () => {
+    const user = seedUser(db);
+    db.prepare("UPDATE accounts SET auth_source = 'hybrid' WHERE id = ?").run(user.id);
+    const session = createSession(db, user.id, "local");
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub" } }, "https://idp.example.test/logout"));
+
+    const res = await makeApp(db).request("http://localhost/api/v1/auth/oidc/logout", {
+      method: "POST",
+      headers: { cookie: `everycal_session=${session.token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, logoutUrl: null });
+  });
 });

@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type { DB } from "../../db.js";
-import { createSession, deleteSession } from "../../middleware/auth.js";
+import { createSession, deleteSession, resolveSession } from "../../middleware/auth.js";
 import { parseJsonBody } from "../../lib/request-body.js";
 import { clearSessionCookie, setSessionCookie } from "./session-cookies.js";
 import {
@@ -70,10 +70,13 @@ export function registerOidcRoutes(router: Hono, db: DB): void {
     const authHeader = c.req.header("authorization") || "";
     const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
     const sessionToken = token || bearerToken;
+    const sessionAuthMethod = sessionToken ? resolveSession(db, sessionToken)?.user.sessionAuthMethod : null;
     if (sessionToken) deleteSession(db, sessionToken);
     clearSessionCookie(c);
     const config = getOidcProviderConfig();
-    const logoutUrl = config.enabled ? await getOidcAdapter().buildLogoutUrl(config).catch(() => null) : null;
+    const logoutUrl = config.enabled && sessionAuthMethod === "oidc"
+      ? await getOidcAdapter().buildLogoutUrl(config).catch(() => null)
+      : null;
     return c.json({ ok: true, logoutUrl });
   });
 }
