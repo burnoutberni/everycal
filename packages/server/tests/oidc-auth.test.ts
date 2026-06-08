@@ -214,12 +214,17 @@ describe("OIDC auth", () => {
     expect((await me.json() as { authSource: string }).authSource).toBe("oidc");
   });
 
-  it("refuses auto-link/provision when verified email is absent or false", async () => {
+  it("refuses auto-link/provision when verified email is absent, false, or malformed", async () => {
     process.env.OIDC_JIT_PROVISIONING = "true";
     setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-no-verify", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-no-verify", email: "new@example.com", email_verified: false } }));
     const app = makeApp(db);
-    const state = await start(app);
-    const res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    let state = await start(app);
+    let res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect(res.headers.get("location")).toContain("oidc_verified_email_required");
+
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "sub-malformed-verify", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "sub-malformed-verify", email: "bad@example.com", email_verified: "verified" } }));
+    state = await start(app);
+    res = await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect(res.headers.get("location")).toContain("oidc_verified_email_required");
   });
 
@@ -261,6 +266,11 @@ describe("OIDC auth", () => {
     expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(0);
 
     process.env.OIDC_SYNC_ADMIN = "true";
+    state = await start(app);
+    await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);
+
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: "administrator" } }));
     state = await start(app);
     await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);

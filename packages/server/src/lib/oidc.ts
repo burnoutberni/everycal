@@ -51,6 +51,7 @@ export interface OidcAdapter {
 }
 
 const truthy = new Set(["true", "1", "yes", "on"]);
+const falsy = new Set(["false", "0", "no", "off"]);
 function envBool(name: string, defaultValue: boolean): boolean {
   const raw = process.env[name];
   if (raw == null || raw.trim() === "") return defaultValue;
@@ -220,7 +221,11 @@ function claimString(claims: OidcClaims, key: string): string | null {
 function claimBool(claims: OidcClaims, key: string): boolean | null {
   const value = claims[key];
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return truthy.has(value.toLowerCase());
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (truthy.has(normalized)) return true;
+    if (falsy.has(normalized)) return false;
+  }
   return null;
 }
 function claimList(claims: OidcClaims, key: string): string[] {
