@@ -14,6 +14,12 @@ Set these environment variables:
 
 Optional fields include `OIDC_PROVIDER_KEY` (defaults to `primary_oidc`), `OIDC_REDIRECT_URI` (defaults to `${BASE_URL}/api/v1/auth/oidc/callback`), `OIDC_SCOPES` (defaults to `openid profile email`), and `OIDC_POST_LOGOUT_REDIRECT_URI`.
 
+Example:
+
+```text
+OIDC_SCOPES="openid profile email"
+```
+
 ## Authentik setup notes
 
 Create an Authentik OAuth2/OIDC provider/application and register this redirect URI:
