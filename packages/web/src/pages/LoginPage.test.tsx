@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { AuthProviderInfo } from "../lib/api";
+import { makeAuthProviderInfo } from "../test/authProviderInfo";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -56,12 +58,12 @@ describe("LoginPage", () => {
     vi.clearAllMocks();
     window.history.replaceState({}, "", "/login");
     mocks.login.mockResolvedValue({ notificationPrefs: { onboardingCompleted: true } });
-    mocks.oidcProviders.mockResolvedValue({
-      oidcEnabled: true,
-      providers: [{ id: "oidc-1", label: "Acme SSO" }],
+    const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo({
+      providers: [{ providerKey: "oidc-1", label: "Acme SSO" }],
       localPasswordAuthEnabled: false,
       localRegistrationEnabled: false,
     });
+    mocks.oidcProviders.mockResolvedValue(oidcProvidersResponse);
     mocks.startOidc.mockResolvedValue({ authorizationUrl: "https://idp.example.test/authorize" });
     ({ LoginPage } = await import("./LoginPage"));
   });
@@ -83,12 +85,10 @@ describe("LoginPage", () => {
   });
 
   it("renders translated SSO button copy with provider interpolation", async () => {
-    mocks.oidcProviders.mockResolvedValue({
-      oidcEnabled: true,
-      providers: [{ id: "oidc-1", label: "Acme SSO" }],
-      localPasswordAuthEnabled: true,
-      localRegistrationEnabled: true,
+    const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo({
+      providers: [{ providerKey: "oidc-1", label: "Acme SSO" }],
     });
+    mocks.oidcProviders.mockResolvedValue(oidcProvidersResponse);
 
     render(<LoginPage />);
 
@@ -107,12 +107,11 @@ describe("LoginPage", () => {
 
   it("sanitizes unsafe double-slash redirects for local login", async () => {
     window.history.replaceState({}, "", "/login?next=%2F%2Fevil.example");
-    mocks.oidcProviders.mockResolvedValue({
+    const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo({
       oidcEnabled: false,
       providers: [],
-      localPasswordAuthEnabled: true,
-      localRegistrationEnabled: true,
     });
+    mocks.oidcProviders.mockResolvedValue(oidcProvidersResponse);
 
     render(<LoginPage />);
 

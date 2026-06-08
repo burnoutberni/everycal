@@ -105,7 +105,8 @@ vi.mock("../lib/api", () => ({
 }));
 
 import { SettingsPage } from "./SettingsPage";
-import { auth as authApi, identities as identitiesApi, uploads } from "../lib/api";
+import { auth as authApi, identities as identitiesApi, uploads, type AuthProviderInfo } from "../lib/api";
+import { makeAuthProviderInfo } from "../test/authProviderInfo";
 import { ThemeProvider } from "../hooks/useTheme";
 import { THEME_STORAGE_KEY } from "../lib/theme";
 
@@ -169,13 +170,8 @@ describe("SettingsPage identity flows", () => {
         eventCancelledEnabled: true,
       },
     } as any);
-    vi.mocked(authApi.oidcProviders).mockResolvedValue({
-      oidcEnabled: true,
-      configError: null,
-      localPasswordAuthEnabled: true,
-      localRegistrationEnabled: true,
-      providers: [{ providerKey: "oidc", label: "Single Sign-On" }],
-    });
+    const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo();
+    vi.mocked(authApi.oidcProviders).mockResolvedValue(oidcProvidersResponse);
     vi.mocked(authApi.listApiKeys).mockResolvedValue({ keys: [] });
     vi.mocked(identitiesApi.list).mockResolvedValue({ identities: [] });
     vi.mocked(uploads.upload).mockResolvedValue({ url: "https://example.com/avatar.png" } as any);
@@ -221,13 +217,11 @@ describe("SettingsPage identity flows", () => {
   });
 
   it("hides the password form when local password auth is disabled instance-wide", async () => {
-    vi.mocked(authApi.oidcProviders).mockResolvedValue({
-      oidcEnabled: true,
-      configError: null,
+    const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo({
       localPasswordAuthEnabled: false,
       localRegistrationEnabled: false,
-      providers: [{ providerKey: "oidc", label: "Single Sign-On" }],
     });
+    vi.mocked(authApi.oidcProviders).mockResolvedValue(oidcProvidersResponse);
 
     renderSettingsPage();
 
