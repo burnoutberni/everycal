@@ -1081,7 +1081,7 @@ export function SettingsPage() {
     eventsCount: 0,
     createdAt: new Date().toISOString(),
   };
-  const canChangePassword = user?.authSource !== "oidc" && localPasswordAuthEnabled === true;
+  const canChangePassword = user?.authSource !== "oidc" && localPasswordAuthEnabled !== false;
 
   return (
     <div className="settings-layout">

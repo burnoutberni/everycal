@@ -211,6 +211,15 @@ describe("SettingsPage identity flows", () => {
     expect(screen.queryByRole("button", { name: "changePassword" })).toBeNull();
   });
 
+  it("shows the password form for local users when provider discovery fails", async () => {
+    vi.mocked(authApi.oidcProviders).mockRejectedValue(new Error("temporary failure"));
+
+    renderSettingsPage();
+
+    expect(await screen.findByRole("heading", { name: "passwordChange" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "changePassword" })).toBeTruthy();
+  });
+
   it("blocks step progress on invalid handle and invalid website", async () => {
     renderSettingsPage();
 
