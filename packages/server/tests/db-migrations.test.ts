@@ -95,6 +95,53 @@ describe("runMigration", () => {
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get("parent")
     ).toEqual({ name: "parent" });
   });
+
+  it("restores foreign keys and wraps errors when BEGIN fails before the transaction starts", () => {
+    const calls: string[] = [];
+    let foreignKeysEnabled = true;
+    const dbStub = {
+      pragma: (sql: string, options?: { simple?: boolean }) => {
+        calls.push(`pragma:${sql}`);
+        if (sql === "foreign_keys = OFF") {
+          foreignKeysEnabled = false;
+          return;
+        }
+        if (sql === "foreign_keys = ON") {
+          foreignKeysEnabled = true;
+          return;
+        }
+        if (sql === "foreign_keys" && options?.simple) {
+          return foreignKeysEnabled ? 1 : 0;
+        }
+        return undefined;
+      },
+      exec: (sql: string) => {
+        calls.push(`exec:${sql}`);
+        if (sql === "BEGIN") {
+          throw new Error("cannot start transaction");
+        }
+      },
+    } as unknown as DB;
+
+    const migration: Migration = {
+      version: 1,
+      name: "begin_failure",
+      disableForeignKeys: true,
+      up: () => {
+        throw new Error("should not run");
+      },
+    };
+
+    expect(() => runMigration(dbStub, migration)).toThrow(
+      "Failed database migration v1 (begin_failure): cannot start transaction"
+    );
+    expect(foreignKeysEnabled).toBe(true);
+    expect(calls).toEqual([
+      "pragma:foreign_keys = OFF",
+      "exec:BEGIN",
+      "pragma:foreign_keys = ON",
+    ]);
+  });
 });
 
 describe("v18 oidc_sso_v1 migration", () => {

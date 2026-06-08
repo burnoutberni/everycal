@@ -640,17 +640,22 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
 }
 
 export function runMigration(db: DB, migration: Migration): void {
+  let startedTransaction = false;
+
   if (migration.disableForeignKeys) {
     db.pragma("foreign_keys = OFF");
   }
 
-  db.exec("BEGIN");
   try {
+    db.exec("BEGIN");
+    startedTransaction = true;
     migration.up(db);
     db.pragma(`user_version = ${migration.version}`);
     db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (startedTransaction) {
+      db.exec("ROLLBACK");
+    }
     throw new Error(
       `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
     );
