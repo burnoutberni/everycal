@@ -54,6 +54,14 @@
   "publicAccountDescVisible": "Dein Profil ist auf der Entdecken-Seite sichtbar. Neue Events sind standardmäßig öffentlich.",
   "publicAccountDescHidden": "Dein Profil ist in Entdecken ausgeblendet. Neue Events sind standardmäßig nur für dich sichtbar.",
   "emailLabel": "E-Mail",
+  "ssoStatusLabel": "Single Sign-on",
+  "ssoLinked": "verbunden ({{source}})",
+  "ssoNotLinked": "nicht verbunden",
+  "authSource": {
+    "local": "lokal",
+    "oidc": "Single Sign-on",
+    "hybrid": "kombiniert"
+  },
   "emailChange": "E-Mail ändern",
   "emailPlaceholder": "du@beispiel.de",
   "sending": "Wird gesendet…",

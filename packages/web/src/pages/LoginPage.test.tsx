@@ -13,7 +13,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, params?: Record<string, string>) => {
+      const translations: Record<string, string> = {
+        localSignInDisabled: "Localized local sign-in disabled",
+        signInWithSso: "Localized SSO sign-in",
+        signInWithProvider: `Localized sign-in with ${params?.provider ?? ""}`,
+        orSignInWithLocalAccount: "Localized local account divider",
+        ssoRedirecting: "Localized redirecting",
+        ssoLoginFailed: "Localized SSO login failed",
+      };
+      return translations[key] || key;
+    },
   }),
 }));
 
@@ -66,10 +76,24 @@ describe("LoginPage", () => {
     render(<LoginPage />);
 
     expect(await screen.findByText("oidcVerifiedEmailRequired")).toBeTruthy();
-    expect(await screen.findByText("Local username/password sign-in is disabled for this instance.")).toBeTruthy();
+    expect(await screen.findByText("Localized local sign-in disabled")).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByLabelText("username")).toBeNull();
     });
+  });
+
+  it("renders translated SSO button copy with provider interpolation", async () => {
+    mocks.oidcProviders.mockResolvedValue({
+      oidcEnabled: true,
+      providers: [{ id: "oidc-1", label: "Acme SSO" }],
+      localPasswordAuthEnabled: true,
+      localRegistrationEnabled: true,
+    });
+
+    render(<LoginPage />);
+
+    expect(await screen.findByRole("button", { name: "Localized sign-in with Acme SSO" })).toBeTruthy();
+    expect(screen.getByText("Localized local account divider")).toBeTruthy();
   });
 
   it("falls back to a generic translated message for unknown oidcError codes", async () => {
@@ -104,15 +128,16 @@ describe("LoginPage", () => {
 
   it("passes a sanitized in-app redirect target to SSO", async () => {
     window.history.replaceState({}, "", "/login?redirectTo=%2Fsettings");
-    mocks.startOidc.mockRejectedValue(new Error("SSO login failed"));
+    mocks.startOidc.mockRejectedValue(new Error(""));
 
     render(<LoginPage />);
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Sign in with Acme SSO" }));
+    await user.click(await screen.findByRole("button", { name: "Localized sign-in with Acme SSO" }));
 
     await waitFor(() => {
       expect(mocks.startOidc).toHaveBeenCalledWith("/settings");
     });
+    expect(await screen.findByText("Localized SSO login failed")).toBeTruthy();
   });
 });

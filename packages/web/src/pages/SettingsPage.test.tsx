@@ -15,6 +15,12 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string>) => {
       if (key === "themeSystem") return `themeSystem (${params?.theme ?? "..."})`;
+      if (key === "ssoStatusLabel") return "Localized SSO";
+      if (key === "ssoLinked") return `Localized linked (${params?.source ?? ""})`;
+      if (key === "ssoNotLinked") return "Localized not linked";
+      if (key === "authSource.local") return "Localized local";
+      if (key === "authSource.oidc") return "Localized oidc";
+      if (key === "authSource.hybrid") return "Localized hybrid";
       return key;
     },
     i18n: { language: "en" },
@@ -108,6 +114,7 @@ type MockAuthUser = {
   username: string;
   email: string;
   authSource: "local" | "oidc" | "hybrid";
+  ssoLinked?: boolean;
 };
 
 function renderSettingsPage() {
@@ -179,6 +186,26 @@ describe("SettingsPage identity flows", () => {
 
     expect(await screen.findByRole("heading", { name: "passwordChange" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "changePassword" })).toBeTruthy();
+  });
+
+  it("renders a translated linked SSO status with localized auth source", async () => {
+    setMockAuthUser({
+      id: "user-1",
+      username: "alice",
+      email: "alice@example.com",
+      authSource: "hybrid",
+      ssoLinked: true,
+    });
+
+    renderSettingsPage();
+
+    expect(await screen.findByText("Localized SSO: Localized linked (Localized hybrid)")).toBeTruthy();
+  });
+
+  it("renders a translated unlinked SSO status", async () => {
+    renderSettingsPage();
+
+    expect(await screen.findByText("Localized SSO: Localized not linked")).toBeTruthy();
   });
 
   it("hides the password form for OIDC-only users", async () => {

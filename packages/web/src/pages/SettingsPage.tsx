@@ -108,6 +108,11 @@ export function SettingsPage() {
   const [dateTimeLocale, setDateTimeLocale] = useState<string>(SYSTEM_DATE_TIME_LOCALE);
   const [customDateTimeLocaleOptions, setCustomDateTimeLocaleOptions] = useState<CountryLocaleOption[]>([]);
   const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
+
+  const ssoStatusText = useMemo(() => {
+    if (!user?.ssoLinked) return t("ssoNotLinked");
+    return t("ssoLinked", { source: t(`authSource.${user.authSource || "hybrid"}`) });
+  }, [t, user?.authSource, user?.ssoLinked]);
   const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
   const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
   const [discoverable, setDiscoverable] = useState(false);
@@ -1377,7 +1382,7 @@ export function SettingsPage() {
               {accountSettingsError && <p className="text-sm mt-1 error-text" role="alert">{accountSettingsError}</p>}
             </form>
             <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
-            <p className="text-sm text-dim mb-2">SSO: {user.ssoLinked ? `linked (${user.authSource || "hybrid"})` : "not linked"}</p>
+            <p className="text-sm text-dim mb-2">{t("ssoStatusLabel")}: {ssoStatusText}</p>
             <div className="field mb-2">
               <label htmlFor="email">{t("emailChange")}</label>
               <div className="flex gap-1 items-center" style={{ flexWrap: "wrap" }}>

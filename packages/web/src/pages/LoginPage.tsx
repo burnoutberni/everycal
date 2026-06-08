@@ -83,7 +83,7 @@ export function LoginPage() {
       const res = await authApi.startOidc(redirectTo);
       window.location.assign(res.authorizationUrl);
     } catch (err: any) {
-      setError(err.message || "SSO login failed");
+      setError(err.message || t("ssoLoginFailed"));
       setSsoLoading(false);
     }
   };
@@ -100,9 +100,13 @@ export function LoginPage() {
       {providers?.oidcEnabled && (
         <>
           <button type="button" className="btn-primary" style={{ width: "100%" }} disabled={ssoLoading} onClick={handleSso}>
-            {ssoLoading ? "Redirecting…" : (providers.providers[0]?.label ? `Sign in with ${providers.providers[0].label}` : "Sign in with SSO")}
+            {ssoLoading
+              ? t("ssoRedirecting")
+              : (providers.providers[0]?.label
+                ? t("signInWithProvider", { provider: providers.providers[0].label })
+                : t("signInWithSso"))}
           </button>
-          {showLocal && <div className="text-sm text-muted text-center mt-2 mb-2">or sign in with a local account</div>}
+          {showLocal && <div className="text-sm text-muted text-center mt-2 mb-2">{t("orSignInWithLocalAccount")}</div>}
         </>
       )}
       {error && <p className="error-text mb-2">{error}</p>}
@@ -142,7 +146,7 @@ export function LoginPage() {
         </p>}
       </form>
       ) : (
-        <p className="text-sm text-muted text-center mt-2">Local username/password sign-in is disabled for this instance.</p>
+        <p className="text-sm text-muted text-center mt-2">{t("localSignInDisabled")}</p>
       )}
       </div>
     </div>
