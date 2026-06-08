@@ -17,6 +17,15 @@ function listIndexes(db: DB, table: string): Set<string> {
   return new Set(rows.map((row) => row.name));
 }
 
+function listColumns(db: DB, table: string): Array<{ name: string; type: string; notnull: number; dflt_value: unknown }> {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: unknown;
+  }>;
+}
+
 describe("schema index definition validation", () => {
   let db: DB | undefined;
 
@@ -51,6 +60,30 @@ describe("schema index definition validation", () => {
     expect(Array.from(listIndexes(db, "oidc_login_states"))).toEqual(
       expect.arrayContaining(["idx_oidc_login_states_expires"])
     );
+  });
+
+  it("includes the current accounts admin and feed-token columns in the baseline schema", () => {
+    db = new Database(":memory:");
+    MIGRATIONS[0]!.up(db);
+
+    const accountColumns = listColumns(db, "accounts");
+    const byName = new Map(accountColumns.map((column) => [column.name, column]));
+
+    expect(byName.get("calendar_feed_token_version")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "1",
+    });
+    expect(byName.get("is_admin")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "0",
+    });
+    expect(byName.get("is_disabled")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "0",
+    });
   });
 
   it("rejects required index when unique flag drifts", () => {
