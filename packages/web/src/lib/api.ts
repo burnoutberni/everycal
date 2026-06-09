@@ -359,6 +359,10 @@ export const auth = {
     return request<{ ok: boolean; logoutUrl: string | null }>("/auth/logout", { method: "POST" });
   },
 
+  oidcLogout() {
+    return request<{ ok: boolean; logoutUrl: string | null }>("/auth/oidc/logout", { method: "POST" });
+  },
+
   me(context?: ApiRequestContext) {
     return request<User>("/auth/me", {}, context);
   },
