@@ -40,8 +40,12 @@ export function registerOidcRoutes(router: Hono, db: DB): void {
     const parsed = await parseJsonBody<{ redirectTo?: string }>(c);
     if (parsed instanceof Response) return parsed;
     const tx = createOidcLoginState(db, config, parsed.redirectTo);
-    const authorizationUrl = await getOidcAdapter().buildAuthorizationUrl(config, tx);
-    return c.json({ authorizationUrl });
+    try {
+      const authorizationUrl = await getOidcAdapter().buildAuthorizationUrl(config, tx);
+      return c.json({ authorizationUrl });
+    } catch (error) {
+      return c.json({ error: sanitizeOidcErrorCode(error) }, 502);
+    }
   });
 
   router.get("/oidc/callback", async (c) => {

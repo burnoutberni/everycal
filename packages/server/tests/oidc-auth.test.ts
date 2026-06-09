@@ -169,7 +169,7 @@ describe("OIDC auth", () => {
       body: JSON.stringify({ onboardingCompleted: true }),
     });
     expect(blocked.status).toBe(400);
-    expect(await blocked.json()).toEqual({ error: "auth.city_required" });
+    expect(await blocked.json()).toEqual({ error: "City is required", code: "city_required" });
 
     const saveProfile = await app.request("http://localhost/api/v1/auth/me", {
       method: "PATCH",
@@ -247,6 +247,31 @@ describe("OIDC auth", () => {
     expect(res.headers.get("location")).toContain("oidc_login_failed");
     expect(res.headers.get("location")).not.toContain("ECONNREFUSED");
     expect(res.headers.get("location")).not.toContain("idp.example.test");
+  });
+
+  it("start returns sanitized error when buildAuthorizationUrl fails", async () => {
+    setOidcAdapterForTests({
+      async buildAuthorizationUrl() {
+        throw new Error("connect ECONNREFUSED https://idp.example.test/.well-known/openid-configuration");
+      },
+      async exchangeCallback() {
+        throw new Error("unreachable");
+      },
+      async buildLogoutUrl() {
+        return null;
+      },
+    });
+    const app = makeApp(db);
+    const res = await app.request("http://localhost/api/v1/auth/oidc/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(502);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("oidc_login_failed");
+    expect(JSON.stringify(body)).not.toContain("ECONNREFUSED");
+    expect(JSON.stringify(body)).not.toContain("idp.example.test");
   });
 
   it("disabled local password auth blocks /auth/login", async () => {
