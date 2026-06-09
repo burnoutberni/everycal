@@ -271,53 +271,55 @@ export function resolveOidcAccount(db: DB, config: OidcProviderConfig, result: O
   const emailVerified = claimBool(result.claims, config.claims.emailVerified) === true;
   const claimsJson = safeClaims(result.claims);
 
-  const linked = db.prepare(
-    `SELECT i.id AS identity_id, a.id AS account_id, a.is_disabled, a.password_hash
-     FROM account_auth_identities i JOIN accounts a ON a.id = i.account_id
-     WHERE i.provider_key = ? AND i.issuer = ? AND i.subject = ?`
-  ).get(config.providerKey, result.issuer, result.subject) as { identity_id: string; account_id: string; is_disabled: number; password_hash: string | null } | undefined;
+  return db.transaction((): { accountId: string; isNew: boolean } => {
+    const linked = db.prepare(
+      `SELECT i.id AS identity_id, a.id AS account_id, a.is_disabled, a.password_hash
+       FROM account_auth_identities i JOIN accounts a ON a.id = i.account_id
+       WHERE i.provider_key = ? AND i.issuer = ? AND i.subject = ?`
+    ).get(config.providerKey, result.issuer, result.subject) as { identity_id: string; account_id: string; is_disabled: number; password_hash: string | null } | undefined;
 
-  if (linked) {
-    if (linked.is_disabled) throw new Error("account_disabled");
-    syncOidcAccount(db, config, linked.account_id, result.claims, linked.password_hash ? "hybrid" : "oidc");
-    db.prepare("UPDATE account_auth_identities SET claims_json = ?, email_at_link_time = COALESCE(?, email_at_link_time), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
-      .run(claimsJson, email, linked.identity_id);
-    return { accountId: linked.account_id, isNew: false };
-  }
+    if (linked) {
+      if (linked.is_disabled) throw new Error("account_disabled");
+      syncOidcAccount(db, config, linked.account_id, result.claims, linked.password_hash ? "hybrid" : "oidc");
+      db.prepare("UPDATE account_auth_identities SET claims_json = ?, email_at_link_time = COALESCE(?, email_at_link_time), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+        .run(claimsJson, email, linked.identity_id);
+      return { accountId: linked.account_id, isNew: false };
+    }
 
-  if (!email || !emailVerified) throw new Error("oidc_verified_email_required");
+    if (!email || !emailVerified) throw new Error("oidc_verified_email_required");
 
-  const matches = db.prepare("SELECT id, is_disabled FROM accounts WHERE lower(email) = ?").all(email) as Array<{ id: string; is_disabled: number }>;
-  if (matches.length > 1) throw new Error("oidc_email_conflict");
-  if (matches[0]) {
-    if (matches[0].is_disabled) throw new Error("account_disabled");
+    const matches = db.prepare("SELECT id, is_disabled FROM accounts WHERE lower(email) = ?").all(email) as Array<{ id: string; is_disabled: number }>;
+    if (matches.length > 1) throw new Error("oidc_email_conflict");
+    if (matches[0]) {
+      if (matches[0].is_disabled) throw new Error("account_disabled");
+      db.prepare(
+        `INSERT INTO account_auth_identities (id, account_id, provider_key, issuer, subject, email_at_link_time, claims_json, last_login_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      ).run(nanoid(), matches[0].id, config.providerKey, result.issuer, result.subject, email, claimsJson);
+      syncOidcAccount(db, config, matches[0].id, result.claims, "hybrid");
+      audit(db, "oidc_account_linked", matches[0].id, { providerKey: config.providerKey, issuer: result.issuer, email });
+      return { accountId: matches[0].id, isNew: false };
+    }
+
+    if (!config.jitProvisioning) throw new Error("oidc_jit_provisioning_disabled");
+
+    const accountId = nanoid(16);
+    const username = uniqueUsername(db, claimString(result.claims, config.claims.username), email);
+    const displayName = claimString(result.claims, config.claims.name) || username;
+    const avatarUrl = claimString(result.claims, config.claims.avatar);
+    db.prepare(
+      `INSERT INTO accounts (id, username, display_name, avatar_url, password_hash, email, email_verified, email_verified_at, city, city_lat, city_lng, timezone, date_time_locale, theme_preference, auth_source, last_oidc_login_at, oidc_profile_synced_at)
+       VALUES (?, ?, ?, ?, NULL, ?, 1, datetime('now'), NULL, NULL, NULL, ?, ?, ?, 'oidc', datetime('now'), datetime('now'))`
+    ).run(accountId, username, displayName, avatarUrl, email, SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE);
+    db.prepare(`INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled) VALUES (?, 1, 24, 1, 1)`).run(accountId);
     db.prepare(
       `INSERT INTO account_auth_identities (id, account_id, provider_key, issuer, subject, email_at_link_time, claims_json, last_login_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-    ).run(nanoid(), matches[0].id, config.providerKey, result.issuer, result.subject, email, claimsJson);
-    syncOidcAccount(db, config, matches[0].id, result.claims, "hybrid");
-    audit(db, "oidc_account_linked", matches[0].id, { providerKey: config.providerKey, issuer: result.issuer, email });
-    return { accountId: matches[0].id, isNew: false };
-  }
-
-  if (!config.jitProvisioning) throw new Error("oidc_jit_provisioning_disabled");
-
-  const accountId = nanoid(16);
-  const username = uniqueUsername(db, claimString(result.claims, config.claims.username), email);
-  const displayName = claimString(result.claims, config.claims.name) || username;
-  const avatarUrl = claimString(result.claims, config.claims.avatar);
-  db.prepare(
-    `INSERT INTO accounts (id, username, display_name, avatar_url, password_hash, email, email_verified, email_verified_at, city, city_lat, city_lng, timezone, date_time_locale, theme_preference, auth_source, last_oidc_login_at, oidc_profile_synced_at)
-     VALUES (?, ?, ?, ?, NULL, ?, 1, datetime('now'), NULL, NULL, NULL, ?, ?, ?, 'oidc', datetime('now'), datetime('now'))`
-  ).run(accountId, username, displayName, avatarUrl, email, SYSTEM_TIMEZONE, SYSTEM_DATE_TIME_LOCALE, SYSTEM_THEME_PREFERENCE);
-  db.prepare(`INSERT INTO account_notification_prefs (account_id, reminder_enabled, reminder_hours_before, event_updated_enabled, event_cancelled_enabled) VALUES (?, 1, 24, 1, 1)`).run(accountId);
-  db.prepare(
-    `INSERT INTO account_auth_identities (id, account_id, provider_key, issuer, subject, email_at_link_time, claims_json, last_login_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-  ).run(nanoid(), accountId, config.providerKey, result.issuer, result.subject, email, claimsJson);
-  syncOidcAccount(db, config, accountId, result.claims, "oidc");
-  audit(db, "oidc_account_provisioned", accountId, { providerKey: config.providerKey, issuer: result.issuer, email });
-  return { accountId, isNew: true };
+    ).run(nanoid(), accountId, config.providerKey, result.issuer, result.subject, email, claimsJson);
+    syncOidcAccount(db, config, accountId, result.claims, "oidc");
+    audit(db, "oidc_account_provisioned", accountId, { providerKey: config.providerKey, issuer: result.issuer, email });
+    return { accountId, isNew: true };
+  })();
 }
 
 function syncOidcAccount(db: DB, config: OidcProviderConfig, accountId: string, claims: OidcClaims, authSource: "oidc" | "hybrid") {
