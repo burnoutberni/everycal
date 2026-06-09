@@ -356,7 +356,7 @@ export const auth = {
   },
 
   logout() {
-    return request<{ ok: boolean; logoutUrl?: string | null }>("/auth/logout", { method: "POST" });
+    return request<{ ok: boolean; logoutUrl: string | null }>("/auth/logout", { method: "POST" });
   },
 
   me(context?: ApiRequestContext) {
