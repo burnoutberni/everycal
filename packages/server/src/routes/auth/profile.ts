@@ -192,7 +192,7 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
       return c.json({ error: t(getLocale(c), "auth.reminder_hours_invalid") }, 400);
     }
 
-    if (body.onboardingCompleted === true && !accountHasLocation(db, user.id)) {
+    if (onboardingCompleted && !accountHasLocation(db, user.id)) {
       return c.json({ error: "auth.city_required" }, 400);
     }
 

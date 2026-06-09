@@ -253,6 +253,26 @@ describe("auth login / logout / lockout flows", () => {
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "auth.city_required" });
     });
+
+    it("rejects unrelated notification updates when onboarding is already complete without location", async () => {
+      const user = seedUser();
+      db.prepare("UPDATE accounts SET city = ?, city_lat = ?, city_lng = ? WHERE id = ?").run(null, null, null, user.id);
+      db.prepare("UPDATE account_notification_prefs SET onboarding_completed = 1 WHERE account_id = ?").run(user.id);
+      const session = createSession(db, user.id);
+      const app = makeApp(db);
+
+      const res = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: `everycal_session=${session.token}`,
+        },
+        body: JSON.stringify({ reminderEnabled: false }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
+    });
   });
 
   describe("registration", () => {
