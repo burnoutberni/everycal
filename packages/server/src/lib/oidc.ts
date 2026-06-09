@@ -338,7 +338,7 @@ function syncOidcAccount(db: DB, config: OidcProviderConfig, accountId: string, 
     const adminClaim = claimBool(claims, config.claims.admin);
     if (adminClaim !== null) {
       const row = db.prepare("SELECT is_admin, sso_admin_locked FROM accounts WHERE id = ?").get(accountId) as { is_admin: number; sso_admin_locked: number } | undefined;
-      if (row && (adminClaim || !row.sso_admin_locked)) {
+      if (row && !row.sso_admin_locked) {
         const nextAdmin = adminClaim ? 1 : 0;
         if (row.is_admin !== nextAdmin) {
           db.prepare("UPDATE accounts SET is_admin = ?, updated_at = datetime('now') WHERE id = ?").run(nextAdmin, accountId);

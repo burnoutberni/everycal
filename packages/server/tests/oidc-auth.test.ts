@@ -257,7 +257,7 @@ describe("OIDC auth", () => {
     expect((await res.json() as { error: string }).error).toBe("local_auth_disabled");
   });
 
-  it("syncs admin claims only when enabled and preserves locked local admin", async () => {
+  it("syncs admin claims only when enabled and ignores locked admin grants and revokes", async () => {
     seedUser(db, { id: "admin", email: "admin@example.com", isAdmin: 0 });
     setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: true } }));
     const app = makeApp(db);
@@ -270,12 +270,18 @@ describe("OIDC auth", () => {
     await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
     expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);
 
+    db.prepare("UPDATE accounts SET is_admin = 0, sso_admin_locked = 1 WHERE id = 'admin'").run();
+    setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: true } }));
+    state = await start(app);
+    await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(0);
+
     setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: "administrator" } }));
     state = await start(app);
     await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
-    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(1);
+    expect((db.prepare("SELECT is_admin FROM accounts WHERE id = 'admin'").get() as { is_admin: number }).is_admin).toBe(0);
 
-    db.prepare("UPDATE accounts SET sso_admin_locked = 1 WHERE id = 'admin'").run();
+    db.prepare("UPDATE accounts SET is_admin = 1 WHERE id = 'admin'").run();
     setOidcAdapterForTests(mockAdapter({ issuer: process.env.OIDC_ISSUER_URL!, subject: "admin-sub", claims: { iss: process.env.OIDC_ISSUER_URL!, sub: "admin-sub", email: "admin@example.com", email_verified: true, is_admin: false } }));
     state = await start(app);
     await app.request(`http://localhost/api/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=x`);
