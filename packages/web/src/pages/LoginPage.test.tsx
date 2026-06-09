@@ -53,9 +53,12 @@ vi.mock("../lib/api", () => ({
 let LoginPage: (typeof import("./LoginPage"))["LoginPage"];
 
 describe("LoginPage", () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     window.history.replaceState({}, "", "/login");
     mocks.login.mockResolvedValue({ notificationPrefs: { onboardingCompleted: true } });
     const oidcProvidersResponse: AuthProviderInfo = makeAuthProviderInfo({
@@ -69,6 +72,7 @@ describe("LoginPage", () => {
   });
 
   afterEach(() => {
+    consoleErrorSpy.mockRestore();
     cleanup();
   });
 
@@ -138,5 +142,21 @@ describe("LoginPage", () => {
       expect(mocks.startOidc).toHaveBeenCalledWith("/settings");
     });
     expect(await screen.findByText("Localized SSO login failed")).toBeTruthy();
+  });
+
+  it("logs provider discovery failures and falls back to local login", async () => {
+    const error = new Error("provider fetch failed");
+    mocks.oidcProviders.mockRejectedValue(error);
+
+    render(<LoginPage />);
+
+    expect(await screen.findByLabelText("username")).toBeTruthy();
+    expect(screen.getByLabelText("password")).toBeTruthy();
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Failed to fetch OIDC provider capabilities for login page",
+        error,
+      );
+    });
   });
 });

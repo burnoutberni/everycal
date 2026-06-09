@@ -45,7 +45,10 @@ export function LoginPage() {
   }, []);
 
   useEffect(() => {
-    authApi.oidcProviders().then(setProviders).catch(() => setProviders(null));
+    authApi.oidcProviders().then(setProviders).catch((error) => {
+      console.error("Failed to fetch OIDC provider capabilities for login page", error);
+      setProviders(null);
+    });
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const oidcError = params.get("oidcError");

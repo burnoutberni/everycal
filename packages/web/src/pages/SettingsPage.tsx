@@ -222,7 +222,9 @@ export function SettingsPage() {
     }).catch(() => {});
     authApi.oidcProviders().then((providers) => {
       setLocalPasswordAuthEnabled(providers.localPasswordAuthEnabled);
-    }).catch(() => {});
+    }).catch((error) => {
+      console.error("Failed to fetch OIDC provider capabilities for settings page", error);
+    });
     authApi.listApiKeys().then((r) => setKeys(r.keys)).catch(() => {});
     identitiesApi.list().then((res) => {
       setIdentities(res.identities);

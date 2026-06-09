@@ -138,7 +138,10 @@ function setMockAuthUser(user: MockAuthUser) {
 }
 
 describe("SettingsPage identity flows", () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   afterEach(() => {
+    consoleErrorSpy.mockRestore();
     window.localStorage.clear();
     cleanup();
   });
@@ -146,6 +149,7 @@ describe("SettingsPage identity flows", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.search = "";
     setMockAuthUser({ id: "user-1", username: "alice", email: "alice@example.com", authSource: "local" });
     (globalThis as any).IntersectionObserver = class {
@@ -233,12 +237,19 @@ describe("SettingsPage identity flows", () => {
   });
 
   it("shows the password form for local users when provider discovery fails", async () => {
-    vi.mocked(authApi.oidcProviders).mockRejectedValue(new Error("temporary failure"));
+    const error = new Error("temporary failure");
+    vi.mocked(authApi.oidcProviders).mockRejectedValue(error);
 
     renderSettingsPage();
 
     expect(await screen.findByRole("heading", { name: "passwordChange" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "changePassword" })).toBeTruthy();
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Failed to fetch OIDC provider capabilities for settings page",
+        error,
+      );
+    });
   });
 
   it("blocks step progress on invalid handle and invalid website", async () => {
