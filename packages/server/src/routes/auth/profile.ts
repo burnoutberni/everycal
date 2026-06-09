@@ -42,7 +42,7 @@ export function registerProfileRoutes(router: Hono, db: DB): void {
     if (parsed instanceof Response) return parsed;
     const body = parsed;
     if (body.city !== undefined && body.city !== null && typeof body.city !== "string") {
-      return c.json({ error: t(getLocale(c), "common.requestFailed") }, 400);
+      return c.json({ error: t(getLocale(c), "auth.invalid_city") }, 400);
     }
     const normalizedCity = normalizeCityInput(body.city);
 

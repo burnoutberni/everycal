@@ -131,7 +131,7 @@ describe("auth route contract", () => {
     expectBoolean(prefs.onboardingCompleted, "notificationPrefs.onboardingCompleted");
   });
 
-  it("PATCH /me rejects non-string city values", async () => {
+  it("PATCH /me rejects non-string city values with auth.invalid_city", async () => {
     const fixture = createContractTestApp();
     const user = fixture.seedUser({ id: "u_city_bad", username: "contract_city_bad" });
     const authApp = fixture.asUser(user);
@@ -141,10 +141,10 @@ describe("auth route contract", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ city: {} }),
     });
-    await expectErrorResponse(res, 400);
+    await expectErrorResponse(res, 400, { errorMatches: /invalid_city|City must be a string/ });
   });
 
-  it("PATCH /me rejects numeric city value", async () => {
+  it("PATCH /me rejects numeric city value with auth.invalid_city", async () => {
     const fixture = createContractTestApp();
     const user = fixture.seedUser({ id: "u_city_num", username: "contract_city_num" });
     const authApp = fixture.asUser(user);
@@ -154,7 +154,7 @@ describe("auth route contract", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ city: 123 }),
     });
-    await expectErrorResponse(res, 400);
+    await expectErrorResponse(res, 400, { errorMatches: /invalid_city|City must be a string/ });
   });
 
   it("PATCH /me accepts null city to clear location", async () => {
