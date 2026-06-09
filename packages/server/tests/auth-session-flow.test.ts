@@ -352,5 +352,65 @@ describe("auth login / logout / lockout flows", () => {
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "auth.city_required" });
     });
+
+    it("rejects non-string city values (number)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "numcity",
+          email: "numcity@example.com",
+          password: "secure-password-123",
+          city: 123,
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
+    });
+
+    it("rejects non-string city values (boolean)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "boolcity",
+          email: "boolcity@example.com",
+          password: "secure-password-123",
+          city: true,
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
+    });
+
+    it("rejects non-string city values (object)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "objcity",
+          email: "objcity@example.com",
+          password: "secure-password-123",
+          city: { name: "Vienna" },
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
+    });
   });
 });

@@ -14,6 +14,7 @@
     "username_required": "Benutzername ist erforderlich",
     "username_format": "Benutzername muss 2–40 Zeichen haben: Buchstaben, Zahlen und Unterstriche",
     "city_required": "Stadt ist erforderlich",
+    "invalid_city": "Stadt muss ein Text sein",
     "email_required": "E-Mail ist erforderlich",
     "invalid_email": "Ungültige E-Mail-Adresse",
     "password_required": "Passwort ist erforderlich",
