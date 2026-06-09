@@ -210,7 +210,11 @@ export function OnboardingPage() {
           <span className="option-label">{t("whenEventCancelled")}</span>
         </label>
 
-        {error && <p className="text-sm" style={{ color: "var(--danger)" }}>{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"

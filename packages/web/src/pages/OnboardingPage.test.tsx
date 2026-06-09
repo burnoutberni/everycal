@@ -76,7 +76,7 @@ describe("OnboardingPage", () => {
     render(<OnboardingPage />);
     fireEvent.click(screen.getByRole("button", { name: "continue" }));
 
-    expect(await screen.findByText("locationRequired")).toBeTruthy();
+    expect((await screen.findByRole("alert")).textContent).toBe("locationRequired");
     expect(authApi.updateProfile).not.toHaveBeenCalled();
     expect(authApi.updateNotificationPrefs).not.toHaveBeenCalled();
   });
@@ -119,7 +119,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "set-city" }));
     fireEvent.click(screen.getByRole("button", { name: "continue" }));
 
-    expect(await screen.findByText("locationRequired")).toBeTruthy();
+    expect((await screen.findByRole("alert")).textContent).toBe("locationRequired");
     expect(screen.queryByText("saveFailed")).toBeNull();
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
