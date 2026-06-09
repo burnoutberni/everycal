@@ -1,6 +1,10 @@
 import { type Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { createContractTestApp } from "./test-app.js";
+import { createApiKey } from "../../src/middleware/auth.js";
+
+type ContractTestApp = ReturnType<typeof createContractTestApp>;
+type SeededUser = ReturnType<ContractTestApp["seedUser"]>;
 
 type Probe = {
   method: string;
@@ -8,6 +12,7 @@ type Probe = {
   wrongMethod: string;
   label: string;
   allowedWrongStatuses?: number[];
+  resolvePath?: (fixture: ContractTestApp, user: SeededUser) => string;
 };
 
 async function expectRouteWired(app: Hono, probe: Probe): Promise<void> {
@@ -34,14 +39,16 @@ async function expectRouteWired(app: Hono, probe: Probe): Promise<void> {
 }
 
 describe("route wiring contract", () => {
-  it("auth routes are mounted with expected methods", async () => {
+  it("all mounted auth routes are wired with expected methods", async () => {
     process.env.OPEN_REGISTRATIONS = "true";
     const probes: Probe[] = [
       { method: "POST", path: "/api/v1/auth/register", wrongMethod: "GET", label: "auth register" },
       { method: "POST", path: "/api/v1/auth/login", wrongMethod: "GET", label: "auth login" },
+      { method: "POST", path: "/api/v1/auth/logout", wrongMethod: "GET", label: "auth logout" },
       { method: "GET", path: "/api/v1/auth/oidc/providers", wrongMethod: "POST", label: "auth oidc providers" },
       { method: "POST", path: "/api/v1/auth/oidc/start", wrongMethod: "GET", label: "auth oidc start" },
       { method: "GET", path: "/api/v1/auth/oidc/callback", wrongMethod: "POST", label: "auth oidc callback" },
+      { method: "POST", path: "/api/v1/auth/oidc/logout", wrongMethod: "GET", label: "auth oidc logout" },
       { method: "GET", path: "/api/v1/auth/me", wrongMethod: "POST", label: "auth me read" },
       {
         method: "PATCH",
@@ -49,14 +56,54 @@ describe("route wiring contract", () => {
         wrongMethod: "PUT",
         label: "auth me update",
       },
+      { method: "DELETE", path: "/api/v1/auth/me", wrongMethod: "PUT", label: "auth me delete" },
+      {
+        method: "PATCH",
+        path: "/api/v1/auth/notification-prefs",
+        wrongMethod: "POST",
+        label: "auth notification prefs update",
+      },
+      { method: "GET", path: "/api/v1/auth/verify-email", wrongMethod: "POST", label: "auth verify email" },
+      {
+        method: "POST",
+        path: "/api/v1/auth/request-email-change",
+        wrongMethod: "GET",
+        label: "auth request email change",
+      },
+      {
+        method: "POST",
+        path: "/api/v1/auth/change-password",
+        wrongMethod: "GET",
+        label: "auth change password",
+      },
+      {
+        method: "POST",
+        path: "/api/v1/auth/forgot-password",
+        wrongMethod: "GET",
+        label: "auth forgot password",
+      },
+      {
+        method: "POST",
+        path: "/api/v1/auth/reset-password",
+        wrongMethod: "GET",
+        label: "auth reset password",
+      },
+      { method: "GET", path: "/api/v1/auth/api-keys", wrongMethod: "PATCH", label: "auth api keys list" },
+      { method: "POST", path: "/api/v1/auth/api-keys", wrongMethod: "PATCH", label: "auth api keys create" },
+      {
+        method: "DELETE",
+        path: "/api/v1/auth/api-keys",
+        wrongMethod: "PATCH",
+        label: "auth api keys delete",
+        resolvePath: (fixture, user) => `${"/api/v1/auth/api-keys"}/${createApiKey(fixture.db, user.id, "Contract key").id}`,
+      },
     ];
 
-    const fixture = createContractTestApp();
-    const user = fixture.seedUser();
-    const authApp = fixture.asUser(user);
-
     for (const probe of probes) {
-      await expectRouteWired(authApp, probe);
+      const fixture = createContractTestApp();
+      const user = fixture.seedUser();
+      const authApp = fixture.asUser(user);
+      await expectRouteWired(authApp, { ...probe, path: probe.resolvePath?.(fixture, user) ?? probe.path });
     }
   });
 
