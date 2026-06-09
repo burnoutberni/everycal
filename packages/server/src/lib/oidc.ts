@@ -233,13 +233,50 @@ function claimList(claims: OidcClaims, key: string): string[] {
   const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\s,]+/) : [];
   return values.map((item) => String(item).trim()).filter(Boolean).slice(0, 100);
 }
-function safeClaims(claims: OidcClaims): string {
-  const clone: Record<string, unknown> = {};
+const MAX_STRING_BYTES = 2_048;
+const MAX_ARRAY_ENTRIES = 50;
+const MAX_TOTAL_JSON = 16_000;
+
+function truncateValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    const encoded = Buffer.byteLength(value, "utf8");
+    if (encoded <= MAX_STRING_BYTES) return value;
+    let byteLen = 0;
+    let charIdx = 0;
+    for (const char of value) {
+      const charBytes = Buffer.byteLength(char, "utf8");
+      if (byteLen + charBytes > MAX_STRING_BYTES) break;
+      byteLen += charBytes;
+      charIdx += char.length;
+    }
+    return value.slice(0, charIdx) + "…";
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_ARRAY_ENTRIES).map(truncateValue);
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = truncateValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+export function safeClaims(claims: OidcClaims): string {
+  const parts: string[] = ["{"];
+  let count = 0;
   for (const [key, value] of Object.entries(claims)) {
     if (/token|secret|password/i.test(key)) continue;
-    clone[key] = value;
+    const sep = count > 0 ? "," : "";
+    const entry = sep + JSON.stringify(key) + ":" + JSON.stringify(truncateValue(value));
+    if (Buffer.byteLength(parts.join("") + entry + "}", "utf8") > MAX_TOTAL_JSON) break;
+    parts.push(entry);
+    count++;
   }
-  return JSON.stringify(clone).slice(0, 16_000);
+  parts.push("}");
+  return parts.join("");
 }
 
 export function isSafeRedirectTo(value: string | null | undefined): string | null {

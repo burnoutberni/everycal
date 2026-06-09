@@ -13,7 +13,7 @@ const openIdMocks = vi.hoisted(() => ({
 
 vi.mock("openid-client", () => openIdMocks);
 
-import { getOidcAdapter, getOidcProviderConfig, mergeOidcClaims, resetOidcAdapterForTests, resolveOidcAccount, type OidcCallbackResult } from "../src/lib/oidc.js";
+import { getOidcAdapter, getOidcProviderConfig, mergeOidcClaims, resetOidcAdapterForTests, resolveOidcAccount, safeClaims, type OidcCallbackResult } from "../src/lib/oidc.js";
 import { hashPassword } from "../src/middleware/auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -231,5 +231,74 @@ describe("OIDC library", () => {
       last_oidc_login_at: null,
     });
     expect((db.prepare("SELECT claims_json FROM account_auth_identities WHERE id = ?").get("ident-1") as { claims_json: string }).claims_json).toBe('{"email":"old@example.com"}');
+  });
+});
+
+describe("safeClaims", () => {
+  it("strips keys matching token/secret/password patterns", () => {
+    const result = safeClaims({ email: "a@b.com", access_token: "x", user_secret: "y", password_hash: "z", name: "Alice" });
+    const parsed = JSON.parse(result);
+    expect(parsed).toEqual({ email: "a@b.com", name: "Alice" });
+  });
+
+  it("returns valid JSON for normal-sized claims", () => {
+    const claims = { sub: "123", email: "user@example.com", name: "Test User", roles: ["admin", "editor"] };
+    const parsed = JSON.parse(safeClaims(claims));
+    expect(parsed).toEqual(claims);
+  });
+
+  it("truncates long string values to ~2KB and appends ellipsis", () => {
+    const longString = "x".repeat(4_000);
+    const result = JSON.parse(safeClaims({ big: longString }));
+    expect(Buffer.byteLength(result.big, "utf8")).toBeLessThanOrEqual(2_051);
+    expect(result.big.endsWith("…")).toBe(true);
+  });
+
+  it("truncates UTF-8 multibyte strings on valid character boundary", () => {
+    const emoji = "é".repeat(2_000);
+    const result = JSON.parse(safeClaims({ text: emoji }));
+    expect(result.text.endsWith("…")).toBe(true);
+    expect(result.text.length).toBeLessThan(emoji.length);
+  });
+
+  it("caps arrays at 50 entries", () => {
+    const bigArray = Array.from({ length: 200 }, (_, i) => `item-${i}`);
+    const result = JSON.parse(safeClaims({ groups: bigArray }));
+    expect(result.groups).toHaveLength(50);
+    expect(result.groups[0]).toBe("item-0");
+    expect(result.groups[49]).toBe("item-49");
+  });
+
+  it("recursively truncates string values inside arrays", () => {
+    const longEntry = "a".repeat(4_000);
+    const result = JSON.parse(safeClaims({ groups: [longEntry, "short"] }));
+    expect(Buffer.byteLength(result.groups[0], "utf8")).toBeLessThanOrEqual(2_051);
+    expect(result.groups[0].endsWith("…")).toBe(true);
+    expect(result.groups[1]).toBe("short");
+  });
+
+  it("recursively truncates nested objects", () => {
+    const longVal = "b".repeat(4_000);
+    const result = JSON.parse(safeClaims({ profile: { bio: longVal, name: "OK" } }));
+    expect(Buffer.byteLength(result.profile.bio, "utf8")).toBeLessThanOrEqual(2_051);
+    expect(result.profile.bio.endsWith("…")).toBe(true);
+    expect(result.profile.name).toBe("OK");
+  });
+
+  it("produces always-valid JSON even with extreme payloads", () => {
+    const extreme = {
+      a: "x".repeat(100_000),
+      b: Array.from({ length: 10_000 }, () => "y".repeat(500)),
+      c: { deep: { deeper: { deepest: "z".repeat(50_000) } } },
+    };
+    const result = safeClaims(extreme);
+    expect(() => JSON.parse(result)).not.toThrow();
+    expect(result.length).toBeLessThanOrEqual(16_000);
+  });
+
+  it("preserves non-string non-array non-object values unchanged", () => {
+    const claims = { num: 42, bool: true, nil: null, nested: { ok: true } };
+    const result = JSON.parse(safeClaims(claims));
+    expect(result).toEqual(claims);
   });
 });
