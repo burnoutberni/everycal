@@ -52,6 +52,9 @@ describe("auth login / logout / lockout flows", () => {
       expect(body.user.username).toBe(user.username);
       expect(body.expiresAt).toBeDefined();
 
+      const sessionRow = db.prepare("SELECT auth_method FROM sessions WHERE account_id = ?").get(user.id) as { auth_method: string };
+      expect(sessionRow.auth_method).toBe("local");
+
       const setCookie = res.headers.get("set-cookie") || "";
       expect(setCookie).toContain("everycal_session=");
     });
@@ -231,6 +234,47 @@ describe("auth login / logout / lockout flows", () => {
     });
   });
 
+  describe("notification prefs", () => {
+    it("rejects onboarding completion when the stored city is blank", async () => {
+      const user = seedUser();
+      db.prepare("UPDATE accounts SET city = ?, city_lat = ?, city_lng = ? WHERE id = ?").run("   ", 48.2, 16.37, user.id);
+      const session = createSession(db, user.id);
+      const app = makeApp(db);
+
+      const res = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: `everycal_session=${session.token}`,
+        },
+        body: JSON.stringify({ onboardingCompleted: true }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
+    });
+
+    it("rejects unrelated notification updates when onboarding is already complete without location", async () => {
+      const user = seedUser();
+      db.prepare("UPDATE accounts SET city = ?, city_lat = ?, city_lng = ? WHERE id = ?").run(null, null, null, user.id);
+      db.prepare("UPDATE account_notification_prefs SET onboarding_completed = 1 WHERE account_id = ?").run(user.id);
+      const session = createSession(db, user.id);
+      const app = makeApp(db);
+
+      const res = await app.request("http://localhost/api/v1/auth/notification-prefs", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: `everycal_session=${session.token}`,
+        },
+        body: JSON.stringify({ reminderEnabled: false }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
+    });
+  });
+
   describe("registration", () => {
     it("sends verification email for human registration", async () => {
       const app = makeApp(db);
@@ -288,6 +332,85 @@ describe("auth login / logout / lockout flows", () => {
       });
 
       expect(res.status).toBe(403);
+    });
+
+    it("rejects blank city names even when coordinates are present", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "blankcity",
+          email: "blankcity@example.com",
+          password: "secure-password-123",
+          city: "   ",
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "auth.city_required" });
+    });
+
+    it("rejects non-string city values (number)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "numcity",
+          email: "numcity@example.com",
+          password: "secure-password-123",
+          city: 123,
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
+    });
+
+    it("rejects non-string city values (boolean)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "boolcity",
+          email: "boolcity@example.com",
+          password: "secure-password-123",
+          city: true,
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
+    });
+
+    it("rejects non-string city values (object)", async () => {
+      const app = makeApp(db);
+      const res = await app.request("http://localhost/api/v1/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "objcity",
+          email: "objcity@example.com",
+          password: "secure-password-123",
+          city: { name: "Vienna" },
+          cityLat: 48.2,
+          cityLng: 16.37,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("City must be a string");
     });
   });
 });

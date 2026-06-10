@@ -5,6 +5,7 @@
 import Database from "better-sqlite3";
 import { toErrorMessage } from "@everycal/core";
 import { CURRENT_SCHEMA_VERSION, MIGRATIONS } from "./db/migrations.js";
+import type { Migration } from "./db/migrations.js";
 import { validateBaseUrlConfig } from "./lib/base-url.js";
 
 export type DB = Database.Database;
@@ -63,9 +64,16 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     "calendar_feed_token_version",
     "is_admin",
     "is_disabled",
+    "sso_admin_locked",
+    "auth_source",
+    "last_oidc_login_at",
+    "oidc_profile_synced_at",
   ],
-  sessions: ["token", "account_id", "created_at", "expires_at"],
+  sessions: ["token", "account_id", "created_at", "expires_at", "auth_method"],
   api_keys: ["id", "account_id", "key_hash", "label", "last_used_at", "created_at", "key_prefix"],
+  account_auth_identities: ["id", "account_id", "provider_key", "issuer", "subject", "email_at_link_time", "claims_json", "last_login_at", "created_at", "updated_at"],
+  account_role_assignments: ["id", "account_id", "role_key", "source", "managed_by", "created_at", "updated_at"],
+  oidc_login_states: ["id", "provider_key", "state_hash", "nonce_hash", "code_verifier_hash", "redirect_to", "created_at", "expires_at", "consumed_at"],
   events: [
     "id",
     "account_id",
@@ -277,6 +285,14 @@ const REQUIRED_INDEXES: RequiredIndex[] = [
   { table: "sessions", name: "idx_sessions_expires", unique: false, columns: [{ name: "expires_at" }] },
   { table: "api_keys", name: "idx_api_keys_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "api_keys", name: "idx_api_keys_prefix", unique: false, columns: [{ name: "key_prefix" }] },
+  { table: "account_auth_identities", name: "sqlite_autoindex_account_auth_identities_2", unique: true, columns: [{ name: "provider_key" }, { name: "issuer" }, { name: "subject" }] },
+  { table: "account_auth_identities", name: "idx_account_auth_identities_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "account_auth_identities", name: "idx_account_auth_identities_provider_email", unique: false, columns: [{ name: "provider_key" }, { name: "email_at_link_time" }] },
+  { table: "account_role_assignments", name: "sqlite_autoindex_account_role_assignments_2", unique: true, columns: [{ name: "account_id" }, { name: "role_key" }, { name: "source" }] },
+  { table: "account_role_assignments", name: "idx_account_role_assignments_account", unique: false, columns: [{ name: "account_id" }] },
+  { table: "account_role_assignments", name: "idx_account_role_assignments_role", unique: false, columns: [{ name: "role_key" }] },
+  { table: "oidc_login_states", name: "sqlite_autoindex_oidc_login_states_2", unique: true, columns: [{ name: "state_hash" }] },
+  { table: "oidc_login_states", name: "idx_oidc_login_states_expires", unique: false, columns: [{ name: "expires_at" }] },
   { table: "events", name: "idx_events_account", unique: false, columns: [{ name: "account_id" }] },
   { table: "events", name: "idx_events_visibility", unique: false, columns: [{ name: "visibility" }] },
   {
@@ -619,16 +635,33 @@ function applyPendingMigrations(db: DB, fromVersion: number): void {
   for (const migration of MIGRATIONS) {
     if (migration.version <= fromVersion) continue;
 
+    runMigration(db, migration);
+  }
+}
+
+export function runMigration(db: DB, migration: Migration): void {
+  let startedTransaction = false;
+
+  if (migration.disableForeignKeys) {
+    db.pragma("foreign_keys = OFF");
+  }
+
+  try {
     db.exec("BEGIN");
-    try {
-      migration.up(db);
-      db.pragma(`user_version = ${migration.version}`);
-      db.exec("COMMIT");
-    } catch (error) {
+    startedTransaction = true;
+    migration.up(db);
+    db.pragma(`user_version = ${migration.version}`);
+    db.exec("COMMIT");
+  } catch (error) {
+    if (startedTransaction) {
       db.exec("ROLLBACK");
-      throw new Error(
-        `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
-      );
+    }
+    throw new Error(
+      `Failed database migration v${migration.version} (${migration.name}): ${toErrorMessage(error, "migration failed")}`
+    );
+  } finally {
+    if (migration.disableForeignKeys) {
+      db.pragma("foreign_keys = ON");
     }
   }
 }

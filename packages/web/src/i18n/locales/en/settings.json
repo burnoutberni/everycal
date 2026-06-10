@@ -54,6 +54,14 @@
   "publicAccountDescVisible": "Your profile is visible on the Explore page. New events default to public.",
   "publicAccountDescHidden": "Your profile is hidden from Explore. New events default to only me.",
   "emailLabel": "Email",
+  "ssoStatusLabel": "SSO",
+  "ssoLinked": "linked ({{source}})",
+  "ssoNotLinked": "not linked",
+  "authSource": {
+    "local": "local",
+    "oidc": "single sign-on",
+    "hybrid": "hybrid"
+  },
   "emailChange": "Email change",
   "emailPlaceholder": "you@example.com",
   "sending": "Sending…",

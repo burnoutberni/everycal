@@ -14,6 +14,7 @@
     "username_required": "Username is required",
     "username_format": "Username must be 2-40 characters: letters, numbers, and underscores only",
     "city_required": "City is required",
+    "invalid_city": "City must be a string",
     "email_required": "Email is required",
     "invalid_email": "Invalid email address",
     "password_required": "Password is required",

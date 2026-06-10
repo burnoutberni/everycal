@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AppBootstrap } from "@everycal/core";
 import { bootstrapViewerToUser } from "@everycal/core";
-import { auth as authApi, onUnauthorized, type User, type AuthResponse } from "../lib/api";
+import { auth as authApi, onUnauthorized, ApiError, type User, type AuthResponse } from "../lib/api";
 import { syncLanguageFromUser } from "../i18n";
 import { invalidateAdditionalIdentitiesCache } from "./additionalIdentitiesCache";
 
@@ -137,9 +137,21 @@ export function AuthProvider({
 
   const logout = useCallback(async () => {
     try {
-      await authApi.logout();
-    } catch {
-      // ignore
+      const res = await authApi.logout();
+      if (res.logoutUrl && typeof window !== "undefined") {
+        window.location.assign(res.logoutUrl);
+      }
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        try {
+          const res = await authApi.oidcLogout();
+          if (res.logoutUrl && typeof window !== "undefined") {
+            window.location.assign(res.logoutUrl);
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
     // Server clears HttpOnly cookie
     setAuthState({ status: "anonymous", user: null });

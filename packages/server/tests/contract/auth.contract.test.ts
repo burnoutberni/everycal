@@ -131,6 +131,55 @@ describe("auth route contract", () => {
     expectBoolean(prefs.onboardingCompleted, "notificationPrefs.onboardingCompleted");
   });
 
+  it("PATCH /me rejects non-string city values with auth.invalid_city", async () => {
+    const fixture = createContractTestApp();
+    const user = fixture.seedUser({ id: "u_city_bad", username: "contract_city_bad" });
+    const authApp = fixture.asUser(user);
+
+    const res = await authApp.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: {} }),
+    });
+    await expectErrorResponse(res, 400, { errorMatches: /invalid_city|City must be a string/ });
+  });
+
+  it("PATCH /me rejects numeric city value with auth.invalid_city", async () => {
+    const fixture = createContractTestApp();
+    const user = fixture.seedUser({ id: "u_city_num", username: "contract_city_num" });
+    const authApp = fixture.asUser(user);
+
+    const res = await authApp.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: 123 }),
+    });
+    await expectErrorResponse(res, 400, { errorMatches: /invalid_city|City must be a string/ });
+  });
+
+  it("PATCH /me accepts null city to clear location", async () => {
+    const fixture = createContractTestApp();
+    const user = fixture.seedUser({ id: "u_city_null", username: "contract_city_null" });
+    fixture.db.prepare("UPDATE accounts SET city = 'Vienna', city_lat = 48.2, city_lng = 16.37 WHERE id = ?").run("u_city_null");
+    const authApp = fixture.asUser(user);
+
+    const res = await authApp.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: null, cityLat: null, cityLng: null }),
+    });
+    await expectJsonStatus(res, 200);
+
+    const row = fixture.db.prepare("SELECT city, city_lat, city_lng FROM accounts WHERE id = ?").get("u_city_null") as {
+      city: string | null;
+      city_lat: number | null;
+      city_lng: number | null;
+    };
+    expect(row.city).toBeNull();
+    expect(row.city_lat).toBeNull();
+    expect(row.city_lng).toBeNull();
+  });
+
   it("PATCH /me updates profile but does not mutate is_bot", async () => {
     const fixture = createContractTestApp();
     const user = fixture.seedUser({ id: "u_patch", username: "contract_patch" });

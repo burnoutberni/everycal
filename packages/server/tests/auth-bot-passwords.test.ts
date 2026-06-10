@@ -82,6 +82,41 @@ describe("auth bot password restrictions", () => {
     expect(row.is_bot).toBe(0);
   });
 
+  it("rejects blank city updates when coordinates are present", async () => {
+    db.prepare("INSERT INTO accounts (id, username, password_hash, email_verified, is_bot) VALUES (?, ?, ?, 1, 0)")
+      .run("u_city_blank", "city_blank", hashPassword("pw"));
+    const app = makeApp(db, { id: "u_city_blank", username: "city_blank" });
+
+    const res = await app.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: "   ", cityLat: 48.2, cityLng: 16.37 }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "auth.city_required" });
+  });
+
+  it("trims city updates before storing them", async () => {
+    db.prepare("INSERT INTO accounts (id, username, password_hash, email_verified, is_bot) VALUES (?, ?, ?, 1, 0)")
+      .run("u_city_trim", "city_trim", hashPassword("pw"));
+    const app = makeApp(db, { id: "u_city_trim", username: "city_trim" });
+
+    const res = await app.request("http://localhost/api/v1/auth/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: "  Berlin  ", cityLat: 52.52, cityLng: 13.405 }),
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.prepare("SELECT city, city_lat, city_lng FROM accounts WHERE id = ?").get("u_city_trim") as {
+      city: string | null;
+      city_lat: number | null;
+      city_lng: number | null;
+    };
+    expect(row).toEqual({ city: "Berlin", city_lat: 52.52, city_lng: 13.405 });
+  });
+
   it("returns 400 for malformed JSON on auth login route", async () => {
     const app = makeApp(db);
     db.prepare("INSERT INTO accounts (id, username, email_verified) VALUES (?, ?, 1)").run("u1", "alice");

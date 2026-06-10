@@ -5,6 +5,7 @@ import { hashTokenSecret } from "../lib/token-secrets.js";
 export type Migration = {
   version: number;
   name: string;
+  disableForeignKeys?: boolean;
   up: (db: DB) => void;
 };
 
@@ -28,20 +29,28 @@ CREATE TABLE IF NOT EXISTS accounts (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   website TEXT,
-  city TEXT NOT NULL DEFAULT 'Wien',
-  city_lat REAL NOT NULL DEFAULT 48.2082,
-  city_lng REAL NOT NULL DEFAULT 16.3738,
+  city TEXT,
+  city_lat REAL,
+  city_lng REAL,
   email TEXT,
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_verified_at TEXT,
-  preferred_language TEXT DEFAULT 'en'
+  preferred_language TEXT DEFAULT 'en',
+  calendar_feed_token_version INTEGER NOT NULL DEFAULT 1,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  is_disabled INTEGER NOT NULL DEFAULT 0,
+  sso_admin_locked INTEGER NOT NULL DEFAULT 0,
+  auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid')),
+  last_oidc_login_at TEXT,
+  oidc_profile_synced_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL
+  expires_at TEXT NOT NULL,
+  auth_method TEXT NOT NULL DEFAULT 'local' CHECK(auth_method IN ('local','oidc'))
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -53,6 +62,51 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   key_prefix TEXT
 );
+
+CREATE TABLE IF NOT EXISTS account_auth_identities (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  provider_key TEXT NOT NULL,
+  issuer TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  email_at_link_time TEXT,
+  claims_json TEXT,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(provider_key, issuer, subject)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_auth_identities_account ON account_auth_identities(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_auth_identities_provider_email ON account_auth_identities(provider_key, email_at_link_time);
+
+CREATE TABLE IF NOT EXISTS account_role_assignments (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  role_key TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('local','oidc')),
+  managed_by TEXT NOT NULL DEFAULT 'system',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(account_id, role_key, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_role_assignments_account ON account_role_assignments(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_role_assignments_role ON account_role_assignments(role_key);
+
+CREATE TABLE IF NOT EXISTS oidc_login_states (
+  id TEXT PRIMARY KEY,
+  provider_key TEXT NOT NULL,
+  state_hash TEXT NOT NULL UNIQUE,
+  nonce_hash TEXT NOT NULL,
+  code_verifier_hash TEXT NOT NULL,
+  redirect_to TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expires ON oidc_login_states(expires_at);
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -788,6 +842,121 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  {
+    version: 18,
+    name: "oidc_sso_v1",
+    disableForeignKeys: true,
+    up: (db) => {
+      const accountColumns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string; notnull: number }>;
+      if (!accountColumns.some((column) => column.name === "sso_admin_locked")) db.exec("ALTER TABLE accounts ADD COLUMN sso_admin_locked INTEGER NOT NULL DEFAULT 0");
+      if (!accountColumns.some((column) => column.name === "auth_source")) db.exec("ALTER TABLE accounts ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid'))");
+      if (!accountColumns.some((column) => column.name === "last_oidc_login_at")) db.exec("ALTER TABLE accounts ADD COLUMN last_oidc_login_at TEXT");
+      if (!accountColumns.some((column) => column.name === "oidc_profile_synced_at")) db.exec("ALTER TABLE accounts ADD COLUMN oidc_profile_synced_at TEXT");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS account_auth_identities (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        provider_key TEXT NOT NULL,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        email_at_link_time TEXT,
+        claims_json TEXT,
+        last_login_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(provider_key, issuer, subject)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_auth_identities_account ON account_auth_identities(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_auth_identities_provider_email ON account_auth_identities(provider_key, email_at_link_time)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS account_role_assignments (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        role_key TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('local','oidc')),
+        managed_by TEXT NOT NULL DEFAULT 'system',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(account_id, role_key, source)
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_role_assignments_account ON account_role_assignments(account_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_account_role_assignments_role ON account_role_assignments(role_key)");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS oidc_login_states (
+        id TEXT PRIMARY KEY,
+        provider_key TEXT NOT NULL,
+        state_hash TEXT NOT NULL UNIQUE,
+        nonce_hash TEXT NOT NULL,
+        code_verifier_hash TEXT NOT NULL,
+        redirect_to TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT
+      )`);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expires ON oidc_login_states(expires_at)");
+
+      const cityColumns = accountColumns.filter((column) => ["city", "city_lat", "city_lng"].includes(column.name));
+      if (cityColumns.length === 3 && cityColumns.some((column) => column.notnull !== 0)) {
+        db.exec(`CREATE TABLE accounts_new (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            account_type TEXT NOT NULL DEFAULT 'person' CHECK(account_type IN ('person','identity')),
+            display_name TEXT,
+            bio TEXT,
+            avatar_url TEXT,
+            password_hash TEXT,
+            private_key TEXT,
+            public_key TEXT,
+            is_bot INTEGER NOT NULL DEFAULT 0,
+            discoverable INTEGER NOT NULL DEFAULT 0,
+            timezone TEXT NOT NULL DEFAULT 'system',
+            date_time_locale TEXT NOT NULL DEFAULT 'system',
+            theme_preference TEXT NOT NULL DEFAULT 'system' CHECK(theme_preference IN ('system','light','dark')),
+            default_event_visibility TEXT NOT NULL DEFAULT 'public' CHECK(default_event_visibility IN ('public','unlisted','followers_only','private')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            website TEXT,
+            city TEXT,
+            city_lat REAL,
+            city_lng REAL,
+            email TEXT,
+            email_verified INTEGER NOT NULL DEFAULT 0,
+            email_verified_at TEXT,
+            preferred_language TEXT DEFAULT 'en',
+            calendar_feed_token_version INTEGER NOT NULL DEFAULT 1,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            is_disabled INTEGER NOT NULL DEFAULT 0,
+            sso_admin_locked INTEGER NOT NULL DEFAULT 0,
+            auth_source TEXT NOT NULL DEFAULT 'local' CHECK(auth_source IN ('local','oidc','hybrid')),
+            last_oidc_login_at TEXT,
+            oidc_profile_synced_at TEXT
+          )`);
+        db.exec(`INSERT INTO accounts_new (
+          id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
+          is_bot, discoverable, timezone, date_time_locale, theme_preference, default_event_visibility,
+          created_at, updated_at, website, city, city_lat, city_lng, email, email_verified, email_verified_at,
+          preferred_language, calendar_feed_token_version, is_admin, is_disabled, sso_admin_locked,
+          auth_source, last_oidc_login_at, oidc_profile_synced_at
+        )
+        SELECT
+          id, username, account_type, display_name, bio, avatar_url, password_hash, private_key, public_key,
+          is_bot, discoverable, timezone, date_time_locale, theme_preference, default_event_visibility,
+          created_at, updated_at, website, city, city_lat, city_lng, email, email_verified, email_verified_at,
+          preferred_language, calendar_feed_token_version, is_admin, is_disabled, sso_admin_locked,
+          auth_source, last_oidc_login_at, oidc_profile_synced_at
+        FROM accounts`);
+        db.exec("DROP TABLE accounts");
+        db.exec("ALTER TABLE accounts_new RENAME TO accounts");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_accounts_admin_disabled ON accounts(is_admin, is_disabled)");
+      }
+
+      const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+      if (!sessionColumns.some((column) => column.name === "auth_method")) {
+        db.exec("ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'local' CHECK(auth_method IN ('local','oidc'))");
+      }
+    },
+  },
+
 ];
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;

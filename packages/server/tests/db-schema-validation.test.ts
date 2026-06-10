@@ -12,6 +12,20 @@ function createBaseSchema(db: DB): void {
   }
 }
 
+function listIndexes(db: DB, table: string): Set<string> {
+  const rows = db.prepare(`PRAGMA index_list(${table})`).all() as Array<{ name: string }>;
+  return new Set(rows.map((row) => row.name));
+}
+
+function listColumns(db: DB, table: string): Array<{ name: string; type: string; notnull: number; dflt_value: unknown }> {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: unknown;
+  }>;
+}
+
 describe("schema index definition validation", () => {
   let db: DB | undefined;
 
@@ -25,6 +39,51 @@ describe("schema index definition validation", () => {
     createBaseSchema(db);
 
     expect(() => validateSchema(db!)).not.toThrow();
+  });
+
+  it("creates OIDC lookup indexes in the baseline schema", () => {
+    db = new Database(":memory:");
+    MIGRATIONS[0]!.up(db);
+
+    expect(Array.from(listIndexes(db, "account_auth_identities"))).toEqual(
+      expect.arrayContaining([
+        "idx_account_auth_identities_account",
+        "idx_account_auth_identities_provider_email",
+      ])
+    );
+    expect(Array.from(listIndexes(db, "account_role_assignments"))).toEqual(
+      expect.arrayContaining([
+        "idx_account_role_assignments_account",
+        "idx_account_role_assignments_role",
+      ])
+    );
+    expect(Array.from(listIndexes(db, "oidc_login_states"))).toEqual(
+      expect.arrayContaining(["idx_oidc_login_states_expires"])
+    );
+  });
+
+  it("includes the current accounts admin and feed-token columns in the baseline schema", () => {
+    db = new Database(":memory:");
+    MIGRATIONS[0]!.up(db);
+
+    const accountColumns = listColumns(db, "accounts");
+    const byName = new Map(accountColumns.map((column) => [column.name, column]));
+
+    expect(byName.get("calendar_feed_token_version")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "1",
+    });
+    expect(byName.get("is_admin")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "0",
+    });
+    expect(byName.get("is_disabled")).toMatchObject({
+      type: "INTEGER",
+      notnull: 1,
+      dflt_value: "0",
+    });
   });
 
   it("rejects required index when unique flag drifts", () => {
@@ -69,6 +128,27 @@ describe("schema index definition validation", () => {
     db.exec("ALTER TABLE remote_events DROP COLUMN title;");
 
     expect(() => validateSchema(db!)).toThrow(/missing required column "remote_events.title"/);
+  });
+
+  it("rejects sessions when auth_method drifts out of the schema", () => {
+    db = new Database(":memory:");
+    createBaseSchema(db);
+    db.exec(`
+      CREATE TABLE sessions_old (
+        token TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL
+      );
+      INSERT INTO sessions_old (token, account_id, created_at, expires_at)
+      SELECT token, account_id, created_at, expires_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_old RENAME TO sessions;
+      CREATE INDEX idx_sessions_account ON sessions(account_id);
+      CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+    `);
+
+    expect(() => validateSchema(db!)).toThrow(/missing required column "sessions.auth_method"/);
   });
 
   it("rejects required index when sort order drifts", () => {

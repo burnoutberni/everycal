@@ -84,6 +84,7 @@ export function SettingsPage() {
   const [eventCancelledEnabled, setEventCancelledEnabled] = useState(true);
   const [savingNotif, setSavingNotif] = useState(false);
   const [savedNotif, setSavedNotif] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   const [newEmail, setNewEmail] = useState("");
   const [emailChangeSent, setEmailChangeSent] = useState(false);
@@ -96,6 +97,7 @@ export function SettingsPage() {
   const [passwordChangeError, setPasswordChangeError] = useState("");
   const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [localPasswordAuthEnabled, setLocalPasswordAuthEnabled] = useState<boolean | null>(null);
 
   const [keys, setKeys] = useState<{ id: string; label: string; lastUsedAt: string | null; createdAt: string }[]>([]);
   const [newKeyLabel, setNewKeyLabel] = useState("");
@@ -106,6 +108,11 @@ export function SettingsPage() {
   const [dateTimeLocale, setDateTimeLocale] = useState<string>(SYSTEM_DATE_TIME_LOCALE);
   const [customDateTimeLocaleOptions, setCustomDateTimeLocaleOptions] = useState<CountryLocaleOption[]>([]);
   const [dateTimeCountryQuery, setDateTimeCountryQuery] = useState("");
+
+  const ssoStatusText = useMemo(() => {
+    if (!user?.ssoLinked) return t("ssoNotLinked");
+    return t("ssoLinked", { source: t(`authSource.${user.authSource || "hybrid"}`) });
+  }, [t, user?.authSource, user?.ssoLinked]);
   const [showDateTimeCountrySuggestions, setShowDateTimeCountrySuggestions] = useState(false);
   const [dateTimeCountryHighlight, setDateTimeCountryHighlight] = useState(0);
   const [discoverable, setDiscoverable] = useState(false);
@@ -213,6 +220,11 @@ export function SettingsPage() {
         setEventCancelledEnabled(p.eventCancelledEnabled);
       }
     }).catch(() => {});
+    authApi.oidcProviders().then((providers) => {
+      setLocalPasswordAuthEnabled(providers.localPasswordAuthEnabled);
+    }).catch((error) => {
+      console.error("Failed to fetch OIDC provider capabilities for settings page", error);
+    });
     authApi.listApiKeys().then((r) => setKeys(r.keys)).catch(() => {});
     identitiesApi.list().then((res) => {
       setIdentities(res.identities);
@@ -1076,6 +1088,7 @@ export function SettingsPage() {
     eventsCount: 0,
     createdAt: new Date().toISOString(),
   };
+  const canChangePassword = user?.authSource !== "oidc" && localPasswordAuthEnabled !== false;
 
   return (
     <div className="settings-layout">
@@ -1371,6 +1384,7 @@ export function SettingsPage() {
               {accountSettingsError && <p className="text-sm mt-1 error-text" role="alert">{accountSettingsError}</p>}
             </form>
             <p className="text-sm text-dim mb-2">{t("emailLabel")}: {user.email || "—"}</p>
+            <p className="text-sm text-dim mb-2">{t("ssoStatusLabel")}: {ssoStatusText}</p>
             <div className="field mb-2">
               <label htmlFor="email">{t("emailChange")}</label>
               <div className="flex gap-1 items-center" style={{ flexWrap: "wrap" }}>
@@ -1416,46 +1430,48 @@ export function SettingsPage() {
               {emailChangeError && <p className="text-sm mt-1 error-text">{emailChangeError}</p>}
             </div>
 
-            <form onSubmit={handleChangePassword} className="mt-3" style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
-              <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>{t("passwordChange")}</h3>
-              <div className="field">
-                <label htmlFor="currentPassword">{t("currentPassword")}</label>
-                <PasswordInput
-                  id="currentPassword"
-                  value={currentPassword}
-                  onChange={(e) => { setCurrentPassword(e.target.value); setPasswordChangeError(""); }}
-                  autoComplete="current-password"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="newPassword">{t("newPassword")}</label>
-                <PasswordInput
-                  id="newPassword"
-                  value={newPassword}
-                  onChange={(e) => { setNewPassword(e.target.value); setPasswordChangeError(""); }}
-                  minLength={PASSWORD_MIN_LENGTH}
-                  autoComplete="new-password"
-                  showStrengthFeedback
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="confirmPassword">{t("confirmNewPassword")}</label>
-                <PasswordInput
-                  id="confirmPassword"
-                  value={confirmPassword}
-                  onChange={(e) => { setConfirmPassword(e.target.value); setPasswordChangeError(""); }}
-                  minLength={PASSWORD_MIN_LENGTH}
-                  autoComplete="new-password"
-                />
-              </div>
-              {passwordChangeError && <p className="text-sm mt-1 error-text">{passwordChangeError}</p>}
-              {passwordChangeSuccess && <p className="text-sm mt-1" style={{ color: "var(--success)" }}>{t("passwordUpdated")}</p>}
-              <div className="flex items-center gap-1 mt-1">
-                <button type="submit" className="btn-primary btn-sm" disabled={changingPassword}>
-                  {changingPassword ? t("changing") : t("changePassword")}
-                </button>
-              </div>
-            </form>
+            {canChangePassword && (
+              <form onSubmit={handleChangePassword} className="mt-3" style={{ paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
+                <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-muted)" }}>{t("passwordChange")}</h3>
+                <div className="field">
+                  <label htmlFor="currentPassword">{t("currentPassword")}</label>
+                  <PasswordInput
+                    id="currentPassword"
+                    value={currentPassword}
+                    onChange={(e) => { setCurrentPassword(e.target.value); setPasswordChangeError(""); }}
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newPassword">{t("newPassword")}</label>
+                  <PasswordInput
+                    id="newPassword"
+                    value={newPassword}
+                    onChange={(e) => { setNewPassword(e.target.value); setPasswordChangeError(""); }}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    autoComplete="new-password"
+                    showStrengthFeedback
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="confirmPassword">{t("confirmNewPassword")}</label>
+                  <PasswordInput
+                    id="confirmPassword"
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setPasswordChangeError(""); }}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    autoComplete="new-password"
+                  />
+                </div>
+                {passwordChangeError && <p className="text-sm mt-1 error-text">{passwordChangeError}</p>}
+                {passwordChangeSuccess && <p className="text-sm mt-1" style={{ color: "var(--success)" }}>{t("passwordUpdated")}</p>}
+                <div className="flex items-center gap-1 mt-1">
+                  <button type="submit" className="btn-primary btn-sm" disabled={changingPassword}>
+                    {changingPassword ? t("changing") : t("changePassword")}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </section>
 
@@ -1481,6 +1497,7 @@ export function SettingsPage() {
                 e.preventDefault();
                 setSavingNotif(true);
                 setSavedNotif(false);
+                setNotifError(null);
                 try {
                   await authApi.updateNotificationPrefs({
                     reminderEnabled,
@@ -1491,6 +1508,10 @@ export function SettingsPage() {
                   await refreshUser();
                   setSavedNotif(true);
                   setTimeout(() => setSavedNotif(false), 2000);
+                } catch (err: unknown) {
+                  setNotifError(err instanceof Error && err.message === "auth.city_required"
+                    ? t("auth:pleaseSelectCity")
+                    : (err as Error).message || t("common:requestFailed"));
                 } finally {
                   setSavingNotif(false);
                 }
@@ -1554,6 +1575,7 @@ export function SettingsPage() {
                 </button>
                 {savedNotif && <span className="text-sm" style={{ color: "var(--success)" }}>{t("common:saved")}</span>}
               </div>
+              {notifError && <p className="text-sm mt-1 error-text" role="alert">{notifError}</p>}
             </form>
           </div>
         </section>
